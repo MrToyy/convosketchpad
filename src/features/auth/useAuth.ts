@@ -29,13 +29,13 @@ export function useAuth() {
   const state = useSyncExternalStore(subscribe, getSnapshot);
   const [error, setError] = useState('');
 
-  const login = useCallback(async (password: string) => {
+  const login = useCallback(async (token: string) => {
     setError('');
     try {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password }),
+        body: JSON.stringify({ token }),
         credentials: 'include',
       });
       const data = await res.json();

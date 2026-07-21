@@ -8,21 +8,32 @@
 
 import crypto from 'node:crypto';
 
-interface SessionPayload {
+export interface SessionPayload {
   /** Expiry timestamp (ms since epoch) */
   exp: number;
   /** Issued-at timestamp (ms since epoch) */
   iat: number;
+  /** Stable Canvas owner id. Absent on cookies issued by older Nerve versions. */
+  sub?: string;
+  /** User-facing token label for the trusted-user Canvas MVP. */
+  name?: string;
+  /** Managed account credential version; rotation/disable revokes older cookies. */
+  ver?: number;
 }
 
 /**
  * Create a signed session token.
  * Format: base64url(JSON payload).base64url(HMAC-SHA256 signature)
  */
-export function createSession(secret: string, ttlMs: number): string {
+export function createSession(
+  secret: string,
+  ttlMs: number,
+  identity?: { userId: string; name: string; tokenVersion: number },
+): string {
   const payload: SessionPayload = {
     exp: Date.now() + ttlMs,
     iat: Date.now(),
+    ...(identity ? { sub: identity.userId, name: identity.name, ver: identity.tokenVersion } : {}),
   };
   const payloadB64 = Buffer.from(JSON.stringify(payload)).toString('base64url');
   const sig = crypto.createHmac('sha256', secret).update(payloadB64).digest('base64url');

@@ -446,6 +446,7 @@ afterEach(() => {
 describe('App save toast workspace scoping', () => {
   beforeEach(() => {
     localStorage.clear();
+    localStorage.setItem('nerve:viewMode', 'chat');
     sessionContext.currentSession = 'agent:alpha:main';
     sessionContext.setCurrentSession.mockReset();
     sessionContext.spawnSession.mockReset();
@@ -651,6 +652,7 @@ describe('App save toast workspace scoping', () => {
 describe('App bead tab workspace scoping', () => {
   beforeEach(() => {
     localStorage.clear();
+    localStorage.setItem('nerve:viewMode', 'chat');
     sessionContext.currentSession = 'agent:alpha:main';
     sessionContext.setCurrentSession.mockReset();
     dirtyStateByAgent.alpha = false;
@@ -717,6 +719,7 @@ describe('App bead tab workspace scoping', () => {
 describe('App workspace switch guard', () => {
   beforeEach(() => {
     localStorage.clear();
+    localStorage.setItem('nerve:viewMode', 'chat');
     sessionContext.currentSession = 'agent:alpha:main';
     uploadConfigState.fileReferenceEnabled = true;
     sessionContext.setCurrentSession.mockReset();
@@ -842,6 +845,7 @@ describe('App workspace switch guard', () => {
 describe('App kanban visibility gating', () => {
   beforeEach(() => {
     localStorage.clear();
+    localStorage.setItem('nerve:viewMode', 'chat');
     settingsContext.kanbanVisible = true;
     settingsContext.commandPaletteButtonVisible = true;
     topBarRenderSnapshots.length = 0;
@@ -856,16 +860,17 @@ describe('App kanban visibility gating', () => {
     expect(topBarRenderSnapshots.at(-1)).toMatchObject({ showKanbanView: false });
   });
 
-  it('falls back to chat when kanban is persisted but hidden', () => {
+  it('falls back to the default Canvas when kanban is persisted but hidden', () => {
     localStorage.setItem('nerve:viewMode', 'kanban');
     settingsContext.kanbanVisible = false;
 
     render(<App />);
 
-    expect(screen.getByTestId('topbar-view-mode')).toHaveTextContent('chat');
+    expect(screen.getByTestId('topbar-view-mode')).toHaveTextContent('canvas');
   });
 
   it('opens the command palette from the chatbox trigger in desktop layout', () => {
+    localStorage.setItem('nerve:viewMode', 'chat');
     render(<App />);
 
     expect(screen.getByTestId('command-palette-state')).toHaveTextContent('closed');
@@ -876,6 +881,7 @@ describe('App kanban visibility gating', () => {
   });
 
   it('shows the chatbox command trigger in compact layout too', () => {
+    localStorage.setItem('nerve:viewMode', 'chat');
     Object.defineProperty(window, 'matchMedia', {
       writable: true,
       value: vi.fn().mockImplementation((query: string) => ({
@@ -900,6 +906,7 @@ describe('App kanban visibility gating', () => {
   });
 
   it('hides the chatbox command trigger when the appearance toggle is disabled', () => {
+    localStorage.setItem('nerve:viewMode', 'chat');
     settingsContext.commandPaletteButtonVisible = false;
 
     render(<App />);

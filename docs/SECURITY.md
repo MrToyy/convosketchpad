@@ -45,7 +45,7 @@ Nerve is designed as a **local-first** web UI for an AI agent. Its security mode
 
 ### Out of Scope
 
-- **Multi-user authentication** — Nerve supports single-user password authentication. Multi-user accounts with roles are not yet implemented.
+- **Security-grade multi-tenancy** — Canvas tokens provide product-level isolation for trusted users, without roles, invitations, or Gateway ACLs. Token rotation is supported but does not isolate shared Gateway capabilities.
 - **End-to-end encryption** — TLS covers transport; at-rest encryption of memory files or session data is not provided.
 - **DDoS protection** — The in-memory rate limiter handles casual abuse but is not designed for sustained attacks. Use a reverse proxy (nginx, Cloudflare) for production exposure.
 
@@ -70,11 +70,11 @@ All API endpoints (except `/api/auth/*` and `/health`) require a valid session c
 
 **How it works:**
 
-1. User submits a password via `POST /api/auth/login`
-2. The server verifies the password against a stored scrypt hash (or accepts the gateway token as a fallback)
+1. User submits a simple trusted-user token via `POST /api/auth/login`
+2. The server verifies the Token against a CLI-managed, scrypt-hashed credential in SQLite
 3. On success, a signed `HttpOnly` session cookie is set
 4. All subsequent requests include the cookie automatically
-5. The session token is a stateless HMAC-SHA256 signed payload containing only an expiry timestamp
+5. The session token contains expiry, stable owner ID, display name, and credential version; rotate/disable revokes older versions
 
 **Session cookie security:**
 
@@ -86,15 +86,9 @@ All API endpoints (except `/api/auth/*` and `/health`) require a valid session c
 | Signed | HMAC-SHA256 | Tamper-proof — requires `NERVE_SESSION_SECRET` |
 | Cookie name | `nerve_session_{PORT}` | Port-suffixed to avoid collisions across instances |
 
-**Password storage:**
+Users can only be created, rotated, disabled, or enabled with the local `npm run users` command. Unknown Tokens are rejected and never create accounts. Three failed Token checks from one client IP within 30 minutes lock that IP for 30 minutes; this state is in memory and resets with the service.
 
-- Passwords are hashed with scrypt (32-byte random salt, 64-byte derived key)
-- Timing-safe comparison prevents timing attacks
-- Passwords are never stored in plaintext or logged
-
-**Gateway token fallback:**
-
-Users who haven't set a dedicated password can authenticate using their existing `GATEWAY_TOKEN`. This provides zero-config authentication when upgrading to network access.
+**Trusted-user limitation:** a user who knows another user's Token can access that user's Canvas, and authenticated users still share the same Gateway capabilities. Use this only for a small controlled environment; place Nerve behind VPN/HTTPS and do not treat it as hostile multi-tenant authentication.
 
 ### Recommendations for Network Access
 
@@ -102,7 +96,7 @@ When exposing Nerve to a network (`HOST=0.0.0.0`):
 - **Enable authentication** — the setup wizard prompts for this automatically
 - Using a VPN (Tailscale, WireGuard) adds an additional layer of security
 - Placing Nerve behind a reverse proxy with HTTPS is recommended for production
-- The gateway token can serve as an immediate fallback password
+- Use distinct, non-obvious user tokens even though simple names are supported
 
 ---
 

@@ -19,6 +19,12 @@ vi.mock('../lib/session.js', () => {
   };
 });
 
+vi.mock('../lib/managed-users.js', () => ({
+  resolveManagedSession: vi.fn((session: { sub?: string; name?: string; ver?: number } | null) => session?.sub && session.ver
+    ? { userId: session.sub, name: session.name || 'User', tokenVersion: session.ver }
+    : null),
+}));
+
 import { authMiddleware } from './auth.js';
 import { config } from '../lib/config.js';
 import { verifySession } from '../lib/session.js';
@@ -88,7 +94,7 @@ describe('authMiddleware', () => {
     });
 
     it('passes through with a valid session cookie', async () => {
-      mockedVerifySession.mockReturnValue({ exp: Date.now() + 60000, iat: Date.now() });
+      mockedVerifySession.mockReturnValue({ exp: Date.now() + 60000, iat: Date.now(), sub: 'user-1', name: 'Alice', ver: 1 });
       const app = createTestApp();
       const res = await app.request('/api/test', {
         headers: { Cookie: 'nerve_session_3080=valid-token' },
@@ -147,7 +153,7 @@ describe('authMiddleware', () => {
     });
 
     it('calls verifySession with token and secret', async () => {
-      mockedVerifySession.mockReturnValue({ exp: Date.now() + 60000, iat: Date.now() });
+      mockedVerifySession.mockReturnValue({ exp: Date.now() + 60000, iat: Date.now(), sub: 'user-1', name: 'Alice' });
       const app = createTestApp();
       await app.request('/api/test', {
         headers: { Cookie: 'nerve_session_3080=my-session-token' },

@@ -15,6 +15,10 @@ import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import { EventEmitter } from 'node:events';
 import { randomUUID } from 'node:crypto';
+import { getCookie } from 'hono/cookie';
+import { config, SESSION_COOKIE_NAME } from '../lib/config.js';
+import { verifySession } from '../lib/session.js';
+import { isManagedIdentityActive, resolveManagedSession } from '../lib/managed-users.js';
 
 const app = new Hono();
 
@@ -61,6 +65,8 @@ const PING_INTERVAL_MS = 30_000;
 export const _sseClients = new Map<string, { connectedAt: number }>();
 
 app.get('/api/events', async (c) => {
+  const cookie = config.auth ? getCookie(c, SESSION_COOKIE_NAME) : null;
+  const managedIdentity = cookie ? resolveManagedSession(verifySession(cookie, config.sessionSecret)) : null;
   c.header('Content-Type', 'text/event-stream');
   c.header('Cache-Control', 'no-cache');
   c.header('Connection', 'keep-alive');
@@ -103,6 +109,10 @@ app.get('/api/events', async (c) => {
 
     const pingTimer = setInterval(() => {
       if (!connected) { clearInterval(pingTimer); return; }
+      if (managedIdentity && !isManagedIdentityActive(managedIdentity)) {
+        disconnect();
+        return;
+      }
       try {
         stream.writeSSE({ event: 'ping', data: JSON.stringify({ event: 'ping', ts: Date.now() }) });
       } catch {

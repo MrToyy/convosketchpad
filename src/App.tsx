@@ -56,6 +56,7 @@ const WorkspacePanel = lazy(() => import('@/features/workspace/WorkspacePanel').
 
 // Lazy-loaded view modes
 const KanbanPanel = lazy(() => import('@/features/kanban/KanbanPanel').then(m => ({ default: m.KanbanPanel })));
+const CanvasPanel = lazy(() => import('@/features/canvas').then(m => ({ default: m.CanvasPanel })));
 
 interface AppProps {
   onLogout?: () => void;
@@ -82,12 +83,14 @@ function buildWorkspaceSwitchErrorMessage(result: {
 function getInitialViewMode(canShowKanban: boolean): ViewMode {
   try {
     const saved = localStorage.getItem('nerve:viewMode');
+    if (saved === 'canvas') return 'canvas';
+    if (saved === 'chat') return 'chat';
     if (saved === 'kanban' && canShowKanban) return 'kanban';
   } catch {
     // ignore storage errors
   }
 
-  return 'chat';
+  return 'canvas';
 }
 
 export default function App({ onLogout }: AppProps) {
@@ -320,7 +323,7 @@ export default function App({ onLogout }: AppProps) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [spawnDialogOpen, setSpawnDialogOpen] = useState(false);
 
-  // View mode state (chat | kanban), persisted to localStorage
+  // View mode state, persisted to localStorage
   const [viewMode, setViewModeRaw] = useState<ViewMode>(() => getInitialViewMode(kanbanVisible));
   const [pendingTaskId, setPendingTaskId] = useState<string | null>(null);
   const [openBeads, setOpenBeads] = useState<OpenBeadTab[]>([]);
@@ -906,7 +909,7 @@ export default function App({ onLogout }: AppProps) {
     </Suspense>
   );
 
-  const showCompactFileBrowser = isCompactLayout && viewMode !== 'kanban' && !fileBrowserCollapsed;
+  const showCompactFileBrowser = isCompactLayout && viewMode === 'chat' && !fileBrowserCollapsed;
 
   return (
     <div className="scan-lines relative h-screen flex flex-col overflow-hidden" data-booted={booted}>
@@ -1027,7 +1030,7 @@ export default function App({ onLogout }: AppProps) {
       <div className="flex-1 flex gap-3 overflow-hidden min-h-0 px-2 pt-1.5 pb-2 sm:px-4 sm:pt-2 sm:pb-2">
         {/* File tree — desktop inline, mobile drawer */}
         {!isCompactLayout && (
-          <div className={viewMode === 'kanban' ? 'hidden' : fileBrowserCollapsed ? 'contents' : 'h-full min-h-0'}>
+          <div className={viewMode !== 'chat' ? 'hidden' : fileBrowserCollapsed ? 'contents' : 'h-full min-h-0'}>
             <PanelErrorBoundary name="File Explorer">
               <FileTreePanel
                 workspaceAgentId={workspaceAgentId}
@@ -1089,12 +1092,19 @@ export default function App({ onLogout }: AppProps) {
             </Suspense>
           </div>
         )}
+        {viewMode === 'canvas' && (
+          <div className="shell-panel boot-panel flex-1 flex min-w-0 min-h-0 overflow-hidden rounded-[28px]">
+            <Suspense fallback={<div className="flex-1 flex items-center justify-center text-muted-foreground text-xs bg-background">正在加载画布…</div>}>
+              <CanvasPanel agentId={workspaceAgentId} />
+            </Suspense>
+          </div>
+        )}
         {isCompactLayout ? (
-          <div className={`shell-panel flex-1 min-w-0 min-h-0 overflow-hidden rounded-[28px] boot-panel${viewMode === 'kanban' ? ' hidden' : ''}`}>
+          <div className={`shell-panel flex-1 min-w-0 min-h-0 overflow-hidden rounded-[28px] boot-panel${viewMode !== 'chat' ? ' hidden' : ''}`}>
             {chatContent}
           </div>
         ) : (
-          <div style={{ display: viewMode === 'kanban' ? 'none' : 'contents' }}>
+          <div style={{ display: viewMode === 'chat' ? 'contents' : 'none' }}>
             <ResizablePanels
               leftPercent={panelRatio}
               onResize={setPanelRatio}

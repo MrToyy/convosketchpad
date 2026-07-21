@@ -32,6 +32,13 @@ app.post('/api/upload-reference/resolve', rateLimitGeneral, async (c) => {
     }
 
     const form = await c.req.formData();
+    const requestedAgentId = form.get('agentId');
+    const agentId = typeof requestedAgentId === 'string' && requestedAgentId.trim() ? requestedAgentId.trim() : undefined;
+    const purpose = form.get('purpose');
+    const requestedCanvasId = form.get('canvasId');
+    const canvasId = typeof requestedCanvasId === 'string' && /^[a-f0-9-]{36}$/i.test(requestedCanvasId)
+      ? requestedCanvasId
+      : undefined;
     const values = [...form.getAll('files'), ...form.getAll('file')];
     const files = values.filter((value): value is File => value instanceof File);
 
@@ -45,6 +52,9 @@ app.post('/api/upload-reference/resolve', rateLimitGeneral, async (c) => {
         originalName: file.name,
         mimeType: file.type,
         bytes,
+        agentId,
+        persistent: purpose === 'canvas',
+        persistentNamespace: purpose === 'canvas' ? canvasId : undefined,
       });
     }));
 

@@ -227,7 +227,7 @@ async function main(): Promise<void> {
     1. Gateway Connection — connect to your OpenClaw gateway
     2. Agent Identity     — set your agent's display name
     3. Access Mode        — local, Tailscale IP, Tailscale Serve, LAN, or custom
-    4. Authentication     — password protection (network mode)
+    4. Authentication     — trusted-user Token access (network mode)
     5. TTS Configuration  — optional text-to-speech API keys
     6. Advanced Settings  — custom file paths (most users skip this)
 
@@ -791,57 +791,24 @@ async function collectInteractive(
   if (isNetworkExposed) {
     section(4, TOTAL_SECTIONS, 'Authentication');
     warn('Your access mode exposes Nerve to the network.');
-    dim('Without a password, anyone on your network can access all endpoints.');
+    dim('Canvas MVP uses trusted-user tokens: a simple token identifies and isolates each user.');
+    dim('This mode is intended for a small controlled environment, not hostile multi-tenant access.');
     console.log('');
 
-    const setPassword = await confirm({
+    const enableTokenAuth = await confirm({
       theme: promptTheme,
-      message: 'Set a password for Nerve access? (recommended)',
+      message: 'Enable trusted-user token authentication? (recommended)',
       default: true,
     });
 
-    if (setPassword) {
-      const pw = await password({
-        theme: promptTheme,
-        message: 'Enter a password',
-        validate: (val) => {
-          if (!val || val.trim().length < 4) return 'Password must be at least 4 characters';
-          return true;
-        },
-      });
-
-      const pwConfirm = await password({
-        theme: promptTheme,
-        message: 'Confirm password',
-        validate: (val) => {
-          if (val !== pw) return 'Passwords do not match';
-          return true;
-        },
-      });
-
-      if (pw === pwConfirm) {
-        // Hash the password using scrypt (inline to avoid importing server code)
-        const { scrypt } = await import('node:crypto');
-        const salt = randomBytes(32);
-        const hash = await new Promise<string>((resolve, reject) => {
-          scrypt(pw, salt, 64, (err, derivedKey) => {
-            if (err) return reject(err);
-            resolve(`${salt.toString('hex')}:${derivedKey.toString('hex')}`);
-          });
-        });
-        config.NERVE_PASSWORD_HASH = hash;
-        config.NERVE_AUTH = 'true';
-        success('Password set. Authentication will be enabled.');
-      }
+    if (enableTokenAuth) {
+      config.NERVE_AUTH = 'true';
+      delete config.NERVE_PASSWORD_HASH;
+      success('Managed-user token authentication enabled.');
+      dim('After setup, create the first user with: npm run users -- add <name> [--token <token>]');
     } else {
-      // No password, but still enable auth if gateway token exists
-      if (config.GATEWAY_TOKEN) {
-        config.NERVE_AUTH = 'true';
-        success('Authentication enabled — your gateway token can be used as a password.');
-      } else {
-        warn('No password set and no gateway token. Authentication disabled.');
-        dim('Run `npm run setup` again to set a password.');
-      }
+      config.NERVE_AUTH = 'false';
+      warn('Authentication disabled. Network-exposed startup will require NERVE_ALLOW_INSECURE=true.');
     }
   } else {
     // Localhost — skip auth setup, but preserve existing auth config
@@ -1078,15 +1045,7 @@ async function runCheck(config: EnvConfig): Promise<void> {
 
   // Auth
   if (config.NERVE_AUTH === 'true') {
-    success('Authentication is enabled');
-    if (config.NERVE_PASSWORD_HASH) {
-      success('Password hash is set');
-    } else if (config.GATEWAY_TOKEN) {
-      info('No password hash — gateway token will be used as fallback');
-    } else {
-      fail('Auth is enabled but no password hash or gateway token is configured');
-      errors++;
-    }
+    success('Trusted-user token authentication is enabled');
     if (config.NERVE_SESSION_SECRET) {
       success('Session secret is set');
     } else {
@@ -1201,7 +1160,8 @@ async function runDefaults(existing: EnvConfig, prereqs: PrereqResult): Promise<
   if (config.HOST === '0.0.0.0' && !config.NERVE_AUTH) {
     if (config.GATEWAY_TOKEN) {
       config.NERVE_AUTH = 'true';
-      success('Authentication auto-enabled (gateway token can be used as password)');
+      success('Trusted-user token authentication auto-enabled');
+      dim('Create the first user with: npm run users -- add <name> [--token <token>]');
     } else {
       warn('Network-exposed without authentication — consider running interactive setup');
     }

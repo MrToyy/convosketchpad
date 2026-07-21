@@ -25,7 +25,21 @@ import {
 } from './constants.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const PROJECT_ROOT = path.resolve(__dirname, '..', '..');
+
+function findProjectRoot(startDir: string): string | null {
+  let current = path.resolve(startDir);
+  while (true) {
+    if (fs.existsSync(path.join(current, 'package.json'))) return current;
+    const parent = path.dirname(current);
+    if (parent === current) return null;
+    current = parent;
+  }
+}
+
+// Source, server-dist, and bin-dist have different nesting depths. Find the
+// package root instead of assuming a fixed number of parent directories so
+// every runtime entrypoint shares the same mutable data directory.
+const PROJECT_ROOT = findProjectRoot(__dirname) ?? findProjectRoot(process.cwd()) ?? path.resolve(process.cwd());
 
 const HOME = process.env.HOME || os.homedir();
 const SUPPORTED_LANGUAGE_CODES = new Set(SUPPORTED_LANGUAGES.map((l) => l.code));
@@ -40,6 +54,11 @@ function normalizeLanguagePreference(language: string | undefined): string {
   if (!SUPPORTED_LANGUAGE_CODES.has(code)) return DEFAULT_LANGUAGE;
 
   return code;
+}
+
+function positiveNumber(value: string | undefined, fallback: number): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
 export const config = {
@@ -84,6 +103,7 @@ export const config = {
   memoryDir: process.env.MEMORY_DIR || path.join(HOME, '.openclaw', 'workspace', 'memory'),
   sessionsDir: process.env.SESSIONS_DIR || path.join(HOME, '.openclaw', 'agents', 'main', 'sessions'),
   usageFile: process.env.USAGE_FILE || path.join(HOME, '.openclaw', 'token-usage.json'),
+  canvasDatabasePath: path.join(PROJECT_ROOT, 'database', 'canvas.sqlite'),
   workspaceWatchRecursive: process.env.NERVE_WATCH_WORKSPACE_RECURSIVE !== 'false',
   workspaceRemote: process.env.NERVE_WORKSPACE_REMOTE === 'true',
   certPath: path.join(PROJECT_ROOT, 'certs', 'cert.pem'),
@@ -110,6 +130,9 @@ export const config = {
   passwordHash: process.env.NERVE_PASSWORD_HASH || '',
   sessionSecret: process.env.NERVE_SESSION_SECRET || '',
   sessionTtlMs: Number(process.env.NERVE_SESSION_TTL || 30 * 24 * 60 * 60 * 1000), // 30 days
+  authMaxFailures: Math.max(1, Math.floor(positiveNumber(process.env.NERVE_AUTH_MAX_FAILURES, 3))),
+  authFailureWindowMs: positiveNumber(process.env.NERVE_AUTH_FAILURE_WINDOW, 30 * 60 * 1000),
+  authLockoutMs: positiveNumber(process.env.NERVE_AUTH_LOCKOUT, 30 * 60 * 1000),
 } as const;
 
 // ─── Typed config mutation ──────────────────────────────────────────────────
@@ -225,13 +248,6 @@ export function validateConfig(): void {
   }
 
   // ── Auth validation ──────────────────────────────────────────────
-  if (config.auth && !config.passwordHash && !config.gatewayToken) {
-    console.error(
-      '\n  \x1b[31m✗ NERVE_AUTH is enabled but no password or gateway token is configured.\x1b[0m\n' +
-      '  Run \x1b[36mnpm run setup\x1b[0m to set a password, or set GATEWAY_TOKEN as a fallback.\n',
-    );
-  }
-
   if (config.auth && !config.sessionSecret) {
     // Auto-generate session secret if missing
     const secret = crypto.randomBytes(32).toString('hex');
@@ -243,7 +259,7 @@ export function validateConfig(): void {
     if (process.env.NERVE_ALLOW_INSECURE === 'true') {
       console.warn(
         '\n  \x1b[33m⚠ INSECURE MODE: Server binds to 0.0.0.0 with authentication DISABLED.\x1b[0m\n' +
-        '  All API endpoints are accessible from the network without a password.\n' +
+        '  All API endpoints are accessible from the network without a user token.\n' +
         '  This is dangerous. Run \x1b[36mnpm run setup\x1b[0m to enable authentication.\n',
       );
     } else {

@@ -126,6 +126,43 @@ describe('POST /api/upload-reference/resolve', () => {
     await expect(fs.readFile(json.items[0].absolutePath, 'utf8')).resolves.toBe('hello upload');
   });
 
+  it('stages multipart uploads inside the requested agent workspace', async () => {
+    const { homeDir } = await makeHomeWorkspace();
+    const agentWorkspaceRoot = path.join(homeDir, '.openclaw', 'workspace-research');
+    await fs.mkdir(agentWorkspaceRoot, { recursive: true });
+    const { default: app } = await importRoute();
+    const form = new FormData();
+    form.append('agentId', 'research');
+    form.append('files', new File(['agent upload'], 'proof.txt', { type: 'text/plain' }));
+
+    const res = await app.request('/api/upload-reference/resolve', { method: 'POST', body: form });
+
+    expect(res.status).toBe(200);
+    const json = await res.json() as { items: Array<{ absolutePath: string; canonicalPath: string }> };
+    expect(json.items[0].canonicalPath).toMatch(/^\.temp\/nerve-uploads\//);
+    expect(json.items[0].absolutePath).toBe(path.join(agentWorkspaceRoot, json.items[0].canonicalPath));
+    await expect(fs.readFile(json.items[0].absolutePath, 'utf8')).resolves.toBe('agent upload');
+  });
+
+  it('keeps Canvas uploads in a persistent canvas-scoped workspace directory', async () => {
+    const { workspaceRoot } = await makeHomeWorkspace();
+    const { default: app } = await importRoute();
+    const canvasId = 'b75708e4-a6a8-4768-98db-8fcbe84afc20';
+    const form = new FormData();
+    form.append('agentId', 'main');
+    form.append('purpose', 'canvas');
+    form.append('canvasId', canvasId);
+    form.append('files', new File(['canvas upload'], 'source.txt', { type: 'text/plain' }));
+
+    const res = await app.request('/api/upload-reference/resolve', { method: 'POST', body: form });
+
+    expect(res.status).toBe(200);
+    const json = await res.json() as { items: Array<{ absolutePath: string; canonicalPath: string }> };
+    expect(json.items[0].canonicalPath).toMatch(new RegExp(`^\\.nerve/canvas-uploads/${canvasId}/`));
+    expect(json.items[0].absolutePath).toBe(path.join(workspaceRoot, json.items[0].canonicalPath));
+    await expect(fs.readFile(json.items[0].absolutePath, 'utf8')).resolves.toBe('canvas upload');
+  });
+
   it('resolves direct workspace references against the requested agent workspace', async () => {
     const { homeDir } = await makeHomeWorkspace();
     const agentWorkspaceRoot = path.join(homeDir, '.openclaw', 'workspace-research');

@@ -9,6 +9,7 @@ Nerve exposes a REST + SSE API served by [Hono](https://hono.dev/) on the config
 ## Table of Contents
 
 - [Authentication](#authentication)
+- [Canvas](#canvas)
 - [Health](#health)
 - [Server Info](#server-info)
 - [Version](#version)
@@ -58,22 +59,22 @@ Check whether authentication is enabled and whether the current request is authe
 
 ### `POST /api/auth/login`
 
-Authenticate with a password and receive a session cookie.
+Authenticate with a trusted-user token and receive a user-scoped session cookie.
 
-**Rate Limit:** General (60/min)
+**Rate Limit:** 5 requests/minute per client IP, plus failed-token lockout
 
 **Request Body:**
 
 ```json
 {
-  "password": "your-password"
+  "token": "example-token"
 }
 ```
 
 **Success Response (200):**
 
 ```json
-{ "ok": true }
+{ "ok": true, "user": { "id": "stable-owner-id", "name": "Alice" } }
 ```
 
 Sets an `HttpOnly` session cookie (`nerve_session_{PORT}`) on success.
@@ -82,12 +83,13 @@ Sets an `HttpOnly` session cookie (`nerve_session_{PORT}`) on success.
 
 | Status | Body | Description |
 |--------|------|-------------|
-| 400 | `{ "error": "Password required" }` | Empty or missing password |
-| 401 | `{ "error": "Invalid password" }` | Wrong password |
+| 400 | `{ "error": "Token required" }` | Empty or missing token |
+| 401 | `{ "error": "Invalid token" }` | Unknown, incorrect, or disabled managed-user token |
+| 429 | `{ "error": "Too many failed login attempts" }` | Three failures in 30 minutes; includes `Retry-After` |
 
 **Notes:**
-- When auth is disabled, always returns `{ "ok": true }` without checking password.
-- Accepts the gateway token as a fallback password when no password hash is configured.
+- When auth is disabled, returns `{ "ok": true }` and Canvas uses the fixed local owner.
+- Users must be provisioned with `npm run users -- add`; login never creates an account.
 
 ### `POST /api/auth/logout`
 
@@ -100,6 +102,32 @@ Clear the session cookie.
 ```json
 { "ok": true }
 ```
+
+---
+
+## Canvas
+
+Canvas metadata is stored in `database/canvas.sqlite`. All operations are scoped to the authenticated owner.
+
+```text
+GET    /api/canvas/canvases
+POST   /api/canvas/canvases
+PATCH  /api/canvas/canvases/:canvasId
+DELETE /api/canvas/canvases/:canvasId
+GET    /api/canvas/canvases/:canvasId/graph
+PUT    /api/canvas/canvases/:canvasId/layout
+POST   /api/canvas/canvases/:canvasId/root-branches
+POST   /api/canvas/interactions/:interactionId/fork
+POST   /api/canvas/branches/:branchId/prepare-send
+POST   /api/canvas/send-reservations/:reservationId/ack
+POST   /api/canvas/send-reservations/:reservationId/fail
+POST   /api/canvas/interactions/:interactionId/reconcile
+GET    /api/canvas/openclaw-artifact?uri=...
+```
+
+`reconcile` is idempotent. Browser terminal events can pass `terminalHint: true`; the server remains responsible for reading the final OpenClaw Transcript and deciding when the Interaction is complete. The artifact endpoint only streams media from Canvas Sessions owned by the current user and does not persist file bytes.
+
+`prepare-send` derives the operation from server state: a draft Root is `lazy-root`, a draft Fork is `canonical-replay`, and an active Branch whose expected Head matches is `continue-existing`. Invalid transitions return `409`.
 
 ---
 

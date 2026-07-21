@@ -7,6 +7,7 @@ const CRON_RE = /^((?:agent:[^:]+)):cron:[^:]+$/;
 const CRON_RUN_RE = /^(.+:cron:[^:]+):run:.+$/;
 const DIRECT_RE = /^((?:agent:[^:]+))(?::[^:]+)*:direct:.+$/;
 const CHANNEL_RE = /^((?:agent:[^:]+))(?::[^:]+)*:channel:.+$/;
+const CANVAS_RE = /^agent:[^:]+:canvas:[^:]+$/;
 
 export type SessionType = 'main' | 'subagent' | 'cron' | 'cron-run';
 
@@ -40,6 +41,11 @@ export function isCronSessionKey(sessionKey: string): boolean {
 
 export function isCronRunSessionKey(sessionKey: string): boolean {
   return CRON_RUN_RE.test(sessionKey);
+}
+
+/** Canvas-managed sessions are intentionally absent from the ordinary Chat session list. */
+export function isCanvasSessionKey(sessionKey: string): boolean {
+  return CANVAS_RE.test(sessionKey);
 }
 
 export function getRootAgentId(sessionKey: string): string | null {

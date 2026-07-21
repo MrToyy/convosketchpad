@@ -35,6 +35,10 @@ function allowedPrefixes(): string[] {
   ].filter(Boolean);
 }
 
+function isWithinPrefix(candidate: string, prefix: string): boolean {
+  return candidate === prefix || candidate.startsWith(prefix.endsWith(path.sep) ? prefix : prefix + path.sep);
+}
+
 app.get('/api/files', async (c) => {
   const rawPath = c.req.query('path');
   if (!rawPath) return c.text('Missing path parameter', 400);
@@ -48,8 +52,8 @@ app.get('/api/files', async (c) => {
   if (!mime) return c.text('Not an allowed file type', 403);
 
   // Directory prefix check
-  const prefixes = allowedPrefixes();
-  const allowed = prefixes.some((prefix) => resolved.startsWith(prefix + path.sep) || resolved === prefix);
+  const prefixes = allowedPrefixes().map((prefix) => path.resolve(prefix));
+  const allowed = prefixes.some((prefix) => isWithinPrefix(resolved, prefix));
   if (!allowed) return c.text('Access denied', 403);
 
   // Resolve symlinks and re-check prefix to prevent symlink traversal
@@ -59,7 +63,8 @@ app.get('/api/files', async (c) => {
   } catch {
     return c.text('Not found', 404);
   }
-  const realAllowed = prefixes.some((prefix) => realPath.startsWith(prefix + path.sep) || realPath === prefix);
+  const realPrefixes = await Promise.all(prefixes.map((prefix) => fs.promises.realpath(prefix).catch(() => prefix)));
+  const realAllowed = realPrefixes.some((prefix) => isWithinPrefix(realPath, prefix));
   if (!realAllowed) return c.text('Access denied', 403);
 
   try {

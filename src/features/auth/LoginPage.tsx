@@ -1,7 +1,7 @@
 /**
  * LoginPage — Full-screen login gate for Nerve authentication.
  *
- * Renders a password form matching Nerve's dark cockpit theme.
+ * Renders the trusted-user token form used by Canvas isolation.
  * Supports Enter-to-submit and auto-focuses the password input on mount.
  */
 
@@ -11,12 +11,12 @@ import { Input } from '@/components/ui/input';
 import NerveLogo from '../../components/NerveLogo';
 
 interface LoginPageProps {
-  onLogin: (password: string) => Promise<void>;
+  onLogin: (token: string) => Promise<void>;
   error: string;
 }
 
 export function LoginPage({ onLogin, error }: LoginPageProps) {
-  const [password, setPassword] = useState('');
+  const [token, setToken] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -26,14 +26,15 @@ export function LoginPage({ onLogin, error }: LoginPageProps) {
 
   const handleSubmit = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!password.trim() || submitting) return;
+    if (submitting) return;
+    if (!token.trim()) return;
     setSubmitting(true);
     try {
-      await onLogin(password);
+      await onLogin(token);
     } finally {
       setSubmitting(false);
     }
-  }, [password, submitting, onLogin]);
+  }, [token, submitting, onLogin]);
 
   return (
     <div className="relative flex min-h-screen items-center justify-center overflow-hidden px-4 py-10">
@@ -78,22 +79,22 @@ export function LoginPage({ onLogin, error }: LoginPageProps) {
               Unlock Nerve
             </h2>
             <p className="mt-3 text-sm leading-6 text-muted-foreground">
-              Enter the password configured for this deployment. Your gateway token also works if password auth is using the fallback path.
+              Enter the trusted-user token provided by the server administrator.
             </p>
 
             <form onSubmit={handleSubmit} className="mt-8 space-y-4">
               <div>
-                <label htmlFor="nerve-password" className="mb-2 block text-[0.733rem] font-medium uppercase tracking-[0.2em] text-muted-foreground">
-                  Password
+                <label htmlFor="nerve-token" className="mb-2 block text-[0.733rem] font-medium uppercase tracking-[0.2em] text-muted-foreground">
+                  User Token
                 </label>
                 <Input
                   ref={inputRef}
-                  id="nerve-password"
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Enter password"
-                  autoComplete="current-password"
+                  id="nerve-token"
+                  type="text"
+                  value={token}
+                  onChange={(e) => setToken(e.target.value)}
+                  placeholder="For example: example-token"
+                  autoComplete="username"
                   disabled={submitting}
                 />
               </div>
@@ -106,7 +107,7 @@ export function LoginPage({ onLogin, error }: LoginPageProps) {
 
               <Button
                 type="submit"
-                disabled={submitting || !password.trim()}
+                disabled={submitting || !token.trim()}
                 size="lg"
                 className="w-full text-[0.733rem] uppercase tracking-[0.22em]"
               >
@@ -115,7 +116,7 @@ export function LoginPage({ onLogin, error }: LoginPageProps) {
             </form>
 
             <div className="mt-6 text-xs leading-5 text-muted-foreground">
-              Need to recover access? Check the gateway configuration or deployment notes where the token was originally set.
+              User tokens are created by the server administrator. Contact your administrator if you do not have one.
             </div>
           </div>
         </div>

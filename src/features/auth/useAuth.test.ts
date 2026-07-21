@@ -23,10 +23,10 @@ describe('useAuth', () => {
       }
       if (typeof url === 'string' && url.includes('/api/auth/login')) {
         const body = JSON.parse(opts?.body as string || '{}');
-        if (body.password === 'correct') {
+        if (body.token === 'correct') {
           return { ok: true, json: async () => ({ ok: true }) };
         }
-        return { ok: true, json: async () => ({ ok: false, error: 'Invalid password' }) };
+        return { ok: true, json: async () => ({ ok: false, error: 'Invalid token' }) };
       }
       if (typeof url === 'string' && url.includes('/api/auth/logout')) {
         return { ok: true, json: async () => ({ ok: true }) };
@@ -56,7 +56,7 @@ describe('useAuth', () => {
     });
   });
 
-  it('login with correct password transitions to authenticated', async () => {
+  it('login with a valid token transitions to authenticated', async () => {
     const useAuth = await importUseAuth({ authEnabled: true, authenticated: false });
     const { result } = renderHook(() => useAuth());
 
@@ -71,7 +71,7 @@ describe('useAuth', () => {
     expect(result.current.state).toBe('authenticated');
   });
 
-  it('login with wrong password sets error', async () => {
+  it('login failure sets an error', async () => {
     const useAuth = await importUseAuth({ authEnabled: true, authenticated: false });
     const { result } = renderHook(() => useAuth());
 
@@ -83,7 +83,7 @@ describe('useAuth', () => {
       await result.current.login('wrong');
     });
 
-    expect(result.current.error).toContain('Invalid password');
+    expect(result.current.error).toContain('Invalid token');
     expect(result.current.state).toBe('login');
   });
 

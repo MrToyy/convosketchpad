@@ -15,6 +15,7 @@ import {
   getTopLevelAgentSessions,
   isSubagentSessionKey,
   isTopLevelAgentSessionKey,
+  isCanvasSessionKey,
   pickDefaultSessionKey,
   getRootAgentId,
 } from '@/features/sessions/sessionKeys';
@@ -316,7 +317,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         fetchHiddenCronSessions(24 * 60, FULL_SESSIONS_LIMIT),
       ]);
 
-      const baseSessions = mergeSessionLists(res?.sessions ?? [], hiddenCronSessions);
+      const baseSessions = mergeSessionLists(res?.sessions ?? [], hiddenCronSessions)
+        .filter((session) => !isCanvasSessionKey(getSessionKey(session)));
       const spawnedByRoots = new Set<string>([MAIN_SESSION_KEY]);
       for (const rootSession of getTopLevelAgentSessions(baseSessions)) {
         spawnedByRoots.add(getSessionKey(rootSession));
@@ -616,6 +618,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   // Update session in list from WebSocket event data
   const updateSessionFromEvent = useCallback((sessionKey: string, updates: Partial<Session>) => {
+    if (isCanvasSessionKey(sessionKey)) return;
     setSessions(prev => {
       const idx = prev.findIndex(s => getSessionKey(s) === sessionKey);
       if (idx === -1) {

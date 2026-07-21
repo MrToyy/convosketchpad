@@ -3,7 +3,7 @@ import { themes, type ThemeName } from '@/lib/themes';
 import { fonts, type FontName } from '@/lib/fonts';
 import type { TTSProvider } from '@/features/tts/useTTS';
 
-export type ViewMode = 'chat' | 'kanban';
+export type ViewMode = 'canvas' | 'chat' | 'kanban';
 
 export interface CommandActions {
   onNewSession: () => void;
@@ -190,14 +190,14 @@ export function createCommands(actions: CommandActions): Command[] {
       category: 'voice',
       keywords: ['wake', 'voice', 'microphone', 'hey'],
     },
-    // Kanban commands
-    ...(actions.onSetViewMode && actions.canShowKanban !== false ? [
+    // Primary view commands
+    ...(actions.onSetViewMode ? [
       {
-        id: 'open-kanban',
-        label: 'Open Tasks View',
-        action: () => actions.onSetViewMode!('kanban'),
+        id: 'open-canvas',
+        label: '打开画布视图',
+        action: () => actions.onSetViewMode!('canvas'),
         category: 'kanban' as const,
-        keywords: ['kanban', 'board', 'tasks', 'view'],
+        keywords: ['canvas', 'branch', 'conversation', 'view'],
       },
       {
         id: 'open-chat',
@@ -205,6 +205,15 @@ export function createCommands(actions: CommandActions): Command[] {
         action: () => actions.onSetViewMode!('chat'),
         category: 'kanban' as const,
         keywords: ['chat', 'conversation', 'view'],
+      },
+    ] : []),
+    ...(actions.onSetViewMode && actions.canShowKanban !== false ? [
+      {
+        id: 'open-kanban',
+        label: 'Open Tasks View',
+        action: () => actions.onSetViewMode!('kanban'),
+        category: 'kanban' as const,
+        keywords: ['kanban', 'board', 'tasks', 'view'],
       },
       {
         id: 'create-kanban-task',

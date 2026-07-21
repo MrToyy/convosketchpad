@@ -11,6 +11,7 @@ import { createMiddleware } from 'hono/factory';
 import { getCookie } from 'hono/cookie';
 import { config, SESSION_COOKIE_NAME } from '../lib/config.js';
 import { verifySession } from '../lib/session.js';
+import { resolveManagedSession } from '../lib/managed-users.js';
 
 /** Routes that don't require authentication */
 const PUBLIC_ROUTES = [
@@ -44,7 +45,7 @@ export const authMiddleware = createMiddleware(async (c, next) => {
     return c.json({ error: 'Authentication required' }, 401);
   }
 
-  const session = verifySession(token, config.sessionSecret);
+  const session = resolveManagedSession(verifySession(token, config.sessionSecret));
   if (!session) {
     return c.json({ error: 'Invalid or expired session' }, 401);
   }

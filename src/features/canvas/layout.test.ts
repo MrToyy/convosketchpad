@@ -1,0 +1,62 @@
+import { describe, expect, it } from 'vitest';
+import {
+  COMPOSER_NODE_WIDTH,
+  DEFAULT_NODE_HEIGHT,
+  INTERACTION_NODE_WIDTH,
+  NODE_HORIZONTAL_GAP,
+  NODE_VERTICAL_GAP,
+  placeNodeToRight,
+  placeRootNode,
+  type CanvasNodeBounds,
+} from './layout';
+
+function node(id: string, x: number, y: number, width = INTERACTION_NODE_WIDTH, height = DEFAULT_NODE_HEIGHT): CanvasNodeBounds {
+  return { id, position: { x, y }, width, height };
+}
+
+describe('Canvas node placement', () => {
+  it('places a continuation directly to the right of its completed interaction', () => {
+    const source = node('source', 120, 80);
+    expect(placeNodeToRight(source, [source])).toEqual({
+      x: 120 + INTERACTION_NODE_WIDTH + NODE_HORIZONTAL_GAP,
+      y: 80,
+    });
+  });
+
+  it('places a fork below an existing downstream node using its actual height', () => {
+    const source = node('source', 0, 40);
+    const downstream = node('downstream', INTERACTION_NODE_WIDTH + NODE_HORIZONTAL_GAP, 40, INTERACTION_NODE_WIDTH, 520);
+
+    expect(placeNodeToRight(source, [source, downstream])).toEqual({
+      x: INTERACTION_NODE_WIDTH + NODE_HORIZONTAL_GAP,
+      y: 40 + 520 + NODE_VERTICAL_GAP,
+    });
+  });
+
+  it('stacks repeated forks sequentially below all nodes in the target column', () => {
+    const targetX = INTERACTION_NODE_WIDTH + NODE_HORIZONTAL_GAP;
+    const source = node('source', 0, 0);
+    const first = node('first', targetX, 0);
+    const second = node('second', targetX, DEFAULT_NODE_HEIGHT + NODE_VERTICAL_GAP, COMPOSER_NODE_WIDTH, 240);
+
+    expect(placeNodeToRight(source, [source, first, second])).toEqual({
+      x: targetX,
+      y: DEFAULT_NODE_HEIGHT + NODE_VERTICAL_GAP + 240 + NODE_VERTICAL_GAP,
+    });
+  });
+
+  it('does not move a node for content in a different horizontal column', () => {
+    const source = node('source', 0, 0);
+    const elsewhere = node('elsewhere', 1_500, 0);
+    expect(placeNodeToRight(source, [source, elsewhere]).y).toBe(0);
+  });
+
+  it('stacks independent root sessions in the left-most column', () => {
+    const existingRoot = node('root', 0, 0);
+    const downstream = node('downstream', 490, 0);
+    expect(placeRootNode([existingRoot, downstream])).toEqual({
+      x: 0,
+      y: DEFAULT_NODE_HEIGHT + NODE_VERTICAL_GAP,
+    });
+  });
+});

@@ -26,6 +26,13 @@ vi.mock('./session.js', () => ({
   parseSessionCookie: vi.fn(),
 }));
 
+vi.mock('./managed-users.js', () => ({
+  resolveManagedSession: vi.fn((session: { sub?: string } | null) => session?.sub
+    ? { userId: session.sub, name: 'Test User', tokenVersion: 1 }
+    : null),
+  isManagedIdentityActive: vi.fn(() => true),
+}));
+
 vi.mock('./device-identity.js', () => ({
   getDeviceIdentity: vi.fn(() => ({
     deviceId: 'mock-device-id-' + '0'.repeat(48),
@@ -304,7 +311,7 @@ describe('ws-proxy', () => {
     it('allows WS upgrade when auth is enabled and session is valid', async () => {
       mockedConfig.auth = true;
       mockedParseSessionCookie.mockReturnValue('good-token');
-      mockedVerifySession.mockReturnValue({ exp: Date.now() + 60000, iat: Date.now() });
+      mockedVerifySession.mockReturnValue({ exp: Date.now() + 60000, iat: Date.now(), sub: 'user-1', name: 'Alice' });
 
       const ws = new WebSocket(
         `ws://127.0.0.1:${proxyPort}/ws?target=${encodeURIComponent(mockGw.url + '/ws')}`,
@@ -336,7 +343,7 @@ describe('ws-proxy', () => {
     it('injects gateway token when connect params omit token for authenticated clients', async () => {
       mockedConfig.auth = true;
       mockedParseSessionCookie.mockReturnValue('good-token');
-      mockedVerifySession.mockReturnValue({ exp: Date.now() + 60000, iat: Date.now() });
+      mockedVerifySession.mockReturnValue({ exp: Date.now() + 60000, iat: Date.now(), sub: 'user-1', name: 'Alice' });
       mockGw.clearReceived();
 
       const ws = new WebSocket(
@@ -381,7 +388,7 @@ describe('ws-proxy', () => {
     it('injects gateway token when connect params provide empty token for authenticated clients', async () => {
       mockedConfig.auth = true;
       mockedParseSessionCookie.mockReturnValue('good-token');
-      mockedVerifySession.mockReturnValue({ exp: Date.now() + 60000, iat: Date.now() });
+      mockedVerifySession.mockReturnValue({ exp: Date.now() + 60000, iat: Date.now(), sub: 'user-1', name: 'Alice' });
       mockGw.clearReceived();
 
       const ws = new WebSocket(

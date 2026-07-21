@@ -10,6 +10,7 @@ import {
   getSessionDisplayLabel,
   getTopLevelAgentSessions,
   inferParentSessionKey,
+  isCanvasSessionKey,
   isRootChildSession,
   isTopLevelAgentSessionKey,
   pickDefaultSessionKey,
@@ -33,6 +34,12 @@ describe('sessionKeys', () => {
     expect(isTopLevelAgentSessionKey('agent:reviewer:main')).toBe(true);
     expect(isTopLevelAgentSessionKey('agent:reviewer:subagent:abc')).toBe(false);
     expect(isTopLevelAgentSessionKey('agent:main:telegram:direct:123')).toBe(false);
+  });
+
+  it('detects Canvas-managed sessions for ordinary-list filtering', () => {
+    expect(isCanvasSessionKey('agent:main:canvas:1c971a10-b98d-4a9d-9c84-011bc638ee5b')).toBe(true);
+    expect(isCanvasSessionKey('agent:main:main')).toBe(false);
+    expect(isCanvasSessionKey('agent:main:subagent:canvas-demo')).toBe(false);
   });
 
   it('resolves root keys for subagents and crons', () => {

@@ -1,39 +1,39 @@
 /**
  * Authentication routes — login, logout, and status.
  *
- * POST /api/auth/login  — Authenticate with password, receive session cookie.
+ * POST /api/auth/login  — Identify with a trusted-user token, receive session cookie.
  * POST /api/auth/logout — Clear session cookie.
  * GET  /api/auth/status — Check auth configuration and current session state.
  * @module
  */
 
-import crypto from 'node:crypto';
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { setCookie, deleteCookie, getCookie } from 'hono/cookie';
 import { config, SESSION_COOKIE_NAME } from '../lib/config.js';
-import { createSession, verifySession, verifyPassword } from '../lib/session.js';
-import { rateLimitAuth } from '../middleware/rate-limit.js';
+import { createSession, verifySession } from '../lib/session.js';
+import { authenticateManagedToken, resolveManagedSession } from '../lib/managed-users.js';
+import { LoginFailureTracker, type LoginLockout } from '../lib/login-failures.js';
+import { getClientId, rateLimitAuth } from '../middleware/rate-limit.js';
 
 const app = new Hono();
+export const loginFailureTracker = new LoginFailureTracker({
+  maxFailures: config.authMaxFailures,
+  windowMs: config.authFailureWindowMs,
+  lockoutMs: config.authLockoutMs,
+});
+const loginFailureCleanup = setInterval(() => loginFailureTracker.evictExpired(), 5 * 60 * 1000);
+loginFailureCleanup.unref();
 
-function matchesGatewayTokenFallback(password: string): boolean {
-  if (config.passwordHash || !config.gatewayToken) {
-    return false;
-  }
-
-  const provided = Buffer.from(password);
-  const expected = Buffer.from(config.gatewayToken);
-
-  if (provided.length !== expected.length) {
-    return false;
-  }
-
-  return crypto.timingSafeEqual(provided, expected);
+function lockoutResponse(c: Context, lockout: LoginLockout) {
+  c.header('Retry-After', String(lockout.retryAfterSeconds));
+  c.header('X-RateLimit-Remaining', '0');
+  return c.json({ error: 'Too many failed login attempts' }, 429);
 }
 
 /**
  * POST /api/auth/login
- * Accepts { password: string }
+ * Accepts { token: string }. The legacy `password` field remains accepted so
+ * old clients can log in during the upgrade.
  * Sets HttpOnly session cookie on success.
  */
 app.post('/api/auth/login', rateLimitAuth, async (c) => {
@@ -43,30 +43,31 @@ app.post('/api/auth/login', rateLimitAuth, async (c) => {
   }
 
   try {
-    const body = await c.req.json() as { password?: string };
-    const password = body.password?.trim();
+    const body = await c.req.json() as { token?: string; password?: string };
+    const token = (body.token ?? body.password)?.trim();
 
-    if (!password) {
-      return c.json({ error: 'Password required' }, 400);
+    if (!token) {
+      return c.json({ error: 'Token required' }, 400);
     }
+    if (token.length > 256) return c.json({ error: 'Invalid token' }, 400);
 
-    let valid = false;
+    const clientId = getClientId(c);
+    const existingLockout = loginFailureTracker.check(clientId);
+    if (existingLockout.locked) return lockoutResponse(c, existingLockout);
 
-    if (config.passwordHash) {
-      valid = await verifyPassword(password, config.passwordHash);
-    } else if (matchesGatewayTokenFallback(password)) {
-      valid = true;
+    const identity = await authenticateManagedToken(token);
+    if (!identity) {
+      const lockout = loginFailureTracker.recordFailure(clientId);
+      if (lockout.locked) return lockoutResponse(c, lockout);
+      return c.json({ error: 'Invalid token' }, 401);
     }
-
-    if (!valid) {
-      return c.json({ error: 'Invalid password' }, 401);
-    }
+    loginFailureTracker.recordSuccess(clientId);
 
     // Create signed session token
-    const token = createSession(config.sessionSecret, config.sessionTtlMs);
+    const sessionToken = createSession(config.sessionSecret, config.sessionTtlMs, identity);
 
     // Set HttpOnly, SameSite=Strict cookie
-    setCookie(c, SESSION_COOKIE_NAME, token, {
+    setCookie(c, SESSION_COOKIE_NAME, sessionToken, {
       httpOnly: true,
       sameSite: 'Strict',
       secure: c.req.url.startsWith('https'),
@@ -74,7 +75,7 @@ app.post('/api/auth/login', rateLimitAuth, async (c) => {
       maxAge: Math.floor(config.sessionTtlMs / 1000),
     });
 
-    return c.json({ ok: true });
+    return c.json({ ok: true, user: { id: identity.userId, name: identity.name } });
   } catch {
     return c.json({ error: 'Invalid request' }, 400);
   }
@@ -95,15 +96,17 @@ app.post('/api/auth/logout', (c) => {
  */
 app.get('/api/auth/status', (c) => {
   if (!config.auth) {
-    return c.json({ authEnabled: false, authenticated: true });
+    return c.json({ authEnabled: false, authenticated: true, user: { id: 'local', name: 'Local User' } });
   }
 
   const token = getCookie(c, SESSION_COOKIE_NAME);
   const session = token ? verifySession(token, config.sessionSecret) : null;
+  const identity = resolveManagedSession(session);
 
   return c.json({
     authEnabled: true,
-    authenticated: !!session,
+    authenticated: !!identity,
+    user: identity ? { id: identity.userId, name: identity.name } : null,
   });
 });
 

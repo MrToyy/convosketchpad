@@ -38,11 +38,12 @@ describe('config module', () => {
       expect(['127.0.0.1', 'localhost', '::1', '0.0.0.0']).toContain(config.host);
     });
 
-    it('defaults auth to false', async () => {
+    it('disables auth when configured as false', async () => {
+      vi.resetModules();
+      process.env.NERVE_AUTH = 'false';
+
       const { config } = await import('./config.js');
-      if (!process.env.NERVE_AUTH || process.env.NERVE_AUTH !== 'true') {
-        expect(config.auth).toBe(false);
-      }
+      expect(config.auth).toBe(false);
     });
 
     it('defaults language to en', async () => {
@@ -55,6 +56,12 @@ describe('config module', () => {
       const { config } = await import('./config.js');
       expect(typeof config.agentName).toBe('string');
       expect(config.agentName.length).toBeGreaterThan(0);
+    });
+
+    it('uses the fixed database directory and filename under the project root', async () => {
+      const { config } = await import('./config.js');
+      expect(path.basename(config.canvasDatabasePath)).toBe('canvas.sqlite');
+      expect(path.basename(path.dirname(config.canvasDatabasePath))).toBe('database');
     });
   });
 

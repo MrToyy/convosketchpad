@@ -97,9 +97,13 @@ async function buildCanonicalReference(params: {
   workspaceRoot?: string;
 }): Promise<CanonicalUploadReference> {
   const workspaceRoot = path.resolve(getWorkspaceRoot(params.workspaceRoot));
-  const realAbsolutePath = await fs.realpath(params.absolutePath);
+  const absolutePath = path.resolve(params.absolutePath);
+  const [realWorkspaceRoot, realAbsolutePath] = await Promise.all([
+    fs.realpath(workspaceRoot).catch(() => workspaceRoot),
+    fs.realpath(absolutePath),
+  ]);
 
-  if (!isWithinDir(realAbsolutePath, workspaceRoot)) {
+  if (!isWithinDir(realAbsolutePath, realWorkspaceRoot)) {
     throw new Error('Resolved attachment path is outside the workspace root.');
   }
 
@@ -110,9 +114,9 @@ async function buildCanonicalReference(params: {
 
   return {
     kind: params.kind,
-    canonicalPath: toCanonicalWorkspacePath(realAbsolutePath, workspaceRoot),
-    absolutePath: realAbsolutePath,
-    uri: toFileUri(realAbsolutePath),
+    canonicalPath: toCanonicalWorkspacePath(absolutePath, workspaceRoot),
+    absolutePath,
+    uri: toFileUri(absolutePath),
     mimeType: params.mimeType?.trim() || inferMimeTypeFromName(params.originalName),
     sizeBytes: stat.size,
     originalName: params.originalName,
@@ -140,9 +144,19 @@ export async function importExternalUploadToCanonicalReference(params: {
   originalName: string;
   mimeType?: string;
   bytes: Uint8Array;
+  agentId?: string;
+  persistent?: boolean;
+  persistentNamespace?: string;
 }): Promise<CanonicalUploadReference> {
-  const workspaceRoot = path.resolve(getWorkspaceRoot());
-  const rootDir = getUploadStagingDir();
+  const workspaceRoot = path.resolve(params.agentId ? resolveAgentWorkspace(params.agentId).workspaceRoot : getWorkspaceRoot());
+  const rootDir = params.agentId
+    ? path.join(
+      workspaceRoot,
+      params.persistent
+        ? path.join('.nerve/canvas-uploads', sanitizeFileName(params.persistentNamespace || 'shared'))
+        : '.temp/nerve-uploads',
+    )
+    : getUploadStagingDir();
   const targetDir = path.join(rootDir, buildStagedSubdir());
   const stagedPath = path.join(targetDir, buildStagedFileName(params.originalName));
 
@@ -158,5 +172,6 @@ export async function importExternalUploadToCanonicalReference(params: {
     absolutePath: stagedPath,
     originalName: params.originalName,
     mimeType: params.mimeType,
+    workspaceRoot,
   });
 }

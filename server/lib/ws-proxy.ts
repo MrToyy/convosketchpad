@@ -25,6 +25,7 @@ import { createDeviceBlock, getDeviceIdentity } from './device-identity.js';
 import { gatewayRpcCall } from './gateway-rpc.js';
 import { canInjectGatewayToken } from './trust-utils.js';
 import { isAllowedOrigin } from './origin-utils.js';
+import { isManagedIdentityActive, resolveManagedSession, type ManagedIdentity } from './managed-users.js';
 
 /** @internal — exported for test overrides */
 export const _internals = { challengeTimeoutMs: 5_000 };
@@ -82,14 +83,17 @@ export function setupWebSocketProxy(server: HttpServer | HttpsServer): void {
       }
 
       // Auth check for WebSocket connections
+      let managedIdentity: ManagedIdentity | null = null;
       if (config.auth) {
         const token = parseSessionCookie(req.headers.cookie, SESSION_COOKIE_NAME);
-        if (!token || !verifySession(token, config.sessionSecret)) {
+        managedIdentity = token ? resolveManagedSession(verifySession(token, config.sessionSecret)) : null;
+        if (!managedIdentity) {
           socket.write('HTTP/1.1 401 Unauthorized\r\nContent-Type: text/plain\r\n\r\nAuthentication required');
           socket.destroy();
           return;
         }
       }
+      (req as IncomingMessage & { nerveIdentity?: ManagedIdentity }).nerveIdentity = managedIdentity || undefined;
       wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
     } else {
       socket.destroy();
@@ -139,7 +143,8 @@ export function setupWebSocketProxy(server: HttpServer | HttpsServer): void {
     // canInjectGatewayToken accounts for both auth state and loopback detection (proxy-aware).
     const isTrusted = canInjectGatewayToken(req);
 
-    createGatewayRelay(clientWs, targetUrl, clientOrigin, connId, isTrusted);
+    const managedIdentity = (req as IncomingMessage & { nerveIdentity?: ManagedIdentity }).nerveIdentity;
+    createGatewayRelay(clientWs, targetUrl, clientOrigin, connId, isTrusted, managedIdentity);
   });
 }
 
@@ -161,6 +166,7 @@ function createGatewayRelay(
   clientOrigin: string,
   connId: string,
   isTrusted: boolean,
+  managedIdentity?: ManagedIdentity,
 ): void {
   const tag = `[ws-proxy:${connId}]`;
   const connStartTime = Date.now();
@@ -175,6 +181,11 @@ function createGatewayRelay(
   clientWs.on('pong', () => { clientAlive = true; });
 
   const pingTimer = setInterval(() => {
+    if (managedIdentity && !isManagedIdentityActive(managedIdentity)) {
+      console.log(`${tag} Managed session revoked — closing`);
+      clientWs.close(1008, 'Authentication expired');
+      return;
+    }
     // Check client
     if (!clientAlive) {
       console.log(`${tag} Client pong timeout — terminating`);
@@ -379,6 +390,10 @@ function createGatewayRelay(
 
   // Client → Gateway (attached once, references mutable gwWs)
   clientWs.on('message', (data: Buffer | string, isBinary: boolean) => {
+    if (managedIdentity && !isManagedIdentityActive(managedIdentity)) {
+      clientWs.close(1008, 'Authentication expired');
+      return;
+    }
     if (!gwWs || gwWs.readyState !== WebSocket.OPEN) {
       // Gateway not open — intercept connect messages and hold them separately
       if (!isBinary) {
