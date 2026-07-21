@@ -50,6 +50,8 @@ import {
   INTERACTION_NODE_WIDTH,
   NODE_HORIZONTAL_GAP,
   NODE_VERTICAL_GAP,
+  composerNodeId,
+  mergeVisibleNodePositions,
   placeNodeToRight,
   placeRootNode,
   type CanvasNodeBounds,
@@ -486,7 +488,10 @@ export function CanvasPanel({ agentId }: { agentId: string }) {
   const send = useCallback(async (branch: CanvasBranch) => {
     const draft = drafts[branch.id] || EMPTY_DRAFT;
     if (draft.sending || (!draft.text.trim() && draft.files.length === 0)) return;
-    const composerId = `composer:${branch.id}`;
+    const composerSource = branch.sessionState === 'draft'
+      ? branch.forkedFromInteractionId
+      : branch.headInteractionId;
+    const composerId = composerNodeId(branch.id, composerSource);
     const composerPosition = positionsRef.current[composerId]
       || nodesRef.current.find((node) => node.id === composerId)?.position;
     updateDraft(branch.id, (current) => ({ ...current, sending: true, error: null }));
@@ -626,7 +631,9 @@ export function CanvasPanel({ agentId }: { agentId: string }) {
       type: 'interaction',
       position: positionsRef.current[interaction.id]
         || graph.layout?.nodes[interaction.id]
-        || (headIds.has(interaction.id) ? positionsRef.current[`composer:${interaction.branchId}`] : undefined)
+        || (headIds.has(interaction.id)
+          ? positionsRef.current[composerNodeId(interaction.branchId, interaction.parentInteractionId)]
+          : undefined)
         || { x: 0, y: 0 },
       dragHandle: '.canvas-node-drag-handle',
       data: {
@@ -649,8 +656,8 @@ export function CanvasPanel({ agentId }: { agentId: string }) {
       const head = branch.headInteractionId ? interactionById.get(branch.headInteractionId) : undefined;
       const isContinue = branch.sessionState === 'active' && head?.status === 'completed';
       if (!isInitialDraft && !isContinue) continue;
-      const nodeId = `composer:${branch.id}`;
       const source = isInitialDraft ? branch.forkedFromInteractionId : branch.headInteractionId;
+      const nodeId = composerNodeId(branch.id, source);
       if (source) edges.push({ id: `edge-${source}-${nodeId}`, source, target: nodeId, animated: true });
       const sourceNode = source ? interactionNodes.find((node) => node.id === source) : undefined;
       const occupied = [...interactionNodes, ...composerNodes].map((node) => nodeBounds(node, renderedById.get(node.id)));
@@ -691,10 +698,10 @@ export function CanvasPanel({ agentId }: { agentId: string }) {
           : node;
       });
       nodesRef.current = next;
-      positionsRef.current = {
-        ...positionsRef.current,
-        ...Object.fromEntries(next.map((node) => [node.id, node.position])),
-      };
+      positionsRef.current = mergeVisibleNodePositions(
+        positionsRef.current,
+        Object.fromEntries(next.map((node) => [node.id, node.position])),
+      );
       return next;
     });
   }, [flow.nodes]);
@@ -715,10 +722,10 @@ export function CanvasPanel({ agentId }: { agentId: string }) {
     setNodes((current) => {
       const next = applyNodeChanges(changes, current);
       nodesRef.current = next;
-      positionsRef.current = {
-        ...positionsRef.current,
-        ...Object.fromEntries(next.map((node) => [node.id, node.position])),
-      };
+      positionsRef.current = mergeVisibleNodePositions(
+        positionsRef.current,
+        Object.fromEntries(next.map((node) => [node.id, node.position])),
+      );
       return next;
     });
     if (!selectedId || changes.every((change) => change.type !== 'position')) return;

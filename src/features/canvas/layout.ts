@@ -13,6 +13,27 @@ export interface CanvasNodeBounds {
   height: number;
 }
 
+export function composerNodeId(branchId: string, sourceInteractionId: string | null | undefined): string {
+  return `composer:${branchId}:${sourceInteractionId || 'root'}`;
+}
+
+/**
+ * Preserve interaction positions while removing obsolete ephemeral composers.
+ * A composer is tied to the interaction it continues, so once it disappears it
+ * must not donate its old coordinates to the next composer on that branch.
+ */
+export function mergeVisibleNodePositions(
+  current: Record<string, XYPosition>,
+  visible: Record<string, XYPosition>,
+): Record<string, XYPosition> {
+  const next = { ...current, ...visible };
+  const visibleIds = new Set(Object.keys(visible));
+  for (const id of Object.keys(next)) {
+    if (id.startsWith('composer:') && !visibleIds.has(id)) delete next[id];
+  }
+  return next;
+}
+
 interface PlacementSize {
   width?: number;
   height?: number;

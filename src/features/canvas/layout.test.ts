@@ -5,6 +5,8 @@ import {
   INTERACTION_NODE_WIDTH,
   NODE_HORIZONTAL_GAP,
   NODE_VERTICAL_GAP,
+  composerNodeId,
+  mergeVisibleNodePositions,
   placeNodeToRight,
   placeRootNode,
   type CanvasNodeBounds,
@@ -15,6 +17,25 @@ function node(id: string, x: number, y: number, width = INTERACTION_NODE_WIDTH, 
 }
 
 describe('Canvas node placement', () => {
+  it('uses a new composer identity when a branch advances to a new source interaction', () => {
+    expect(composerNodeId('branch-1', null)).toBe('composer:branch-1:root');
+    expect(composerNodeId('branch-1', 'interaction-1')).toBe('composer:branch-1:interaction-1');
+    expect(composerNodeId('branch-1', 'interaction-2')).not.toBe(composerNodeId('branch-1', 'interaction-1'));
+  });
+
+  it('removes stale composer positions without discarding interaction positions', () => {
+    expect(mergeVisibleNodePositions({
+      'interaction-1': { x: 100, y: 80 },
+      'composer:branch-1:root': { x: 100, y: 80 },
+    }, {
+      'interaction-1': { x: 100, y: 80 },
+      'composer:branch-1:interaction-1': { x: 590, y: 80 },
+    })).toEqual({
+      'interaction-1': { x: 100, y: 80 },
+      'composer:branch-1:interaction-1': { x: 590, y: 80 },
+    });
+  });
+
   it('places a continuation directly to the right of its completed interaction', () => {
     const source = node('source', 120, 80);
     expect(placeNodeToRight(source, [source])).toEqual({
