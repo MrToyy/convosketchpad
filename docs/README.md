@@ -10,6 +10,7 @@ Start here when you need setup, operations, or contributor guidance.
 
 ## Core docs
 
+- [Canvas customization index](./canvas/README.md), code maps for Canvas, managed-user auth, and the upstream Git workflow
 - [Architecture](./ARCHITECTURE.md), codebase structure and system design
 - [Configuration](./CONFIGURATION.md), `.env`, auth, access modes, TTS providers, and UI settings
 - [API](./API.md), backend endpoints and behavior

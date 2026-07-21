@@ -10,6 +10,8 @@
 
 本文结论来自现有文档和当前实现，重点代码入口列在文末。
 
+> Canvas 定制功能的当前实现入口见 [`docs/canvas` 索引](canvas/README.md)。
+
 ## 1. 一句话理解 Nerve
 
 Nerve 不是新的 Agent Runtime，也不是独立的聊天服务。它是 OpenClaw 前面的本地优先 Web Cockpit：

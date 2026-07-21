@@ -1,51 +1,24 @@
-# Repository Branch Workflow
+# Repository Agent Guide
 
-## Branch roles
+本仓库在 OpenClaw Nerve 上维护独立的 Canvas 与受管用户认证功能。开始工作前，先按任务类型读取对应索引；不要依靠全仓搜索重新推断已经记录的结构。
 
-- `master` is the clean mirror of `upstream/master`. Use it only to synchronize upstream changes; do not develop features or create project-specific commits on it.
-- `feat/canvas` is the long-lived branch for this repository's custom Canvas development.
-- Merge direction is always `upstream/master` -> local `master` -> `feat/canvas`. Do not merge `feat/canvas` back into `master`.
+## 功能导航
 
-## Remotes
+| 任务 | 首先阅读 | 用途 |
+|---|---|---|
+| Canvas 页面、节点、布局、Branch、Interaction、附件或 Artifact | [`docs/canvas/CANVAS-CODE-MAP.md`](docs/canvas/CANVAS-CODE-MAP.md) | 功能约束、前后端组件、数据流与测试入口 |
+| 登录、用户 Token、用户隔离、限流、Cookie、WS/SSE 鉴权 | [`docs/canvas/AUTH-CODE-MAP.md`](docs/canvas/AUTH-CODE-MAP.md) | Auth 组件、CLI、SQLite 用户数据与会话撤销链路 |
+| 分支、remote、同步 upstream、合并、提交或推送 | [`docs/canvas/GIT-WORKFLOW.md`](docs/canvas/GIT-WORKFLOW.md) | `master` / `feat/canvas` 职责和安全同步步骤 |
+| 不确定从哪里开始 | [`docs/canvas/README.md`](docs/canvas/README.md) | Canvas 定制功能总索引和按任务阅读顺序 |
 
-- `upstream`: `https://github.com/daggerhashimoto/openclaw-nerve.git` (source repository; fetch only)
-- `origin`: `https://github.com/MrToyy/openclaw-canvas.git` (personal fork; push local branches here)
+## 设计与运行机制
 
-Never push project-specific commits to `upstream`.
+- Canvas MVP 的产品与架构决策：[`docs/OPENCLAW-CANVAS-MVP-DESIGN.md`](docs/OPENCLAW-CANVAS-MVP-DESIGN.md)
+- Nerve 原有前后端、Session 和数据流：[`docs/NERVE-RUNTIME-AND-DATA-FLOW.md`](docs/NERVE-RUNTIME-AND-DATA-FLOW.md)
+- 通用配置、安全与 API：[`docs/CONFIGURATION.md`](docs/CONFIGURATION.md)、[`docs/SECURITY.md`](docs/SECURITY.md)、[`docs/API.md`](docs/API.md)
 
-## Safe upstream sync procedure
+## 文档维护约定
 
-Before changing branches, run `git status --short --branch`. The worktree must be clean. Preserve any existing user changes; do not discard, reset, or stash them without explicit approval.
-
-```sh
-git fetch --prune upstream origin
-git switch master
-git merge --ff-only upstream/master
-git push origin master
-git switch feat/canvas
-git merge master
-```
-
-Resolve merge conflicts on `feat/canvas`, then run the relevant tests before pushing. Never resolve a non-fast-forward update on `master` by rebasing or force-pushing; investigate why it diverged first.
-
-Push the development branch with:
-
-```sh
-# First push, if no tracking branch exists yet:
-git push -u origin feat/canvas
-
-# Later pushes:
-git push
-```
-
-Do not force-push either protected workflow branch unless the user explicitly requests it.
-
-## Current baseline (2026-07-20)
-
-- Active branch: `feat/canvas`
-- Worktree: clean before this file was added
-- Local `master`, `feat/canvas`, `origin/master`, and `upstream/master`: `312e273`
-- Local `master` tracks `upstream/master`
-- Local `feat/canvas` has no upstream tracking branch yet
-
-Remote-tracking references are only a local snapshot. Fetch before using this baseline to judge whether upstream has new commits.
+- 新增、移动或重命名 Canvas/Auth 组件时，同步更新对应 `*-CODE-MAP.md`。
+- 改变 Branch、Interaction、附件、Artifact、用户或会话语义时，同时更新设计文档。
+- Git 规则只在 `docs/canvas/GIT-WORKFLOW.md` 维护；本文件仅保留入口，避免规则出现多个版本。

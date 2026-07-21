@@ -5,6 +5,8 @@
 > 范围：产品边界、领域模型、持久化、OpenClaw/Nerve 接入点与核心数据流
 >
 > 实现位置：`src/features/canvas/`、`server/routes/canvas.ts`、`server/lib/canvas-db.ts`
+>
+> 当前实现索引：[`Canvas 代码地图`](canvas/CANVAS-CODE-MAP.md)；认证与用户隔离索引：[`Auth 代码地图`](canvas/AUTH-CODE-MAP.md)
 
 ## 1. 项目目标
 
