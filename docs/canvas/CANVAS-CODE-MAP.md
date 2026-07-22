@@ -19,6 +19,7 @@
 | 问题或改动 | 首要文件 | 相关文件 |
 |---|---|---|
 | Canvas 页面、列表、节点卡片、图片预览、发送状态 | [`src/features/canvas/CanvasPanel.tsx`](../../src/features/canvas/CanvasPanel.tsx) | [`types.ts`](../../src/features/canvas/types.ts) |
+| Canvas 中英文文案、语言切换与动态区域翻译保护 | [`src/features/canvas/messages.ts`](../../src/features/canvas/messages.ts) | [`CanvasSendButton.tsx`](../../src/features/canvas/CanvasSendButton.tsx)、[`SettingsContext.tsx`](../../src/contexts/SettingsContext.tsx) |
 | 新节点位置、自动布局、Fork 避让、composer 坐标 | [`src/features/canvas/layout.ts`](../../src/features/canvas/layout.ts) | [`layout.test.ts`](../../src/features/canvas/layout.test.ts) |
 | 浏览器调用 Canvas API | [`src/features/canvas/api.ts`](../../src/features/canvas/api.ts) | [`server/routes/canvas.ts`](../../server/routes/canvas.ts) |
 | 发送图片和其他文件给 OpenClaw | [`src/features/canvas/attachments.ts`](../../src/features/canvas/attachments.ts) | [`server/lib/upload-reference.ts`](../../server/lib/upload-reference.ts)、[`server/routes/upload-reference.ts`](../../server/routes/upload-reference.ts) |
@@ -42,6 +43,13 @@
 - 发送时依次执行附件持久化、`prepare-send`、Gateway `chat.send`、`ack` 和 Graph 刷新。
 - 订阅 Gateway 流事件；收到 terminal event 后触发 reconcile，而不是直接把流事件当作最终落盘结果。
 - 维护节点坐标、Viewport 和延迟保存布局。
+- 从通用 `language` 设置读取 `zh-CN` / `en` 文案；只对发送、状态、加载和错误等动态风险区域禁用浏览器翻译。
+
+### `src/features/canvas/messages.ts` 与 `CanvasSendButton.tsx`
+
+- `messages.ts` 保存类型安全的 Canvas 中英文系统文案和已知错误映射；不翻译用户输入、Agent 回复或已有 Canvas 数据。
+- `CanvasSendButton.tsx` 用稳定包装节点隔离动态图标与文本，避免浏览器翻译改写文本节点后触发 React DOM 插入异常。
+- 通用 `language` 首选项由 `SettingsContext` 保存到浏览器 `localStorage`；当前只有 Canvas 消费该设置。
 
 ### `src/features/canvas/layout.ts`
 

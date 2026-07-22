@@ -29,7 +29,6 @@ import {
   PanelLeftOpen,
   Pencil,
   Plus,
-  Send,
   Sparkles,
   Trash2,
   X,
@@ -38,12 +37,15 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { MarkdownRenderer } from '@/features/markdown/MarkdownRenderer';
 import { useGateway } from '@/contexts/GatewayContext';
+import { useSettings } from '@/contexts/SettingsContext';
 import { classifyStreamEvent, extractStreamDelta } from '@/features/chat/operations';
 import { appendUploadManifest } from '@/features/chat/operations/sendMessage';
 import type { UploadAttachmentDescriptor } from '@/features/chat/types';
 import type { ChatEventPayload, GatewayEvent } from '@/types';
 import { canvasApi, canvasArtifactUrl, stageCanvasFiles, type StagedUpload } from './api';
 import { prepareGatewayAttachment, prepareGatewayAttachments, type GatewayAttachment } from './attachments';
+import { CanvasLocalizedError, canvasErrorMessage, getCanvasCopy, type CanvasCopy } from './messages';
+import { CanvasSendButton } from './CanvasSendButton';
 import {
   COMPOSER_NODE_WIDTH,
   DEFAULT_NODE_HEIGHT,
@@ -68,11 +70,11 @@ import type {
 const MAX_ATTACHMENTS = 4;
 const EMPTY_DRAFT: CanvasDraft = { text: '', files: [], previews: {}, sending: false, error: null };
 
-function nextCanvasName(canvases: CanvasSummary[]): string {
+function nextCanvasName(canvases: CanvasSummary[], copy: CanvasCopy): string {
   const names = new Set(canvases.map((canvas) => canvas.name));
   let index = 1;
-  while (names.has(`画布 ${index}`)) index += 1;
-  return `画布 ${index}`;
+  while (names.has(copy.defaultCanvasName(index))) index += 1;
+  return copy.defaultCanvasName(index);
 }
 
 interface InteractionNodeData extends Record<string, unknown> {
@@ -112,13 +114,13 @@ function artifactIcon(mimeType = '') {
   return File;
 }
 
-function interactionStatusLabel(interaction: CanvasInteraction, activity: AgentActivity): string {
-  if (activity === 'queued') return '等待智能体响应';
-  if (activity === 'working') return '智能体工作中';
-  if (activity === 'settling') return '正在整理完整回复';
-  if (interaction.status === 'streaming') return '生成中';
-  if (interaction.status === 'completed') return '已完成';
-  return '失败';
+function interactionStatusLabel(interaction: CanvasInteraction, activity: AgentActivity, copy: CanvasCopy): string {
+  if (activity === 'queued') return copy.status.queued;
+  if (activity === 'working') return copy.status.working;
+  if (activity === 'settling') return copy.status.settling;
+  if (interaction.status === 'streaming') return copy.status.streaming;
+  if (interaction.status === 'completed') return copy.status.completed;
+  return copy.status.failed;
 }
 
 function reconciliationMetadata(interaction: CanvasInteraction): { phase?: string; artifactSync?: string; version?: number } {
@@ -138,34 +140,9 @@ function reconciledActivity(interaction: CanvasInteraction): AgentActivity {
   return interaction.status === 'streaming' ? 'unknown' : 'idle';
 }
 
-function translateCanvasError(error: unknown, fallback: string): string {
-  const message = error instanceof Error ? error.message : '';
-  const translations: Record<string, string> = {
-    not_found: '未找到对应内容',
-    invalid_branch_transition: '分支状态已变化，请刷新后重试',
-    send_in_progress: '该分支已有消息正在发送',
-    cannot_fork_branch_head: '分支末尾只能继续对话，不能创建分支',
-    interaction_not_completed: '只能从已完成的历史交互创建分支',
-    reservation_not_prepared: '发送请求已失效，请重试',
-    conflict: '当前位置已有一个未发送的输入框',
-    'Not found': '未找到对应内容',
-    'Invalid canvas': '画布信息无效',
-    'Invalid name': '画布名称无效',
-    'Authentication required': '请先登录',
-    'Invalid send request': '发送内容无效',
-    'Message or attachment required': '请输入消息或添加附件',
-    'Video attachments are not supported in Canvas': '画布暂不支持视频附件',
-    'Invalid layout': '画布布局数据无效',
-    'Invalid acknowledgement': '发送确认信息无效',
-    'Invalid failure': '发送失败信息无效',
-    'Invalid completion': '交互完成信息无效',
-    'Canvas operation failed': '画布操作失败',
-    'Failed to fetch': '无法连接到服务端',
-  };
-  return translations[message] || (/[一-鿿]/.test(message) ? message : fallback);
-}
-
 function InteractionNode({ data }: NodeProps<InteractionFlowNode>) {
+  const { language } = useSettings();
+  const copy = getCanvasCopy(language);
   const { interaction, activity, composerOpen, canAdd, onAdd, onPreviewImage } = data;
   const bootstrapWarnings = Array.isArray(interaction.sessionMetadata.bootstrapWarnings)
     ? interaction.sessionMetadata.bootstrapWarnings.filter((item): item is string => typeof item === 'string')
@@ -176,16 +153,16 @@ function InteractionNode({ data }: NodeProps<InteractionFlowNode>) {
       <header className="canvas-node-drag-handle flex cursor-grab items-center justify-between gap-3 active:cursor-grabbing">
         <div className="flex min-w-0 items-center gap-2">
           <span className={`size-2 rounded-full ${activity === 'working' || activity === 'queued' || activity === 'settling' ? 'animate-pulse bg-primary' : interaction.status === 'failed' ? 'bg-destructive' : 'bg-green'}`} />
-          <span className="truncate text-[0.667rem] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
-            {interactionStatusLabel(interaction, activity)}
+          <span translate="no" className="notranslate truncate text-[0.667rem] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+            {interactionStatusLabel(interaction, activity, copy)}
           </span>
         </div>
-        <time className="text-[0.667rem] text-muted-foreground">{new Date(interaction.createdAt).toLocaleTimeString()}</time>
+        <time className="text-[0.667rem] text-muted-foreground">{new Date(interaction.createdAt).toLocaleTimeString(language)}</time>
       </header>
 
       <details className="nodrag mt-3 cursor-text select-text rounded-2xl border border-border/60 bg-background/45 px-3 py-2">
-        <summary className="cursor-pointer text-xs font-medium text-muted-foreground">用户输入</summary>
-        <p className="mt-2 whitespace-pre-wrap text-sm text-foreground">{interaction.userInput || '（仅包含附件）'}</p>
+        <summary className="cursor-pointer text-xs font-medium text-muted-foreground">{copy.userInput}</summary>
+        <p className="mt-2 whitespace-pre-wrap text-sm text-foreground">{interaction.userInput || copy.attachmentsOnly}</p>
         {interaction.attachments.length > 0 && (
           <div className="mt-2 flex flex-wrap gap-2">
             {interaction.attachments.map((item, index) => (
@@ -199,17 +176,17 @@ function InteractionNode({ data }: NodeProps<InteractionFlowNode>) {
 
       <div className="nodrag nowheel mt-3 max-h-[360px] cursor-text select-text overflow-auto text-sm">
         {interaction.status === 'streaming' && !interaction.agentOutput ? (
-          <div className="flex items-center gap-2 py-4 text-muted-foreground"><Loader2 size={15} className="animate-spin" /> {activity === 'settling' ? '正在整理完整回复…' : '正在等待 OpenClaw 响应…'}</div>
+          <div translate="no" className="notranslate flex items-center gap-2 py-4 text-muted-foreground"><Loader2 size={15} className="animate-spin" /> {activity === 'settling' ? copy.waitingForCompleteReply : copy.waitingForResponse}</div>
         ) : interaction.agentOutput ? (
           <MarkdownRenderer content={interaction.agentOutput} />
         ) : (
-          <p className="py-3 text-muted-foreground">暂无响应内容。</p>
+          <p translate="no" className="notranslate py-3 text-muted-foreground">{copy.noResponse}</p>
         )}
       </div>
 
       {bootstrapWarnings.length > 0 && (
-        <div className="nodrag mt-3 rounded-2xl border border-amber-500/35 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
-          <div className="flex items-center gap-2 font-medium"><AlertCircle size={14} />部分历史资源未能继承</div>
+        <div translate="no" className="notranslate nodrag mt-3 rounded-2xl border border-amber-500/35 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+          <div className="flex items-center gap-2 font-medium"><AlertCircle size={14} />{copy.partialHistoryResources}</div>
           <ul className="mt-1 list-disc space-y-1 pl-5">
             {bootstrapWarnings.map((warning, index) => <li key={`${warning}-${index}`}>{warning}</li>)}
           </ul>
@@ -228,7 +205,7 @@ function InteractionNode({ data }: NodeProps<InteractionFlowNode>) {
                     type="button"
                     onClick={() => onPreviewImage(canvasArtifactUrl(artifact.uri), artifact.name)}
                     className="block w-full cursor-zoom-in bg-black/10"
-                    aria-label={`预览图片 ${artifact.name}`}
+                    aria-label={copy.previewImage(artifact.name)}
                   >
                     <img src={canvasArtifactUrl(artifact.uri)} alt={artifact.name} className="max-h-56 w-full object-contain" />
                   </button>
@@ -246,7 +223,7 @@ function InteractionNode({ data }: NodeProps<InteractionFlowNode>) {
         <button
           type="button"
           onClick={() => onAdd(interaction)}
-          title="从此交互创建新分支"
+          title={copy.forkFromInteraction}
           className="nodrag absolute -right-4 top-1/2 flex size-8 -translate-y-1/2 items-center justify-center rounded-full border border-primary/40 bg-background text-primary shadow-lg hover:bg-primary hover:text-primary-foreground"
         >
           <Plus size={15} />
@@ -258,6 +235,8 @@ function InteractionNode({ data }: NodeProps<InteractionFlowNode>) {
 }
 
 function ComposerNode({ data }: NodeProps<ComposerFlowNode>) {
+  const { language } = useSettings();
+  const copy = getCanvasCopy(language);
   const inputRef = useRef<HTMLInputElement>(null);
   return (
     <section className="w-[360px] rounded-3xl border border-primary/35 bg-card/98 p-4 shadow-2xl">
@@ -267,14 +246,14 @@ function ComposerNode({ data }: NodeProps<ComposerFlowNode>) {
           <Sparkles size={14} /> {data.label}
         </div>
         {data.onClose && !data.draft.sending && (
-          <button type="button" className="nodrag text-muted-foreground hover:text-foreground" onClick={data.onClose} aria-label="关闭输入框"><X size={15} /></button>
+          <button type="button" className="nodrag text-muted-foreground hover:text-foreground" onClick={data.onClose} aria-label={copy.closeComposer}><X size={15} /></button>
         )}
       </header>
       <textarea
         autoFocus
         value={data.draft.text}
         onChange={(event) => data.onTextChange(event.target.value)}
-        placeholder="接下来希望 OpenClaw 做什么？"
+        placeholder={copy.composerPlaceholder}
         className="nodrag nowheel min-h-28 w-full resize-y rounded-2xl border border-border bg-background/65 px-3 py-3 text-sm outline-none focus:border-primary"
         disabled={data.draft.sending}
       />
@@ -292,10 +271,10 @@ function ComposerNode({ data }: NodeProps<ComposerFlowNode>) {
           ))}
         </div>
       )}
-      {data.draft.error && <p className="nodrag mt-2 flex items-start gap-2 text-xs text-destructive"><AlertCircle size={14} />{data.draft.error}</p>}
+      {data.draft.error && <p translate="no" className="notranslate nodrag mt-2 flex items-start gap-2 text-xs text-destructive"><AlertCircle size={14} />{data.draft.error}</p>}
       <footer className="nodrag mt-3 flex items-center justify-between gap-2">
         <Button type="button" variant="outline" size="sm" onClick={() => inputRef.current?.click()} disabled={data.draft.sending || data.draft.files.length >= MAX_ATTACHMENTS}>
-          <Paperclip size={14} /> 添加附件
+          <Paperclip size={14} /> {copy.addAttachment}
         </Button>
         <input
           ref={inputRef}
@@ -307,10 +286,11 @@ function ComposerNode({ data }: NodeProps<ComposerFlowNode>) {
             event.target.value = '';
           }}
         />
-        <Button type="button" size="sm" onClick={data.onSend} disabled={data.draft.sending || (!data.draft.text.trim() && data.draft.files.length === 0)}>
-          {data.draft.sending ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
-          发送
-        </Button>
+        <CanvasSendButton
+          sending={data.draft.sending}
+          disabled={data.draft.sending || (!data.draft.text.trim() && data.draft.files.length === 0)}
+          onSend={data.onSend}
+        />
       </footer>
     </section>
   );
@@ -364,6 +344,9 @@ function buildUploadDescriptors(staged: StagedUpload[], ids: string[]): UploadAt
 
 export function CanvasPanel({ agentId }: { agentId: string }) {
   const { rpc, subscribe, connectionState } = useGateway();
+  const { language } = useSettings();
+  const copy = getCanvasCopy(language);
+  const localizeError = useCallback((cause: unknown, fallback: string) => canvasErrorMessage(cause, fallback, language), [language]);
   const [canvases, setCanvases] = useState<CanvasSummary[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [graph, setGraph] = useState<CanvasGraph | null>(null);
@@ -427,8 +410,8 @@ export function CanvasPanel({ agentId }: { agentId: string }) {
     });
   }, [selectedId]);
 
-  useEffect(() => { void loadCanvases().catch((cause) => setError(translateCanvasError(cause, '无法加载画布列表'))); }, [loadCanvases]);
-  useEffect(() => { void loadGraph().catch((cause) => setError(translateCanvasError(cause, '无法加载画布'))); }, [loadGraph]);
+  useEffect(() => { void loadCanvases().catch((cause) => setError(localizeError(cause, copy.loadCanvasListFailed))); }, [copy.loadCanvasListFailed, loadCanvases, localizeError]);
+  useEffect(() => { void loadGraph().catch((cause) => setError(localizeError(cause, copy.loadCanvasFailed))); }, [copy.loadCanvasFailed, loadGraph, localizeError]);
   useEffect(() => { setPreviewImage(null); }, [selectedId]);
   useEffect(() => {
     if (!previewImage) return;
@@ -441,10 +424,10 @@ export function CanvasPanel({ agentId }: { agentId: string }) {
   useEffect(() => {
     if (!graph?.interactions.some(needsReconciliation)) return;
     const timer = window.setInterval(() => {
-      void loadGraph().catch((cause) => setError(translateCanvasError(cause, '无法刷新 OpenClaw 状态')));
+      void loadGraph().catch((cause) => setError(localizeError(cause, copy.refreshOpenClawFailed)));
     }, 3_000);
     return () => window.clearInterval(timer);
-  }, [graph, loadGraph]);
+  }, [copy.refreshOpenClawFailed, graph, loadGraph, localizeError]);
   useEffect(() => {
     if (connectionState !== 'connected' || !graph) return;
     for (const interaction of graph.interactions.filter(needsReconciliation)) {
@@ -500,7 +483,7 @@ export function CanvasPanel({ agentId }: { agentId: string }) {
     try {
       const canvasAgentId = graph?.canvas.agentId || agentId;
       const canvasId = graph?.canvas.id;
-      if (!canvasId) throw new Error('未找到当前画布');
+      if (!canvasId) throw new CanvasLocalizedError(copy.currentCanvasMissing);
       const staged = draft.files.length ? await stageCanvasFiles(draft.files, canvasAgentId, canvasId) : [];
       const attachmentIds = staged.map(() => crypto.randomUUID());
       const attachmentMeta = staged.map((item, index) => ({
@@ -523,24 +506,24 @@ export function CanvasPanel({ agentId }: { agentId: string }) {
       const bootstrapWarnings: string[] = [];
       for (const resource of reservation.bootstrapResources || []) {
         try {
-          if (!resource.fetchUrl) throw new Error('缺少安全读取地址');
+          if (!resource.fetchUrl) throw new Error(copy.secureReadUrlMissing);
           const response = await fetch(resource.fetchUrl, { credentials: 'include' });
-          if (!response.ok) throw new Error(`读取失败（${response.status}）`);
+          if (!response.ok) throw new Error(copy.readFailedWithStatus(response.status));
           const blob = await response.blob();
           bootstrapFiles.push(new globalThis.File([blob], resource.name, { type: resource.mimeType || blob.type || 'application/octet-stream' }));
         } catch (cause) {
-          const reason = cause instanceof Error ? cause.message : '读取失败';
-          bootstrapWarnings.push(`${resource.name}：${reason}`);
+          const reason = cause instanceof Error ? cause.message : copy.readFailed;
+          bootstrapWarnings.push(copy.resourceWarning(resource.name, reason));
         }
       }
       const gatewayAttachments: GatewayAttachment[] = [];
       for (const file of bootstrapFiles) {
-        try { gatewayAttachments.push(await prepareGatewayAttachment(file)); }
+        try { gatewayAttachments.push(await prepareGatewayAttachment(file, language)); }
         catch (cause) {
-          bootstrapWarnings.push(`${file.name}：${cause instanceof Error ? cause.message : '无法准备附件'}`);
+          bootstrapWarnings.push(copy.resourceWarning(file.name, cause instanceof Error ? cause.message : copy.prepareAttachmentFailed));
         }
       }
-      gatewayAttachments.push(...await prepareGatewayAttachments(draft.files));
+      gatewayAttachments.push(...await prepareGatewayAttachments(draft.files, language));
       if (bootstrapWarnings.length > 0) {
         outgoingMessage += `\n\n<canvas-context-resource-warnings>${JSON.stringify(bootstrapWarnings)}</canvas-context-resource-warnings>`;
       }
@@ -564,12 +547,12 @@ export function CanvasPanel({ agentId }: { agentId: string }) {
       updateDraft(branch.id, () => EMPTY_DRAFT);
       await loadGraph();
     } catch (cause) {
-      const message = translateCanvasError(cause, '消息发送失败');
+      const message = localizeError(cause, copy.messageSendFailed);
       if (reservationId) await canvasApi.failReservation(reservationId, message).catch(() => undefined);
       updateDraft(branch.id, (current) => ({ ...current, sending: false, error: message }));
       setActivities((current) => ({ ...current, [branch.id]: 'failed' }));
     }
-  }, [agentId, drafts, graph?.canvas.agentId, graph?.canvas.id, loadGraph, persistLayout, rpc, updateDraft]);
+  }, [agentId, copy, drafts, graph?.canvas.agentId, graph?.canvas.id, language, loadGraph, localizeError, persistLayout, rpc, updateDraft]);
 
   useEffect(() => subscribe((event: GatewayEvent) => {
     const classified = classifyStreamEvent(event);
@@ -602,7 +585,7 @@ export function CanvasPanel({ agentId }: { agentId: string }) {
     }
 
     if (classified.type === 'chat_error' || classified.type === 'chat_aborted') {
-      const reason = payload.errorMessage || payload.error || payload.stopReason || 'OpenClaw 运行失败';
+      const reason = payload.errorMessage || payload.error || payload.stopReason || copy.openClawRunFailed;
       setActivities((current) => ({ ...current, [active.branchId]: 'settling' }));
       void canvasApi.reconcile(active.interactionId, { terminalHint: true, failureHint: reason })
         .then(loadGraph)
@@ -610,15 +593,15 @@ export function CanvasPanel({ agentId }: { agentId: string }) {
           activeRuns.current.delete(runKey);
         });
     }
-  }), [loadGraph, subscribe]);
+  }), [copy.openClawRunFailed, loadGraph, subscribe]);
 
   const addFromInteraction = useCallback(async (interaction: CanvasInteraction) => {
     try {
       const branch = await canvasApi.fork(interaction.id);
       setDrafts((current) => ({ ...current, [branch.id]: current[branch.id] || EMPTY_DRAFT }));
       await loadGraph();
-    } catch (cause) { setError(translateCanvasError(cause, '无法创建新分支')); }
-  }, [loadGraph]);
+    } catch (cause) { setError(localizeError(cause, copy.forkFailed)); }
+  }, [copy.forkFailed, loadGraph, localizeError]);
 
   const flow = useMemo(() => {
     if (!graph) return { nodes: [] as CanvasFlowNode[], edges: [] as Edge[] };
@@ -675,7 +658,7 @@ export function CanvasPanel({ agentId }: { agentId: string }) {
         data: {
           branch,
           draft: drafts[branch.id] || EMPTY_DRAFT,
-          label: branch.kind === 'fork' && branch.sessionState === 'draft' ? '创建分支' : branch.sessionState === 'draft' ? '新会话' : '继续分支',
+          label: branch.kind === 'fork' && branch.sessionState === 'draft' ? copy.createBranch : branch.sessionState === 'draft' ? copy.newSession : copy.continueBranch,
           onTextChange: (value) => updateDraft(branch.id, (draft) => ({ ...draft, text: value, error: null })),
           onFiles: (files) => handleFiles(branch.id, files),
           onRemoveFile: (index) => removeFile(branch.id, index),
@@ -686,7 +669,7 @@ export function CanvasPanel({ agentId }: { agentId: string }) {
     const all = [...interactionNodes, ...composerNodes];
     const hasSavedLayout = Boolean(Object.keys(positionsRef.current).length || (graph.layout && Object.keys(graph.layout.nodes).length));
     return { nodes: hasSavedLayout ? all : autoLayout(all, edges), edges };
-  }, [activities, addFromInteraction, drafts, graph, handleFiles, removeFile, send, updateDraft]);
+  }, [activities, addFromInteraction, copy, drafts, graph, handleFiles, removeFile, send, updateDraft]);
 
   useEffect(() => {
     setNodes((current) => {
@@ -714,9 +697,9 @@ export function CanvasPanel({ agentId }: { agentId: string }) {
     if (!hasNewAutoPlacedNode) return;
     if (saveTimer.current) window.clearTimeout(saveTimer.current);
     saveTimer.current = window.setTimeout(() => {
-      void persistLayout().catch((cause) => setError(translateCanvasError(cause, '无法保存画布布局')));
+      void persistLayout().catch((cause) => setError(localizeError(cause, copy.saveLayoutFailed)));
     }, 100);
-  }, [nodes, persistLayout, selectedId]);
+  }, [copy.saveLayoutFailed, localizeError, nodes, persistLayout, selectedId]);
 
   const onNodesChange = useCallback((changes: NodeChange<CanvasFlowNode>[]) => {
     setNodes((current) => {
@@ -731,18 +714,18 @@ export function CanvasPanel({ agentId }: { agentId: string }) {
     if (!selectedId || changes.every((change) => change.type !== 'position')) return;
     if (saveTimer.current) window.clearTimeout(saveTimer.current);
     saveTimer.current = window.setTimeout(() => {
-      void persistLayout().catch((cause) => setError(translateCanvasError(cause, '无法保存画布布局')));
+      void persistLayout().catch((cause) => setError(localizeError(cause, copy.saveLayoutFailed)));
     }, 500);
-  }, [persistLayout, selectedId]);
+  }, [copy.saveLayoutFailed, localizeError, persistLayout, selectedId]);
 
   const onMoveEnd = useCallback((_event: MouseEvent | TouchEvent | null, viewport: Viewport) => {
     if (!selectedId) return;
     viewportRef.current = viewport;
-    void persistLayout().catch((cause) => setError(translateCanvasError(cause, '无法保存画布布局')));
-  }, [persistLayout, selectedId]);
+    void persistLayout().catch((cause) => setError(localizeError(cause, copy.saveLayoutFailed)));
+  }, [copy.saveLayoutFailed, localizeError, persistLayout, selectedId]);
 
   const createCanvas = useCallback(async () => {
-    const name = nextCanvasName(canvases);
+    const name = nextCanvasName(canvases, copy);
     try {
       const canvas = await canvasApi.create(name, agentId || 'main');
       await canvasApi.createRoot(canvas.id);
@@ -750,8 +733,8 @@ export function CanvasPanel({ agentId }: { agentId: string }) {
       setSelectedId(canvas.id);
       setEditingCanvasId(canvas.id);
       setEditingCanvasName(canvas.name);
-    } catch (cause) { setError(translateCanvasError(cause, '无法创建画布')); }
-  }, [agentId, canvases, loadCanvases]);
+    } catch (cause) { setError(localizeError(cause, copy.createCanvasFailed)); }
+  }, [agentId, canvases, copy, loadCanvases, localizeError]);
 
   const renameCanvas = useCallback(async (canvas: CanvasSummary) => {
     const name = editingCanvasName.trim();
@@ -762,31 +745,31 @@ export function CanvasPanel({ agentId }: { agentId: string }) {
       setCanvases((current) => current.map((item) => item.id === updated.id ? updated : item));
       setGraph((current) => current?.canvas.id === updated.id ? { ...current, canvas: updated } : current);
     } catch (cause) {
-      setError(translateCanvasError(cause, '无法重命名画布'));
+      setError(localizeError(cause, copy.renameCanvasFailed));
     }
-  }, [editingCanvasName]);
+  }, [copy.renameCanvasFailed, editingCanvasName, localizeError]);
 
   const createRoot = useCallback(async () => {
     if (!selectedId) return;
     try { await canvasApi.createRoot(selectedId); await loadGraph(); }
-    catch (cause) { setError(translateCanvasError(cause, '无法创建新会话')); }
-  }, [loadGraph, selectedId]);
+    catch (cause) { setError(localizeError(cause, copy.createSessionFailed)); }
+  }, [copy.createSessionFailed, loadGraph, localizeError, selectedId]);
 
   const deleteCanvas = useCallback(async (canvas: CanvasSummary) => {
-    if (!window.confirm(`确定删除“${canvas.name}”及其画布数据吗？OpenClaw 原始会话记录不会被修改。`)) return;
+    if (!window.confirm(copy.deleteCanvasConfirm(canvas.name))) return;
     await canvasApi.remove(canvas.id);
     await loadCanvases();
-  }, [loadCanvases]);
+  }, [copy, loadCanvases]);
 
   return (
-    <div className="flex h-full min-h-0 w-full overflow-hidden bg-background">
+    <div lang={language} className="flex h-full min-h-0 w-full overflow-hidden bg-background">
       {canvasListVisible && (
         <aside className="flex w-64 shrink-0 flex-col border-r border-border/75 bg-card/65 p-3">
           <div className="flex items-center justify-between gap-2 px-1 py-2">
-            <div><div className="text-xs font-semibold uppercase tracking-[0.2em] text-primary">画布列表</div><div className="mt-1 text-[0.667rem] text-muted-foreground">智能体：{agentId}</div></div>
+            <div><div className="text-xs font-semibold uppercase tracking-[0.2em] text-primary">{copy.canvasList}</div><div className="mt-1 text-[0.667rem] text-muted-foreground">{copy.agentLabel(agentId)}</div></div>
             <div className="flex items-center gap-1">
-              <Button size="icon" variant="ghost" onClick={() => setCanvasListVisible(false)} title="隐藏画布列表" aria-label="隐藏画布列表"><PanelLeftClose size={15} /></Button>
-              <Button size="icon" variant="outline" onClick={() => void createCanvas()} title="新建画布"><Plus size={15} /></Button>
+              <Button size="icon" variant="ghost" onClick={() => setCanvasListVisible(false)} title={copy.hideCanvasList} aria-label={copy.hideCanvasList}><PanelLeftClose size={15} /></Button>
+              <Button size="icon" variant="outline" onClick={() => void createCanvas()} title={copy.newCanvas}><Plus size={15} /></Button>
             </div>
           </div>
           <div className="mt-2 grid gap-2 overflow-y-auto">
@@ -804,21 +787,21 @@ export function CanvasPanel({ agentId }: { agentId: string }) {
                         if (event.key === 'Escape') setEditingCanvasId(null);
                       }}
                       maxLength={120}
-                      aria-label={`重命名 ${canvas.name}`}
+                      aria-label={copy.renameCanvas(canvas.name)}
                       className="w-full rounded-lg border border-primary/45 bg-background px-2 py-1 text-sm outline-none focus:ring-1 focus:ring-primary"
                     />
-                    <div className="mt-1 px-1 text-[0.667rem] text-muted-foreground">按 Enter 保存，Esc 取消</div>
+                    <div className="mt-1 px-1 text-[0.667rem] text-muted-foreground">{copy.renameHint}</div>
                   </div>
                 ) : (
                   <button type="button" onClick={() => setSelectedId(canvas.id)} onDoubleClick={() => { setEditingCanvasId(canvas.id); setEditingCanvasName(canvas.name); }} className="min-w-0 flex-1 rounded-xl px-3 py-2 text-left">
                     <div className="truncate text-sm font-medium">{canvas.name}</div>
-                    <div className="mt-1 text-[0.667rem] text-muted-foreground">{new Date(canvas.updatedAt).toLocaleDateString()}</div>
+                    <div className="mt-1 text-[0.667rem] text-muted-foreground">{new Date(canvas.updatedAt).toLocaleDateString(language)}</div>
                   </button>
                 )}
                 {editingCanvasId !== canvas.id && (
-                  <button type="button" onClick={() => { setEditingCanvasId(canvas.id); setEditingCanvasName(canvas.name); }} className="p-2 text-muted-foreground opacity-0 hover:text-foreground group-hover:opacity-100" aria-label={`重命名 ${canvas.name}`} title="重命名"><Pencil size={14} /></button>
+                  <button type="button" onClick={() => { setEditingCanvasId(canvas.id); setEditingCanvasName(canvas.name); }} className="p-2 text-muted-foreground opacity-0 hover:text-foreground group-hover:opacity-100" aria-label={copy.renameCanvas(canvas.name)} title={copy.renameCanvas(canvas.name)}><Pencil size={14} /></button>
                 )}
-                <button type="button" onClick={() => void deleteCanvas(canvas)} className="p-2 text-muted-foreground opacity-0 hover:text-destructive group-hover:opacity-100" aria-label={`删除 ${canvas.name}`} title="删除画布"><Trash2 size={14} /></button>
+                <button type="button" onClick={() => void deleteCanvas(canvas)} className="p-2 text-muted-foreground opacity-0 hover:text-destructive group-hover:opacity-100" aria-label={copy.deleteCanvas(canvas.name)} title={copy.deleteCanvas(canvas.name)}><Trash2 size={14} /></button>
               </div>
             ))}
           </div>
@@ -826,14 +809,14 @@ export function CanvasPanel({ agentId }: { agentId: string }) {
       )}
 
       <main className="relative min-w-0 flex-1">
-        {!canvasListVisible && <Button size="icon" variant="outline" onClick={() => setCanvasListVisible(true)} className="absolute left-4 top-4 z-20 bg-card/92 shadow-lg backdrop-blur" title="显示画布列表" aria-label="显示画布列表"><PanelLeftOpen size={15} /></Button>}
-        {error && <button type="button" onClick={() => setError(null)} className="absolute left-1/2 top-3 z-20 flex -translate-x-1/2 items-center gap-2 rounded-xl border border-destructive/30 bg-card px-3 py-2 text-xs text-destructive"><AlertCircle size={14} />{error}<X size={13} /></button>}
+        {!canvasListVisible && <Button size="icon" variant="outline" onClick={() => setCanvasListVisible(true)} className="absolute left-4 top-4 z-20 bg-card/92 shadow-lg backdrop-blur" title={copy.showCanvasList} aria-label={copy.showCanvasList}><PanelLeftOpen size={15} /></Button>}
+        {error && <button translate="no" type="button" onClick={() => setError(null)} className="notranslate absolute left-1/2 top-3 z-20 flex -translate-x-1/2 items-center gap-2 rounded-xl border border-destructive/30 bg-card px-3 py-2 text-xs text-destructive"><AlertCircle size={14} />{error}<X size={13} /></button>}
         {selectedId && graph ? (
           <>
             <div className={`absolute top-4 z-10 flex items-center gap-3 rounded-2xl border border-border/75 bg-card/92 px-3 py-2 shadow-lg backdrop-blur ${canvasListVisible ? 'left-4' : 'left-16'}`}>
               <Bot size={16} className={connectionState === 'connected' ? 'text-green' : 'text-muted-foreground'} />
-              <div><div className="text-sm font-semibold">{graph.canvas.name}</div><div className="text-[0.667rem] text-muted-foreground">{connectionState === 'connected' ? 'OpenClaw 已连接' : 'OpenClaw 暂不可用'}</div></div>
-              <Button size="sm" onClick={() => void createRoot()}><Plus size={14} /> 新会话</Button>
+              <div><div className="text-sm font-semibold">{graph.canvas.name}</div><div translate="no" className="notranslate text-[0.667rem] text-muted-foreground">{connectionState === 'connected' ? copy.connected : copy.unavailable}</div></div>
+              <Button size="sm" onClick={() => void createRoot()}><Plus size={14} /> {copy.newSession}</Button>
             </div>
             <ReactFlow
               key={selectedId}
@@ -849,12 +832,12 @@ export function CanvasPanel({ agentId }: { agentId: string }) {
               colorMode="dark"
               proOptions={{ hideAttribution: true }}
               ariaLabelConfig={{
-                'controls.ariaLabel': '画布控制',
-                'controls.zoomIn.ariaLabel': '放大',
-                'controls.zoomOut.ariaLabel': '缩小',
-                'controls.fitView.ariaLabel': '适应视图',
-                'controls.interactive.ariaLabel': '切换节点交互',
-                'minimap.ariaLabel': '画布缩略图',
+                'controls.ariaLabel': copy.canvasControls,
+                'controls.zoomIn.ariaLabel': copy.zoomIn,
+                'controls.zoomOut.ariaLabel': copy.zoomOut,
+                'controls.fitView.ariaLabel': copy.fitView,
+                'controls.interactive.ariaLabel': copy.toggleInteractive,
+                'minimap.ariaLabel': copy.minimap,
               }}
             >
               <Background gap={24} size={1} />
@@ -864,7 +847,7 @@ export function CanvasPanel({ agentId }: { agentId: string }) {
           </>
         ) : (
           <div className="flex h-full items-center justify-center p-8 text-center">
-            <div><Sparkles size={34} className="mx-auto text-primary" /><h2 className="mt-4 text-2xl font-semibold">开始使用 OpenClaw 画布</h2><p className="mt-2 text-sm text-muted-foreground">创建画布后，你可以开始多个独立会话，并从历史交互创建新的分支。</p><Button className="mt-5" onClick={() => void createCanvas()}><Plus size={15} /> 新建画布</Button></div>
+            <div><Sparkles size={34} className="mx-auto text-primary" /><h2 className="mt-4 text-2xl font-semibold">{copy.emptyTitle}</h2><p className="mt-2 text-sm text-muted-foreground">{copy.emptyDescription}</p><Button className="mt-5" onClick={() => void createCanvas()}><Plus size={15} /> {copy.newCanvas}</Button></div>
           </div>
         )}
       </main>
@@ -872,7 +855,7 @@ export function CanvasPanel({ agentId }: { agentId: string }) {
         <div
           role="dialog"
           aria-modal="true"
-          aria-label={`图片预览：${previewImage.name}`}
+          aria-label={copy.previewDialog(previewImage.name)}
           onClick={() => setPreviewImage(null)}
           className="fixed inset-0 z-[100] flex cursor-zoom-out items-center justify-center bg-black/85 p-6 backdrop-blur-sm"
         >
@@ -880,8 +863,8 @@ export function CanvasPanel({ agentId }: { agentId: string }) {
             type="button"
             onClick={() => setPreviewImage(null)}
             className="absolute right-5 top-5 flex size-10 items-center justify-center rounded-full border border-white/20 bg-black/45 text-white hover:bg-black/70"
-            aria-label="关闭图片预览"
-            title="关闭预览"
+            aria-label={copy.closeImagePreview}
+            title={copy.closePreview}
           >
             <X size={22} />
           </button>

@@ -1,4 +1,6 @@
 import { compressImage } from '@/features/chat/image-compress';
+import { DEFAULT_LANGUAGE, type Language } from '@/lib/language';
+import { CanvasLocalizedError, getCanvasCopy } from './messages';
 
 export const CANVAS_INLINE_IMAGE_MAX_BYTES = 1_800_000;
 export const CANVAS_ATTACHMENT_MAX_BYTES = 20 * 1024 * 1024;
@@ -9,30 +11,32 @@ export interface GatewayAttachment {
   content: string;
 }
 
-function readAsBase64(file: File): Promise<string> {
+function readAsBase64(file: File, language: Language): Promise<string> {
+  const copy = getCanvasCopy(language);
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => {
       const value = typeof reader.result === 'string' ? reader.result : '';
       resolve(value.split(',', 2)[1] || '');
     };
-    reader.onerror = () => reject(reader.error || new Error(`无法读取附件：${file.name}`));
+    reader.onerror = () => reject(reader.error || new CanvasLocalizedError(copy.attachmentReadFailed(file.name)));
     reader.readAsDataURL(file);
   });
 }
 
-export async function prepareGatewayAttachment(file: File): Promise<GatewayAttachment> {
+export async function prepareGatewayAttachment(file: File, language: Language = DEFAULT_LANGUAGE): Promise<GatewayAttachment> {
+  const copy = getCanvasCopy(language);
   const mimeType = file.type || 'application/octet-stream';
 
   if (!mimeType.startsWith('image/')) {
     if (file.size > CANVAS_ATTACHMENT_MAX_BYTES) {
-      throw new Error(`附件“${file.name}”超过 20 MB，无法发送给 OpenClaw`);
+      throw new CanvasLocalizedError(copy.attachmentTooLarge(file.name));
     }
-    return { fileName: file.name, mimeType, content: await readAsBase64(file) };
+    return { fileName: file.name, mimeType, content: await readAsBase64(file, language) };
   }
 
   if (file.size <= CANVAS_INLINE_IMAGE_MAX_BYTES) {
-    return { fileName: file.name, mimeType, content: await readAsBase64(file) };
+    return { fileName: file.name, mimeType, content: await readAsBase64(file, language) };
   }
 
   const compressed = await compressImage(file, {
@@ -43,13 +47,13 @@ export async function prepareGatewayAttachment(file: File): Promise<GatewayAttac
     webpQuality: 82,
   });
   if (compressed.bytes > CANVAS_INLINE_IMAGE_MAX_BYTES) {
-    throw new Error(`图片“${file.name}”无法压缩到 OpenClaw 可直接识别的大小`);
+    throw new CanvasLocalizedError(copy.imageCompressionFailed(file.name));
   }
   return { fileName: file.name, mimeType: compressed.mimeType, content: compressed.base64 };
 }
 
-export async function prepareGatewayAttachments(files: File[]): Promise<GatewayAttachment[]> {
+export async function prepareGatewayAttachments(files: File[], language: Language = DEFAULT_LANGUAGE): Promise<GatewayAttachment[]> {
   const prepared: GatewayAttachment[] = [];
-  for (const file of files) prepared.push(await prepareGatewayAttachment(file));
+  for (const file of files) prepared.push(await prepareGatewayAttachment(file, language));
   return prepared;
 }

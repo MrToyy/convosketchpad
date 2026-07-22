@@ -45,6 +45,7 @@ import { isImageFile } from '@/features/file-browser/utils/fileTypes';
 import { buildAgentRootSessionKey, getSessionDisplayLabel } from '@/features/sessions/sessionKeys';
 import { shouldGuardWorkspaceSwitch } from '@/features/workspace/workspaceSwitchGuard';
 import { getWorkspaceAgentId, getWorkspaceRootSessionKey } from '@/features/workspace/workspaceScope';
+import { getCanvasCopy } from '@/features/canvas/messages';
 
 // Lazy-loaded features (not needed in initial bundle)
 const SettingsDrawer = lazy(() => import('@/features/settings/SettingsDrawer').then(m => ({ default: m.SettingsDrawer })));
@@ -118,6 +119,7 @@ export default function App({ onLogout }: AppProps) {
 
   // Settings state
   const {
+    language,
     soundEnabled, toggleSound,
     ttsProvider, ttsModel, setTtsProvider, setTtsModel,
     sttProvider, setSttProvider, sttInputMode, setSttInputMode, sttModel, setSttModel,
@@ -130,6 +132,7 @@ export default function App({ onLogout }: AppProps) {
     kanbanVisible,
     commandPaletteButtonVisible,
   } = useSettings();
+  const canvasCopy = getCanvasCopy(language);
 
   // Connection management (extracted hook)
   const {
@@ -1094,7 +1097,7 @@ export default function App({ onLogout }: AppProps) {
         )}
         {viewMode === 'canvas' && (
           <div className="shell-panel boot-panel flex-1 flex min-w-0 min-h-0 overflow-hidden rounded-[28px]">
-            <Suspense fallback={<div className="flex-1 flex items-center justify-center text-muted-foreground text-xs bg-background">正在加载画布…</div>}>
+            <Suspense fallback={<div lang={language} className="flex-1 flex items-center justify-center text-muted-foreground text-xs bg-background">{canvasCopy.loadingCanvas}</div>}>
               <CanvasPanel agentId={workspaceAgentId} />
             </Suspense>
           </div>

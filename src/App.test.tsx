@@ -159,6 +159,7 @@ vi.mock('@/contexts/ChatContext', () => ({
 
 vi.mock('@/contexts/SettingsContext', () => ({
   useSettings: () => ({
+    language: 'zh-CN',
     soundEnabled: false,
     toggleSound: vi.fn(),
     ttsProvider: 'off',

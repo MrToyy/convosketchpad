@@ -3,11 +3,14 @@ import { createContext, useContext, useCallback, useRef, useState, useEffect, us
 import { useTTS, migrateTTSProvider, type TTSProvider } from '@/features/tts/useTTS';
 import { type ThemeName, applyTheme, themeNames } from '@/lib/themes';
 import { type FontName, applyFont, fontNames } from '@/lib/fonts';
+import { LANGUAGE_STORAGE_KEY, normalizeLanguage, type Language } from '@/lib/language';
 
 export type STTProvider = 'local' | 'openai';
 export type STTInputMode = 'browser' | 'local' | 'hybrid';
 
 interface SettingsContextValue {
+  language: Language;
+  setLanguage: (language: Language) => void;
   soundEnabled: boolean;
   toggleSound: () => void;
   ttsProvider: TTSProvider;
@@ -110,6 +113,7 @@ function resolveInitialFont(): FontName {
 }
 
 export function SettingsProvider({ children }: { children: ReactNode }) {
+  const [language, setLanguageState] = useState<Language>(() => normalizeLanguage(localStorage.getItem(LANGUAGE_STORAGE_KEY)));
   const [soundEnabled, setSoundEnabled] = useState(localStorage.getItem('oc-sound') === 'true');
   const [ttsProvider, setTtsProvider] = useState<TTSProvider>(() => migrateTTSProvider(localStorage.getItem('oc-tts-provider') || 'edge'));
   const [ttsModel, setTtsModelState] = useState(() => localStorage.getItem('oc-tts-model') || '');
@@ -193,6 +197,12 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       localStorage.setItem('oc-sound', String(next));
       return next;
     });
+  }, []);
+
+  const setLanguage = useCallback((nextLanguage: Language) => {
+    const normalized = normalizeLanguage(nextLanguage);
+    setLanguageState(normalized);
+    localStorage.setItem(LANGUAGE_STORAGE_KEY, normalized);
   }, []);
 
   const toggleLiveTranscriptionPreview = useCallback(() => {
@@ -366,6 +376,8 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo<SettingsContextValue>(() => ({
+    language,
+    setLanguage,
     soundEnabled,
     toggleSound,
     ttsProvider,
@@ -409,6 +421,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     kanbanVisible,
     toggleKanbanVisible,
   }), [
+    language, setLanguage,
     soundEnabled, toggleSound, ttsProvider, ttsModel, changeTtsProvider, changeTtsModel, toggleTtsProvider,
     sttProvider, changeSttProvider, sttInputMode, changeSttInputMode, sttModel, changeSttModel,
     wakeWordEnabled, handleToggleWakeWord, handleWakeWordState,

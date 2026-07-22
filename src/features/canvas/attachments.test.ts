@@ -22,4 +22,9 @@ describe('Canvas Gateway attachments', () => {
     const file = new File([new Uint8Array(CANVAS_ATTACHMENT_MAX_BYTES + 1)], 'large.bin', { type: 'application/octet-stream' });
     await expect(prepareGatewayAttachment(file)).rejects.toThrow('超过 20 MB');
   });
+
+  it('localizes attachment validation errors for English Canvas UI', async () => {
+    const file = new File([new Uint8Array(CANVAS_ATTACHMENT_MAX_BYTES + 1)], 'large.bin', { type: 'application/octet-stream' });
+    await expect(prepareGatewayAttachment(file, 'en')).rejects.toThrow('exceeds 20 MB');
+  });
 });

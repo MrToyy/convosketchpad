@@ -255,14 +255,14 @@ export function TopBar({
           <div className="order-3 flex w-full items-center gap-2 max-[371px]:gap-1 sm:order-none sm:ml-2 sm:w-auto">
             <button
               onClick={() => onViewModeChange("canvas")}
-              title="画布视图"
-              aria-label="切换到画布视图"
+              title="Canvas View"
+              aria-label="Switch to canvas view"
               aria-pressed={viewMode === "canvas"}
               data-active={viewMode === "canvas"}
               className="shell-chip min-h-11 flex-1 justify-center text-[0.733rem] uppercase tracking-[0.14em] max-[371px]:min-h-[38px] max-[371px]:gap-1 max-[371px]:px-2 max-[371px]:text-[0.667rem] max-[371px]:tracking-[0.08em] max-[371px]:[&_svg]:size-3 sm:min-h-10 sm:flex-none"
             >
               <Workflow size={13} aria-hidden="true" />
-              <span>画布</span>
+              <span translate="no" className="notranslate">CANVAS</span>
             </button>
             <button
               onClick={() => onViewModeChange("chat")}

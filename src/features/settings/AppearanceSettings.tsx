@@ -1,9 +1,10 @@
-import { Monitor, Eye, Type, Activity, ALargeSmall, Code2, Columns3, Command } from 'lucide-react';
+import { Monitor, Eye, Type, Activity, ALargeSmall, Code2, Columns3, Command, Languages } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import { InlineSelect } from '@/components/ui/InlineSelect';
 import { useSettings } from '@/contexts/SettingsContext';
 import { themes, themeNames, type ThemeName } from '@/lib/themes';
 import { fonts, fontNames, type FontName } from '@/lib/fonts';
+import type { Language } from '@/lib/language';
 
 const INLINE_SELECT_TRIGGER_CLASS =
   'min-h-11 w-full justify-between rounded-2xl border-border/80 bg-background/65 px-3 py-2 text-left text-sm font-sans text-foreground sm:min-w-[148px]';
@@ -40,9 +41,16 @@ const FONT_SIZE_OPTIONS = [
   { value: '24', label: '24px' },
 ];
 
+const LANGUAGE_OPTIONS = [
+  { value: 'zh-CN', label: '简体中文' },
+  { value: 'en', label: 'English' },
+];
+
 /** Settings section for theme, font, font size, and panel visibility. */
 export function AppearanceSettings() {
   const {
+    language,
+    setLanguage,
     eventsVisible,
     toggleEvents,
     logVisible,
@@ -78,6 +86,27 @@ export function AppearanceSettings() {
           <span className="text-primary">◆</span>
           Appearance
         </span>
+      </div>
+
+      {/* Language selector — currently consumed by Canvas only. */}
+      <div className="cockpit-row items-start justify-between">
+        <div className="flex min-w-0 items-start gap-3">
+          <Languages size={14} className="text-primary" />
+          <div className="flex flex-col">
+            <span className="text-sm font-medium text-foreground">Language</span>
+            <span className="text-xs text-muted-foreground">Controls the Canvas interface for now.</span>
+          </div>
+        </div>
+        <div className="relative w-full sm:w-auto">
+          <InlineSelect
+            value={language}
+            onChange={(next) => setLanguage(next as Language)}
+            options={LANGUAGE_OPTIONS}
+            ariaLabel="Select interface language"
+            triggerClassName={INLINE_SELECT_TRIGGER_CLASS}
+            menuClassName={INLINE_SELECT_MENU_CLASS}
+          />
+        </div>
       </div>
 
       {/* Theme selector */}

@@ -25,6 +25,14 @@ function renderTopBar(props: Partial<React.ComponentProps<typeof TopBar>> = {}) 
 }
 
 describe('TopBar', () => {
+  it('keeps the canvas navigation label fixed as CANVAS', () => {
+    renderTopBar();
+
+    const canvasButton = screen.getByRole('button', { name: /switch to canvas view/i });
+    expect(canvasButton).toHaveTextContent('CANVAS');
+    expect(canvasButton.querySelector('span')).toHaveAttribute('translate', 'no');
+  });
+
   it('shows the tasks view toggle by default', () => {
     renderTopBar();
 
