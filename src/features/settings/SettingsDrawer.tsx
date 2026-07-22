@@ -4,7 +4,8 @@ import { ConnectionSettings } from './ConnectionSettings';
 import { AudioSettings } from './AudioSettings';
 import { AppearanceSettings } from './AppearanceSettings';
 import type { TTSProvider } from '@/features/tts/useTTS';
-import type { STTInputMode, STTProvider } from '@/contexts/SettingsContext';
+import { useSettings, type STTInputMode, type STTProvider } from '@/contexts/SettingsContext';
+import { getSettingsCopy } from './messages';
 
 interface SettingsDrawerProps {
   open: boolean;
@@ -56,10 +57,10 @@ function normalizeSavedCategory(value: string | null): SettingsCategory | null {
 }
 
 const SETTINGS_CATEGORIES = [
-  { key: 'advanced', label: 'Connection', icon: Shield },
-  { key: 'audio', label: 'Audio', icon: Mic },
-  { key: 'appearance', label: 'Appearance', icon: Monitor },
-] as const satisfies ReadonlyArray<{ key: SettingsCategory; label: string; icon: typeof Mic }>;
+  { key: 'advanced', icon: Shield },
+  { key: 'audio', icon: Mic },
+  { key: 'appearance', icon: Monitor },
+] as const satisfies ReadonlyArray<{ key: SettingsCategory; icon: typeof Mic }>;
 
 /** Slide-in drawer containing connection, audio, and appearance settings. */
 export function SettingsDrawer({
@@ -92,6 +93,8 @@ export function SettingsDrawer({
   onGatewayRestart,
   gatewayRestarting,
 }: SettingsDrawerProps) {
+  const { language } = useSettings();
+  const copy = getSettingsCopy(language);
   const drawerRef = useRef<HTMLDivElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const isConnected = connectionState === 'connected' || connectionState === 'reconnecting';
@@ -167,6 +170,7 @@ export function SettingsDrawer({
       {/* Drawer */}
       <div
         ref={drawerRef}
+        lang={language}
         role="dialog"
         aria-modal="true"
         aria-labelledby="settings-title"
@@ -178,16 +182,16 @@ export function SettingsDrawer({
             <div className="space-y-2">
               <span className="cockpit-kicker" id="settings-title">
                 <Settings size={14} className="text-primary" aria-hidden="true" />
-                Control Room
+                {copy.drawer.controlRoom}
               </span>
-              <div className="cockpit-title text-[1.1rem]">Settings</div>
+              <div className="cockpit-title text-[1.1rem]">{copy.drawer.title}</div>
             </div>
             <button
               ref={closeButtonRef}
               onClick={onClose}
               className="shell-icon-button min-h-9 px-3"
-              title="Close (Esc)"
-              aria-label="Close settings"
+              title={copy.drawer.closeTitle}
+              aria-label={copy.drawer.closeAria}
             >
               <X size={16} aria-hidden="true" />
             </button>
@@ -197,7 +201,7 @@ export function SettingsDrawer({
         {/* Content */}
         <div className="flex-1 overflow-hidden flex flex-col">
           <div className="shrink-0 border-b border-border/60 bg-background/24 px-4 py-3">
-            <div className="-mx-0.5 flex flex-wrap gap-2 px-0.5 py-1 sm:flex-nowrap sm:overflow-x-auto" role="tablist" aria-label="Settings categories">
+            <div className="-mx-0.5 flex flex-wrap gap-2 px-0.5 py-1 sm:flex-nowrap sm:overflow-x-auto" role="tablist" aria-label={copy.drawer.categoriesAria}>
               {SETTINGS_CATEGORIES.map((category) => {
                 const Icon = category.icon;
                 const isActive = currentCategory === category.key;
@@ -213,7 +217,7 @@ export function SettingsDrawer({
                     className={`shell-chip min-h-11 min-w-[calc(50%-0.25rem)] flex-1 justify-center whitespace-nowrap px-3.5 text-[0.8rem] font-medium sm:min-h-10 sm:min-w-0 sm:flex-none sm:justify-start ${disabled ? 'cursor-not-allowed opacity-45 hover:translate-y-0 hover:border-border/80 hover:text-muted-foreground' : ''}`}
                   >
                       <Icon size={12} aria-hidden="true" />
-                    <span>{category.label}</span>
+                    <span>{copy.drawer.categories[category.key]}</span>
                   </button>
                 );
               })}
@@ -270,7 +274,7 @@ export function SettingsDrawer({
               data-tone="danger"
             >
               <LogOut size={14} aria-hidden="true" />
-              Sign Out
+              {copy.drawer.signOut}
             </button>
           )}
           <div className="flex items-center justify-between gap-3 px-1 text-[0.733rem] text-muted-foreground/70">

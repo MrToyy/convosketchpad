@@ -4,6 +4,14 @@ import { beforeEach, describe, expect, it, vi, Mock } from 'vitest';
 import { AudioSettings } from './AudioSettings';
 import * as wakeWordSupport from '@/features/voice/wakeWordSupport';
 
+const { mockUseSettings } = vi.hoisted(() => ({
+  mockUseSettings: vi.fn(() => ({ language: 'en' })),
+}));
+
+vi.mock('@/contexts/SettingsContext', () => ({
+  useSettings: mockUseSettings,
+}));
+
 vi.mock('@/features/voice/wakeWordSupport', () => ({
   getWakeWordSupport: vi.fn(() => ({ supported: true, reason: null })),
   isWakeWordSupportedEnvironment: vi.fn(() => true),
@@ -83,6 +91,7 @@ let apiKeyState: ApiKeyState = {
 describe('AudioSettings', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockUseSettings.mockReturnValue({ language: 'en' });
     mockWakeWordSupport({ supported: true, reason: null });
     apiKeyState = {
       openaiKeySet: true,
@@ -172,6 +181,19 @@ describe('AudioSettings', () => {
     });
   });
 
+  describe('interface localization', () => {
+    it('renders audio controls in Simplified Chinese', async () => {
+      mockUseSettings.mockReturnValue({ language: 'zh-CN' });
+
+      render(<AudioSettings {...baseProps} />);
+
+      expect(await screen.findByText('语音语言')).toBeInTheDocument();
+      expect(screen.getByText('唤醒词')).toBeInTheDocument();
+      expect(screen.getByText('语音转文字')).toBeInTheDocument();
+      expect(screen.getByLabelText('选择语音输入模式')).toHaveValue('hybrid');
+    });
+  });
+
   describe('Xiaomi Mimo output settings', () => {
     it('renders a Xiaomi Mimo provider button', async () => {
       render(<AudioSettings {...baseProps} section="output" ttsProvider="xiaomi" ttsModel="" />);
@@ -206,8 +228,8 @@ describe('AudioSettings', () => {
     it('updates Xiaomi style when the Style field changes', async () => {
       render(<AudioSettings {...baseProps} section="output" ttsProvider="xiaomi" ttsModel="mimo-v2-tts" />);
 
-      fireEvent.click(await screen.findByText('Happy, whisper, calm, dramatic...'));
-      fireEvent.change(screen.getByPlaceholderText('Happy, whisper, calm, dramatic...'), { target: { value: 'Happy' } });
+      fireEvent.click(await screen.findByText('Happy, whisper, calm, dramatic…'));
+      fireEvent.change(screen.getByPlaceholderText('Happy, whisper, calm, dramatic…'), { target: { value: 'Happy' } });
 
       expect(updateField).toHaveBeenCalledWith('xiaomi', 'style', 'Happy');
     });

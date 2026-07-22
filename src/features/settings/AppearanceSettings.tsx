@@ -5,41 +5,14 @@ import { useSettings } from '@/contexts/SettingsContext';
 import { themes, themeNames, type ThemeName } from '@/lib/themes';
 import { fonts, fontNames, type FontName } from '@/lib/fonts';
 import type { Language } from '@/lib/language';
+import { getSettingsCopy } from './messages';
 
 const INLINE_SELECT_TRIGGER_CLASS =
   'min-h-11 w-full justify-between rounded-2xl border-border/80 bg-background/65 px-3 py-2 text-left text-sm font-sans text-foreground sm:min-w-[148px]';
 const INLINE_SELECT_MENU_CLASS =
   'rounded-2xl border-border/80 bg-card/98 p-1 shadow-[0_20px_48px_rgba(0,0,0,0.28)]';
 
-const EDITOR_FONT_SIZE_OPTIONS = [
-  { value: '10', label: '10px' },
-  { value: '11', label: '11px' },
-  { value: '12', label: '12px' },
-  { value: '13', label: '13px (default)' },
-  { value: '14', label: '14px' },
-  { value: '15', label: '15px' },
-  { value: '16', label: '16px' },
-  { value: '17', label: '17px' },
-  { value: '18', label: '18px' },
-  { value: '20', label: '20px' },
-  { value: '22', label: '22px' },
-  { value: '24', label: '24px' },
-];
-
-const FONT_SIZE_OPTIONS = [
-  { value: '10', label: '10px' },
-  { value: '11', label: '11px' },
-  { value: '12', label: '12px' },
-  { value: '13', label: '13px' },
-  { value: '14', label: '14px' },
-  { value: '15', label: '15px (default)' },
-  { value: '16', label: '16px' },
-  { value: '17', label: '17px' },
-  { value: '18', label: '18px' },
-  { value: '20', label: '20px' },
-  { value: '22', label: '22px' },
-  { value: '24', label: '24px' },
-];
+const FONT_SIZES = ['10', '11', '12', '13', '14', '15', '16', '17', '18', '20', '22', '24'];
 
 const LANGUAGE_OPTIONS = [
   { value: 'zh-CN', label: '简体中文' },
@@ -70,6 +43,15 @@ export function AppearanceSettings() {
     editorFontSize,
     setEditorFontSize,
   } = useSettings();
+  const copy = getSettingsCopy(language).appearance;
+  const fontSizeOptions = FONT_SIZES.map((value) => ({
+    value,
+    label: value === '15' ? `${value}px (${copy.defaultSuffix})` : `${value}px`,
+  }));
+  const editorFontSizeOptions = FONT_SIZES.map((value) => ({
+    value,
+    label: value === '13' ? `${value}px (${copy.defaultSuffix})` : `${value}px`,
+  }));
 
   const handleThemeChange = (next: string) => {
     setTheme(next as ThemeName);
@@ -84,17 +66,17 @@ export function AppearanceSettings() {
       <div className="space-y-1.5">
         <span className="cockpit-kicker">
           <span className="text-primary">◆</span>
-          Appearance
+          {copy.heading}
         </span>
       </div>
 
-      {/* Language selector — currently consumed by Canvas only. */}
+      {/* Interface language currently applies to Canvas and Settings. */}
       <div className="cockpit-row items-start justify-between">
         <div className="flex min-w-0 items-start gap-3">
           <Languages size={14} className="text-primary" />
           <div className="flex flex-col">
-            <span className="text-sm font-medium text-foreground">Language</span>
-            <span className="text-xs text-muted-foreground">Controls the Canvas interface for now.</span>
+            <span className="text-sm font-medium text-foreground">{copy.language}</span>
+            <span className="text-xs text-muted-foreground">{copy.languageHint}</span>
           </div>
         </div>
         <div className="relative w-full sm:w-auto">
@@ -102,7 +84,7 @@ export function AppearanceSettings() {
             value={language}
             onChange={(next) => setLanguage(next as Language)}
             options={LANGUAGE_OPTIONS}
-            ariaLabel="Select interface language"
+            ariaLabel={copy.languageAria}
             triggerClassName={INLINE_SELECT_TRIGGER_CLASS}
             menuClassName={INLINE_SELECT_MENU_CLASS}
           />
@@ -114,8 +96,8 @@ export function AppearanceSettings() {
         <div className="flex min-w-0 items-start gap-3">
           <Monitor size={14} className="text-primary" />
           <div className="flex flex-col">
-            <span className="text-sm font-medium text-foreground">Theme</span>
-            <span className="text-xs text-muted-foreground">Swap the full cockpit palette in one move.</span>
+            <span className="text-sm font-medium text-foreground">{copy.theme}</span>
+            <span className="text-xs text-muted-foreground">{copy.themeHint}</span>
           </div>
         </div>
         <div className="relative w-full sm:w-auto">
@@ -123,7 +105,7 @@ export function AppearanceSettings() {
             value={theme}
             onChange={handleThemeChange}
             options={themeNames.map((name) => ({ value: name, label: themes[name].label }))}
-            ariaLabel="Select theme"
+            ariaLabel={copy.themeAria}
             triggerClassName={INLINE_SELECT_TRIGGER_CLASS}
             menuClassName={INLINE_SELECT_MENU_CLASS}
           />
@@ -135,8 +117,8 @@ export function AppearanceSettings() {
         <div className="flex min-w-0 items-start gap-3">
           <Type size={14} className="text-primary" />
           <div className="flex flex-col">
-            <span className="text-sm font-medium text-foreground">UI font</span>
-            <span className="text-xs text-muted-foreground">Code blocks stay monospace</span>
+            <span className="text-sm font-medium text-foreground">{copy.uiFont}</span>
+            <span className="text-xs text-muted-foreground">{copy.uiFontHint}</span>
           </div>
         </div>
         <div className="relative w-full sm:w-auto">
@@ -144,7 +126,7 @@ export function AppearanceSettings() {
             value={font}
             onChange={handleFontChange}
             options={fontNames.map((name) => ({ value: name, label: fonts[name].label }))}
-            ariaLabel="Select font"
+            ariaLabel={copy.uiFontAria}
             triggerClassName={INLINE_SELECT_TRIGGER_CLASS}
             menuClassName={INLINE_SELECT_MENU_CLASS}
           />
@@ -156,16 +138,16 @@ export function AppearanceSettings() {
         <div className="flex min-w-0 items-start gap-3">
           <ALargeSmall size={14} className="text-primary" />
           <div className="flex flex-col">
-            <span className="text-sm font-medium text-foreground">Font size</span>
-            <span className="text-xs text-muted-foreground">Base size for all UI text</span>
+            <span className="text-sm font-medium text-foreground">{copy.fontSize}</span>
+            <span className="text-xs text-muted-foreground">{copy.fontSizeHint}</span>
           </div>
         </div>
         <div className="relative w-full sm:w-auto">
           <InlineSelect
             value={String(fontSize)}
             onChange={(next) => setFontSize(parseInt(next, 10))}
-            options={FONT_SIZE_OPTIONS}
-            ariaLabel="Select font size"
+            options={fontSizeOptions}
+            ariaLabel={copy.fontSizeAria}
             triggerClassName={INLINE_SELECT_TRIGGER_CLASS}
             menuClassName={INLINE_SELECT_MENU_CLASS}
           />
@@ -177,16 +159,16 @@ export function AppearanceSettings() {
         <div className="flex min-w-0 items-start gap-3">
           <Code2 size={14} className="text-primary" />
           <div className="flex flex-col">
-            <span className="text-sm font-medium text-foreground">Editor font size</span>
-            <span className="text-xs text-muted-foreground">Size for the code editor</span>
+            <span className="text-sm font-medium text-foreground">{copy.editorFontSize}</span>
+            <span className="text-xs text-muted-foreground">{copy.editorFontSizeHint}</span>
           </div>
         </div>
         <div className="relative w-full sm:w-auto">
           <InlineSelect
             value={String(editorFontSize)}
             onChange={(next) => setEditorFontSize(parseInt(next, 10))}
-            options={EDITOR_FONT_SIZE_OPTIONS}
-            ariaLabel="Select editor font size"
+            options={editorFontSizeOptions}
+            ariaLabel={copy.editorFontSizeAria}
             triggerClassName={INLINE_SELECT_TRIGGER_CLASS}
             menuClassName={INLINE_SELECT_MENU_CLASS}
           />
@@ -198,14 +180,14 @@ export function AppearanceSettings() {
         <div className="flex items-center gap-3">
           <Eye size={14} className={eventsVisible ? 'text-primary' : 'text-muted-foreground'} aria-hidden="true" />
           <div className="flex flex-col">
-            <span className="text-sm font-medium text-foreground" id="events-label">Show events</span>
-            <span className="text-xs text-muted-foreground">Keep the event rail visible in the telemetry row.</span>
+            <span className="text-sm font-medium text-foreground" id="events-label">{copy.showEvents}</span>
+            <span className="text-xs text-muted-foreground">{copy.showEventsHint}</span>
           </div>
         </div>
         <Switch
           checked={eventsVisible}
           onCheckedChange={toggleEvents}
-          aria-label="Toggle events panel visibility"
+          aria-label={copy.showEventsAria}
         />
       </div>
 
@@ -214,14 +196,14 @@ export function AppearanceSettings() {
         <div className="flex items-center gap-3">
           <Activity size={14} className={logVisible ? 'text-green' : 'text-muted-foreground'} aria-hidden="true" />
           <div className="flex flex-col">
-            <span className="text-sm font-medium text-foreground" id="log-label">Show activity log</span>
-            <span className="text-xs text-muted-foreground">Surface agent activity in the top chrome.</span>
+            <span className="text-sm font-medium text-foreground" id="log-label">{copy.showLog}</span>
+            <span className="text-xs text-muted-foreground">{copy.showLogHint}</span>
           </div>
         </div>
         <Switch
           checked={logVisible}
           onCheckedChange={toggleLog}
-          aria-label="Toggle log panel visibility"
+          aria-label={copy.showLogAria}
         />
       </div>
 
@@ -230,14 +212,14 @@ export function AppearanceSettings() {
         <div className="flex items-center gap-3">
           <Eye size={14} className={showHiddenWorkspaceEntries ? 'text-primary' : 'text-muted-foreground'} aria-hidden="true" />
           <div className="flex flex-col">
-            <span className="text-sm font-medium text-foreground" id="hidden-workspace-entries-label">Show hidden workspace entries</span>
-            <span className="text-xs text-muted-foreground">Reveal dotfiles and dotfolders in the workspace browser when you need them.</span>
+            <span className="text-sm font-medium text-foreground" id="hidden-workspace-entries-label">{copy.showHidden}</span>
+            <span className="text-xs text-muted-foreground">{copy.showHiddenHint}</span>
           </div>
         </div>
         <Switch
           checked={showHiddenWorkspaceEntries}
           onCheckedChange={toggleShowHiddenWorkspaceEntries}
-          aria-label="Toggle hidden workspace entries visibility"
+          aria-label={copy.showHiddenAria}
         />
       </div>
 
@@ -246,8 +228,8 @@ export function AppearanceSettings() {
         <div className="flex items-center gap-3">
           <Command size={14} className={commandPaletteButtonVisible ? 'text-primary' : 'text-muted-foreground'} aria-hidden="true" />
           <div className="flex flex-col">
-            <span className="text-sm font-medium text-foreground" id="chatbox-commands-label">Show chatbox Commands button</span>
-            <span className="text-xs text-muted-foreground">Keep the Commands launcher visible in the chat composer.</span>
+            <span className="text-sm font-medium text-foreground" id="chatbox-commands-label">{copy.showCommands}</span>
+            <span className="text-xs text-muted-foreground">{copy.showCommandsHint}</span>
           </div>
         </div>
         <Switch
@@ -262,14 +244,14 @@ export function AppearanceSettings() {
         <div className="flex items-center gap-3">
           <Columns3 size={14} className={kanbanVisible ? 'text-primary' : 'text-muted-foreground'} aria-hidden="true" />
           <div className="flex flex-col">
-            <span className="text-sm font-medium text-foreground" id="kanban-label">Show workspace tasks</span>
-            <span className="text-xs text-muted-foreground">Toggle the Kanban view inside the workspace tabs.</span>
+            <span className="text-sm font-medium text-foreground" id="kanban-label">{copy.showTasks}</span>
+            <span className="text-xs text-muted-foreground">{copy.showTasksHint}</span>
           </div>
         </div>
         <Switch
           checked={kanbanVisible}
           onCheckedChange={toggleKanbanVisible}
-          aria-label="Toggle workspace kanban visibility"
+          aria-label={copy.showTasksAria}
         />
       </div>
 
