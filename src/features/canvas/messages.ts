@@ -17,6 +17,7 @@ export interface CanvasCopy {
   waitingForResponse: string;
   noResponse: string;
   partialHistoryResources: string;
+  artifactUnavailable: string;
   previewImage: (name: string) => string;
   forkFromInteraction: string;
   closeComposer: string;
@@ -133,6 +134,7 @@ export const canvasCopy = {
     waitingForResponse: '正在等待 OpenClaw 响应…',
     noResponse: '暂无响应内容。',
     partialHistoryResources: '部分历史资源未能继承',
+    artifactUnavailable: 'Artifact 暂不可用',
     previewImage: (name) => `预览图片 ${name}`,
     forkFromInteraction: '从此交互创建新分支',
     closeComposer: '关闭输入框',
@@ -195,6 +197,7 @@ export const canvasCopy = {
     waitingForResponse: 'Waiting for OpenClaw…',
     noResponse: 'No response content.',
     partialHistoryResources: 'Some historical resources could not be inherited',
+    artifactUnavailable: 'Artifact unavailable',
     previewImage: (name) => `Preview image ${name}`,
     forkFromInteraction: 'Create a branch from this interaction',
     closeComposer: 'Close composer',

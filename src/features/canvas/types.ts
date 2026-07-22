@@ -35,10 +35,15 @@ export interface CanvasAttachmentMeta {
 }
 
 export interface CanvasArtifact {
+  id?: string;
   name: string;
   mimeType?: string;
   sizeBytes?: number;
   uri: string;
+  sourceUri?: string;
+  storage?: 'canvas' | 'external' | 'source';
+  available?: boolean;
+  warning?: string;
 }
 
 export interface CanvasContextResource {

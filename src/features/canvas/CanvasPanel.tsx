@@ -198,9 +198,10 @@ function InteractionNode({ data }: NodeProps<InteractionFlowNode>) {
           {interaction.artifacts.map((artifact, index) => {
             const Icon = artifactIcon(artifact.mimeType);
             const isImage = artifact.mimeType?.startsWith('image/');
+            const available = artifact.available !== false;
             return (
               <div key={`${artifact.uri}-${index}`} className="overflow-hidden rounded-2xl border border-border/60 bg-background/45">
-                {isImage && (
+                {isImage && available && (
                   <button
                     type="button"
                     onClick={() => onPreviewImage(canvasArtifactUrl(artifact.uri), artifact.name)}
@@ -210,9 +211,16 @@ function InteractionNode({ data }: NodeProps<InteractionFlowNode>) {
                     <img src={canvasArtifactUrl(artifact.uri)} alt={artifact.name} className="max-h-56 w-full object-contain" />
                   </button>
                 )}
-                <a href={canvasArtifactUrl(artifact.uri)} target="_blank" rel="noreferrer" download className="flex items-center gap-2 px-3 py-2 text-xs text-foreground hover:bg-secondary/70">
-                  <Icon size={14} /><span className="min-w-0 flex-1 truncate">{artifact.name}</span><Download size={13} />
-                </a>
+                {available ? (
+                  <a href={canvasArtifactUrl(artifact.uri)} target="_blank" rel="noreferrer" download className="flex items-center gap-2 px-3 py-2 text-xs text-foreground hover:bg-secondary/70">
+                    <Icon size={14} /><span className="min-w-0 flex-1 truncate">{artifact.name}</span><Download size={13} />
+                  </a>
+                ) : (
+                  <div className="flex items-start gap-2 px-3 py-2 text-xs text-amber-300">
+                    <AlertCircle size={14} className="mt-0.5 shrink-0" />
+                    <span className="min-w-0"><span className="block truncate">{artifact.name}</span><span className="text-amber-300/80">{artifact.warning || copy.artifactUnavailable}</span></span>
+                  </div>
+                )}
               </div>
             );
           })}

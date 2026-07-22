@@ -53,3 +53,5 @@ server-dist/data/kanban/audit.log
 node_modules
 database/*
 !database/.gitkeep
+artifacts/*
+!artifacts/.gitkeep

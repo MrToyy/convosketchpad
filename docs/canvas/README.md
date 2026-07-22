@@ -32,6 +32,7 @@ server/lib/managed-users.ts
 server/lib/user-management.ts
 bin/nerve-users.ts         仅限本机命令行的用户管理
 database/canvas.sqlite     运行时数据；被 Git 忽略
+artifacts/                 Canvas 持久化的 OpenClaw 本地产物；内容被 Git 忽略
 ```
 
 ## 更新规则

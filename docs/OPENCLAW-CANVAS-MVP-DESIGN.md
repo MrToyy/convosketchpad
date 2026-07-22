@@ -22,7 +22,7 @@ Canvas 不替代 Chat，而是提供一种更适合浏览、组织和分支 AI �
 - 不修改、截断或重写 OpenClaw 原始 Transcript；
 - Canvas 历史只追加，不允许修改既有 Interaction；
 - Canvas 完全独立于普通 Chat，不从普通 Chat/Session 导入数据；
-- Canvas 结构化数据独立持久化，文件内容优先引用 OpenClaw Artifact，不重复复制；
+- Canvas 结构化数据独立持久化；OpenClaw 本地 Artifact 固化到项目 `artifacts/`，外部链接保留引用；
 - Canvas 数据按稳定用户身份隔离，所有读取和写入都必须经过 owner scope。
 
 ## 2. 产品概念
@@ -138,7 +138,7 @@ Root Branch C: I7 ── I8
 - 将已有 Canvas 重新绑定到另一个 Agent；
 - 自动删除 Canvas 对应的 OpenClaw Session；
 - Canvas 自己生成上下文摘要或实施第二套 compaction；
-- 为 Artifact 保存额外文件副本；
+- 镜像外部 HTTP(S) Artifact；
 - 完整全文搜索和向量检索；
 - 抵御已登录用户绕过 UI 直接访问共享 Gateway 的安全多租户隔离。
 
@@ -195,7 +195,7 @@ Root Branch C: I7 ── I8
 | Agent、模型执行、Tool、原生消息 | OpenClaw |
 | OpenClaw Session Transcript | OpenClaw |
 | Agent 实时工作状态 | OpenClaw agent/chat events |
-| Artifact 内容与下载能力 | OpenClaw Artifact API |
+| Artifact 内容与下载能力 | Canvas Artifact Store；旧引用回退到 OpenClaw Artifact API |
 | Token 用户、`auth_version` | Nerve Auth SQLite |
 | Canvas、Branch、布局 | Canvas SQLite |
 | Branch ↔ Session Mapping | Canvas SQLite |
@@ -203,7 +203,7 @@ Root Branch C: I7 ── I8
 | Canonical Snapshot | Canvas SQLite |
 | 已捕获的 compaction checkpoint 元数据 | Canvas SQLite |
 
-Canvas 可以读取 OpenClaw history 做恢复和校验，但正常展示不应每次重新解析整个 Transcript。Artifact 元数据由 Canvas 长期保留，文件字节的保留周期由 OpenClaw 负责。
+Canvas 可以读取 OpenClaw history 做恢复和校验，但正常展示不应每次重新解析整个 Transcript。Artifact 元数据由 Canvas 长期保留；OpenClaw 受管媒体、本地文件和 data URI 在 reconcile 时固化，外部 HTTP(S) 字节仍由来源负责。
 
 ## 5. 核心不变量
 
@@ -225,7 +225,7 @@ Canvas 可以读取 OpenClaw history 做恢复和校验，但正常展示不应�
 16. API 查询必须同时使用当前 `ownerId` 和资源 ID；
 17. Canvas-managed Session 不出现在普通 Sessions 列表；
 18. 客户端不能指定或切换 `ownerId`；
-19. Canvas 不复制 Artifact 文件字节；
+19. Canvas 持久化 OpenClaw 本地产物，但不镜像外部 HTTP(S) Artifact；
 20. React Flow edge 是领域关系的只读投影，用户拖线不能修改历史关系。
 
 ## 6. 领域数据模型
@@ -409,7 +409,7 @@ type ArtifactRecord = {
 }
 ```
 
-Canvas 不保存 Artifact 的绝对路径、相对路径、hash 或内容副本。`openClawArtifactId + sessionKey/runId` 是访问 OpenClaw Artifact API 的依据。
+Canvas 不向客户端暴露 Artifact 的持久化绝对路径。`artifactId + ownerId/canvasId/interactionId` 是读取持久副本的依据，`sourceUri` 保留 OpenClaw 溯源信息。
 
 ### 6.6 CanonicalSnapshotRecord
 
@@ -726,16 +726,17 @@ UI 只显示真实 User Input。成功后记录 bootstrap state，后续 Interac
 
 ### 11.1 OpenClaw 原生能力
 
-MVP 从 `sessions.get` 返回的 Transcript 消息中读取 OpenClaw 已导出的 Artifact 引用，包括 `image.url/openUrl`、`MediaUrl(s)`、文件块、Markdown 链接和 Tool result 中的结构化文件引用。Canvas 不复制文件字节。
+MVP 从 `sessions.get` 返回的 Transcript 消息中读取 OpenClaw 已导出的 Artifact 引用，包括 `image.url/openUrl`、`MediaUrl(s)`、文件块、Markdown 链接和 Tool result 中的结构化文件引用。Canvas 随后固化其中可读取的 OpenClaw 本地产物。
 
 ### 11.2 保存规则
 
-- Canvas SQLite 只保存 Artifact 的名称、MIME、大小和 OpenClaw/Nerve URI；
-- 不创建 `database/artifacts/`；
-- 不复制 Workspace 文件、图片或下载字节；
+- Canvas SQLite 保存 Artifact ID、名称、MIME、大小、持久 URI、源 URI、存储状态和可用性；
+- 文件字节保存到项目根目录 `artifacts/<owner-hash>/<canvasId>/<interactionId>/<artifactId>`，不进入 `database/`；
+- 持久化 OpenClaw 受管媒体、Workspace/临时本地文件和 data URI；外部 HTTP(S) 链接只保存引用；
+- 单文件上限为 25 MiB，超限或读取失败时保留源引用与 warning；
 - 只接受结构化字段、Markdown 链接和带明确文件扩展名的 Tool 文件路径，不把普通自然语言猜成 Artifact；
 - Snapshot 只引用输入附件和 Artifact 元数据，不嵌入内容；
-- Artifact 字节是否仍可获取取决于 OpenClaw retention；
+- 已持久化 Artifact 不再依赖 OpenClaw retention；未持久化源引用仍取决于来源可用性；
 - Artifact 不可用不影响 Interaction 文本历史继续浏览。
 
 ### 11.2.1 输入附件发送规则
@@ -748,7 +749,8 @@ MVP 从 `sessions.get` 返回的 Transcript 消息中读取 OpenClaw 已导出�
 
 ### 11.3 获取规则
 
-- OpenClaw URL：由 Nerve 做同源、无落盘的流式转发；
+- Canvas 持久 URI：由 owner-scoped API 读取固定副本；
+- 旧 OpenClaw URL：由 Nerve 做同源流式转发，供迁移失败时兼容；
 - Nerve/HTTP URL：前端直接预览或下载；
 - Workspace 文件路径：转换为现有文件读取入口，不复制内容；
 - 不把 Gateway token 暴露给浏览器下载 URL；
@@ -778,6 +780,8 @@ database/
 ├── canvas.sqlite
 ├── canvas.sqlite-wal
 └── canvas.sqlite-shm
+artifacts/
+└── <owner-hash>/<canvasId>/<interactionId>/<artifactId>
 ```
 
 - 项目根通过向上查找 `package.json` 解析，不依赖编译产物的目录嵌套深度；
@@ -786,7 +790,7 @@ database/
 - Docker 部署时将宿主机目录整体映射到容器的项目 `database/` 目录，不单独映射 SQLite 主文件；
 - SQLite、WAL、SHM 和备份文件全部忽略 Git；
 - 目录中只跟踪说明文件；
-- Canvas 不创建 Artifact 文件目录。
+- `artifacts/` 内容忽略 Git，只跟踪 `.gitkeep`；删除 Canvas 时同步清理对应目录，启动时清理数据库中已不存在的孤儿目录。
 
 ### 12.2 SQLite 选择
 
@@ -1176,8 +1180,8 @@ server/lib/canvas-reconciler.ts
 - Branch 末尾只能 Continue；只有非 Head 的已完成历史 Interaction 可以 Fork；
 - Continue 直接复用当前 Session，Root/Fork 只在首次发送时物化 Session；
 - 当前 MVP 使用 canonical replay，预留 checkpoint-delta 增强点；
-- Artifact 只使用 OpenClaw 引用，不保存副本；
-- Artifact download unsupported 时只显示不可用，不回退猜测路径；
+- OpenClaw 本地 Artifact 优先使用 Canvas 持久副本，外部 HTTP(S) 只使用源引用；
+- Artifact 持久化或下载失败时显示明确不可用原因，不回退猜测任意路径；
 - 图片直接显示，其他文件按类型提供图标、预览和/或下载；
 - OpenClaw Agent 工作状态反馈到 Branch、Composer 和当前 Interaction；
 - 用户使用管理员命令创建的 Token 登录，不使用账号密码且不允许登录页自注册；
@@ -1219,7 +1223,7 @@ server/lib/canvas-reconciler.ts
 - 文本、Markdown、代码和 Tool 结果正确展示；
 - 图片在 Interaction 内直接显示；
 - 文本文件可预览/下载，其他文件显示图标并按能力下载；
-- Canvas 不产生 Artifact 文件副本；
+- Canvas 为 OpenClaw 本地产物创建 owner-scoped 持久副本；
 - unsupported Artifact 显示明确不可用状态；
 - Agent thinking、using-tool、streaming、done、error、aborted 状态可感知；
 - 页面刷新后已完成 Interaction 直接从 SQLite 恢复；

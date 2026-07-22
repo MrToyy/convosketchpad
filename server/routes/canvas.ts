@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getCanvasIdentity } from '../lib/canvas-auth.js';
+import { deleteCanvasArtifacts, readCanvasArtifact } from '../lib/canvas-artifact-store.js';
 import { resolveAgentWorkspace } from '../lib/agent-workspace.js';
 import { getCanvasStore, type CanvasArtifact, type CanvasAttachment } from '../lib/canvas-db.js';
 import {
@@ -29,10 +30,15 @@ const attachmentSchema = z.object({
 });
 
 const artifactSchema = z.object({
+  id: z.string().max(200).optional(),
   name: z.string().trim().min(1).max(512),
   mimeType: z.string().max(255).optional(),
   sizeBytes: z.number().int().nonnegative().optional(),
   uri: z.string().min(1).max(8192),
+  sourceUri: z.string().max(8192).optional(),
+  storage: z.enum(['canvas', 'external', 'source']).optional(),
+  available: z.boolean().optional(),
+  warning: z.string().max(2000).optional(),
 });
 
 function errorResponse(c: Context, error: unknown) {
@@ -104,12 +110,19 @@ app.patch('/api/canvas/canvases/:id', rateLimitGeneral, async (c) => {
   return canvas ? c.json({ canvas }) : c.json({ error: 'Not found' }, 404);
 });
 
-app.delete('/api/canvas/canvases/:id', rateLimitGeneral, (c) => {
+app.delete('/api/canvas/canvases/:id', rateLimitGeneral, async (c) => {
   const identity = identityOr401(c);
   if (!identity) return c.json({ error: 'Authentication required' }, 401);
-  return getCanvasStore().deleteCanvas(identity.userId, c.req.param('id'))
-    ? c.json({ ok: true })
-    : c.json({ error: 'Not found' }, 404);
+  const canvasId = c.req.param('id');
+  if (!getCanvasStore().getCanvas(identity.userId, canvasId)) return c.json({ error: 'Not found' }, 404);
+  if (!getCanvasStore().deleteCanvas(identity.userId, canvasId)) return c.json({ error: 'Not found' }, 404);
+  try {
+    await deleteCanvasArtifacts(identity.userId, canvasId);
+    return c.json({ ok: true, artifactCleanup: 'completed' });
+  } catch (error) {
+    console.warn('[canvas] Artifact cleanup deferred:', error instanceof Error ? error.message : error);
+    return c.json({ ok: true, artifactCleanup: 'pending' });
+  }
 });
 
 app.get('/api/canvas/canvases/:id/graph', rateLimitGeneral, (c) => {
@@ -158,6 +171,25 @@ app.get('/api/canvas/openclaw-artifact', rateLimitGeneral, async (c) => {
   }
 });
 
+app.get('/api/canvas/artifacts/:canvasId/:interactionId/:artifactId', rateLimitGeneral, async (c) => {
+  const identity = identityOr401(c);
+  if (!identity) return c.json({ error: 'Authentication required' }, 401);
+  const interaction = getCanvasStore().getOwnedInteraction(identity.userId, c.req.param('interactionId'));
+  if (!interaction || interaction.canvasId !== c.req.param('canvasId')) return c.json({ error: 'Not found' }, 404);
+  const persisted = await readCanvasArtifact(interaction, c.req.param('artifactId')).catch(() => null);
+  if (!persisted) return c.json({ error: 'Not found' }, 404);
+  const safeName = persisted.artifact.name.replace(/[^\x20-\x7E]+/g, '_').replace(/[\r\n"\\]/g, '_').trim() || 'artifact';
+  const encodedName = encodeURIComponent(persisted.artifact.name).replace(/['()]/g, (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`);
+  return new Response(persisted.bytes, {
+    headers: {
+      'Content-Type': persisted.artifact.mimeType || 'application/octet-stream',
+      'Content-Length': String(persisted.bytes.byteLength),
+      'Content-Disposition': `inline; filename="${safeName}"; filename*=UTF-8''${encodedName}`,
+      'Cache-Control': 'private, max-age=31536000, immutable',
+    },
+  });
+});
+
 app.get('/api/canvas/send-reservations/:id/resources/:resourceId', rateLimitGeneral, async (c) => {
   const identity = identityOr401(c);
   if (!identity) return c.json({ error: 'Authentication required' }, 401);
@@ -167,7 +199,15 @@ app.get('/api/canvas/send-reservations/:id/resources/:resourceId', rateLimitGene
 
   try {
     let data: Uint8Array | null = null;
-    if (resource.uri.startsWith('/api/chat/media/outgoing/')) {
+    if (resource.uri.startsWith('/api/canvas/artifacts/')) {
+      const match = resource.uri.match(/^\/api\/canvas\/artifacts\/([^/]+)\/([^/]+)\/([^/]+)$/);
+      const interaction = match ? getCanvasStore().getOwnedInteraction(identity.userId, decodeURIComponent(match[2])) : null;
+      if (!match || !interaction || interaction.canvasId !== decodeURIComponent(match[1]) || interaction.id !== resource.sourceInteractionId) {
+        return c.json({ error: 'Resource unavailable' }, 404);
+      }
+      const persisted = await readCanvasArtifact(interaction, decodeURIComponent(match[3]));
+      data = persisted?.bytes || null;
+    } else if (resource.uri.startsWith('/api/chat/media/outgoing/')) {
       const target = resolveOpenClawArtifactUrl(resource.uri);
       if (!target) return c.json({ error: 'Resource unavailable' }, 404);
       const response = await fetch(target, {

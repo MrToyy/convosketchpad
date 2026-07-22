@@ -29,7 +29,7 @@
 | Canvas HTTP 路由和 owner 校验 | [`server/routes/canvas.ts`](../../server/routes/canvas.ts) | [`server/app.ts`](../../server/app.ts) |
 | Canvas Session 不出现在普通 Session 列表 | [`src/features/sessions/sessionKeys.ts`](../../src/features/sessions/sessionKeys.ts) | [`src/contexts/SessionContext.tsx`](../../src/contexts/SessionContext.tsx) |
 | Canvas 成为默认页面、顶部导航和命令面板 | [`src/App.tsx`](../../src/App.tsx) | [`src/components/TopBar.tsx`](../../src/components/TopBar.tsx)、[`src/features/command-palette/commands.ts`](../../src/features/command-palette/commands.ts) |
-| OpenClaw Artifact 安全代理和文件读取 | [`server/routes/canvas.ts`](../../server/routes/canvas.ts) | [`server/routes/files.ts`](../../server/routes/files.ts)、[`server/lib/canvas-reconciler.ts`](../../server/lib/canvas-reconciler.ts) |
+| OpenClaw Artifact 持久化、安全代理和文件读取 | [`server/lib/canvas-artifact-store.ts`](../../server/lib/canvas-artifact-store.ts) | [`server/routes/canvas.ts`](../../server/routes/canvas.ts)、[`server/lib/canvas-reconciler.ts`](../../server/lib/canvas-reconciler.ts) |
 | 后端启动/停止落盘协调器 | [`server/index.ts`](../../server/index.ts) | [`server/lib/canvas-reconciler.ts`](../../server/lib/canvas-reconciler.ts) |
 
 ## 前端文件职责
@@ -100,7 +100,9 @@
 - [`server/lib/upload-reference.ts`](../../server/lib/upload-reference.ts) 把 Canvas 上传持久化到 Agent Workspace 的 `.nerve/canvas-uploads/<canvasId>/`。
 - [`server/routes/upload-reference.ts`](../../server/routes/upload-reference.ts) 接收 `purpose=canvas` 和 Canvas ID。
 - [`server/routes/files.ts`](../../server/routes/files.ts) 与 Canvas Artifact 代理负责 owner 校验后的文件读取。
-- Agent 输出文件不复制到 Canvas 数据目录；数据库只保存 OpenClaw 文件 URI 和元数据。
+- OpenClaw 受管媒体、Workspace/临时文件和 data URI 在 reconcile 时持久化到项目 `artifacts/`；外部 HTTP(S) 链接只保存引用。
+- 单个持久化 Artifact 上限为 25 MiB；失败时保留源引用和不可用原因，不影响文本 Interaction 完成。
+- 删除 Canvas 时同步删除其 owner-scoped Artifact 目录，启动时补充清理失去数据库记录的孤儿目录。
 
 ## 关键数据流
 

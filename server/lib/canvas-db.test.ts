@@ -180,7 +180,7 @@ describe('CanvasStore', () => {
       status: 'completed',
       agentOutput: 'done',
       artifacts: [],
-      reconciliation: { version: 2, phase: 'synced', artifactSync: 'synced' },
+      reconciliation: { version: 3, phase: 'synced', artifactSync: 'synced' },
     });
     expect(store.listReconciliationCandidates().map((item) => item.id)).not.toContain(current.id);
   });

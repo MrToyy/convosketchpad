@@ -62,6 +62,7 @@ export interface OwnedInteractionRecord extends InteractionRecord {
   ownerId: string;
   canvasId: string;
   sessionKey: string;
+  agentId: string;
 }
 
 export interface CanvasAttachment {
@@ -75,10 +76,15 @@ export interface CanvasAttachment {
 }
 
 export interface CanvasArtifact {
+  id?: string;
   name: string;
   mimeType?: string;
   sizeBytes?: number;
   uri: string;
+  sourceUri?: string;
+  storage?: 'canvas' | 'external' | 'source';
+  available?: boolean;
+  warning?: string;
 }
 
 export interface CanvasContextResource {
@@ -212,6 +218,7 @@ function mapOwnedInteraction(row: SqlRow): OwnedInteractionRecord {
     ownerId: asString(row.owner_id),
     canvasId: asString(row.canvas_id),
     sessionKey: asString(row.session_key),
+    agentId: asString(row.agent_id),
   };
 }
 
@@ -422,6 +429,10 @@ export class CanvasStore {
     return row ? mapCanvas(row) : null;
   }
 
+  canvasExists(id: string): boolean {
+    return Boolean(this.db.prepare('SELECT 1 FROM canvases WHERE id = ?').get(id));
+  }
+
   updateCanvas(ownerId: string, id: string, name: string): CanvasRecord | null {
     this.db.prepare('UPDATE canvases SET name = ?, updated_at = ? WHERE id = ? AND owner_id = ?').run(name, Date.now(), id, ownerId);
     return this.getCanvas(ownerId, id);
@@ -543,7 +554,8 @@ export class CanvasStore {
           mimeType: artifact.mimeType || 'application/octet-stream',
           sizeBytes: artifact.sizeBytes,
           uri: artifact.uri,
-          available: true,
+          available: artifact.available !== false,
+          ...(artifact.warning ? { warning: artifact.warning } : {}),
         });
       });
     }
@@ -693,24 +705,24 @@ export class CanvasStore {
   }
 
   getOwnedInteraction(ownerId: string, interactionId: string): OwnedInteractionRecord | null {
-    const row = this.db.prepare(`SELECT i.*, b.canvas_id, b.session_key, c.owner_id
+    const row = this.db.prepare(`SELECT i.*, b.canvas_id, b.session_key, c.owner_id, c.agent_id
       FROM interactions i JOIN branches b ON b.id = i.branch_id JOIN canvases c ON c.id = b.canvas_id
       WHERE i.id = ? AND c.owner_id = ?`).get(interactionId, ownerId) as SqlRow | undefined;
     return row ? mapOwnedInteraction(row) : null;
   }
 
   getInteractionForReconciliation(interactionId: string): OwnedInteractionRecord | null {
-    const row = this.db.prepare(`SELECT i.*, b.canvas_id, b.session_key, c.owner_id
+    const row = this.db.prepare(`SELECT i.*, b.canvas_id, b.session_key, c.owner_id, c.agent_id
       FROM interactions i JOIN branches b ON b.id = i.branch_id JOIN canvases c ON c.id = b.canvas_id
       WHERE i.id = ?`).get(interactionId) as SqlRow | undefined;
     return row ? mapOwnedInteraction(row) : null;
   }
 
   listReconciliationCandidates(limit = 500): OwnedInteractionRecord[] {
-    const rows = this.db.prepare(`SELECT i.*, b.canvas_id, b.session_key, c.owner_id
+    const rows = this.db.prepare(`SELECT i.*, b.canvas_id, b.session_key, c.owner_id, c.agent_id
       FROM interactions i JOIN branches b ON b.id = i.branch_id JOIN canvases c ON c.id = b.canvas_id
       WHERE i.status = 'streaming'
-         OR COALESCE(json_extract(i.session_metadata_json, '$.reconciliation.version'), 0) < 2
+         OR COALESCE(json_extract(i.session_metadata_json, '$.reconciliation.version'), 0) < 3
          OR json_extract(i.session_metadata_json, '$.reconciliation.artifactSync') = 'pending'
       ORDER BY i.updated_at ASC LIMIT ?`).all(limit) as SqlRow[];
     return rows.map(mapOwnedInteraction);

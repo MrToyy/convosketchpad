@@ -123,9 +123,10 @@ POST   /api/canvas/send-reservations/:reservationId/ack
 POST   /api/canvas/send-reservations/:reservationId/fail
 POST   /api/canvas/interactions/:interactionId/reconcile
 GET    /api/canvas/openclaw-artifact?uri=...
+GET    /api/canvas/artifacts/:canvasId/:interactionId/:artifactId
 ```
 
-`reconcile` is idempotent. Browser terminal events can pass `terminalHint: true`; the server remains responsible for reading the final OpenClaw Transcript and deciding when the Interaction is complete. The artifact endpoint only streams media from Canvas Sessions owned by the current user and does not persist file bytes.
+`reconcile` is idempotent. Browser terminal events can pass `terminalHint: true`; the server remains responsible for reading the final OpenClaw Transcript and deciding when the Interaction is complete. Reconciliation persists OpenClaw managed media, local Workspace/temporary files, and data URIs under the project `artifacts/` directory with a 25 MiB per-file limit. External HTTP(S) links remain references. Both artifact endpoints require ownership of the Canvas Session/Interaction; deleting a Canvas also removes its persisted Artifact directory.
 
 `prepare-send` derives the operation from server state: a draft Root is `lazy-root`, a draft Fork is `canonical-replay`, and an active Branch whose expected Head matches is `continue-existing`. Invalid transitions return `409`.
 
