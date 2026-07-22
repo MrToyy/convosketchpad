@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import type { InteractionRecord } from './canvas-db.js';
-import { canvasArtifactProxyUrl, extractCanvasTranscript, resolveOpenClawArtifactUrl } from './canvas-reconciler.js';
+import {
+  canvasArtifactProxyUrl,
+  canvasTranscriptHasResponse,
+  extractCanvasTranscript,
+  resolveOpenClawArtifactUrl,
+  sessionReflectsInteractionRun,
+} from './canvas-reconciler.js';
 
 function interaction(overrides: Partial<InteractionRecord> = {}): InteractionRecord {
   return {
@@ -107,6 +113,24 @@ describe('Canvas transcript reconciliation', () => {
 
     expect(snapshot.agentOutput).toBe('已经完成。');
     expect(snapshot.artifacts).toEqual([]);
+  });
+
+  it('does not treat a stable empty Transcript as an Agent response', () => {
+    const snapshot = extractCanvasTranscript([
+      { role: 'user', content: '请生成图片', timestamp: 900 },
+    ], interaction());
+
+    expect(snapshot.matchedInteraction).toBe(true);
+    expect(canvasTranscriptHasResponse(snapshot)).toBe(false);
+  });
+
+  it('requires terminal Session activity to belong to the current interaction', () => {
+    const current = interaction({ createdAt: 10_000 });
+
+    expect(sessionReflectsInteractionRun({ status: 'done', updatedAt: 9_999 }, current)).toBe(false);
+    expect(sessionReflectsInteractionRun({ agentState: 'idle', busy: false, processing: false, updatedAt: 10_100 }, current)).toBe(false);
+    expect(sessionReflectsInteractionRun({ status: 'done', updatedAt: 10_250 }, current)).toBe(true);
+    expect(sessionReflectsInteractionRun({ agentState: 'idle', busy: false, processing: false, startedAt: 9_750 }, current)).toBe(true);
   });
 
   it('only proxies OpenClaw outgoing media paths', () => {

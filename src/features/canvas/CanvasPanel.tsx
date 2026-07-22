@@ -128,9 +128,9 @@ function reconciliationMetadata(interaction: CanvasInteraction): { phase?: strin
   return value && typeof value === 'object' ? value as { phase?: string; artifactSync?: string; version?: number } : {};
 }
 
-function needsReconciliation(interaction: CanvasInteraction): boolean {
+function needsReconciliation(interaction: CanvasInteraction, currentVersion: number): boolean {
   const reconciliation = reconciliationMetadata(interaction);
-  return interaction.status === 'streaming' || reconciliation.artifactSync === 'pending' || reconciliation.version !== 2;
+  return interaction.status === 'streaming' || reconciliation.artifactSync === 'pending' || reconciliation.version !== currentVersion;
 }
 
 function reconciledActivity(interaction: CanvasInteraction): AgentActivity {
@@ -430,7 +430,7 @@ export function CanvasPanel({ agentId }: { agentId: string }) {
     return () => window.removeEventListener('keydown', closeOnEscape);
   }, [previewImage]);
   useEffect(() => {
-    if (!graph?.interactions.some(needsReconciliation)) return;
+    if (!graph?.interactions.some((interaction) => needsReconciliation(interaction, graph.reconciliationVersion))) return;
     const timer = window.setInterval(() => {
       void loadGraph().catch((cause) => setError(localizeError(cause, copy.refreshOpenClawFailed)));
     }, 3_000);
@@ -438,10 +438,21 @@ export function CanvasPanel({ agentId }: { agentId: string }) {
   }, [copy.refreshOpenClawFailed, graph, loadGraph, localizeError]);
   useEffect(() => {
     if (connectionState !== 'connected' || !graph) return;
-    for (const interaction of graph.interactions.filter(needsReconciliation)) {
+    for (const interaction of graph.interactions.filter((candidate) => needsReconciliation(candidate, graph.reconciliationVersion))) {
       void canvasApi.reconcile(interaction.id).catch(() => undefined);
     }
   }, [connectionState, graph]);
+  useEffect(() => {
+    if (!graph) return;
+    const interactions = new Map(graph.interactions.map((interaction) => [interaction.id, interaction]));
+    for (const [runKey, active] of activeRuns.current) {
+      const interaction = interactions.get(active.interactionId);
+      if (interaction && interaction.status !== 'streaming'
+        && reconciliationMetadata(interaction).artifactSync !== 'pending') {
+        activeRuns.current.delete(runKey);
+      }
+    }
+  }, [graph]);
 
   const persistLayout = useCallback((canvasId = selectedId) => {
     if (!canvasId) return Promise.resolve();
@@ -584,22 +595,19 @@ export function CanvasPanel({ agentId }: { agentId: string }) {
 
     if (classified.type === 'chat_final' && classified.chatPayload) {
       setActivities((current) => ({ ...current, [active.branchId]: 'settling' }));
-      void canvasApi.reconcile(active.interactionId, { terminalHint: true })
-        .then(loadGraph)
-        .finally(() => {
-          activeRuns.current.delete(runKey);
-        });
+      void canvasApi.reconcile(active.interactionId, { terminalHint: true, runId: classified.runId })
+        .then(loadGraph);
       return;
     }
 
     if (classified.type === 'chat_error' || classified.type === 'chat_aborted') {
       const reason = payload.errorMessage || payload.error || payload.stopReason || copy.openClawRunFailed;
       setActivities((current) => ({ ...current, [active.branchId]: 'settling' }));
-      void canvasApi.reconcile(active.interactionId, { terminalHint: true, failureHint: reason })
-        .then(loadGraph)
-        .finally(() => {
-          activeRuns.current.delete(runKey);
-        });
+      void canvasApi.reconcile(active.interactionId, {
+        terminalHint: true,
+        failureHint: reason,
+        runId: classified.runId,
+      }).then(loadGraph);
     }
   }), [copy.openClawRunFailed, loadGraph, subscribe]);
 

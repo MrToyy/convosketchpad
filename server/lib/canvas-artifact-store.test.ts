@@ -27,6 +27,9 @@ function interaction(overrides: Partial<OwnedInteractionRecord> = {}): OwnedInte
     canvasId: 'canvas-1',
     sessionKey: 'agent:main:canvas:branch-1',
     agentId: 'main',
+    openClawSessionId: null,
+    observedSessionId: null,
+    sessionIntegrity: 'unknown',
     ...overrides,
   };
 }
@@ -60,6 +63,32 @@ afterEach(async () => {
 });
 
 describe('Canvas Artifact Store', () => {
+  it('persists user attachments independently from their OpenClaw staging path', async () => {
+    const source = path.join(workspaceRoot, '.nerve', 'canvas-uploads', 'source.png');
+    await fs.mkdir(path.dirname(source), { recursive: true });
+    await fs.writeFile(source, 'uploaded-image');
+    const store = await loadStore();
+
+    const [attachment] = await store.materializeCanvasAttachments('owner-1', 'canvas-1', 'main', [{
+      id: 'staged-upload',
+      name: 'source.png',
+      mimeType: 'image/png',
+      sizeBytes: 14,
+      uri: source,
+      workspacePath: '.nerve/canvas-uploads/source.png',
+    }]);
+
+    expect(attachment).toEqual(expect.objectContaining({
+      storage: 'canvas',
+      available: true,
+      sourceUri: source,
+      uri: expect.stringMatching(/^\/api\/canvas\/attachments\/canvas-1\/[a-f0-9]{40}$/),
+    }));
+    await fs.rm(source);
+    const bytes = await store.readCanvasAttachment('owner-1', 'canvas-1', attachment.id!);
+    expect(Buffer.from(bytes!).toString()).toBe('uploaded-image');
+  });
+
   it('persists Workspace files and reuses the same stable artifact', async () => {
     const source = path.join(workspaceRoot, 'reports', 'result.txt');
     await fs.mkdir(path.dirname(source), { recursive: true });

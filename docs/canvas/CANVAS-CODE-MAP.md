@@ -7,10 +7,10 @@
 - Canvas 独立于普通 Chat；不从现有 Chat 创建，也不修改 OpenClaw 原始 Transcript。
 - 一个 Canvas 绑定一个 OpenClaw Agent，可以包含多个从头开始的 Root Branch。
 - 用户操作只有三种：创建 Root Branch、继续 Branch、从历史 Interaction Fork 新 Branch。
-- 继续已有 Branch 直接沿用其 OpenClaw Session；Fork 才创建新 Session 并注入上下文。
+- 继续已有 Branch 默认沿用其 OpenClaw Session；若稳定 `sessionKey` 对应的 `sessionId` 被替换或消失，下一次发送先注入 Canonical Snapshot 恢复上下文。
 - Session 在用户真正发送消息时才物化，避免空 OpenClaw Session。
 - 一个 Interaction 表示一轮完整的 User Input → Agent Output，并包含附件、Artifact 和 Session 元数据。
-- Canvas 关系、状态和布局存入 `database/canvas.sqlite`；OpenClaw Transcript 和 Workspace 文件仍由 OpenClaw 管理。
+- Canvas 关系、状态和布局存入 `database/canvas.sqlite`；OpenClaw Transcript 仍由 OpenClaw 管理，用户附件和本地产物另有 Canvas 持久副本。
 - 完成的 Branch Head 自动出现下一编辑节点；历史 Interaction 的添加操作创建 Fork。
 - 当前用户只能访问自己的 Canvas 数据；身份入口见 [Auth 代码地图](./AUTH-CODE-MAP.md)。
 
@@ -30,6 +30,7 @@
 | Canvas Session 不出现在普通 Session 列表 | [`src/features/sessions/sessionKeys.ts`](../../src/features/sessions/sessionKeys.ts) | [`src/contexts/SessionContext.tsx`](../../src/contexts/SessionContext.tsx) |
 | Canvas 成为默认页面、顶部导航和命令面板 | [`src/App.tsx`](../../src/App.tsx) | [`src/components/TopBar.tsx`](../../src/components/TopBar.tsx)、[`src/features/command-palette/commands.ts`](../../src/features/command-palette/commands.ts) |
 | OpenClaw Artifact 持久化、安全代理和文件读取 | [`server/lib/canvas-artifact-store.ts`](../../server/lib/canvas-artifact-store.ts) | [`server/routes/canvas.ts`](../../server/routes/canvas.ts)、[`server/lib/canvas-reconciler.ts`](../../server/lib/canvas-reconciler.ts) |
+| Branch Session 被 OpenClaw reset/delete 后的漂移检测与恢复 | [`server/lib/canvas-db.ts`](../../server/lib/canvas-db.ts) | [`server/routes/canvas.ts`](../../server/routes/canvas.ts)、[`server/lib/canvas-reconciler.ts`](../../server/lib/canvas-reconciler.ts) |
 | 后端启动/停止落盘协调器 | [`server/index.ts`](../../server/index.ts) | [`server/lib/canvas-reconciler.ts`](../../server/lib/canvas-reconciler.ts) |
 
 ## 前端文件职责
@@ -41,7 +42,8 @@
 - 限制 UI 操作：Branch Head 只能继续，历史 Interaction 才能 Fork。
 - 在空 Canvas 自动创建首个 Root Branch，并直接显示编辑节点。
 - 发送时依次执行附件持久化、`prepare-send`、Gateway `chat.send`、`ack` 和 Graph 刷新。
-- 订阅 Gateway 流事件；收到 terminal event 后触发 reconcile，而不是直接把流事件当作最终落盘结果。
+- 订阅 Gateway 流事件；terminal event 只作为 reconcile 提示，并保留 active Run 映射直到服务端确认 Interaction 完成。
+- 使用 Graph 返回的 `reconciliationVersion` 判断旧记录，前端不再硬编码协调器版本。
 - 维护节点坐标、Viewport 和延迟保存布局。
 - 从通用 `language` 设置读取 `zh-CN` / `en` 文案；只对发送、状态、加载和错误等动态风险区域禁用浏览器翻译。
 
@@ -78,28 +80,33 @@
 - Root Branch、历史 Interaction Fork。
 - `prepare-send → ack/fail` 两阶段发送协议。
 - 手动/终态 reconcile。
-- Context Resource 和 OpenClaw Artifact 的 owner-scoped 安全代理。
+- `prepare-send` 前核对 OpenClaw `sessionId`，对 replacement/missing Session 选择 `session-recovery`。
+- Context Resource、持久附件和 OpenClaw Artifact 的 owner-scoped 安全读取。
 
 ### `server/lib/canvas-db.ts`
 
 - SQLite schema、迁移和事务入口 `CanvasStore`。
 - 同时保存受管用户、Canvas、Branch、Interaction、send reservation 和 layout。
 - `createRootBranch`、`forkInteraction`、`prepareSend`、`acknowledgeSend` 实现 Branch/Session Mapping 的核心状态机。
-- Fork 根据祖先 Interaction 构建 Snapshot 和可复用资源清单；Continue 不重放历史，直接沿用 Session。
+- Branch 同时记录预期/最近观察到的 OpenClaw `sessionId` 和一致性状态。
+- Fork 根据祖先 Interaction 构建 Snapshot 和可复用资源清单；健康 Continue 不重放历史，Session 漂移时重放截至 Head 的 Canonical Snapshot。
 - 数据库固定为项目根目录的 `database/canvas.sqlite`。
 
 ### `server/lib/canvas-reconciler.ts`
 
 - 从 OpenClaw Session/Transcript 读取最终消息，不修改 Transcript。
-- terminal event 后进入 settling，多次增量读取，等待文本、Tool 结果和文件落盘。
+- terminal event 本身不启动完成倒计时；协调器先确认 Session 终态属于当前 Run，或确认 Transcript 已出现当前 Interaction 的有效回复，再进入 settling。
+- 空 Transcript 即使指纹稳定也不视为完成；15 秒前台窗口后继续长尾读取，避免把尚未启动的 OpenClaw Run 写成“暂无响应内容”。
 - 从内容块、工具结果和文本链接提取 Artifact，并更新 Interaction。
-- 服务启动时恢复遗留的 streaming Interaction；服务关闭时清理计时器。
+- Artifact 在 30 秒、1 分钟、2 分钟、5 分钟、15 分钟和 1 小时做长尾复查；最终失败标记 `degraded`，页面加载、服务启动或手动 reconcile 都可再次恢复。
+- 服务启动时恢复遗留的 streaming、旧版本、pending、degraded 以及错误标记为 synced 的空 Interaction；服务关闭时清理计时器。
 
 ### 附件与 Artifact 接入
 
-- [`server/lib/upload-reference.ts`](../../server/lib/upload-reference.ts) 把 Canvas 上传持久化到 Agent Workspace 的 `.nerve/canvas-uploads/<canvasId>/`。
+- [`server/lib/upload-reference.ts`](../../server/lib/upload-reference.ts) 把 Canvas 上传暂存到 Agent Workspace 的 `.nerve/canvas-uploads/<canvasId>/`，供本轮 OpenClaw 工具访问。
 - [`server/routes/upload-reference.ts`](../../server/routes/upload-reference.ts) 接收 `purpose=canvas` 和 Canvas ID。
-- [`server/routes/files.ts`](../../server/routes/files.ts) 与 Canvas Artifact 代理负责 owner 校验后的文件读取。
+- `prepare-send` 在记录 Interaction 前把用户附件复制到 `artifacts/<owner-hash>/<canvasId>/attachments/`；SQLite 和后续 Fork 只引用 owner-scoped 稳定 URI，不再依赖 `.openclaw` Workspace 原件。
+- [`server/routes/files.ts`](../../server/routes/files.ts) 与 Canvas 附件/Artifact 路由负责 owner 校验后的文件读取。
 - OpenClaw 受管媒体、Workspace/临时文件和 data URI 在 reconcile 时持久化到项目 `artifacts/`；外部 HTTP(S) 链接只保存引用。
 - 单个持久化 Artifact 上限为 25 MiB；失败时保留源引用和不可用原因，不影响文本 Interaction 完成。
 - 删除 Canvas 时同步删除其 owner-scoped Artifact 目录，启动时补充清理失去数据库记录的孤儿目录。
@@ -110,8 +117,9 @@
 
 ```text
 Composer send
-  → persist/stage attachments
+  → stage attachments for OpenClaw + persist Canvas-owned copies
   → POST prepare-send
+  → verify Branch sessionId; recover Snapshot on drift/missing
   → Gateway chat.send(sessionKey, message, attachments)
   → POST ack(runId)
   → Interaction streaming

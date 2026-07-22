@@ -124,11 +124,14 @@ POST   /api/canvas/send-reservations/:reservationId/fail
 POST   /api/canvas/interactions/:interactionId/reconcile
 GET    /api/canvas/openclaw-artifact?uri=...
 GET    /api/canvas/artifacts/:canvasId/:interactionId/:artifactId
+GET    /api/canvas/attachments/:canvasId/:attachmentId
 ```
 
-`reconcile` is idempotent. Browser terminal events can pass `terminalHint: true`; the server remains responsible for reading the final OpenClaw Transcript and deciding when the Interaction is complete. Reconciliation persists OpenClaw managed media, local Workspace/temporary files, and data URIs under the project `artifacts/` directory with a 25 MiB per-file limit. External HTTP(S) links remain references. Both artifact endpoints require ownership of the Canvas Session/Interaction; deleting a Canvas also removes its persisted Artifact directory.
+`reconcile` is idempotent. Browser terminal events pass `{ terminalHint: true, runId, failureHint? }`; these fields are hints only. The server validates that terminal Session activity belongs to the current Interaction (or that its Transcript already contains a response for that turn) before settling. A stable but empty Transcript does not complete an Interaction. `{ force: true }` requests an immediate retry for repair tooling. Reconciliation persists OpenClaw managed media, local Workspace/temporary files, and data URIs under the project `artifacts/` directory with a 25 MiB per-file limit. Failed local persistence remains `degraded` after long-tail retries and can be retried by startup, Graph load, or this endpoint. External HTTP(S) links remain references. Artifact and attachment endpoints require Canvas ownership; deleting a Canvas also removes its persisted files.
 
-`prepare-send` derives the operation from server state: a draft Root is `lazy-root`, a draft Fork is `canonical-replay`, and an active Branch whose expected Head matches is `continue-existing`. Invalid transitions return `409`.
+`prepare-send` first copies user attachments into the Canvas Artifact Store and derives the operation from server state: a draft Root is `lazy-root`, a draft Fork is `canonical-replay`, and a healthy active Branch whose expected Head matches is `continue-existing`. For an active Branch it compares the OpenClaw `sessionId` observed for the stable `sessionKey`; replacement or disappearance produces `session-recovery` and injects the canonical history/resources before the new input. Invalid transitions return `409`.
+
+`GET .../graph` includes `reconciliationVersion`; clients must compare Interaction reconciliation metadata against this server value rather than embedding a version constant.
 
 ---
 

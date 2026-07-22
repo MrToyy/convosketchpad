@@ -5,7 +5,12 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getCanvasIdentity } from '../lib/canvas-auth.js';
-import { deleteCanvasArtifacts, readCanvasArtifact } from '../lib/canvas-artifact-store.js';
+import {
+  deleteCanvasArtifacts,
+  materializeCanvasAttachments,
+  readCanvasArtifact,
+  readCanvasAttachment,
+} from '../lib/canvas-artifact-store.js';
 import { resolveAgentWorkspace } from '../lib/agent-workspace.js';
 import { getCanvasStore, type CanvasArtifact, type CanvasAttachment } from '../lib/canvas-db.js';
 import {
@@ -15,9 +20,11 @@ import {
   signalCanvasInteractionTerminal,
 } from '../lib/canvas-reconciler.js';
 import { config } from '../lib/config.js';
+import { gatewayRpcCall } from '../lib/gateway-rpc.js';
 import { rateLimitGeneral } from '../middleware/rate-limit.js';
 
 const app = new Hono();
+const SESSION_LIST_LIMIT = 1_000;
 
 const attachmentSchema = z.object({
   id: z.string().max(200).optional(),
@@ -131,11 +138,15 @@ app.get('/api/canvas/canvases/:id/graph', rateLimitGeneral, (c) => {
   const graph = getCanvasStore().getGraph(identity.userId, c.req.param('id'));
   for (const interaction of graph?.interactions || []) {
     const reconciliation = interaction.sessionMetadata.reconciliation as Record<string, unknown> | undefined;
-    if (interaction.status === 'streaming' || reconciliation?.artifactSync === 'pending' || reconciliation?.version !== CANVAS_RECONCILIATION_VERSION) {
+    if (interaction.status === 'streaming'
+      || reconciliation?.artifactSync === 'pending'
+      || reconciliation?.artifactSync === 'degraded'
+      || (interaction.status === 'completed' && !interaction.agentOutput.trim() && interaction.artifacts.length === 0)
+      || reconciliation?.version !== CANVAS_RECONCILIATION_VERSION) {
       scheduleCanvasInteractionReconciliation(interaction.id, 0);
     }
   }
-  return graph ? c.json(graph) : c.json({ error: 'Not found' }, 404);
+  return graph ? c.json({ ...graph, reconciliationVersion: CANVAS_RECONCILIATION_VERSION }) : c.json({ error: 'Not found' }, 404);
 });
 
 app.get('/api/canvas/openclaw-artifact', rateLimitGeneral, async (c) => {
@@ -190,6 +201,27 @@ app.get('/api/canvas/artifacts/:canvasId/:interactionId/:artifactId', rateLimitG
   });
 });
 
+app.get('/api/canvas/attachments/:canvasId/:attachmentId', rateLimitGeneral, async (c) => {
+  const identity = identityOr401(c);
+  if (!identity) return c.json({ error: 'Authentication required' }, 401);
+  const canvasId = c.req.param('canvasId');
+  const attachmentId = c.req.param('attachmentId');
+  const attachment = getCanvasStore().getOwnedCanvasAttachment(identity.userId, canvasId, attachmentId);
+  if (!attachment) return c.json({ error: 'Not found' }, 404);
+  const bytes = await readCanvasAttachment(identity.userId, canvasId, attachmentId);
+  if (!bytes) return c.json({ error: 'Not found' }, 404);
+  const safeName = attachment.name.replace(/[^\x20-\x7E]+/g, '_').replace(/[\r\n"\\]/g, '_').trim() || 'attachment';
+  const encodedName = encodeURIComponent(attachment.name).replace(/['()]/g, (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`);
+  return new Response(bytes, {
+    headers: {
+      'Content-Type': attachment.mimeType || 'application/octet-stream',
+      'Content-Length': String(bytes.byteLength),
+      'Content-Disposition': `inline; filename="${safeName}"; filename*=UTF-8''${encodedName}`,
+      'Cache-Control': 'private, max-age=31536000, immutable',
+    },
+  });
+});
+
 app.get('/api/canvas/send-reservations/:id/resources/:resourceId', rateLimitGeneral, async (c) => {
   const identity = identityOr401(c);
   if (!identity) return c.json({ error: 'Authentication required' }, 401);
@@ -207,6 +239,14 @@ app.get('/api/canvas/send-reservations/:id/resources/:resourceId', rateLimitGene
       }
       const persisted = await readCanvasArtifact(interaction, decodeURIComponent(match[3]));
       data = persisted?.bytes || null;
+    } else if (resource.uri.startsWith('/api/canvas/attachments/')) {
+      const match = resource.uri.match(/^\/api\/canvas\/attachments\/([^/]+)\/([^/]+)$/);
+      const canvasId = match ? decodeURIComponent(match[1]) : '';
+      const attachmentId = match ? decodeURIComponent(match[2]) : '';
+      const interaction = match ? getCanvasStore().getOwnedInteraction(identity.userId, resource.sourceInteractionId) : null;
+      const attachment = interaction?.attachments.find((candidate) => candidate.id === attachmentId && candidate.storage === 'canvas');
+      if (!interaction || interaction.canvasId !== canvasId || !attachment) return c.json({ error: 'Resource unavailable' }, 404);
+      data = await readCanvasAttachment(identity.userId, canvasId, attachmentId);
     } else if (resource.uri.startsWith('/api/chat/media/outgoing/')) {
       const target = resolveOpenClawArtifactUrl(resource.uri);
       if (!target) return c.json({ error: 'Resource unavailable' }, 404);
@@ -276,11 +316,49 @@ app.post('/api/canvas/branches/:id/prepare-send', rateLimitGeneral, async (c) =>
   if (!parsed.success) return c.json({ error: 'Invalid send request', details: parsed.error.flatten() }, 400);
   if (!parsed.data.userInput.trim() && parsed.data.attachments.length === 0) return c.json({ error: 'Message or attachment required' }, 400);
   try {
-    const reservation = getCanvasStore().prepareSend(identity.userId, {
-      branchId: c.req.param('id'),
+    const store = getCanvasStore();
+    const branchId = c.req.param('id');
+    const branch = store.getOwnedBranch(identity.userId, branchId);
+    if (!branch) return c.json({ error: 'Not found' }, 404);
+    const canvas = store.getCanvas(identity.userId, branch.canvasId);
+    if (!canvas) return c.json({ error: 'Not found' }, 404);
+
+    if (branch.sessionState === 'active') {
+      try {
+        const response = await gatewayRpcCall('sessions.list', {
+          limit: SESSION_LIST_LIMIT,
+        }, 15_000) as { sessions?: Array<{ key?: string; sessionKey?: string; id?: string; sessionId?: string }> };
+        if (Array.isArray(response.sessions)) {
+          const session = response.sessions.find((candidate) => (candidate.sessionKey || candidate.key) === branch.sessionKey);
+          const sessionId = session?.sessionId || session?.id;
+          if (sessionId) store.observeBranchSession(branch.id, sessionId);
+          else if (!session) store.markBranchSessionMissing(branch.id);
+        }
+      } catch (error) {
+        console.warn('[canvas] Session identity preflight skipped:', error instanceof Error ? error.message : error);
+      }
+    }
+
+    let attachments: CanvasAttachment[];
+    try {
+      attachments = await materializeCanvasAttachments(
+        identity.userId,
+        branch.canvasId,
+        canvas.agentId,
+        parsed.data.attachments as CanvasAttachment[],
+      );
+    } catch (error) {
+      return c.json({
+        error: 'Attachment persistence failed',
+        detail: error instanceof Error ? error.message : 'Attachment could not be persisted',
+      }, 422);
+    }
+
+    const reservation = store.prepareSend(identity.userId, {
+      branchId,
       expectedHeadInteractionId: parsed.data.expectedHeadInteractionId,
       userInput: parsed.data.userInput,
-      attachments: parsed.data.attachments as CanvasAttachment[],
+      attachments,
     });
     return c.json({ reservation });
   } catch (error) { return errorResponse(c, error); }
@@ -334,14 +412,29 @@ app.post('/api/canvas/interactions/:id/reconcile', rateLimitGeneral, async (c) =
   const parsed = z.object({
     terminalHint: z.boolean().default(false),
     failureHint: z.string().max(2_000).optional(),
+    runId: z.string().max(500).optional(),
+    force: z.boolean().default(false),
   }).safeParse(await c.req.json().catch(() => ({})));
   if (!parsed.success) return c.json({ error: 'Invalid reconciliation request' }, 400);
 
   const interaction = parsed.data.terminalHint || parsed.data.failureHint
-    ? signalCanvasInteractionTerminal(c.req.param('id'), identity.userId, parsed.data.failureHint)
+    ? signalCanvasInteractionTerminal(c.req.param('id'), identity.userId, {
+      runId: parsed.data.runId,
+      failureHint: parsed.data.failureHint,
+    })
     : getCanvasStore().getOwnedInteraction(identity.userId, c.req.param('id'));
   if (!interaction) return c.json({ error: 'Not found' }, 404);
-  if (!parsed.data.terminalHint && !parsed.data.failureHint) scheduleCanvasInteractionReconciliation(interaction.id, 0);
+  if (parsed.data.force) {
+    getCanvasStore().updateReconciliationMetadata(interaction.id, {
+      version: CANVAS_RECONCILIATION_VERSION,
+      phase: 'pending',
+      artifactSync: 'pending',
+      forceRequestedAt: Date.now(),
+    });
+  }
+  if ((!parsed.data.terminalHint && !parsed.data.failureHint) || parsed.data.force) {
+    scheduleCanvasInteractionReconciliation(interaction.id, 0);
+  }
   return c.json({ interaction });
 });
 

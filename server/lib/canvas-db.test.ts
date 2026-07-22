@@ -83,6 +83,63 @@ describe('CanvasStore', () => {
     expect(next.sessionKey).toBe(branch.sessionKey);
   });
 
+  it('recovers canonical branch context when OpenClaw replaces the session behind a stable key', () => {
+    const store = createStore();
+    const canvas = seedUser(store);
+    const branch = store.createRootBranch('user-a', canvas.id);
+    const firstReservation = store.prepareSend('user-a', { branchId: branch.id, userInput: 'one', attachments: [] });
+    const first = store.acknowledgeSend('user-a', firstReservation.id, 'run-1');
+    store.completeInteraction('user-a', first.id, { status: 'completed', agentOutput: 'answer one', artifacts: [] });
+
+    expect(store.observeBranchSession(branch.id, 'session-1')?.sessionIntegrity).toBe('healthy');
+    expect(store.observeBranchSession(branch.id, 'session-2')?.sessionIntegrity).toBe('drifted');
+
+    const recovery = store.prepareSend('user-a', {
+      branchId: branch.id,
+      expectedHeadInteractionId: first.id,
+      userInput: 'two',
+      attachments: [],
+    });
+    expect(recovery.materialization).toBe('session-recovery');
+    expect(recovery.outgoingMessage).toContain('canvas-context-snapshot');
+    expect(recovery.outgoingMessage).toContain('answer one');
+
+    store.acknowledgeSend('user-a', recovery.id, 'run-2');
+    const recoveredBranch = store.getGraph('user-a', canvas.id)!.branches[0];
+    expect(recoveredBranch).toMatchObject({
+      openClawSessionId: 'session-2',
+      observedSessionId: 'session-2',
+      sessionIntegrity: 'healthy',
+    });
+  });
+
+  it('recovers context when a previously observed OpenClaw session disappears', () => {
+    const store = createStore();
+    const canvas = seedUser(store);
+    const branch = store.createRootBranch('user-a', canvas.id);
+    const firstReservation = store.prepareSend('user-a', { branchId: branch.id, userInput: 'one', attachments: [] });
+    const first = store.acknowledgeSend('user-a', firstReservation.id, 'run-1');
+    store.completeInteraction('user-a', first.id, { status: 'completed', agentOutput: 'answer one', artifacts: [] });
+    store.observeBranchSession(branch.id, 'session-1');
+
+    expect(store.markBranchSessionMissing(branch.id)?.sessionIntegrity).toBe('drifted');
+    const recovery = store.prepareSend('user-a', {
+      branchId: branch.id,
+      expectedHeadInteractionId: first.id,
+      userInput: 'two',
+      attachments: [],
+    });
+    expect(recovery.materialization).toBe('session-recovery');
+    expect(recovery.outgoingMessage).toContain('answer one');
+
+    store.acknowledgeSend('user-a', recovery.id, 'run-2');
+    expect(store.getGraph('user-a', canvas.id)!.branches[0]).toMatchObject({
+      openClawSessionId: null,
+      observedSessionId: null,
+      sessionIntegrity: 'unknown',
+    });
+  });
+
   it('allows fork only from completed non-head history and freezes that history', () => {
     const store = createStore();
     const canvas = seedUser(store);
@@ -180,8 +237,24 @@ describe('CanvasStore', () => {
       status: 'completed',
       agentOutput: 'done',
       artifacts: [],
-      reconciliation: { version: 3, phase: 'synced', artifactSync: 'synced' },
+      reconciliation: { version: 4, phase: 'synced', artifactSync: 'synced' },
     });
     expect(store.listReconciliationCandidates().map((item) => item.id)).not.toContain(current.id);
+
+    store.applyReconciledInteraction(current.id, {
+      status: 'completed',
+      agentOutput: 'done',
+      artifacts: [{ name: 'late.txt', uri: '/missing/late.txt', storage: 'source', available: false }],
+      reconciliation: { version: 4, phase: 'degraded', artifactSync: 'degraded' },
+    });
+    expect(store.listReconciliationCandidates().map((item) => item.id)).toContain(current.id);
+
+    store.applyReconciledInteraction(current.id, {
+      status: 'completed',
+      agentOutput: '',
+      artifacts: [],
+      reconciliation: { version: 4, phase: 'synced', artifactSync: 'synced' },
+    });
+    expect(store.listReconciliationCandidates().map((item) => item.id)).toContain(current.id);
   });
 });

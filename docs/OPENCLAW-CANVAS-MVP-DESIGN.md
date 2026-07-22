@@ -22,7 +22,7 @@ Canvas 不替代 Chat，而是提供一种更适合浏览、组织和分支 AI �
 - 不修改、截断或重写 OpenClaw 原始 Transcript；
 - Canvas 历史只追加，不允许修改既有 Interaction；
 - Canvas 完全独立于普通 Chat，不从普通 Chat/Session 导入数据；
-- Canvas 结构化数据独立持久化；OpenClaw 本地 Artifact 固化到项目 `artifacts/`，外部链接保留引用；
+- Canvas 结构化数据独立持久化；用户输入附件和 OpenClaw 本地 Artifact 固化到项目 `artifacts/`，外部链接保留引用；
 - Canvas 数据按稳定用户身份隔离，所有读取和写入都必须经过 owner scope。
 
 ## 2. 产品概念
@@ -227,6 +227,8 @@ Canvas 可以读取 OpenClaw history 做恢复和校验，但正常展示不应�
 18. 客户端不能指定或切换 `ownerId`；
 19. Canvas 持久化 OpenClaw 本地产物，但不镜像外部 HTTP(S) Artifact；
 20. React Flow edge 是领域关系的只读投影，用户拖线不能修改历史关系。
+21. Canvas 不能把 `sessionKey` 等同于永不变化的 OpenClaw Session 身份；必须记录并核对 `sessionId`。
+22. 用户附件进入 Interaction 前必须拥有 Canvas 管理的持久副本，后续 Fork 不依赖 Agent Workspace 原件。
 
 ## 6. 领域数据模型
 
@@ -282,6 +284,8 @@ type BranchRecord = {
     agentId: string
     sessionKey: string
     sessionId?: string
+    observedSessionId?: string
+    integrity: 'unknown' | 'healthy' | 'drifted'
     state: 'draft' | 'active' | 'missing' | 'replaced'
     createdAt: number
     lastVerifiedAt?: number
@@ -290,7 +294,7 @@ type BranchRecord = {
   bootstrap: {
     state: 'none' | 'pending' | 'injected'
     snapshotId?: string
-    mode?: 'checkpoint-delta' | 'canonical-replay'
+    mode?: 'checkpoint-delta' | 'canonical-replay' | 'session-recovery'
     checkpointId?: string
     injectedAt?: number
   }
@@ -582,6 +586,8 @@ Fork Branch 创建时冻结 Canonical Snapshot，但不创建 OpenClaw Session�
 - Session 丢失时不能静默创建空 Session，应显式执行 Restore；
 - 归档不删除 Session 或 Transcript。
 
+`prepare-send` 对 active Branch 读取完整 `sessions.list` 并比较 SQLite 中的预期 `sessionId`。相同 key 返回不同 ID，或已记录 ID 的 Session 消失，均标记为 `drifted`；本次发送采用 `session-recovery`，把截至当前 Head 的 Canonical Snapshot 与资源重新注入 replacement Session。ACK 后以观察到的新 ID 更新映射；若 Session 是发送时才重建，则暂置为 `unknown`，由后续 monitor/Transcript 读取补记新 ID。
+
 隐藏是产品行为，不是共享 Gateway 下的强授权边界。
 
 ## 9. Interaction 运行流程
@@ -596,6 +602,8 @@ Canvas 复用 `GatewayContext.rpc()`、`subscribe()` 和纯解析函数，但不
 1. 用户在 Branch 输入内容
 2. POST /api/canvas/branches/:branchId/prepare-send
    ├── 校验 Root / Continue / Fork 唯一合法状态转换
+   ├── 将用户附件复制到 Canvas Artifact Store
+   ├── 校验 active Branch 的 OpenClaw sessionId，必要时选择 session-recovery
    ├── 分配 reservationId，并将其作为 idempotencyKey
    └── 返回 sessionKey 与 Bootstrap Plan
 3. Canvas Runtime 调用 chat.send
@@ -610,8 +618,8 @@ Canvas 复用 `GatewayContext.rpc()`、`subscribe()` 和纯解析函数，但不
    ├── image/file artifacts
    └── final/error/aborted
 6. Gateway ACK 后创建 streaming Interaction 并推进 Branch Head
-7. final/error/aborted 只通知服务端立即进入 reconcile，不由 Browser 直接判定完成
-8. 服务端通过 `sessions.list` 确认 Session 终态，并通过 `sessions.get` 收敛 Transcript
+7. final/error/aborted 只向服务端发送带 `runId` 的终态提示，不由 Browser 直接判定完成或丢弃 active Run 映射
+8. 服务端验证 `sessions.list` 的终态活动属于当前 Interaction；若状态存在时序歧义，则以 `sessions.get` 中已出现当前轮有效回复作为兜底确认
 9. Transcript 连续稳定后写入最终 Agent Output 和 Artifact references
 ```
 
@@ -619,11 +627,13 @@ Browser 只负责低延迟 Streaming；Server 是 Interaction 终态和最终内
 
 终态后的 Transcript 收敛规则：
 
-- 相对终态在 `0.5 / 1.5 / 3 / 4 / 6 / 9 / 12 / 15` 秒读取 `sessions.get`；
-- 至少等待 4 秒，并且连续两次内容指纹一致后，才提前完成；
-- 15 秒仍未稳定时，用当前最佳内容完成 Interaction，并将 `artifactSync` 标为 `pending`；
-- 在终态后 30 / 60 / 120 秒后台复查，只更新 Agent Output 和 Artifact references；
-- 服务重启后恢复未完成、旧版本及 `artifactSync=pending` 的 Interaction；
+- Browser 终态事件是不可信提示；只有确认终态属于当前 Run，或 Transcript 已有当前轮有效回复后，才开始 settling；
+- 相对已确认终态在 `0.5 / 1.5 / 3 / 4 / 6 / 9 / 12 / 15` 秒读取 `sessions.get`；
+- 至少等待 4 秒、当前轮已有非空文本或 Artifact，并且连续两次内容指纹一致后，才提前完成；
+- 15 秒仍未稳定但已有有效回复时，用当前最佳内容完成 Interaction，并将 `artifactSync` 标为 `pending`；若 Transcript 仍为空，Interaction 保持 streaming 并进入长尾复查；
+- 在终态后 30 秒、1 分钟、2 分钟、5 分钟、15 分钟和 1 小时后台复查，只更新 Agent Output 和 Artifact references；
+- 长尾结束仍不可读的本地 Artifact 标记为 `artifactSync=degraded`，保留源引用与 warning；页面加载、手动 reconcile 和服务重启可再次尝试；
+- 服务重启后恢复未完成、旧版本、错误 synced 的空记录及 `artifactSync=pending/degraded` 的 Interaction；
 - 对已经结束超过 15 秒的历史 Session，约间隔 1 秒读取两次后直接恢复，不重新等待完整 15 秒。
 
 ### 9.3 并发与事件归属
@@ -732,6 +742,7 @@ MVP 从 `sessions.get` 返回的 Transcript 消息中读取 OpenClaw 已导出�
 
 - Canvas SQLite 保存 Artifact ID、名称、MIME、大小、持久 URI、源 URI、存储状态和可用性；
 - 文件字节保存到项目根目录 `artifacts/<owner-hash>/<canvasId>/<interactionId>/<artifactId>`，不进入 `database/`；
+- 用户输入附件按内容哈希保存到 `artifacts/<owner-hash>/<canvasId>/attachments/<attachmentId>`；Interaction 记录稳定的 owner-scoped URI，同时保留 `sourceUri` 仅供溯源；
 - 持久化 OpenClaw 受管媒体、Workspace/临时本地文件和 data URI；外部 HTTP(S) 链接只保存引用；
 - 单文件上限为 25 MiB，超限或读取失败时保留源引用与 warning；
 - 只接受结构化字段、Markdown 链接和带明确文件扩展名的 Tool 文件路径，不把普通自然语言猜成 Artifact；
@@ -743,9 +754,10 @@ MVP 从 `sessions.get` 返回的 Transcript 消息中读取 OpenClaw 已导出�
 
 - 所有本轮新文件均使用 OpenClaw 原生 `chat.send.attachments`，字段为 `fileName + mimeType + base64 content`；
 - 图片控制在 1.8 MB 以内作为模型视觉输入，同时在 Agent Workspace 的 `.nerve/canvas-uploads/<canvasId>/` 保留原始文件引用，供图片编辑工具使用；
+- `prepare-send` 同步复制原始字节到 Canvas Artifact Store；`.nerve/canvas-uploads` 仅服务本轮 OpenClaw/工具访问，不再是 Canvas 历史或 Fork 的事实来源；
 - 非图片保持原始字节，由 OpenClaw 原生转换为 Agent 可访问的 `MediaPath(s)`；
 - Manifest 只提供名称、类型、大小和原始路径等溯源信息，不能代替 Gateway attachment；
-- Canvas SQLite 不保存 Base64 或文件内容；用户输入原文件位于 OpenClaw Workspace，Agent 输出文件仍只保存 OpenClaw 引用。
+- Canvas SQLite 不保存 Base64 或文件内容；用户输入原件和可读取的 Agent 本地产物由 Canvas Artifact Store 保存，数据库只保存稳定 URI 与溯源元数据。
 
 ### 11.3 获取规则
 
@@ -943,9 +955,11 @@ GET    /api/canvas/openclaw-artifact?uri=...
 
 ```text
 Artifact 地址和元数据随 Interaction Graph 返回。
+GET /api/canvas/artifacts/:canvasId/:interactionId/:artifactId
+GET /api/canvas/attachments/:canvasId/:attachmentId
 ```
 
-content route 只代理当前 owner 拥有的 Canvas Session 所导出的 OpenClaw media URL，不落盘，也不把 Gateway token 暴露给浏览器。
+持久内容路由校验当前 owner 的 Canvas/Interaction/Attachment 所有权；旧的 OpenClaw media URL 仍通过同源代理兼容。绝对持久路径和 Gateway token 都不暴露给浏览器。
 
 ### 14.5 Layout
 

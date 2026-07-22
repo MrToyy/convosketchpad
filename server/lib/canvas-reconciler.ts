@@ -9,33 +9,38 @@ import {
 } from './canvas-db.js';
 import { gatewayRpcCall } from './gateway-rpc.js';
 
-export const CANVAS_RECONCILIATION_VERSION = 3;
+export const CANVAS_RECONCILIATION_VERSION = 4;
 export const CANVAS_SETTLE_MIN_MS = 4_000;
 export const CANVAS_SETTLE_MAX_MS = 15_000;
 
 const FOREGROUND_OFFSETS_MS = [500, 1_500, 3_000, 4_000, 6_000, 9_000, 12_000, 15_000];
-const BACKGROUND_OFFSETS_MS = [30_000, 60_000, 120_000];
+const BACKGROUND_OFFSETS_MS = [30_000, 60_000, 120_000, 5 * 60_000, 15 * 60_000, 60 * 60_000];
 const MAX_MONITOR_AGE_MS = 24 * 60 * 60 * 1_000;
 const SLOW_MONITOR_AFTER_MS = 60 * 60 * 1_000;
 const SESSION_LIST_LIMIT = 1_000;
 
 type GatewayMessage = Record<string, unknown>;
 
-interface GatewaySessionSummary {
+export interface GatewaySessionSummary {
   key?: string;
   sessionKey?: string;
+  id?: string;
+  sessionId?: string;
   status?: string;
   error?: string;
   agentState?: string;
   busy?: boolean;
   processing?: boolean;
   updatedAt?: number;
+  startedAt?: number | string;
+  endedAt?: number | string;
 }
 
 export interface CanvasTranscriptSnapshot {
   agentOutput: string;
   artifacts: CanvasArtifact[];
   fingerprint: string;
+  matchedInteraction: boolean;
   artifactPersistenceComplete?: boolean;
   artifactWarnings?: string[];
 }
@@ -200,8 +205,11 @@ function collectTextLinks(text: string, add: ReturnType<typeof artifactCollector
   }
 }
 
-function pickInteractionMessages(messages: GatewayMessage[], interaction: InteractionRecord): GatewayMessage[] {
-  if (messages.length === 0) return [];
+function pickInteractionMessages(messages: GatewayMessage[], interaction: InteractionRecord): {
+  messages: GatewayMessage[];
+  matchedInteraction: boolean;
+} {
+  if (messages.length === 0) return { messages: [], matchedInteraction: false };
   let userIndex = -1;
   const input = interaction.userInput.trim();
 
@@ -231,10 +239,13 @@ function pickInteractionMessages(messages: GatewayMessage[], interaction: Intera
     const runIndexes = messages
       .map((message, index) => getMessageRunId(message) === interaction.runId ? index : -1)
       .filter((index) => index >= 0);
-    if (runIndexes.length > 0) return runIndexes.map((index) => messages[index]);
+    if (runIndexes.length > 0) return {
+      messages: runIndexes.map((index) => messages[index]),
+      matchedInteraction: true,
+    };
   }
 
-  if (userIndex < 0) return messages.slice(-20);
+  if (userIndex < 0) return { messages: messages.slice(-20), matchedInteraction: false };
   let endIndex = messages.length;
   for (let index = userIndex + 1; index < messages.length; index += 1) {
     if (getMessageRole(messages[index]) === 'user') {
@@ -242,11 +253,12 @@ function pickInteractionMessages(messages: GatewayMessage[], interaction: Intera
       break;
     }
   }
-  return messages.slice(userIndex, endIndex);
+  return { messages: messages.slice(userIndex, endIndex), matchedInteraction: true };
 }
 
 export function extractCanvasTranscript(messages: GatewayMessage[], interaction: InteractionRecord): CanvasTranscriptSnapshot {
-  const relevant = pickInteractionMessages(messages, interaction);
+  const picked = pickInteractionMessages(messages, interaction);
+  const relevant = picked.messages;
   const { artifacts, add } = artifactCollector();
 
   for (const message of relevant) {
@@ -274,7 +286,12 @@ export function extractCanvasTranscript(messages: GatewayMessage[], interaction:
   const fingerprint = createHash('sha256')
     .update(JSON.stringify({ agentOutput, artifacts: artifactList }))
     .digest('hex');
-  return { agentOutput, artifacts: artifactList, fingerprint };
+  return { agentOutput, artifacts: artifactList, fingerprint, matchedInteraction: picked.matchedInteraction };
+}
+
+export function canvasTranscriptHasResponse(snapshot: CanvasTranscriptSnapshot | null | undefined): boolean {
+  return Boolean(snapshot?.matchedInteraction
+    && (snapshot.agentOutput.trim().length > 0 || snapshot.artifacts.length > 0));
 }
 
 function getReconciliation(interaction: InteractionRecord): Record<string, unknown> {
@@ -285,10 +302,30 @@ function sessionKeyOf(session: GatewaySessionSummary): string {
   return session.sessionKey || session.key || '';
 }
 
-function sessionIsTerminal(session: GatewaySessionSummary): boolean {
+export function sessionIsTerminal(session: GatewaySessionSummary): boolean {
   const status = session.status?.toLowerCase();
   if (status === 'done' || status === 'completed' || status === 'error' || status === 'failed' || status === 'aborted') return true;
   return session.agentState === 'idle' && !session.busy && !session.processing;
+}
+
+function timestampValue(value: unknown): number | undefined {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string') {
+    const parsed = Date.parse(value);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
+  return undefined;
+}
+
+function sessionTerminalAt(session: GatewaySessionSummary): number | undefined {
+  return timestampValue(session.endedAt) ?? timestampValue(session.updatedAt);
+}
+
+export function sessionReflectsInteractionRun(session: GatewaySessionSummary, interaction: InteractionRecord): boolean {
+  const terminalAt = sessionTerminalAt(session);
+  if (terminalAt !== undefined && terminalAt >= interaction.createdAt + 250) return true;
+  const startedAt = timestampValue(session.startedAt);
+  return startedAt !== undefined && startedAt >= interaction.createdAt - 250;
 }
 
 function sessionFailure(session: GatewaySessionSummary): string | undefined {
@@ -319,9 +356,14 @@ async function readTranscript(interaction: OwnedInteractionRecord): Promise<Canv
     key: interaction.sessionKey,
     limit: 500,
     includeTools: true,
-  }, 15_000) as { messages?: GatewayMessage[] };
+  }, 15_000) as { messages?: GatewayMessage[]; id?: string; sessionId?: string };
+  const sessionId = response.sessionId || response.id;
+  if (sessionId) getCanvasStore().observeBranchSession(interaction.branchId, sessionId);
   const extracted = extractCanvasTranscript(Array.isArray(response.messages) ? response.messages : [], interaction);
-  const materialized = await materializeCanvasArtifacts(interaction, extracted.artifacts);
+  const extractedSources = new Set(extracted.artifacts.map((artifact) => artifact.sourceUri || artifact.uri));
+  const retainedArtifacts = interaction.artifacts.filter((artifact) =>
+    !extractedSources.has(artifact.sourceUri || artifact.uri));
+  const materialized = await materializeCanvasArtifacts(interaction, [...extracted.artifacts, ...retainedArtifacts]);
   return {
     ...extracted,
     artifacts: materialized.artifacts,
@@ -335,8 +377,8 @@ async function readTranscript(interaction: OwnedInteractionRecord): Promise<Canv
 
 function finish(interaction: OwnedInteractionRecord, snapshot: CanvasTranscriptSnapshot | null, input: {
   status?: 'completed' | 'failed';
-  artifactSync: 'synced' | 'pending';
-  phase?: 'synced' | 'pending';
+  artifactSync: 'synced' | 'pending' | 'degraded';
+  phase?: 'synced' | 'pending' | 'degraded';
   terminalAt: number;
   error?: string;
 }): void {
@@ -413,7 +455,12 @@ async function settlementRead(interactionId: string): Promise<void> {
   if (settlement.lateRecovery) {
     settlement.foregroundIndex += 1;
     if (settlement.foregroundIndex >= 2) {
-      finish(interaction, settlement.best, { artifactSync: 'synced', terminalAt: settlement.terminalAt, error: readError });
+      finish(interaction, settlement.best, {
+        artifactSync: canvasTranscriptHasResponse(settlement.best)
+          && settlement.best?.artifactPersistenceComplete !== false ? 'synced' : 'degraded',
+        terminalAt: settlement.terminalAt,
+        error: readError,
+      });
       stopMonitor(interactionId);
     } else {
       scheduleNextSettlementRead(interaction, settlement);
@@ -422,14 +469,28 @@ async function settlementRead(interactionId: string): Promise<void> {
   }
 
   settlement.foregroundIndex += 1;
-  if (elapsed >= CANVAS_SETTLE_MIN_MS && settlement.stableReads >= 2 && settlement.best?.artifactPersistenceComplete !== false) {
+  if (elapsed >= CANVAS_SETTLE_MIN_MS
+    && settlement.stableReads >= 2
+    && canvasTranscriptHasResponse(settlement.best)
+    && settlement.best?.artifactPersistenceComplete !== false) {
     finish(interaction, settlement.best, { artifactSync: 'synced', terminalAt: settlement.terminalAt });
     stopMonitor(interactionId);
     return;
   }
 
   if (elapsed >= CANVAS_SETTLE_MAX_MS) {
-    finish(interaction, settlement.best, { artifactSync: 'pending', terminalAt: settlement.terminalAt, error: readError });
+    if (canvasTranscriptHasResponse(settlement.best)) {
+      finish(interaction, settlement.best, { artifactSync: 'pending', terminalAt: settlement.terminalAt, error: readError });
+    } else {
+      getCanvasStore().updateReconciliationMetadata(interactionId, {
+        version: CANVAS_RECONCILIATION_VERSION,
+        phase: 'awaiting_response',
+        artifactSync: 'pending',
+        terminalAt: settlement.terminalAt,
+        lastCheckedAt: now,
+        lastError: readError || null,
+      });
+    }
     settlement.backgroundIndex = 0;
     scheduleBackgroundRead(interaction.id, settlement);
     return;
@@ -442,7 +503,11 @@ function scheduleBackgroundRead(interactionId: string, settlement: SettlementSta
   const offset = BACKGROUND_OFFSETS_MS[settlement.backgroundIndex];
   if (offset === undefined) {
     const interaction = getCanvasStore().getInteractionForReconciliation(interactionId);
-    if (interaction) finish(interaction, settlement.best, { artifactSync: 'synced', terminalAt: settlement.terminalAt });
+    if (interaction) finish(interaction, settlement.best, {
+      artifactSync: canvasTranscriptHasResponse(settlement.best)
+        && settlement.best?.artifactPersistenceComplete !== false ? 'synced' : 'degraded',
+      terminalAt: settlement.terminalAt,
+    });
     stopMonitor(interactionId);
     return;
   }
@@ -465,11 +530,23 @@ async function backgroundRead(interactionId: string): Promise<void> {
     settlement.previousFingerprint = snapshot.fingerprint;
     const finalAttempt = settlement.backgroundIndex === BACKGROUND_OFFSETS_MS.length - 1;
     const persistenceReady = snapshot.artifactPersistenceComplete !== false;
-    finish(interaction, snapshot, {
-      artifactSync: finalAttempt || (unchanged && persistenceReady) ? 'synced' : 'pending',
-      terminalAt: settlement.terminalAt,
-    });
-    if (finalAttempt || (unchanged && persistenceReady)) {
+    const hasResponse = canvasTranscriptHasResponse(snapshot);
+    if (hasResponse || finalAttempt) {
+      finish(interaction, snapshot, {
+        artifactSync: hasResponse && persistenceReady && (finalAttempt || unchanged) ? 'synced' : finalAttempt ? 'degraded' : 'pending',
+        terminalAt: settlement.terminalAt,
+      });
+    } else {
+      getCanvasStore().updateReconciliationMetadata(interactionId, {
+        version: CANVAS_RECONCILIATION_VERSION,
+        phase: 'awaiting_response',
+        artifactSync: 'pending',
+        terminalAt: settlement.terminalAt,
+        lastCheckedAt: Date.now(),
+        lastError: null,
+      });
+    }
+    if (finalAttempt || (hasResponse && unchanged && persistenceReady)) {
       stopMonitor(interactionId);
       return;
     }
@@ -521,7 +598,10 @@ async function pollInteraction(interactionId: string): Promise<void> {
   }
   const reconciliation = getReconciliation(interaction);
   if (interaction.status !== 'streaming') {
-    if (reconciliation.version === CANVAS_RECONCILIATION_VERSION && reconciliation.artifactSync === 'synced') {
+    const hasStoredResponse = interaction.agentOutput.trim().length > 0 || interaction.artifacts.length > 0;
+    if (reconciliation.version === CANVAS_RECONCILIATION_VERSION
+      && reconciliation.artifactSync === 'synced'
+      && hasStoredResponse) {
       stopMonitor(interactionId);
       return;
     }
@@ -550,6 +630,8 @@ async function pollInteraction(interactionId: string): Promise<void> {
     }) as { sessions?: GatewaySessionSummary[] };
     const sessions = Array.isArray(response.sessions) ? response.sessions : [];
     const session = sessions.find((candidate) => sessionKeyOf(candidate) === interaction.sessionKey);
+    const sessionId = session?.sessionId || session?.id;
+    if (sessionId) getCanvasStore().observeBranchSession(interaction.branchId, sessionId);
     getCanvasStore().updateReconciliationMetadata(interactionId, {
       version: CANVAS_RECONCILIATION_VERSION,
       phase: 'monitoring',
@@ -557,13 +639,23 @@ async function pollInteraction(interactionId: string): Promise<void> {
       lastCheckedAt: Date.now(),
       lastError: null,
     });
-    if (session && sessionIsTerminal(session)) {
-      const terminalAt = session.updatedAt || Date.now();
+    if (session && sessionIsTerminal(session) && sessionReflectsInteractionRun(session, interaction)) {
+      const terminalAt = sessionTerminalAt(session) || Date.now();
       beginSettlement(interaction, terminalAt, {
         failure: sessionFailure(session),
         lateRecovery: Date.now() - terminalAt > CANVAS_SETTLE_MAX_MS,
       });
       return;
+    }
+
+    if (asNumber(reconciliation.terminalHintAt)) {
+      const snapshot = await readTranscript(interaction);
+      if (canvasTranscriptHasResponse(snapshot)) {
+        beginSettlement(interaction, Date.now(), {
+          failure: typeof reconciliation.failureHint === 'string' ? reconciliation.failureHint : undefined,
+        });
+        return;
+      }
     }
   } catch (error) {
     getCanvasStore().updateReconciliationMetadata(interactionId, {
@@ -584,15 +676,29 @@ export function scheduleCanvasInteractionReconciliation(interactionId: string, d
   trackTimer(interactionId, delayMs, () => void pollInteraction(interactionId));
 }
 
-export function signalCanvasInteractionTerminal(interactionId: string, ownerId: string, failureHint?: string): OwnedInteractionRecord | null {
+export function signalCanvasInteractionTerminal(interactionId: string, ownerId: string, input?: {
+  runId?: string;
+  failureHint?: string;
+}): OwnedInteractionRecord | null {
   const interaction = getCanvasStore().getOwnedInteraction(ownerId, interactionId);
   if (!interaction) return null;
+  if (input?.runId && interaction.runId && input.runId !== interaction.runId) return interaction;
   const reconciliation = getReconciliation(interaction);
   if (interaction.status !== 'streaming'
     && reconciliation.version === CANVAS_RECONCILIATION_VERSION
-    && reconciliation.artifactSync === 'synced') return interaction;
-  beginSettlement(interaction, Date.now(), failureHint ? { failure: failureHint } : undefined);
-  return interaction;
+    && reconciliation.artifactSync === 'synced'
+    && (interaction.agentOutput.trim() || interaction.artifacts.length > 0)) return interaction;
+  const updated = getCanvasStore().updateReconciliationMetadata(interaction.id, {
+    version: CANVAS_RECONCILIATION_VERSION,
+    phase: 'terminal_hint_received',
+    artifactSync: 'pending',
+    terminalHintAt: Date.now(),
+    terminalHintRunId: input?.runId || interaction.runId || null,
+    failureHint: input?.failureHint || null,
+    lastCheckedAt: Date.now(),
+  });
+  scheduleCanvasInteractionReconciliation(interaction.id, 0);
+  return updated ? getCanvasStore().getOwnedInteraction(ownerId, interaction.id) : interaction;
 }
 
 export function startCanvasReconciler(): void {

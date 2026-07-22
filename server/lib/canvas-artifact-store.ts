@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { resolveAgentWorkspace } from './agent-workspace.js';
 import { config } from './config.js';
-import type { CanvasArtifact, OwnedInteractionRecord } from './canvas-db.js';
+import type { CanvasArtifact, CanvasAttachment, OwnedInteractionRecord } from './canvas-db.js';
 
 export const CANVAS_ARTIFACT_MAX_BYTES = 25 * 1024 * 1024;
 const ARTIFACT_ID_PATTERN = /^[a-f0-9]{40}$/;
@@ -33,6 +33,10 @@ export function canvasArtifactUri(canvasId: string, interactionId: string, artif
   return `/api/canvas/artifacts/${encodeURIComponent(canvasId)}/${encodeURIComponent(interactionId)}/${encodeURIComponent(artifactId)}`;
 }
 
+export function canvasAttachmentUri(canvasId: string, attachmentId: string): string {
+  return `/api/canvas/attachments/${encodeURIComponent(canvasId)}/${encodeURIComponent(attachmentId)}`;
+}
+
 function canvasDirectory(ownerId: string, canvasId: string): string {
   return path.join(config.canvasArtifactsPath, ownerDirectory(ownerId), canvasId);
 }
@@ -40,6 +44,11 @@ function canvasDirectory(ownerId: string, canvasId: string): string {
 function artifactFilePath(interaction: OwnedInteractionRecord, artifactId: string): string {
   if (!ARTIFACT_ID_PATTERN.test(artifactId)) throw new Error('Invalid Canvas Artifact ID');
   return path.join(canvasDirectory(interaction.ownerId, interaction.canvasId), interaction.id, artifactId);
+}
+
+function attachmentFilePath(ownerId: string, canvasId: string, attachmentId: string): string {
+  if (!ARTIFACT_ID_PATTERN.test(attachmentId)) throw new Error('Invalid Canvas Attachment ID');
+  return path.join(canvasDirectory(ownerId, canvasId), 'attachments', attachmentId);
 }
 
 function artifactSourceUri(artifact: CanvasArtifact): string {
@@ -247,6 +256,47 @@ export async function materializeCanvasArtifacts(
   return { artifacts, complete: warnings.length === 0, warnings };
 }
 
+export async function materializeCanvasAttachments(
+  ownerId: string,
+  canvasId: string,
+  agentId: string,
+  attachments: CanvasAttachment[],
+): Promise<CanvasAttachment[]> {
+  const persisted: CanvasAttachment[] = [];
+  for (const attachment of attachments) {
+    const sourceUri = attachment.sourceUri || attachment.uri || '';
+    if (!sourceUri) throw new Error(`${attachment.name}: Attachment source URI is missing`);
+    const sourcePath = await secureLocalPath(sourceUri, agentId);
+    if (!sourcePath) throw new Error(`${attachment.name}: Attachment source is not an allowed local file`);
+    const bytes = await fs.readFile(sourcePath);
+    if (bytes.byteLength > CANVAS_ARTIFACT_MAX_BYTES) throw new Error(`${attachment.name}: Attachment exceeds the 25 MiB persistence limit`);
+    const id = createHash('sha256').update(bytes).digest('hex').slice(0, 40);
+    const target = attachmentFilePath(ownerId, canvasId, id);
+    await fs.mkdir(path.dirname(target), { recursive: true });
+    const existing = await fs.stat(target).catch(() => null);
+    if (!existing?.isFile()) {
+      const temporary = `${target}.${randomUUID()}.tmp`;
+      try {
+        await fs.writeFile(temporary, bytes, { flag: 'wx' });
+        await fs.rename(temporary, target);
+      } finally {
+        await fs.rm(temporary, { force: true }).catch(() => undefined);
+      }
+    }
+    persisted.push({
+      ...attachment,
+      id,
+      uri: canvasAttachmentUri(canvasId, id),
+      sourceUri,
+      storage: 'canvas',
+      available: true,
+      sizeBytes: bytes.byteLength,
+      warning: undefined,
+    });
+  }
+  return persisted;
+}
+
 export async function importCanvasArtifactFromFile(
   interaction: OwnedInteractionRecord,
   artifact: CanvasArtifact,
@@ -268,6 +318,15 @@ export async function readCanvasArtifact(
   if (!artifact) return null;
   const bytes = await fs.readFile(artifactFilePath(interaction, artifactId)).catch(() => null);
   return bytes ? { artifact, bytes } : null;
+}
+
+export async function readCanvasAttachment(
+  ownerId: string,
+  canvasId: string,
+  attachmentId: string,
+): Promise<Uint8Array | null> {
+  if (!ARTIFACT_ID_PATTERN.test(attachmentId)) return null;
+  return fs.readFile(attachmentFilePath(ownerId, canvasId, attachmentId)).catch(() => null);
 }
 
 export async function deleteCanvasArtifacts(ownerId: string, canvasId: string): Promise<void> {

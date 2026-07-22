@@ -18,6 +18,9 @@ export interface CanvasBranch {
   parentBranchId: string | null;
   forkedFromInteractionId: string | null;
   sessionKey: string;
+  openClawSessionId: string | null;
+  observedSessionId: string | null;
+  sessionIntegrity: 'unknown' | 'healthy' | 'drifted';
   sessionState: BranchSessionState;
   headInteractionId: string | null;
   createdAt: number;
@@ -32,6 +35,10 @@ export interface CanvasAttachmentMeta {
   mode?: 'inline' | 'file_reference';
   uri?: string;
   workspacePath?: string;
+  sourceUri?: string;
+  storage?: 'canvas' | 'source';
+  available?: boolean;
+  warning?: string;
 }
 
 export interface CanvasArtifact {
@@ -81,6 +88,7 @@ export interface CanvasLayout {
 
 export interface CanvasGraph {
   canvas: CanvasSummary;
+  reconciliationVersion: number;
   branches: CanvasBranch[];
   interactions: CanvasInteraction[];
   layout: CanvasLayout | null;
@@ -92,7 +100,7 @@ export interface SendReservation {
   expectedHeadInteractionId: string | null;
   userInput: string;
   attachments: CanvasAttachmentMeta[];
-  materialization: 'lazy-root' | 'continue-existing' | 'checkpoint-delta' | 'canonical-replay';
+  materialization: 'lazy-root' | 'continue-existing' | 'checkpoint-delta' | 'canonical-replay' | 'session-recovery';
   sessionKey: string;
   outgoingMessage: string;
   snapshotVersion?: number;

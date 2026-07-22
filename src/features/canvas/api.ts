@@ -79,7 +79,12 @@ export const canvasApi = {
       method: 'POST', body: JSON.stringify(body),
     });
   },
-  async reconcile(interactionId: string, body: { terminalHint?: boolean; failureHint?: string } = {}): Promise<void> {
+  async reconcile(interactionId: string, body: {
+    terminalHint?: boolean;
+    failureHint?: string;
+    runId?: string;
+    force?: boolean;
+  } = {}): Promise<void> {
     await request(`/api/canvas/interactions/${interactionId}/reconcile`, {
       method: 'POST', body: JSON.stringify(body),
     });

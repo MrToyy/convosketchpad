@@ -29,13 +29,15 @@ async function setup() {
   vi.doMock('../lib/agent-workspace.js', () => ({
     resolveAgentWorkspace: () => ({ agentId: 'main', workspaceRoot, memoryPath: path.join(workspaceRoot, 'MEMORY.md'), memoryDir: path.join(workspaceRoot, 'memory') }),
   }));
+  vi.doMock('../lib/gateway-rpc.js', () => ({ gatewayRpcCall: vi.fn(async () => ({ sessions: [] })) }));
 
   const db = await import('../lib/canvas-db.js');
   const artifacts = await import('../lib/canvas-artifact-store.js');
+  const reconciler = await import('../lib/canvas-reconciler.js');
   const route = await import('./canvas.js');
   const app = new Hono();
   app.route('/', route.default);
-  return { app, db, artifacts };
+  return { app, db, artifacts, reconciler };
 }
 
 async function seedPersistedArtifact(setupResult: Awaited<ReturnType<typeof setup>>, ownerId = 'owner-a') {
@@ -53,7 +55,7 @@ async function seedPersistedArtifact(setupResult: Awaited<ReturnType<typeof setu
     status: 'completed',
     agentOutput: 'done',
     artifacts: materialized.artifacts,
-    reconciliation: { version: 3, phase: 'synced', artifactSync: 'synced' },
+    reconciliation: { version: 4, phase: 'synced', artifactSync: 'synced' },
   });
   return { canvas, interactionId: base.id, artifact: materialized.artifacts[0] };
 }
@@ -71,6 +73,39 @@ afterEach(async () => {
 });
 
 describe('Canvas Artifact routes', () => {
+  it('serves a persisted user attachment after the upload staging file disappears', async () => {
+    const current = await setup();
+    const store = current.db.getCanvasStore();
+    store.ensureUser('owner-a', 'Owner A');
+    const canvas = store.createCanvas('owner-a', 'Attachments', 'main');
+    const branch = store.createRootBranch('owner-a', canvas.id);
+    const source = path.join(workspaceRoot, '.nerve', 'canvas-uploads', canvas.id, 'source.png');
+    await fs.mkdir(path.dirname(source), { recursive: true });
+    await fs.writeFile(source, 'durable-upload');
+
+    const prepared = await current.app.request(`/api/canvas/branches/${branch.id}/prepare-send`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        userInput: 'inspect this',
+        attachments: [{ name: 'source.png', mimeType: 'image/png', sizeBytes: 14, uri: source }],
+      }),
+    });
+    expect(prepared.status).toBe(200);
+    const payload = await prepared.json() as { reservation: { id: string; attachments: Array<{ id: string; uri: string; storage: string }> } };
+    expect(payload.reservation.attachments[0]).toEqual(expect.objectContaining({
+      storage: 'canvas',
+      uri: expect.stringMatching(/^\/api\/canvas\/attachments\//),
+    }));
+
+    store.acknowledgeSend('owner-a', payload.reservation.id, 'run-attachment');
+    await fs.rm(source);
+    const response = await current.app.request(payload.reservation.attachments[0].uri);
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe('durable-upload');
+    expect(response.headers.get('Cache-Control')).toContain('immutable');
+  });
+
   it('serves an owner-scoped persisted Artifact with immutable headers', async () => {
     const current = await setup();
     const seeded = await seedPersistedArtifact(current);
@@ -80,6 +115,46 @@ describe('Canvas Artifact routes', () => {
     expect(await response.text()).toBe('persisted');
     expect(response.headers.get('Content-Type')).toBe('text/plain');
     expect(response.headers.get('Cache-Control')).toContain('immutable');
+  });
+
+  it('advertises the server reconciliation contract version with the graph', async () => {
+    const current = await setup();
+    const seeded = await seedPersistedArtifact(current);
+    const response = await current.app.request(`/api/canvas/canvases/${seeded.canvas.id}/graph`);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(expect.objectContaining({ reconciliationVersion: 4 }));
+  });
+
+  it('treats a frontend terminal event as a hint instead of completing an empty interaction', async () => {
+    const current = await setup();
+    const store = current.db.getCanvasStore();
+    store.ensureUser('owner-a', 'Owner A');
+    const canvas = store.createCanvas('owner-a', 'Terminal hint', 'main');
+    const branch = store.createRootBranch('owner-a', canvas.id);
+    const reservation = store.prepareSend('owner-a', { branchId: branch.id, userInput: 'edit image', attachments: [] });
+    const interaction = store.acknowledgeSend('owner-a', reservation.id, 'run-terminal');
+
+    const response = await current.app.request(`/api/canvas/interactions/${interaction.id}/reconcile`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ terminalHint: true, runId: 'run-terminal' }),
+    });
+
+    expect(response.status).toBe(200);
+    current.reconciler.stopCanvasReconciler();
+    expect(store.getOwnedInteraction('owner-a', interaction.id)).toEqual(expect.objectContaining({
+      status: 'streaming',
+      agentOutput: '',
+      artifacts: [],
+      sessionMetadata: expect.objectContaining({
+        reconciliation: expect.objectContaining({
+          version: 4,
+          phase: 'terminal_hint_received',
+          artifactSync: 'pending',
+          terminalHintRunId: 'run-terminal',
+        }),
+      }),
+    }));
   });
 
   it('does not expose another owner\'s persisted Artifact', async () => {

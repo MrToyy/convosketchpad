@@ -8,7 +8,8 @@ import { config } from './config.js';
 export type BranchKind = 'root' | 'fork';
 export type BranchSessionState = 'draft' | 'active';
 export type InteractionStatus = 'streaming' | 'completed' | 'failed';
-export type SendMaterialization = 'lazy-root' | 'continue-existing' | 'checkpoint-delta' | 'canonical-replay';
+export type SendMaterialization = 'lazy-root' | 'continue-existing' | 'checkpoint-delta' | 'canonical-replay' | 'session-recovery';
+export type BranchSessionIntegrity = 'unknown' | 'healthy' | 'drifted';
 export type CanvasUserStatus = 'active' | 'disabled' | 'unmanaged';
 
 export interface CanvasUserRecord {
@@ -37,6 +38,9 @@ export interface BranchRecord {
   parentBranchId: string | null;
   forkedFromInteractionId: string | null;
   sessionKey: string;
+  openClawSessionId: string | null;
+  observedSessionId: string | null;
+  sessionIntegrity: BranchSessionIntegrity;
   sessionState: BranchSessionState;
   headInteractionId: string | null;
   createdAt: number;
@@ -63,6 +67,9 @@ export interface OwnedInteractionRecord extends InteractionRecord {
   canvasId: string;
   sessionKey: string;
   agentId: string;
+  openClawSessionId: string | null;
+  observedSessionId: string | null;
+  sessionIntegrity: BranchSessionIntegrity;
 }
 
 export interface CanvasAttachment {
@@ -73,6 +80,10 @@ export interface CanvasAttachment {
   mode?: 'inline' | 'file_reference';
   uri?: string;
   workspacePath?: string;
+  sourceUri?: string;
+  storage?: 'canvas' | 'source';
+  available?: boolean;
+  warning?: string;
 }
 
 export interface CanvasArtifact {
@@ -188,6 +199,9 @@ function mapBranch(row: SqlRow): BranchRecord {
     parentBranchId: asNullableString(row.parent_branch_id),
     forkedFromInteractionId: asNullableString(row.forked_from_interaction_id),
     sessionKey: asString(row.session_key),
+    openClawSessionId: asNullableString(row.openclaw_session_id),
+    observedSessionId: asNullableString(row.observed_session_id),
+    sessionIntegrity: (asString(row.session_integrity) || 'unknown') as BranchSessionIntegrity,
     sessionState: asString(row.session_state) as BranchSessionState,
     headInteractionId: asNullableString(row.head_interaction_id),
     createdAt: asNumber(row.created_at),
@@ -219,6 +233,9 @@ function mapOwnedInteraction(row: SqlRow): OwnedInteractionRecord {
     canvasId: asString(row.canvas_id),
     sessionKey: asString(row.session_key),
     agentId: asString(row.agent_id),
+    openClawSessionId: asNullableString(row.openclaw_session_id),
+    observedSessionId: asNullableString(row.observed_session_id),
+    sessionIntegrity: (asString(row.session_integrity) || 'unknown') as BranchSessionIntegrity,
   };
 }
 
@@ -259,6 +276,9 @@ export class CanvasStore {
         parent_branch_id TEXT REFERENCES branches(id) ON DELETE SET NULL,
         forked_from_interaction_id TEXT,
         session_key TEXT NOT NULL UNIQUE,
+        openclaw_session_id TEXT,
+        observed_session_id TEXT,
+        session_integrity TEXT NOT NULL DEFAULT 'unknown',
         session_state TEXT NOT NULL CHECK(session_state IN ('draft', 'active')),
         head_interaction_id TEXT,
         snapshot_json TEXT,
@@ -322,6 +342,16 @@ export class CanvasStore {
     }
     if (!userColumns.some((column) => asString(column.name) === 'status')) {
       this.db.exec("ALTER TABLE canvas_users ADD COLUMN status TEXT NOT NULL DEFAULT 'unmanaged'");
+    }
+    const branchColumns = this.db.prepare('PRAGMA table_info(branches)').all() as SqlRow[];
+    if (!branchColumns.some((column) => asString(column.name) === 'openclaw_session_id')) {
+      this.db.exec('ALTER TABLE branches ADD COLUMN openclaw_session_id TEXT');
+    }
+    if (!branchColumns.some((column) => asString(column.name) === 'observed_session_id')) {
+      this.db.exec('ALTER TABLE branches ADD COLUMN observed_session_id TEXT');
+    }
+    if (!branchColumns.some((column) => asString(column.name) === 'session_integrity')) {
+      this.db.exec("ALTER TABLE branches ADD COLUMN session_integrity TEXT NOT NULL DEFAULT 'unknown'");
     }
   }
 
@@ -480,6 +510,37 @@ export class CanvasStore {
     return row ? mapBranch(row) : null;
   }
 
+  observeBranchSession(branchId: string, sessionId: string): BranchRecord | null {
+    const normalized = sessionId.trim();
+    if (!normalized) return this.getBranchById(branchId);
+    const branch = this.getBranchById(branchId);
+    if (!branch) return null;
+    const now = Date.now();
+    if (!branch.openClawSessionId) {
+      this.db.prepare(`UPDATE branches
+        SET openclaw_session_id = ?, observed_session_id = ?, session_integrity = 'healthy', updated_at = ?
+        WHERE id = ?`).run(normalized, normalized, now, branchId);
+    } else if (branch.openClawSessionId === normalized) {
+      this.db.prepare(`UPDATE branches
+        SET observed_session_id = ?, session_integrity = 'healthy', updated_at = ?
+        WHERE id = ?`).run(normalized, now, branchId);
+    } else {
+      this.db.prepare(`UPDATE branches
+        SET observed_session_id = ?, session_integrity = 'drifted', updated_at = ?
+        WHERE id = ?`).run(normalized, now, branchId);
+    }
+    return this.getBranchById(branchId);
+  }
+
+  markBranchSessionMissing(branchId: string): BranchRecord | null {
+    const branch = this.getBranchById(branchId);
+    if (!branch?.openClawSessionId) return branch;
+    this.db.prepare(`UPDATE branches
+      SET observed_session_id = NULL, session_integrity = 'drifted', updated_at = ?
+      WHERE id = ?`).run(Date.now(), branchId);
+    return this.getBranchById(branchId);
+  }
+
   ownsSessionKey(ownerId: string, sessionKey: string): boolean {
     const row = this.db.prepare(`SELECT 1 FROM branches b JOIN canvases c ON c.id = b.canvas_id
       WHERE b.session_key = ? AND c.owner_id = ?`).get(sessionKey, ownerId);
@@ -542,7 +603,8 @@ export class CanvasStore {
           mimeType: attachment.mimeType || 'application/octet-stream',
           sizeBytes: attachment.sizeBytes,
           uri: attachment.uri,
-          available: true,
+          available: attachment.available !== false,
+          ...(attachment.warning ? { warning: attachment.warning } : {}),
         });
       });
       parseJson<CanvasArtifact[]>(row.artifacts_json, []).forEach((artifact, index) => {
@@ -598,8 +660,21 @@ export class CanvasStore {
           : '';
         outgoingMessage = `<canvas-context-snapshot>\nThe user forked an earlier Canvas interaction. Continue from this immutable prior context.\n\n${transcript}${resourceManifest}\n</canvas-context-snapshot>\n\n${input.userInput}`;
       } else if (branch.sessionState === 'active' && branch.headInteractionId && input.expectedHeadInteractionId === branch.headInteractionId) {
-        materialization = 'continue-existing';
         expectedHead = branch.headInteractionId;
+        if (branch.sessionIntegrity === 'drifted') {
+          materialization = 'session-recovery';
+          const snapshot = this.buildCanonicalSnapshot(branch.headInteractionId);
+          bootstrapResources = snapshot.resources;
+          const transcript = snapshot.interactions.map((item, index) =>
+            `Interaction ${index + 1}\nUser: ${item.user}\nAgent: ${item.assistant}`,
+          ).join('\n\n');
+          const resourceManifest = bootstrapResources.length > 0
+            ? `\n\n<canvas-context-resources>${JSON.stringify(bootstrapResources.map(({ id, sourceInteractionId, source, name, mimeType, sizeBytes, uri }) => ({ id, sourceInteractionId, source, name, mimeType, sizeBytes, uri })))}</canvas-context-resources>`
+            : '';
+          outgoingMessage = `<canvas-context-snapshot>\nOpenClaw reset this Canvas session. Restore the immutable Canvas history before continuing.\n\n${transcript}${resourceManifest}\n</canvas-context-snapshot>\n\n${input.userInput}`;
+        } else {
+          materialization = 'continue-existing';
+        }
       } else {
         throw new Error('invalid_branch_transition');
       }
@@ -626,7 +701,7 @@ export class CanvasStore {
       materialization: asString(row.materialization) as SendMaterialization,
       sessionKey: asString(row.session_key),
       outgoingMessage: asString(row.outgoing_message),
-      snapshotVersion: asString(row.materialization) === 'canonical-replay' ? 2 : undefined,
+      snapshotVersion: ['canonical-replay', 'session-recovery'].includes(asString(row.materialization)) ? 2 : undefined,
       bootstrapResources: parseJson<CanvasContextResource[]>(row.bootstrap_resources_json, []).map((resource) => ({
         ...resource,
         fetchUrl: `/api/canvas/send-reservations/${encodeURIComponent(asString(row.id))}/resources/${encodeURIComponent(resource.id)}`,
@@ -662,8 +737,12 @@ export class CanvasStore {
           sessionKey: row.session_key,
           ...(bootstrapWarnings.length ? { bootstrapWarnings } : {}),
         }), now, now);
-      this.db.prepare(`UPDATE branches SET session_state = 'active', head_interaction_id = ?, updated_at = ? WHERE id = ?`)
-        .run(id, now, asString(row.branch_id));
+      this.db.prepare(`UPDATE branches SET session_state = 'active', head_interaction_id = ?,
+        openclaw_session_id = CASE WHEN ? = 'session-recovery' THEN observed_session_id ELSE openclaw_session_id END,
+        session_integrity = CASE WHEN ? = 'session-recovery' AND observed_session_id IS NOT NULL THEN 'healthy'
+          WHEN ? = 'session-recovery' THEN 'unknown' ELSE session_integrity END,
+        updated_at = ? WHERE id = ?`)
+        .run(id, asString(row.materialization), asString(row.materialization), asString(row.materialization), now, asString(row.branch_id));
       this.db.prepare(`UPDATE send_reservations SET status = 'acknowledged', run_id = ?, interaction_id = ?, updated_at = ? WHERE id = ?`)
         .run(runId, id, now, reservationId);
       this.db.prepare('UPDATE canvases SET updated_at = ? WHERE id = ?').run(now, asString(row.canvas_id));
@@ -688,6 +767,17 @@ export class CanvasStore {
     return resource ? { resource, agentId: asString(row.agent_id) } : null;
   }
 
+  getOwnedCanvasAttachment(ownerId: string, canvasId: string, attachmentId: string): CanvasAttachment | null {
+    const row = this.db.prepare(`SELECT attachment.value AS attachment_json
+      FROM interactions i
+      JOIN branches b ON b.id = i.branch_id
+      JOIN canvases c ON c.id = b.canvas_id
+      JOIN json_each(i.attachments_json) AS attachment
+      WHERE c.owner_id = ? AND c.id = ? AND json_extract(attachment.value, '$.id') = ?
+      LIMIT 1`).get(ownerId, canvasId, attachmentId) as SqlRow | undefined;
+    return row ? parseJson<CanvasAttachment>(row.attachment_json, {} as CanvasAttachment) : null;
+  }
+
   completeInteraction(ownerId: string, interactionId: string, input: {
     status: 'completed' | 'failed';
     agentOutput: string;
@@ -705,25 +795,32 @@ export class CanvasStore {
   }
 
   getOwnedInteraction(ownerId: string, interactionId: string): OwnedInteractionRecord | null {
-    const row = this.db.prepare(`SELECT i.*, b.canvas_id, b.session_key, c.owner_id, c.agent_id
+    const row = this.db.prepare(`SELECT i.*, b.canvas_id, b.session_key, b.openclaw_session_id, b.observed_session_id, b.session_integrity, c.owner_id, c.agent_id
       FROM interactions i JOIN branches b ON b.id = i.branch_id JOIN canvases c ON c.id = b.canvas_id
       WHERE i.id = ? AND c.owner_id = ?`).get(interactionId, ownerId) as SqlRow | undefined;
     return row ? mapOwnedInteraction(row) : null;
   }
 
   getInteractionForReconciliation(interactionId: string): OwnedInteractionRecord | null {
-    const row = this.db.prepare(`SELECT i.*, b.canvas_id, b.session_key, c.owner_id, c.agent_id
+    const row = this.db.prepare(`SELECT i.*, b.canvas_id, b.session_key, b.openclaw_session_id, b.observed_session_id, b.session_integrity, c.owner_id, c.agent_id
       FROM interactions i JOIN branches b ON b.id = i.branch_id JOIN canvases c ON c.id = b.canvas_id
       WHERE i.id = ?`).get(interactionId) as SqlRow | undefined;
     return row ? mapOwnedInteraction(row) : null;
   }
 
   listReconciliationCandidates(limit = 500): OwnedInteractionRecord[] {
-    const rows = this.db.prepare(`SELECT i.*, b.canvas_id, b.session_key, c.owner_id, c.agent_id
+    const rows = this.db.prepare(`SELECT i.*, b.canvas_id, b.session_key, b.openclaw_session_id, b.observed_session_id, b.session_integrity, c.owner_id, c.agent_id
       FROM interactions i JOIN branches b ON b.id = i.branch_id JOIN canvases c ON c.id = b.canvas_id
       WHERE i.status = 'streaming'
-         OR COALESCE(json_extract(i.session_metadata_json, '$.reconciliation.version'), 0) < 3
+         OR COALESCE(json_extract(i.session_metadata_json, '$.reconciliation.version'), 0) < 4
          OR json_extract(i.session_metadata_json, '$.reconciliation.artifactSync') = 'pending'
+         OR json_extract(i.session_metadata_json, '$.reconciliation.artifactSync') = 'degraded'
+         OR (
+           i.status = 'completed'
+           AND trim(i.agent_output) = ''
+           AND json_array_length(i.artifacts_json) = 0
+           AND json_extract(i.session_metadata_json, '$.reconciliation.artifactSync') = 'synced'
+         )
       ORDER BY i.updated_at ASC LIMIT ?`).all(limit) as SqlRow[];
     return rows.map(mapOwnedInteraction);
   }
