@@ -1,4 +1,4 @@
-import { Monitor, Eye, Type, Activity, ALargeSmall, Code2, Columns3, Command, Languages } from 'lucide-react';
+import { Monitor, Eye, Type, Activity, ALargeSmall, Code2, Command, Languages } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import { InlineSelect } from '@/components/ui/InlineSelect';
 import { useSettings } from '@/contexts/SettingsContext';
@@ -32,8 +32,6 @@ export function AppearanceSettings() {
     toggleShowHiddenWorkspaceEntries,
     commandPaletteButtonVisible,
     toggleCommandPaletteButtonVisible,
-    kanbanVisible,
-    toggleKanbanVisible,
     theme,
     setTheme,
     font,
@@ -236,22 +234,6 @@ export function AppearanceSettings() {
           checked={commandPaletteButtonVisible}
           onCheckedChange={toggleCommandPaletteButtonVisible}
           aria-labelledby="chatbox-commands-label"
-        />
-      </div>
-
-      {/* Workspace Kanban Visibility */}
-      <div className="cockpit-row items-start justify-between">
-        <div className="flex items-center gap-3">
-          <Columns3 size={14} className={kanbanVisible ? 'text-primary' : 'text-muted-foreground'} aria-hidden="true" />
-          <div className="flex flex-col">
-            <span className="text-sm font-medium text-foreground" id="kanban-label">{copy.showTasks}</span>
-            <span className="text-xs text-muted-foreground">{copy.showTasksHint}</span>
-          </div>
-        </div>
-        <Switch
-          checked={kanbanVisible}
-          onCheckedChange={toggleKanbanVisible}
-          aria-label={copy.showTasksAria}
         />
       </div>
 

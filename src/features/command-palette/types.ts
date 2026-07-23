@@ -6,6 +6,6 @@ export interface Command {
   shortcut?: string;        // Display string like "⌘K"
   icon?: ReactNode;
   action: () => void;
-  category?: 'navigation' | 'actions' | 'settings' | 'appearance' | 'voice' | 'kanban';
+  category?: 'navigation' | 'actions' | 'settings' | 'appearance' | 'voice';
   keywords?: string[];      // Additional search terms
 }

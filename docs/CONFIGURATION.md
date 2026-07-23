@@ -347,58 +347,6 @@ The updater stores state in `~/.nerve/updater/`. These are not configurable via 
 
 ---
 
-## Kanban
-
-Kanban board configuration is stored in the runtime data file (`${NERVE_DATA_DIR:-~/.nerve}/kanban/tasks.json`), not in `.env`. Manage it via the REST API:
-
-```bash
-# Read current config
-curl http://localhost:3080/api/kanban/config
-
-# Update config
-curl -X PUT http://localhost:3080/api/kanban/config \
-  -H 'Content-Type: application/json' \
-  -d '{"proposalPolicy":"auto","quickViewLimit":10}'
-```
-
-### Board Configuration
-
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `columns` | `array` | *(see below)* | Column definitions (1--10). Each: `{ key, title, wipLimit?, visible }` |
-| `defaults.status` | `string` | `"todo"` | Default status for new tasks |
-| `defaults.priority` | `string` | `"normal"` | Default priority for new tasks |
-| `reviewRequired` | `boolean` | `true` | Whether completed tasks must go through review before done |
-| `allowDoneDragBypass` | `boolean` | `false` | Allow dragging tasks directly to done (skipping review) |
-| `quickViewLimit` | `number` | `5` | Max tasks shown in workspace quick view (1--50) |
-| `proposalPolicy` | `string` | `"confirm"` | How agent proposals are handled: `"confirm"` (manual review) or `"auto"` (apply immediately) |
-| `defaultModel` | `string` | *(none)* | Default model for agent execution (max 100 chars). If unset, execution falls back to OpenClaw's configured default model |
-
-### Column Schema
-
-Each column in the `columns` array:
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `key` | `string` | Yes | Status key: `backlog`, `todo`, `in-progress`, `review`, `done`, `cancelled` |
-| `title` | `string` | Yes | Display label (1--100 chars) |
-| `wipLimit` | `number` | No | Work-in-progress limit (≥0). `0` or omitted means unlimited |
-| `visible` | `boolean` | Yes | Whether the column is shown on the board |
-
-### Default Columns
-
-```json
-[
-  { "key": "backlog",     "title": "Backlog",     "visible": true },
-  { "key": "todo",        "title": "To Do",       "visible": true },
-  { "key": "in-progress", "title": "In Progress", "visible": true },
-  { "key": "review",      "title": "Review",      "visible": true },
-  { "key": "done",        "title": "Done",        "visible": true },
-  { "key": "cancelled",   "title": "Cancelled",   "visible": false }
-]
-```
-
----
 
 ## HTTPS
 

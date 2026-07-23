@@ -143,7 +143,7 @@ describe('gateway detection and repair', () => {
     expect(updated.gateway.controlUi.allowedOrigins).not.toContain(`  http://${EXAMPLE_TS_IPV4}:3080  `);
   });
 
-  it('detects missing sessions_spawn in gateway.tools.allow and patches it for kanban execution', async () => {
+  it('detects missing sessions_spawn in gateway.tools.allow and patches it for isolated session execution', async () => {
     const { mod } = await importGatewayDetect();
 
     const changes = mod.detectNeededConfigChanges({

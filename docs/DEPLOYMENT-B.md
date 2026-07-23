@@ -18,7 +18,7 @@ This topology splits three things:
 - **ConvoSketchpad ↔ gateway** is remote
 - **ConvoSketchpad ↔ workspace filesystem** is remote
 
-Chat, sessions, cron, and Kanban can work well here.
+Chat, sessions, and cron can work well here.
 
 Workspace-heavy features do **not** have full parity, because ConvoSketchpad cannot directly walk or mutate the remote filesystem. Some routes fall back to gateway file RPC, but that fallback is intentionally narrow.
 
@@ -35,7 +35,6 @@ Workspace-heavy features do **not** have full parity, because ConvoSketchpad can
 | Raw image / binary preview | Not supported | No remote raw-file fallback |
 | Memory | Limited | `MEMORY.md` has some backend fallback, but daily files are local-only and the current UI treats remote workspaces as constrained, not as deployment-A parity |
 | Crons | Full with extra config | Gateway must allow `cron`, `gateway`, and `sessions_spawn` on `/tools/invoke` |
-| Kanban execution | Full with extra config | Same allowlist requirement as crons. Assignee execution still depends on the remote gateway having the right sessions available |
 | Skills tab | Verify in your environment | Uses local `openclaw skills list`, not the remote file-browser fallback path |
 
 If you need full Files, Memory, raw previews, and file mutation behavior, move ConvoSketchpad onto the same machine as the gateway and workspace, or use same-host cloud deployment instead.
@@ -140,7 +139,7 @@ In the browser, verify these separately:
 1. connect succeeds
 2. session list loads
 3. messages send and receive
-4. Crons and Kanban load without `Tool not available` errors
+4. Crons load without `Tool not available` errors
 5. the file browser only shows top-level remote files, which is expected in this topology
 
 ## Common issues
@@ -157,7 +156,7 @@ The browser-facing ConvoSketchpad origin is missing from `gateway.controlUi.allo
 
 **Fix:** set `NERVE_PUBLIC_ORIGIN` to the exact browser origin and add that same origin to the gateway allowlist.
 
-### Cron or Kanban says a tool is unavailable
+### Cron says a tool is unavailable
 
 The remote gateway is missing required HTTP tool allowlist entries.
 

@@ -12,7 +12,7 @@
 
 ConvoSketchpad 在复用 OpenClaw Nerve 和 OpenClaw 原生架构的前提下，提供一个面向 AI 交互与设计探索的可视化 Canvas。
 
-Canvas 不替代 Chat，而是提供一种更适合浏览、组织和分支 AI 对话的交互方式。应用启动后默认进入 Canvas，用户仍可切换到现有 Chat 和 Tasks。
+Canvas 不替代 Chat，而是提供一种更适合浏览、组织和分支 AI 对话的交互方式。应用启动后默认进入 Canvas，用户仍可切换到现有 Chat。
 
 设计原则：
 
@@ -148,7 +148,7 @@ Root Branch C: I7 ── I8
 ┌─────────────────────────────────────────────────────────────┐
 │ Browser / React                                             │
 │                                                             │
-│  Canvas（默认）       Chat（现有）       Tasks（现有）      │
+│  Canvas（默认）                    Chat（现有）             │
 │       │                                                     │
 │  React Flow / Canvas Runtime / Interaction Assembler        │
 │       │                                                     │
@@ -1034,7 +1034,6 @@ src/features/canvas/
 
 1. Canvas
 2. Chat
-3. Tasks
 
 Canvas 是应用启动默认页面：
 
@@ -1058,7 +1057,6 @@ Canvas 不复用：
 - ChatContext 的全局消息状态；
 - ChatContext 的 currentSession；
 - Chat 气泡模型；
-- Kanban Store 或任务状态机。
 
 ## 16. Agent 工作状态
 
@@ -1132,7 +1130,7 @@ server/lib/canvas-reconciler.ts
 - Repository 负责 SQL、migration、transaction 和 owner scope；
 - 不直接读取 OpenClaw 内部 SQLite/Transcript 文件。
 
-## 18. 与 Chat、Tasks、Sessions 的关系
+## 18. 与 Chat、Sessions 的关系
 
 ### 18.1 Chat
 
@@ -1142,14 +1140,7 @@ server/lib/canvas-reconciler.ts
 - 不支持从 Chat 创建或导入 Canvas；
 - 两套会话入口完全独立。
 
-### 18.2 Tasks
-
-- Canvas 不建立在 Tasks 上；
-- Tasks 是 Kanban + Agent job runner；
-- Canvas 是长期、多会话、多分支交互图；
-- 两者只共享 Gateway 和部分渲染基础设施。
-
-### 18.3 Sessions
+### 18.2 Sessions
 
 - 每个 Branch 都是真实 OpenClaw Session；
 - 同一 Canvas 可以映射多个 Root Session 和多个 Fork Session；
@@ -1175,7 +1166,7 @@ server/lib/canvas-reconciler.ts
 
 - 前端主体限制在 `src/features/canvas/`；
 - 后端主体限制在 Canvas/Token 新模块；
-- 不修改 ChatContext、Kanban Store 和 OpenClaw Transcript reader 核心逻辑；
+- 不修改 ChatContext 和 OpenClaw Transcript reader 核心逻辑；
 - 对现有组件通过 import/adapter 复用；
 - App、TopBar、commands、server/app 保持薄接线；
 - 普通 Session 过滤逻辑集中在一个可测试的 key predicate；
@@ -1222,7 +1213,7 @@ server/lib/canvas-reconciler.ts
 
 ## 23. MVP 验收标准
 
-- 应用启动默认进入 Canvas，顶部顺序为 Canvas、Chat、Tasks；
+- 应用启动默认进入 Canvas，顶部顺序为 Canvas、Chat；
 - 没有 Canvas 时显示创建入口；
 - 可以创建多个绑定不同 Agent 的 Canvas；
 - 同一 Canvas 可以创建至少两个互不继承历史的 Root Branch；
@@ -1249,7 +1240,7 @@ server/lib/canvas-reconciler.ts
 - Token rotate/disable 后旧 cookie 失效；
 - 第一个 Token 用户能幂等继承 local/legacy Canvas；
 - SQLite 事务中断和重复 idempotency key 不产生重复 Branch/Interaction；
-- Canvas 代码边界不要求重写现有 Chat 或 Tasks。
+- Canvas 代码边界不要求重写现有 Chat。
 
 ## 24. 参考依据
 

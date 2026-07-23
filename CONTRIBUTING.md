@@ -67,7 +67,6 @@ convosketchpad/
 │   │   ├── connect/            # Gateway connect dialog
 │   │   ├── dashboard/          # Token usage and memory list views
 │   │   ├── file-browser/       # Workspace tree, tabs, editors
-│   │   ├── kanban/             # Task board, proposals, execution views
 │   │   ├── markdown/           # Markdown and tool output rendering
 │   │   ├── memory/             # Memory editing dialogs and hooks
 │   │   ├── sessions/           # Session list, tree helpers, spawn flows
@@ -89,7 +88,6 @@ convosketchpad/
 │   │   ├── workspace.ts
 │   │   ├── files.ts
 │   │   ├── file-browser.ts
-│   │   ├── kanban.ts
 │   │   ├── crons.ts
 │   │   ├── memories.ts
 │   │   ├── tts.ts

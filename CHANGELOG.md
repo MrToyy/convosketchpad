@@ -12,6 +12,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Made `main` the product branch while retaining `master` as the clean upstream Nerve mirror.
 - Preserved the historical Nerve changelog below as upstream attribution and migration history.
 
+### Removed
+
+- Removed the inherited Tasks/Kanban board, its API, agent execution workflow, proposals, markers, bundled skill, and runtime data.
+
 ## [1.5.3] - 2026-04-21
 
 ### Highlights

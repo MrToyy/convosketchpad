@@ -172,7 +172,6 @@ Because the ConvoSketchpad host usually cannot reach the gateway host's workspac
 - chat
 - session list and live session state
 - cron management, if the gateway tool allowlist is correct
-- Kanban execution, if the gateway tool allowlist is correct
 - top-level allowlisted workspace-file fallback (`SOUL.md`, `TOOLS.md`, etc.)
 
 ### What becomes partial or unavailable
@@ -204,7 +203,7 @@ Verify in the browser:
 1. login appears and succeeds
 2. connect succeeds without manual token entry on the normal official-gateway path
 3. file browser, memory, config, and raw previews all work normally
-4. Crons and Kanban load without tool-availability errors
+4. Crons load without tool-availability errors
 
 ### Split hosts
 
@@ -218,7 +217,7 @@ Verify in the browser:
 
 1. login succeeds
 2. connect succeeds
-3. Crons and Kanban load
+3. Crons load
 4. workspace file access is limited in the ways documented above, which is expected in this topology
 
 ## Common issues

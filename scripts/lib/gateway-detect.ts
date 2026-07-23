@@ -939,7 +939,7 @@ export function detectNeededConfigChanges(opts: {
   if (needsToolsAllow()) {
     changes.push({
       id: 'tools-allow',
-      description: 'Allow cron + gateway + sessions_spawn tools on /tools/invoke (needed for cron, gateway management, and kanban task execution)',
+      description: 'Allow cron + gateway + sessions_spawn tools on /tools/invoke (needed for cron, gateway management, and isolated session execution)',
       apply: () => {
         const r = patchGatewayToolsAllow();
         return { ok: r.ok, message: r.message, needsRestart: r.ok };

@@ -15,7 +15,7 @@
 ## 详细资料
 
 - [ConvoSketchpad Canvas MVP 设计说明](../OPENCLAW-CANVAS-MVP-DESIGN.md)：产品目标、数据模型、分支语义、上下文和架构决策。
-- [Nerve 运行机制与数据流](../NERVE-RUNTIME-AND-DATA-FLOW.md)：Nerve 原有前后端、Chat、Tasks、Session 与文件结构。
+- [Nerve 运行机制与数据流](../NERVE-RUNTIME-AND-DATA-FLOW.md)：继承自 Nerve 的前后端、Chat、Session 与文件结构。
 - [API](../API.md)：完整 HTTP API 参考。
 - [Configuration](../CONFIGURATION.md)：环境变量、网络访问与用户管理命令。
 - [Security](../SECURITY.md)：认证、Origin、CSP、Gateway Token 注入与部署风险。

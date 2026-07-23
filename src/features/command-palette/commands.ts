@@ -3,7 +3,7 @@ import { themes, type ThemeName } from '@/lib/themes';
 import { fonts, type FontName } from '@/lib/fonts';
 import type { TTSProvider } from '@/features/tts/useTTS';
 
-export type ViewMode = 'canvas' | 'chat' | 'kanban';
+export type ViewMode = 'canvas' | 'chat';
 
 export interface CommandActions {
   onNewSession: () => void;
@@ -23,7 +23,6 @@ export interface CommandActions {
   onRefreshSessions: () => void;
   onRefreshMemory: () => void;
   onSetViewMode?: (mode: ViewMode) => void;
-  canShowKanban?: boolean;
 }
 
 const THEME_LABELS: Record<ThemeName, string> = {
@@ -196,31 +195,15 @@ export function createCommands(actions: CommandActions): Command[] {
         id: 'open-canvas',
         label: '打开画布视图',
         action: () => actions.onSetViewMode!('canvas'),
-        category: 'kanban' as const,
+        category: 'navigation' as const,
         keywords: ['canvas', 'branch', 'conversation', 'view'],
       },
       {
         id: 'open-chat',
         label: 'Open Chat View',
         action: () => actions.onSetViewMode!('chat'),
-        category: 'kanban' as const,
+        category: 'navigation' as const,
         keywords: ['chat', 'conversation', 'view'],
-      },
-    ] : []),
-    ...(actions.onSetViewMode && actions.canShowKanban !== false ? [
-      {
-        id: 'open-kanban',
-        label: 'Open Tasks View',
-        action: () => actions.onSetViewMode!('kanban'),
-        category: 'kanban' as const,
-        keywords: ['kanban', 'board', 'tasks', 'view'],
-      },
-      {
-        id: 'create-kanban-task',
-        label: 'Create Task',
-        action: () => actions.onSetViewMode!('kanban'),
-        category: 'kanban' as const,
-        keywords: ['kanban', 'task', 'create', 'new', 'add'],
       },
     ] : []),
     ...themeCommands,
@@ -231,10 +214,9 @@ export function createCommands(actions: CommandActions): Command[] {
 const CATEGORY_ORDER: Record<string, number> = {
   actions: 0,
   navigation: 1,
-  kanban: 2,
-  settings: 3,
-  appearance: 4,
-  voice: 5,
+  settings: 2,
+  appearance: 3,
+  voice: 4,
 };
 
 /** Filter commands by fuzzy-matching against a search query. */

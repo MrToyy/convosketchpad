@@ -4,7 +4,7 @@
 
 - Nerve 前端、Nerve 后端与 OpenClaw Gateway 各自负责什么；
 - 聊天会话如何读取、发送和持久化；
-- Chat 与 Tasks 两个页面分别是什么；
+- Chat 页面与 Session 的关系；
 - 如何在不复用飞书、Telegram 等 channel 会话的情况下聊天；
 - 新功能应该把状态放在哪一层。
 
@@ -16,8 +16,8 @@
 
 Nerve 不是新的 Agent Runtime，也不是独立的聊天服务。它是 OpenClaw 前面的本地优先 Web Cockpit：
 
-- 浏览器提供 Chat、Sessions、Tasks、Workspace、语音和监控 UI；
-- Nerve Node 服务提供安全边界、本地文件能力、任务编排、语音服务和 Gateway 代理；
+- 浏览器提供 Chat、Sessions、Workspace、语音和监控 UI；
+- Nerve Node 服务提供安全边界、本地文件能力、Cron/Session 编排、语音服务和 Gateway 代理；
 - OpenClaw Gateway 仍负责 Agent 会话、模型调用、工具执行、事件流和聊天 transcript。
 
 因此，Nerve 可以扩展操作界面和编排能力，但核心聊天运行时仍属于 OpenClaw。
@@ -76,7 +76,7 @@ npm run dev
 1. **页面与交互**
    - Chat 消息列表、输入框、流式响应、工具调用、Markdown、图片、语音；
    - Sessions 树、会话切换、重命名、删除、重置、创建 Agent/Subagent；
-   - Tasks/Kanban、Workspace、Memory、Config、Skills、Crons；
+   - Workspace、Memory、Config、Skills、Crons；
    - Settings、主题、字体、TTS/STT 配置和日志面板。
 
 2. **Gateway 实时客户端**
@@ -87,7 +87,7 @@ npm run dev
 3. **前端临时状态**
    - React Context 管理 Gateway、Session、Chat、Settings 状态；
    - 当前消息窗口、stream buffer、生成状态主要存在内存中；
-   - 连接偏好、界面设置和当前 Chat/Tasks 视图等部分偏好存在浏览器 `localStorage`。
+   - 连接偏好、界面设置和当前 Canvas/Chat 视图等部分偏好存在浏览器 `localStorage`。
 
 前端不会直接调用模型供应商，也不会自己写入 OpenClaw 聊天 transcript。
 
@@ -132,7 +132,6 @@ Browser → ws://<nerve>/ws?target=ws://127.0.0.1:18789/ws
 ### 4.3 Nerve 自有能力
 
 - Workspace 文件、Memory、Skills、Crons 的 REST 适配；
-- Tasks/Kanban 数据存储和 Agent 执行编排；
 - TTS、STT、Whisper 模型管理；
 - 文件监听并通过 `/api/events` 推送 SSE；
 - Token usage 扫描、Agent log 和服务健康检查。
@@ -235,14 +234,11 @@ Nerve 后端会直接读取 transcript 的场景包括：
 |---|---|---|
 | OpenClaw Agent Session | 聊天/Agent 执行上下文 | `sessions.json` + `.jsonl` transcript |
 | Nerve 登录 Session | 保护 Nerve 页面和 API 的单用户登录态 | 浏览器 HttpOnly 签名 Cookie；服务端无 session 数据库 |
-| Kanban Task Run | Task 与某次 Agent/Subagent 执行的关联 | Nerve `tasks.json` 中保存 run/sessionKey；实际聊天仍在 OpenClaw transcript |
 
 ### 6.4 其他相关持久化位置
 
 | 数据 | 默认位置 | 所有者 |
 |---|---|---|
-| Kanban tasks/config/proposals | `${NERVE_DATA_DIR:-~/.nerve}/kanban/tasks.json` | Nerve |
-| Kanban audit log | `${NERVE_DATA_DIR:-~/.nerve}/kanban/audit.log` | Nerve |
 | Device identity | `~/.nerve/device-identity.json` | Nerve |
 | Token usage high-water mark | `~/.openclaw/token-usage.json` | Nerve 辅助统计 |
 | Agent activity log | `<project>/agent-log.json` | Nerve |
@@ -269,60 +265,12 @@ Nerve 后端会直接读取 transcript 的场景包括：
 
 Chat 页面的 Reset 调用 `sessions.reset`，会重置当前 OpenClaw session，而不是只清空浏览器 DOM。
 
-## 8. Tasks 页面是什么
 
-顶部 `Tasks` 是 Nerve 自己的全局 Kanban 操作面，不是 OpenClaw channel，也不是聊天历史的另一种展示。
-
-默认状态流：
-
-```text
-backlog / todo
-      │ execute
-      ▼
- in-progress
-      │ success
-      ▼
-    review ── approve → done
-      │
-      └─ reject → todo
-```
-
-主要能力：
-
-- 创建、编辑、删除、筛选、排序和拖拽 Task；
-- 设置优先级、labels、assignee、model、thinking、预估时间；
-- 执行 Task 时创建或调用 OpenClaw Agent/Subagent session；
-- 后端轮询执行结果，成功后进入 review；
-- approve 后进入 done，reject 后回到 todo；
-- Agent 可以用 `[kanban:create]` / `[kanban:update]` marker 提交 proposal。
-
-### 8.1 Tasks 与 Chat 的关系
-
-Tasks 自己的数据存在 Nerve `tasks.json`，但 Task 执行依赖 OpenClaw：
-
-```text
-Nerve Task
-  → execute
-  → sessions.create / sessions.send 或 sessions_spawn
-  → OpenClaw child session + transcript
-  → Nerve poller 读取完成结果
-  → result 写回 tasks.json
-  → 可选把完成报告发回 parent root session
-```
-
-因此二者是“独立存储、通过 sessionKey/runId 关联”：
-
-- Chat 的事实来源是 OpenClaw transcript；
-- Task 的事实来源是 Nerve `tasks.json`；
-- Task run 记录关联到 OpenClaw session。
-
-Kanban 在 UI 中是全局的，不随当前 Workspace Agent 切换而分库。
-
-## 9. 如何脱离 OpenClaw channel 聊天
+## 8. 如何脱离 OpenClaw channel 聊天
 
 先区分两个目标。
 
-### 9.1 只是不希望回答发回飞书/Telegram
+### 8.1 只是不希望回答发回飞书/Telegram
 
 Nerve Chat 当前发送 `chat.send` 时固定使用：
 
@@ -334,7 +282,7 @@ deliver: false
 
 但是，如果当前选中的是 `agent:main:feishu:direct:*` 等 session，你仍然在复用该 channel session 的历史和上下文，只是本次回答不向外投递。
 
-### 9.2 希望上下文也与 channel 完全分离
+### 8.2 希望上下文也与 channel 完全分离
 
 正确入口仍然是顶部 **Chat**，但 Sessions 中应选择：
 
@@ -367,7 +315,7 @@ Top Bar: Chat
 :channel:
 ```
 
-### 9.3 Root session 不存在时
+### 8.3 Root session 不存在时
 
 OpenClaw 可能只有 channel 产生的 session，而还没有 `agent:main:main` transcript。当前 Nerve 的 Sessions 列表不会凭空合成一个不存在的 root row，而是以 Gateway `sessions.list` 为准。
 
@@ -384,14 +332,14 @@ OpenClaw 可能只有 channel 产生的 session，而还没有 `agent:main:main`
 3. 用首条 `chat.send(..., deliver:false)` 初始化；
 4. 切换到该 session。
 
-## 10. 对后续新功能开发的建议
+## 9. 对后续新功能开发的建议
 
 开发新功能前先判断它的事实来源：
 
 | 问题 | 推荐归属 |
 |---|---|
 | 属于模型对话、工具调用、Agent 执行上下文吗？ | OpenClaw session/transcript |
-| 属于 Nerve 自己的工作流、看板或 UI 扩展吗？ | Nerve backend store/API |
+| 属于 Nerve 自己的工作流或 UI 扩展吗？ | Nerve backend store/API |
 | 只是显示偏好或临时交互状态吗？ | Frontend state/localStorage |
 | 需要读取本机 workspace 吗？ | Nerve backend filesystem API，注意远程 Gateway 场景 |
 | 需要实时 Agent 事件吗？ | Gateway WebSocket event |
@@ -402,16 +350,15 @@ OpenClaw 可能只有 channel 产生的 session，而还没有 `agent:main:main`
 1. 不要在前端另存一份聊天 transcript，除非明确要做数据镜像；
 2. 不要把 `sessionKey` 当作普通 UI id，它决定真正的上下文和 transcript；
 3. channel-free 与 `deliver:false` 不是同一件事：前者还要求使用 root session；
-4. Tasks 可以扩展自己的 schema，但执行记录应继续显式关联 OpenClaw session/run；
-5. 同机部署才能完整访问 Workspace；远程 Gateway 只有部分文件 RPC fallback。
+4. 同机部署才能完整访问 Workspace；远程 Gateway 只有部分文件 RPC fallback。
 
-## 11. 关键代码地图
+## 10. 关键代码地图
 
 ### 前端
 
 | 路径 | 作用 |
 |---|---|
-| `src/App.tsx` | Chat/Tasks 总布局和 view mode |
+| `src/App.tsx` | Canvas/Chat 总布局和 view mode |
 | `src/contexts/GatewayContext.tsx` | Gateway RPC 与事件总线 |
 | `src/contexts/SessionContext.tsx` | Session 列表、选择和创建 |
 | `src/contexts/ChatContext.tsx` | Chat 状态、stream、发送和恢复 |
@@ -419,7 +366,6 @@ OpenClaw 可能只有 channel 产生的 session，而还没有 `agent:main:main`
 | `src/features/chat/operations/sendMessage.ts` | `chat.send` 与 `deliver:false` |
 | `src/features/chat/operations/loadHistory.ts` | `chat.history` 与消息转换 |
 | `src/features/sessions/sessionKeys.ts` | root/channel/subagent key 分类 |
-| `src/features/kanban/` | Tasks/Kanban UI 与 hooks |
 
 ### 后端
 
@@ -429,16 +375,14 @@ OpenClaw 可能只有 channel 产生的 session，而还没有 `agent:main:main`
 | `server/lib/ws-proxy.ts` | Gateway WebSocket 代理、Token/device 注入 |
 | `server/lib/gateway-rpc.ts` | 后端到 Gateway 的持久 RPC 连接 |
 | `server/routes/sessions.ts` | transcript 辅助读取和 Subagent spawn |
-| `server/routes/kanban.ts` | Task API 与执行编排 |
-| `server/lib/kanban-store.ts` | `tasks.json` store、mutex、CAS、audit |
 | `server/routes/tokens.ts` | transcript token/cost 扫描 |
 | `server/lib/config.ts` | 路径和运行配置 |
 
 ### 现有文档
 
 - `docs/ARCHITECTURE.md`：完整模块和系统架构；
-- `docs/API.md`：REST API 和 Kanban 接口；
+- `docs/API.md`：REST API；
 - `docs/SECURITY.md`：认证、Token 注入和 WebSocket 安全；
 - `docs/CONFIGURATION.md`：环境变量和默认路径；
-- `docs/AGENT-MARKERS.md`：TTS、Chart、Kanban marker；
+- `docs/AGENT-MARKERS.md`：TTS、Chart marker；
 - `docs/DEPLOYMENT-A.md` / `B.md` / `C.md`：部署拓扑和 locality 差异。

@@ -28,7 +28,7 @@ ConvoSketchpad turns those alternatives into a navigable workspace:
 - preserve generated artifacts beside the interaction that produced them;
 - isolate canvases and artifacts by managed user when authentication is enabled.
 
-The Canvas is an additional interaction model. Existing Nerve chat, tasks, workspace,
+The Canvas is an additional interaction model. Existing Nerve chat, workspace,
 voice, telemetry, and agent controls remain available.
 
 ## Install

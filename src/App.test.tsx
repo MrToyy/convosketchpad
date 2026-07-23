@@ -33,7 +33,6 @@ const {
   useOpenFilesMock,
 } = vi.hoisted(() => {
   const settingsContext = {
-    kanbanVisible: true,
     commandPaletteButtonVisible: true,
   };
   const uploadConfigState = {
@@ -79,7 +78,7 @@ const {
     bravo: false,
   };
   const reloadCalls: Array<{ agentId: string; path: string }> = [];
-  const topBarRenderSnapshots: Array<{ showKanbanView?: boolean; viewMode?: string }> = [];
+  const topBarRenderSnapshots: Array<{ viewMode?: string }> = [];
   const tabRenderSnapshots: Array<{
     workspaceAgentId: string;
     hasSaveToast: boolean;
@@ -186,7 +185,6 @@ vi.mock('@/contexts/SettingsContext', () => ({
     toggleTelemetry: vi.fn(),
     setTheme: vi.fn(),
     setFont: vi.fn(),
-    kanbanVisible: settingsContext.kanbanVisible,
     commandPaletteButtonVisible: settingsContext.commandPaletteButtonVisible,
   }),
 }));
@@ -285,16 +283,13 @@ vi.mock('@/features/connect/ConnectDialog', () => ({
 
 vi.mock('@/components/TopBar', () => ({
   TopBar: ({
-    showKanbanView,
     viewMode,
   }: {
-    showKanbanView?: boolean;
     viewMode?: string;
   }) => {
-    topBarRenderSnapshots.push({ showKanbanView, viewMode } as { showKanbanView?: boolean; viewMode?: string });
+    topBarRenderSnapshots.push({ viewMode });
     return (
       <div>
-        <div data-testid="topbar-show-kanban">{String(showKanbanView ?? true)}</div>
         <div data-testid="topbar-view-mode">{viewMode ?? 'chat'}</div>
       </div>
     );
@@ -398,10 +393,6 @@ vi.mock('@/features/workspace/WorkspacePanel', () => ({
   WorkspacePanel: () => null,
 }));
 
-vi.mock('@/features/kanban/KanbanPanel', () => ({
-  KanbanPanel: () => null,
-}));
-
 beforeEach(() => {
   global.fetch = vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input);
@@ -458,7 +449,6 @@ describe('App save toast workspace scoping', () => {
     uploadConfigState.fileReferenceEnabled = true;
     dirtyStateByAgent.alpha = false;
     dirtyStateByAgent.bravo = false;
-    settingsContext.kanbanVisible = true;
     reloadCalls.length = 0;
     topBarRenderSnapshots.length = 0;
     tabRenderSnapshots.length = 0;
@@ -843,31 +833,23 @@ describe('App workspace switch guard', () => {
   });
 });
 
-describe('App kanban visibility gating', () => {
+describe('App primary view persistence', () => {
   beforeEach(() => {
     localStorage.clear();
     localStorage.setItem('nerve:viewMode', 'chat');
-    settingsContext.kanbanVisible = true;
     settingsContext.commandPaletteButtonVisible = true;
     topBarRenderSnapshots.length = 0;
   });
 
-  it('passes the kanban visibility flag through to the top bar', () => {
-    settingsContext.kanbanVisible = false;
-
-    render(<App />);
-
-    expect(screen.getByTestId('topbar-show-kanban')).toHaveTextContent('false');
-    expect(topBarRenderSnapshots.at(-1)).toMatchObject({ showKanbanView: false });
-  });
-
-  it('falls back to the default Canvas when kanban is persisted but hidden', () => {
+  it('migrates a persisted kanban view to Canvas', () => {
     localStorage.setItem('nerve:viewMode', 'kanban');
-    settingsContext.kanbanVisible = false;
+    localStorage.setItem('nerve:workspace:kanban-visible', 'true');
 
     render(<App />);
 
     expect(screen.getByTestId('topbar-view-mode')).toHaveTextContent('canvas');
+    expect(localStorage.getItem('nerve:viewMode')).toBe('canvas');
+    expect(localStorage.getItem('nerve:workspace:kanban-visible')).toBeNull();
   });
 
   it('opens the command palette from the chatbox trigger in desktop layout', () => {

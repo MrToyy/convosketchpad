@@ -72,9 +72,6 @@ export interface SettingsCopy {
     showHiddenAria: string;
     showCommands: string;
     showCommandsHint: string;
-    showTasks: string;
-    showTasksHint: string;
-    showTasksAria: string;
   };
   audio: {
     heading: string;
@@ -203,7 +200,6 @@ export const settingsCopy = {
       showLog: '显示活动日志', showLogHint: '在顶部区域显示智能体活动。', showLogAria: '切换活动日志显示',
       showHidden: '显示隐藏的工作区项目', showHiddenHint: '需要时在工作区浏览器中显示点文件和点目录。', showHiddenAria: '切换隐藏工作区项目显示',
       showCommands: '显示聊天框“命令”按钮', showCommandsHint: '在聊天输入框中保持“命令”入口可见。',
-      showTasks: '显示工作区任务', showTasksHint: '切换工作区标签页中的看板视图。', showTasksAria: '切换工作区看板显示',
     },
     audio: {
       heading: '音频', inputHeading: '输入采集', inputHeadingCopy: '调整语言、唤醒短语和转写方式，再将语音交给智能体。',
@@ -278,7 +274,6 @@ export const settingsCopy = {
       showEventsAria: 'Toggle events panel visibility', showLog: 'Show activity log', showLogHint: 'Surface agent activity in the top chrome.', showLogAria: 'Toggle log panel visibility',
       showHidden: 'Show hidden workspace entries', showHiddenHint: 'Reveal dotfiles and dotfolders in the workspace browser when you need them.', showHiddenAria: 'Toggle hidden workspace entries visibility',
       showCommands: 'Show chatbox Commands button', showCommandsHint: 'Keep the Commands launcher visible in the chat composer.',
-      showTasks: 'Show workspace tasks', showTasksHint: 'Toggle the Kanban view inside the workspace tabs.', showTasksAria: 'Toggle workspace kanban visibility',
     },
     audio: {
       heading: 'Audio', inputHeading: 'Input Capture', inputHeadingCopy: 'Tune language detection, wake phrases, and transcription before speech reaches the agent.',

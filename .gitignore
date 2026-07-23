@@ -45,11 +45,6 @@ src/test/*.js
 # Local review artifacts
 wave-reviews/
 
-# Kanban runtime data (legacy in-repo paths)
-server/data/kanban/tasks.json
-server/data/kanban/audit.log
-server-dist/data/kanban/tasks.json
-server-dist/data/kanban/audit.log
 node_modules
 database/*
 !database/.gitkeep

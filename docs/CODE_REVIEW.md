@@ -19,13 +19,13 @@ Prefer consistency with the surrounding subsystem over introducing a brand-new p
 
 - The frontend is organized mostly by feature under `src/features/`.
 - Shared layers live in `src/components/`, `src/contexts/`, `src/hooks/`, and `src/lib/`.
-- Large UI surfaces are often lazy-loaded, especially settings, sessions, workspace, kanban, charts, and file editing.
+- Large UI surfaces are often lazy-loaded, especially settings, sessions, workspace, charts, and file editing.
 - Cross-feature imports do exist. Keep them narrow, stable, and free of circular dependencies.
 
 ### React patterns worth preserving
 
 - Functional components and hooks only.
-- Stable callbacks and memoized derived values matter in hot paths like chat, sessions, file-browser, workspace switching, and kanban.
+- Stable callbacks and memoized derived values matter in hot paths like chat, sessions, file-browser, and workspace switching.
 - Ref-synchronized state is used in a few places where callbacks need fresh values without constantly re-registering listeners.
 - Optional or heavy panels are usually wrapped in `Suspense` and `PanelErrorBoundary`.
 
@@ -64,7 +64,7 @@ Prefer consistency with the surrounding subsystem over introducing a brand-new p
 ### Frontend
 
 - [ ] Changes fit the current feature, context, and hook split used in that part of the app.
-- [ ] Chat, sessions, file-browser, workspace, and kanban changes avoid obvious rerender or subscription churn.
+- [ ] Chat, sessions, file-browser, and workspace changes avoid obvious rerender or subscription churn.
 - [ ] Timers, listeners, sockets, observers, and intervals clean up correctly.
 - [ ] Heavy or optional UI stays lazy-loaded unless there is a clear reason to change that.
 - [ ] Error states, loading states, and mobile behavior still make sense.

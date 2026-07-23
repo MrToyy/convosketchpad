@@ -51,13 +51,10 @@ interface SettingsContextValue {
   setFontSize: (size: number) => void;
   editorFontSize: number;
   setEditorFontSize: (size: number) => void;
-  kanbanVisible: boolean;
-  toggleKanbanVisible: () => void;
 }
 
 const SettingsContext = createContext<SettingsContextValue | null>(null);
 const FONT_REFRESH_STORAGE_KEY = 'nerve:font-refresh-20260312';
-const KANBAN_VISIBILITY_STORAGE_KEY = 'nerve:workspace:kanban-visible';
 const COMMAND_PALETTE_BUTTON_STORAGE_KEY = 'nerve:showChatboxCommandPaletteButton';
 const LEGACY_TOPBAR_COMMAND_PALETTE_BUTTON_STORAGE_KEY = 'nerve:showTopBarCommandPaletteButton';
 const LEGACY_COMPACT_COMMAND_PALETTE_BUTTON_STORAGE_KEY = 'nerve:showFloatingCommandPaletteButton';
@@ -163,10 +160,6 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     const saved = localStorage.getItem('nerve:editor-font-size');
     const parsed = saved ? parseInt(saved, 10) : NaN;
     return normalizeEditorFontSize(parsed);
-  });
-  const [kanbanVisible, setKanbanVisible] = useState(() => {
-    const saved = localStorage.getItem(KANBAN_VISIBILITY_STORAGE_KEY);
-    return saved !== 'false';
   });
   const { speak } = useTTS(soundEnabled, ttsProvider, ttsModel || undefined);
   const wakeWordToggleRef = useRef<(() => void) | null>(null);
@@ -367,14 +360,6 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     localStorage.setItem('nerve:editor-font-size', String(normalized));
   }, []);
 
-  const toggleKanbanVisible = useCallback(() => {
-    setKanbanVisible(prev => {
-      const next = !prev;
-      localStorage.setItem(KANBAN_VISIBILITY_STORAGE_KEY, String(next));
-      return next;
-    });
-  }, []);
-
   const value = useMemo<SettingsContextValue>(() => ({
     language,
     setLanguage,
@@ -418,8 +403,6 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     setFontSize,
     editorFontSize,
     setEditorFontSize,
-    kanbanVisible,
-    toggleKanbanVisible,
   }), [
     language, setLanguage,
     soundEnabled, toggleSound, ttsProvider, ttsModel, changeTtsProvider, changeTtsModel, toggleTtsProvider,
@@ -430,7 +413,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     eventsVisible, toggleEvents, logVisible, toggleLog, showHiddenWorkspaceEntries, toggleShowHiddenWorkspaceEntries,
     commandPaletteButtonVisible, toggleCommandPaletteButtonVisible,
     theme, setTheme, font, setFont,
-    fontSize, setFontSize, editorFontSize, setEditorFontSize, kanbanVisible, toggleKanbanVisible,
+    fontSize, setFontSize, editorFontSize, setEditorFontSize,
   ]);
 
   return <SettingsContext.Provider value={value}>{children}</SettingsContext.Provider>;

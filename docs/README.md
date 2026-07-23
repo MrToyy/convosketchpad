@@ -18,7 +18,7 @@ Start here when you need setup, operations, or contributor guidance.
 - [Troubleshooting](./TROUBLESHOOTING.md), common failures and fixes
 - [Updating](./UPDATING.md), built-in updater flow and rollback
 - [Installer Steps](./INSTALLER-STEPS.md), what the installer does
-- [Agent Markers](./AGENT-MARKERS.md), TTS, charts, and kanban markers
+- [Agent Markers](./AGENT-MARKERS.md), TTS and chart markers
 - [Code Review](./CODE_REVIEW.md), review guidance for the current codebase
 
 ## Setup and deployment

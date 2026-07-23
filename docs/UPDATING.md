@@ -135,21 +135,6 @@ If no service manager is found, the updater skips restart and prints manual star
 | `~/.nerve/updater/snapshots/<timestamp>/.env` | Backed-up `.env` files |
 | `~/.nerve/updater/nerve-update.lock` | PID lock file |
 
-## Upgrade notes
-
-### 1.5.0, Kanban data path migration
-
-On first start after upgrading to 1.5.0, ConvoSketchpad automatically migrates legacy Kanban runtime data from:
-- `server-dist/data/kanban`
-- `server/data/kanban`
-
-into the canonical runtime location:
-- `${NERVE_DATA_DIR:-~/.nerve}/kanban`
-
-What to do:
-- Let the first post-upgrade start complete before judging the migration
-- Update backup scripts to follow `${NERVE_DATA_DIR:-~/.nerve}/kanban`
-- Do not keep writing to the old `server-dist` or `server` data paths after upgrade
 
 ## Troubleshooting
 

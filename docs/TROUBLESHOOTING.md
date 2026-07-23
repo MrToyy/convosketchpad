@@ -462,23 +462,6 @@ MEMORY_PATH=/path/to/.openclaw/workspace/MEMORY.md
 - Inspect gateway logs for `sessions.create`, `sessions.send`, or `sessions_spawn` failures
 - Refresh sessions and retry after gateway reconnects if the session tree looks stale
 
-### Kanban task execution cannot attach to a worker
-
-**Symptom:** A Kanban task enters `in-progress`, but no worker session links up cleanly, the task never reaches `review`, or the parent root never gets the completion update.
-
-**Cause:** Kanban has two execution paths now:
-- **Assigned tasks** create a real child session beneath the assignee's live root via `sessions.create(parentSessionKey=...)`, then send the task with `sessions.send`.
-- **Unassigned or `operator` tasks** use the normal `sessions_spawn` path.
-
-That means failures can come from a missing assignee root, a child-session create/send failure, the normal `sessions_spawn` path, or a stalled completion poller. On macOS, unassigned or `operator` tasks are rejected outright and must be assigned to a live worker root first.
-
-**Fix:**
-- If the task is assigned, make sure that assignee's root session exists and is healthy
-- If the task is unassigned, verify the normal `sessions_spawn` path is working
-- On macOS, assign the task to a live worker root before executing it
-- Check gateway RPC/session logs for the assignee-root path, and HTTP tool logs for the normal spawn path
-- If the child session finishes but the parent root never updates, inspect gateway RPC logs and recent session events for the parent-report step
-- If the worker never appears in the session list, inspect gateway connectivity and recent session events first
 
 ### Session status stuck on "THINKING"
 

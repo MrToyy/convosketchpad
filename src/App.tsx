@@ -56,7 +56,6 @@ const SessionList = lazy(() => import('@/features/sessions/SessionList').then(m 
 const WorkspacePanel = lazy(() => import('@/features/workspace/WorkspacePanel').then(m => ({ default: m.WorkspacePanel })));
 
 // Lazy-loaded view modes
-const KanbanPanel = lazy(() => import('@/features/kanban/KanbanPanel').then(m => ({ default: m.KanbanPanel })));
 const CanvasPanel = lazy(() => import('@/features/canvas').then(m => ({ default: m.CanvasPanel })));
 
 interface AppProps {
@@ -81,12 +80,15 @@ function buildWorkspaceSwitchErrorMessage(result: {
   return `Could not save ${fileLabel}. Resolve it before switching agents.`;
 }
 
-function getInitialViewMode(canShowKanban: boolean): ViewMode {
+function getInitialViewMode(): ViewMode {
   try {
     const saved = localStorage.getItem('nerve:viewMode');
     if (saved === 'canvas') return 'canvas';
     if (saved === 'chat') return 'chat';
-    if (saved === 'kanban' && canShowKanban) return 'kanban';
+    if (saved === 'kanban') {
+      localStorage.setItem('nerve:viewMode', 'canvas');
+    }
+    localStorage.removeItem('nerve:workspace:kanban-visible');
   } catch {
     // ignore storage errors
   }
@@ -129,7 +131,6 @@ export default function App({ onLogout }: AppProps) {
     eventsVisible, logVisible,
     toggleEvents, toggleLog, toggleTelemetry,
     setTheme, setFont,
-    kanbanVisible,
     commandPaletteButtonVisible,
   } = useSettings();
   const canvasCopy = getCanvasCopy(language);
@@ -327,23 +328,12 @@ export default function App({ onLogout }: AppProps) {
   const [spawnDialogOpen, setSpawnDialogOpen] = useState(false);
 
   // View mode state, persisted to localStorage
-  const [viewMode, setViewModeRaw] = useState<ViewMode>(() => getInitialViewMode(kanbanVisible));
-  const [pendingTaskId, setPendingTaskId] = useState<string | null>(null);
+  const [viewMode, setViewModeRaw] = useState<ViewMode>(getInitialViewMode);
   const [openBeads, setOpenBeads] = useState<OpenBeadTab[]>([]);
   const setViewMode = useCallback((mode: ViewMode) => {
-    const nextMode = mode === 'kanban' && !kanbanVisible ? 'chat' : mode;
-    setViewModeRaw(nextMode);
-
-    if (nextMode === 'kanban' && isCompactLayout) {
-      setFileBrowserCollapsed(true);
-    }
-
-    try { localStorage.setItem('nerve:viewMode', nextMode); } catch { /* ignore */ }
-  }, [isCompactLayout, kanbanVisible, setFileBrowserCollapsed]);
-  const openTaskInBoard = useCallback((taskId: string) => {
-    setPendingTaskId(taskId);
-    setViewMode('kanban');
-  }, [setViewMode]);
+    setViewModeRaw(mode);
+    try { localStorage.setItem('nerve:viewMode', mode); } catch { /* ignore */ }
+  }, []);
   const [chatPathLinkPrefixes, setChatPathLinkPrefixes] = useState<string[]>(
     DEFAULT_CHAT_PATH_LINKS_CONFIG.prefixes,
   );
@@ -430,11 +420,6 @@ export default function App({ onLogout }: AppProps) {
       }
     };
   }, []);
-
-  useEffect(() => {
-    if (kanbanVisible || viewMode !== 'kanban') return;
-    setViewMode('chat');
-  }, [kanbanVisible, setViewMode, viewMode]);
 
   const openBeadId = useCallback((target: BeadLinkTarget) => {
     const normalizedBeadId = target.beadId.trim();
@@ -539,10 +524,9 @@ export default function App({ onLogout }: AppProps) {
     onRefreshSessions: refreshSessions,
     onRefreshMemory: refreshMemories,
     onSetViewMode: setViewMode,
-    canShowKanban: kanbanVisible,
   }), [openSpawnDialog, handleReset, toggleSound, handleAbort, openSettings, openSearch,
     setTheme, setFont, setTtsProvider, handleToggleWakeWord, toggleEvents, toggleLog, toggleTelemetry,
-    refreshSessions, refreshMemories, setViewMode, kanbanVisible]);
+    refreshSessions, refreshMemories, setViewMode]);
 
   // Keyboard shortcut handlers with useCallback
   const handleOpenPalette = useCallback(() => setPaletteOpen(true), []);
@@ -863,8 +847,6 @@ export default function App({ onLogout }: AppProps) {
               onRefreshMemories={refreshMemories}
               memoriesLoading={memoriesLoading}
               remoteWorkspace={remoteWorkspace}
-              onOpenBoard={() => setViewMode('kanban')}
-              onOpenTask={openTaskInBoard}
             />
           </PanelErrorBoundary>
         </div>
@@ -905,8 +887,6 @@ export default function App({ onLogout }: AppProps) {
           memoriesLoading={memoriesLoading}
           remoteWorkspace={remoteWorkspace}
           compact
-          onOpenBoard={() => setViewMode('kanban')}
-          onOpenTask={openTaskInBoard}
         />
       </PanelErrorBoundary>
     </Suspense>
@@ -991,7 +971,6 @@ export default function App({ onLogout }: AppProps) {
           workspacePanel={compactWorkspacePanel}
           viewMode={viewMode}
           onViewModeChange={setViewMode}
-          showKanbanView={kanbanVisible}
         />
       )}
 
@@ -1083,18 +1062,9 @@ export default function App({ onLogout }: AppProps) {
         )}
 
         {/*
-         * Chat panel is always rendered but hidden when kanban is active.
-         * This keeps ChatPanel → InputBar → useVoiceInput mounted so that
-         * in-progress voice recording / STT transcription survives tab switches.
-         * See: https://github.com/.../issues/64
+         * Chat remains mounted while Canvas is active so in-progress voice
+         * recording and STT transcription survive view switches.
          */}
-        {viewMode === 'kanban' && (
-          <div className="shell-panel boot-panel flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden rounded-[28px]">
-            <Suspense fallback={<div className="flex-1 flex items-center justify-center text-muted-foreground text-xs bg-background">Loading…</div>}>
-              <KanbanPanel initialTaskId={pendingTaskId} onInitialTaskConsumed={() => setPendingTaskId(null)} />
-            </Suspense>
-          </div>
-        )}
         {viewMode === 'canvas' && (
           <div className="shell-panel boot-panel flex-1 flex min-w-0 min-h-0 overflow-hidden rounded-[28px]">
             <Suspense fallback={<div lang={language} className="flex-1 flex items-center justify-center text-muted-foreground text-xs bg-background">{canvasCopy.loadingCanvas}</div>}>

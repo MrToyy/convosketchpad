@@ -33,16 +33,11 @@ describe('TopBar', () => {
     expect(canvasButton.querySelector('span')).toHaveAttribute('translate', 'no');
   });
 
-  it('shows the tasks view toggle by default', () => {
+  it('renders only canvas and chat primary view toggles', () => {
     renderTopBar();
 
-    expect(screen.getByRole('button', { name: /switch to tasks view/i })).toBeInTheDocument();
-  });
-
-  it('hides the tasks view toggle when kanban visibility is disabled', () => {
-    renderTopBar({ showKanbanView: false });
-
     expect(screen.queryByRole('button', { name: /switch to tasks view/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /switch to canvas view/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /switch to chat view/i })).toBeInTheDocument();
   });
 
