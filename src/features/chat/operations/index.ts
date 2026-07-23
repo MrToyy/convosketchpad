@@ -1,33 +1,14 @@
+export { appendUploadManifest, sendChatMessage } from './sendMessage';
+export type { ChatSendAck, ChatSendStatus, GatewayAttachmentPayload } from './sendMessage';
 export {
-  loadChatHistory,
-  processChatMessages,
-  filterMessage,
-  detectSystemNotification,
-  splitToolCallMessage,
-  groupToolMessages,
-  tagIntermediateMessages,
-} from './loadHistory';
-export { buildUserMessage, sendChatMessage } from './sendMessage';
-export type { ChatSendAck, ChatSendStatus } from './sendMessage';
-export {
+  appendActivityEntry,
+  buildActivityLogEntry,
   classifyStreamEvent,
-  extractStreamDelta,
+  deriveProcessingStage,
   extractFinalMessage,
   extractFinalMessages,
-  buildActivityLogEntry,
-  markToolCompleted,
-  appendActivityEntry,
-  deriveProcessingStage,
+  extractStreamDelta,
   isActiveAgentState,
+  markToolCompleted,
 } from './streamEventHandler';
-export type { ClassifiedEvent, StreamEventType, FinalMessageData } from './streamEventHandler';
-export { mergeRecoveredTail } from './mergeRecoveredTail';
-export {
-  createFallbackRunId,
-  getOrCreateRunState,
-  hasSeqGap,
-  pruneRunRegistry,
-  resolveRunId,
-  updateHighestSeq,
-} from './realtimeState';
-export type { RunState, RecoveryReason } from './realtimeState';
+export type { ActivityLogEntry, ClassifiedEvent, FinalMessageData, ProcessingStage, StreamEventType } from './streamEventHandler';

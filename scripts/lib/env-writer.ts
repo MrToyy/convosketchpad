@@ -8,22 +8,15 @@ import { readFileSync, writeFileSync, renameSync, copyFileSync, existsSync, unli
 export interface EnvConfig {
   GATEWAY_URL?: string;
   GATEWAY_TOKEN?: string;
-  AGENT_NAME?: string;
   PORT?: string;
   HOST?: string;
   SSL_PORT?: string;
-  OPENAI_API_KEY?: string;
-  REPLICATE_API_TOKEN?: string;
   ALLOWED_ORIGINS?: string;
   CSP_CONNECT_EXTRA?: string;
   WS_ALLOWED_HOSTS?: string;
-  MEMORY_PATH?: string;
-  MEMORY_DIR?: string;
   SESSIONS_DIR?: string;
   USAGE_FILE?: string;
-  FILE_BROWSER_ROOT?: string;
-  TTS_CACHE_TTL_MS?: string;
-  TTS_CACHE_MAX?: string;
+  NERVE_WORKSPACE_ROOT?: string;
   VITE_PORT?: string;
   // Authentication
   NERVE_AUTH?: string;
@@ -35,12 +28,9 @@ export interface EnvConfig {
 /** Default values (matching server/lib/config.ts). */
 export const DEFAULTS: Record<string, string> = {
   GATEWAY_URL: 'http://127.0.0.1:18789',
-  AGENT_NAME: 'Agent',
   PORT: '3080',
   HOST: '127.0.0.1',
   SSL_PORT: '3443',
-  TTS_CACHE_TTL_MS: '3600000',
-  TTS_CACHE_MAX: '200',
 };
 
 /**
@@ -64,13 +54,6 @@ export function generateEnvContent(config: EnvConfig): string {
   lines.push(`GATEWAY_TOKEN=${config.GATEWAY_TOKEN || ''}`);
   lines.push('');
 
-  // Agent
-  if (config.AGENT_NAME && config.AGENT_NAME !== DEFAULTS.AGENT_NAME) {
-    lines.push('# Agent');
-    lines.push(`AGENT_NAME=${config.AGENT_NAME}`);
-    lines.push('');
-  }
-
   // Server — always write PORT for clarity (even if default)
   const serverLines: string[] = [];
   serverLines.push(`PORT=${config.PORT || DEFAULTS.PORT}`);
@@ -83,16 +66,6 @@ export function generateEnvContent(config: EnvConfig): string {
   lines.push('# Server');
   lines.push(...serverLines);
   lines.push('');
-
-  // API Keys
-  const keyLines: string[] = [];
-  if (config.OPENAI_API_KEY) keyLines.push(`OPENAI_API_KEY=${config.OPENAI_API_KEY}`);
-  if (config.REPLICATE_API_TOKEN) keyLines.push(`REPLICATE_API_TOKEN=${config.REPLICATE_API_TOKEN}`);
-  if (keyLines.length > 0) {
-    lines.push('# API Keys');
-    lines.push(...keyLines);
-    lines.push('');
-  }
 
   // Authentication
   if (config.NERVE_AUTH === 'true' || config.NERVE_PASSWORD_HASH || config.NERVE_SESSION_SECRET) {
@@ -111,11 +84,9 @@ export function generateEnvContent(config: EnvConfig): string {
   if (config.ALLOWED_ORIGINS) advLines.push(`ALLOWED_ORIGINS=${config.ALLOWED_ORIGINS}`);
   if (config.CSP_CONNECT_EXTRA) advLines.push(`CSP_CONNECT_EXTRA=${config.CSP_CONNECT_EXTRA}`);
   if (config.WS_ALLOWED_HOSTS) advLines.push(`WS_ALLOWED_HOSTS=${config.WS_ALLOWED_HOSTS}`);
-  if (config.MEMORY_PATH) advLines.push(`MEMORY_PATH=${config.MEMORY_PATH}`);
-  if (config.MEMORY_DIR) advLines.push(`MEMORY_DIR=${config.MEMORY_DIR}`);
   if (config.SESSIONS_DIR) advLines.push(`SESSIONS_DIR=${config.SESSIONS_DIR}`);
   if (config.USAGE_FILE) advLines.push(`USAGE_FILE=${config.USAGE_FILE}`);
-  if (config.FILE_BROWSER_ROOT) advLines.push(`FILE_BROWSER_ROOT=${config.FILE_BROWSER_ROOT}`);
+  if (config.NERVE_WORKSPACE_ROOT) advLines.push(`NERVE_WORKSPACE_ROOT=${config.NERVE_WORKSPACE_ROOT}`);
   if (advLines.length > 0) {
     lines.push('# Advanced');
     lines.push(...advLines);

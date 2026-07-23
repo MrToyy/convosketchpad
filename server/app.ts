@@ -23,33 +23,18 @@ import { resolveCorsOrigin } from './lib/origin-utils.js';
 
 import healthRoutes from './routes/health.js';
 import authRoutes from './routes/auth.js';
-import ttsRoutes from './routes/tts.js';
-import transcribeRoutes from './routes/transcribe.js';
 import agentLogRoutes from './routes/agent-log.js';
 import tokensRoutes from './routes/tokens.js';
-import memoriesRoutes from './routes/memories.js';
-import eventsRoutes from './routes/events.js';
 import serverInfoRoutes from './routes/server-info.js';
 import codexLimitsRoutes from './routes/codex-limits.js';
 import claudeCodeLimitsRoutes from './routes/claude-code-limits.js';
 import versionRoutes from './routes/version.js';
-import channelsRoutes from './routes/channels.js';
 import versionCheckRoutes from './routes/version-check.js';
 import gatewayRoutes from './routes/gateway.js';
 import connectDefaultsRoutes from './routes/connect-defaults.js';
-import workspaceRoutes from './routes/workspace.js';
-import cronsRoutes from './routes/crons.js';
-import sessionsRoutes from './routes/sessions.js';
-import apiKeysRoutes from './routes/api-keys.js';
-import skillsRoutes from './routes/skills.js';
 import filesRoutes from './routes/files.js';
-import voicePhrasesRoutes from './routes/voice-phrases.js';
-import fileBrowserRoutes from './routes/file-browser.js';
-import uploadConfigRoutes from './routes/upload-config.js';
 import uploadReferenceRoutes from './routes/upload-reference.js';
-import beadsRoutes from './routes/beads.js';
 import canvasRoutes from './routes/canvas.js';
-// activity routes removed — tab dropped from workspace panel
 
 const app = new Hono();
 
@@ -76,22 +61,15 @@ app.use(
 );
 // Authentication — after bodyLimit (reject oversized before auth), before compress/routes
 app.use('*', authMiddleware);
-// Apply compression to all routes except SSE (compression buffers chunks and breaks streaming)
-app.use('*', async (c, next) => {
-  if (c.req.path === '/api/events' || c.req.path === '/api/files/raw') return next();
-  return compress()(c, next);
-});
+app.use('*', compress());
 app.use('*', cacheHeaders);
 
 // ── API routes ───────────────────────────────────────────────────────
 
 const routes = [
-  healthRoutes, authRoutes, ttsRoutes, transcribeRoutes, agentLogRoutes,
-  tokensRoutes, memoriesRoutes, eventsRoutes, serverInfoRoutes,
+  healthRoutes, authRoutes, agentLogRoutes, tokensRoutes, serverInfoRoutes,
   codexLimitsRoutes, claudeCodeLimitsRoutes, versionRoutes, versionCheckRoutes,
-  gatewayRoutes, connectDefaultsRoutes,
-  workspaceRoutes, cronsRoutes, sessionsRoutes, skillsRoutes, filesRoutes, apiKeysRoutes,
-  voicePhrasesRoutes, fileBrowserRoutes, uploadConfigRoutes, uploadReferenceRoutes, channelsRoutes, beadsRoutes, canvasRoutes,
+  gatewayRoutes, connectDefaultsRoutes, filesRoutes, uploadReferenceRoutes, canvasRoutes,
 ];
 for (const route of routes) app.route('/', route);
 

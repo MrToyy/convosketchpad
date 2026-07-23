@@ -1,248 +1,46 @@
-# Deployment: Cloud (Remote Access)
+# Deployment: remote browser access
 
-This guide covers two very different cloud topologies.
-
-If you only remember one thing, remember this:
-
-> **Remote browser access does not automatically mean limited ConvoSketchpad. Split-host workspace locality does.**
-
-Same-host cloud deployment can preserve near-full deployment-A behavior. Split-host cloud deployment cannot, unless the ConvoSketchpad host also has direct access to the same workspace filesystem.
-
-## Topology options
-
-### Same host, recommended
+The recommended topology runs ConvoSketchpad and OpenClaw on the same server:
 
 ```text
-Browser (remote) → ConvoSketchpad cloud → Gateway cloud (same machine)
+Remote browser → HTTPS reverse proxy → ConvoSketchpad → local OpenClaw Gateway
 ```
 
-This is the cloud topology with the best feature parity. ConvoSketchpad, the gateway, and the workspace live together.
+## Requirements
 
-### Split hosts, partial parity
-
-```text
-Browser (remote) → ConvoSketchpad host A → Gateway host B
-```
-
-This behaves much more like deployment B. Chat can still work well, but workspace-heavy features degrade unless host A also has the workspace mounted locally.
-
-## Choose based on what you need
-
-| Cloud mode | ConvoSketchpad ↔ gateway | ConvoSketchpad ↔ workspace | Result |
-|---|---|---|---|
-| Same host | Local | Local | Best cloud experience. Closest to deployment A |
-| Split hosts | Remote | Usually remote | Partial parity only. Inherits deployment-B style limitations |
-
-If you care about full Files, Memory, Config, raw previews, and normal file operations, choose **same host**.
-
-## Same-host setup
-
-### 1. Install ConvoSketchpad
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/MrToyy/convosketchpad/main/install.sh | bash
-```
-
-### 2. Run setup for remote browser access
-
-```bash
-cd ~/convosketchpad
-npm run setup
-```
-
-Recommended choices:
-
-- Access mode: **Network** or **Custom**
 - `HOST=0.0.0.0`
-- **Enable authentication**
-- use HTTPS directly or put ConvoSketchpad behind a reverse proxy with TLS
+- `NERVE_AUTH=true`
+- a stable random `NERVE_SESSION_SECRET`
+- HTTPS through Caddy, Nginx, Traefik, Tailscale Serve, or equivalent
+- correct `TRUSTED_PROXIES` when a reverse proxy supplies client IP headers
+- the public origin in `ALLOWED_ORIGINS`, `NERVE_PUBLIC_ORIGIN`, and the Gateway's `controlUi.allowedOrigins`
 
-### 3. Start the service
-
-```bash
-sudo systemctl restart nerve.service
-sudo systemctl status nerve.service
-```
-
-### 4. Set up TLS
-
-Put ConvoSketchpad behind a reverse proxy such as Nginx, Caddy, or Traefik, or serve HTTPS directly with local certs.
-
-If you terminate TLS in a reverse proxy, also set `TRUSTED_PROXIES` in `.env` so rate limiting and client-IP resolution use the real client address instead of the proxy hop.
-
-### 5. Keep the gateway local to the host
-
-On same-host installs, keep the gateway on loopback if possible:
+Keep the Gateway on loopback where possible:
 
 ```bash
 GATEWAY_URL=http://127.0.0.1:18789
 ```
 
-This is the simplest and safest cloud path.
-
-## Same-host behavior
-
-This is the important part: remote browser access changes the **trust and auth model**, not the workspace model.
-
-### What changes from deployment A
-
-- the browser is no longer loopback, so **auth should be on**
-- the browser should reach ConvoSketchpad over HTTPS
-- if you use a reverse proxy, set `TRUSTED_PROXIES` correctly
-- server-side gateway token injection depends on the authenticated ConvoSketchpad session for remote clients
-
-### What does **not** need to degrade
-
-Because ConvoSketchpad and the gateway share the same host and workspace, these can still have normal deployment-A style behavior:
-
-- full file browser
-- nested directories
-- rename / move / trash / restore
-- raw image previews
-- normal workspace config editing
-- full memory parsing from local `MEMORY.md` plus daily files
-- local watcher-based workspace updates
-
-In other words: **same-host deployment C is the recommended remote-access topology if you want real ConvoSketchpad, not a reduced control panel.**
-
-## Split-host setup
-
-Use this only when you have a specific infrastructure reason to separate ConvoSketchpad and the gateway.
-
-### 1. Install ConvoSketchpad with remote gateway settings
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/MrToyy/convosketchpad/main/install.sh \
-  | bash -s -- --gateway-url https://gw.example.com --gateway-token <token> --skip-setup
-```
-
-Then:
+## Setup
 
 ```bash
 cd ~/convosketchpad
 npm run setup
+npm run users -- add <name>
+sudo systemctl restart nerve.service
 ```
 
-Recommended choices:
+Back up `database/canvas.sqlite` and `artifacts/` together.
 
-- Access mode: **Network** or **Custom**
-- **Enable authentication**
-- configure TLS or a reverse proxy
+## Split-host variant
 
-### 2. Point ConvoSketchpad at the remote gateway
+Running ConvoSketchpad and OpenClaw on different servers is supported for Gateway traffic, but local workspace paths may not be meaningful to the remote Agent. See [Deployment B](DEPLOYMENT-B.md) and prefer a shared filesystem or same-host deployment when Canvas attachments and generated local Artifacts matter.
 
-In `.env` on the ConvoSketchpad host:
-
-```bash
-GATEWAY_URL=https://gw.example.com
-WS_ALLOWED_HOSTS=gw.example.com
-NERVE_PUBLIC_ORIGIN=https://nerve.example.com
-```
-
-### 3. Allow the public ConvoSketchpad origin on the gateway host
-
-On the gateway host, add the ConvoSketchpad origin to `gateway.controlUi.allowedOrigins`:
-
-```text
-https://nerve.example.com
-```
-
-### 4. Ensure the gateway HTTP tool allowlist is complete
-
-On the gateway host:
-
-```json
-"gateway": {
-  "tools": {
-    "allow": ["cron", "gateway", "sessions_spawn"]
-  }
-}
-```
-
-Restart both services after making the changes.
-
-## Split-host behavior
-
-This is **not** the same as same-host cloud deployment.
-
-Because the ConvoSketchpad host usually cannot reach the gateway host's workspace filesystem directly, split-host deployment inherits the same core limits as deployment B.
-
-### What still works well
-
-- chat
-- session list and live session state
-- cron management, if the gateway tool allowlist is correct
-- top-level allowlisted workspace-file fallback (`SOUL.md`, `TOOLS.md`, etc.)
-
-### What becomes partial or unavailable
-
-- file browser becomes top-level only
-- nested directories are unavailable
-- rename / move / trash / restore are unavailable
-- raw image / binary previews are unavailable
-- memory behavior is limited compared with same-host and deployment A
-- some workspace-adjacent flows depend on the exact public origin being configured correctly on both sides
-
-If you need these features, do one of the following instead:
-
-1. move ConvoSketchpad onto the same host as the gateway
-2. mount the same workspace filesystem onto the ConvoSketchpad host
-3. stop using split-host and use deployment A or same-host deployment C
-
-## Validation
-
-### Same host
+## Validate
 
 ```bash
 curl -sS http://127.0.0.1:3080/health
-curl -sS https://<your-domain>/health
+curl -sS https://canvas.example.com/health
 ```
 
-Verify in the browser:
-
-1. login appears and succeeds
-2. connect succeeds without manual token entry on the normal official-gateway path
-3. file browser, memory, config, and raw previews all work normally
-4. Crons load without tool-availability errors
-
-### Split hosts
-
-```bash
-curl -sS http://127.0.0.1:3080/health
-curl -sS https://<your-domain>/health
-curl -sS https://<gateway-domain>/health
-```
-
-Verify in the browser:
-
-1. login succeeds
-2. connect succeeds
-3. Crons load
-4. workspace file access is limited in the ways documented above, which is expected in this topology
-
-## Common issues
-
-### Remote clients still see the token field in the connect dialog
-
-This can still happen when:
-
-- the browser is pointed at a custom gateway URL instead of the official ConvoSketchpad-managed one
-- the request path is not trusted for server-side token injection
-- stale browser config is overriding the official URL path
-
-### Chat works, but workspace-adjacent panels fail with `origin not allowed`
-
-This is usually an origin mismatch between ConvoSketchpad's public URL and `gateway.controlUi.allowedOrigins` on the gateway host.
-
-**Fix:** set `NERVE_PUBLIC_ORIGIN` to the exact public ConvoSketchpad origin and add that same origin to the gateway allowlist.
-
-### Split-host install feels weaker than expected
-
-That is not your imagination.
-
-Split-host cloud deployment loses local workspace access unless you provide it yourself. If you want full ConvoSketchpad behavior, use same-host cloud deployment.
-
-## Recommendation
-
-- **Want the best remote-access experience?** Use **same-host deployment C**.
-- **Want a split topology anyway?** Accept deployment-B style workspace limits, or provide your own shared filesystem.
+Verify login, Gateway connection, Agent discovery, Canvas creation, text send, attachment send, Fork, and Artifact download.

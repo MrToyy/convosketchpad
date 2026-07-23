@@ -46,9 +46,6 @@ interface OpenClawConfig {
     controlUi?: {
       allowedOrigins?: string[];
     };
-    tools?: {
-      allow?: string[];
-    };
   };
   [key: string]: unknown;
 }
@@ -194,55 +191,12 @@ export function patchGatewayAllowedOrigins(origin: string): GatewayPatchResult {
   }
 }
 
-const REQUIRED_HTTP_TOOLS = ['cron', 'gateway', 'sessions_spawn'] as const;
-
 // Must match the connect metadata sent by Nerve's browser WS client
 // (src/hooks/useWebSocket.ts) to avoid OpenClaw 2026.2.26+ metadata-repair prompts.
 const NERVE_PAIRED_PLATFORM = 'web';
 const NERVE_PAIRED_CLIENT_ID = 'webchat-ui';
 const NERVE_PAIRED_CLIENT_MODE = 'webchat';
 const NERVE_PAIRED_DISPLAY_NAME = 'Nerve UI';
-
-/**
- * Patch the OpenClaw gateway config to allow required HTTP tools.
- * Adds missing entries in `gateway.tools.allow` (deduped).
- * Returns a result indicating success/failure.
- */
-export function patchGatewayToolsAllow(): GatewayPatchResult {
-  const openclawConfigPath = resolveOpenClawConfigPath();
-  const result: GatewayPatchResult = { ok: false, message: '', configPath: openclawConfigPath };
-
-  if (!existsSync(openclawConfigPath)) {
-    result.message = `Config not found: ${openclawConfigPath}`;
-    return result;
-  }
-
-  try {
-    const raw = readFileSync(openclawConfigPath, 'utf-8');
-    const config = JSON.parse(raw) as OpenClawConfig;
-
-    config.gateway = config.gateway || {};
-    config.gateway.tools = config.gateway.tools || {};
-    const allow = Array.isArray(config.gateway.tools.allow) ? config.gateway.tools.allow : [];
-    const missing = REQUIRED_HTTP_TOOLS.filter(tool => !allow.includes(tool));
-
-    if (missing.length === 0) {
-      result.ok = true;
-      result.message = `${REQUIRED_HTTP_TOOLS.join(', ')} already in gateway.tools.allow`;
-      return result;
-    }
-
-    config.gateway.tools.allow = [...allow, ...missing];
-
-    writeFileSync(openclawConfigPath, JSON.stringify(config, null, 2) + '\n');
-    result.ok = true;
-    result.message = `Added ${missing.join(', ')} to gateway.tools.allow`;
-    return result;
-  } catch (err) {
-    result.message = `Failed to patch config: ${err instanceof Error ? err.message : String(err)}`;
-    return result;
-  }
-}
 
 const FULL_OPERATOR_SCOPES = [
   'operator.admin',
@@ -870,23 +824,6 @@ function needsPrePair(gatewayToken?: string): boolean {
 }
 
 /**
- * Detect whether gateway.tools.allow is missing required HTTP tools.
- */
-function needsToolsAllow(): boolean {
-  const openclawConfigPath = resolveOpenClawConfigPath();
-  if (!existsSync(openclawConfigPath)) return false;
-
-  try {
-    const raw = readFileSync(openclawConfigPath, 'utf-8');
-    const config = JSON.parse(raw) as OpenClawConfig;
-    const allow = Array.isArray(config.gateway?.tools?.allow) ? config.gateway.tools.allow : [];
-    return REQUIRED_HTTP_TOOLS.some(tool => !allow.includes(tool));
-  } catch {
-    return false;
-  }
-}
-
-/**
  * Detect whether a specific origin is missing from gateway.controlUi.allowedOrigins.
  */
 function needsOriginPatch(origin: string): boolean {
@@ -933,17 +870,6 @@ export function detectNeededConfigChanges(opts: {
       id: 'pre-pair',
       description: 'Pre-pair Nerve device identity (skip manual approval step)',
       apply: () => prePairNerveDevice(opts.gatewayToken),
-    });
-  }
-
-  if (needsToolsAllow()) {
-    changes.push({
-      id: 'tools-allow',
-      description: 'Allow cron + gateway + sessions_spawn tools on /tools/invoke (needed for cron, gateway management, and isolated session execution)',
-      apply: () => {
-        const r = patchGatewayToolsAllow();
-        return { ok: r.ok, message: r.message, needsRestart: r.ok };
-      },
     });
   }
 

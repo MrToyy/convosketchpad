@@ -65,7 +65,7 @@ After an OpenClaw update or re-onboard, the connect dialog may fail with auth er
 
 ### Missing scopes after first connect
 
-Chat connects but actions fail with "missing scope" errors.
+Canvas connects but interactions fail with "missing scope" errors.
 
 **Fix:** Re-run `npm run setup`, or manually approve the device:
 

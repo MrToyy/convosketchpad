@@ -2,47 +2,42 @@
 
 # ConvoSketchpad
 
-**A branching AI workspace for visual thinkers.**
-
-Explore OpenClaw conversations as a spatial graph, fork any completed interaction,
-and keep prompts, outputs, attachments, and artifacts together on one persistent canvas.
+**A branching AI workspace for visual thinkers, built on OpenClaw.**
 
 [![GitHub stars](https://img.shields.io/github/stars/MrToyy/convosketchpad?style=for-the-badge&logo=github&label=Star%20ConvoSketchpad&color=0f172a)](https://github.com/MrToyy/convosketchpad)
 [![MIT License](https://img.shields.io/badge/license-MIT-blue?style=for-the-badge)](LICENSE)
 
 </div>
 
-## Why ConvoSketchpad
+ConvoSketchpad turns AI work into a spatial graph. Start independent directions, continue a branch, or fork any completed interaction while keeping prompts, outputs, attachments, and generated artifacts together.
 
-Linear chat is useful for reaching one answer. Creative work rarely follows one line.
-Designers and other visual thinkers compare directions, return to earlier decisions,
-reuse references, and develop several alternatives at once.
+It is now a focused Canvas product. The inherited Nerve Chat, Tasks, workspace editor, memory manager, cron/skills panels, voice input, speech-to-text, and text-to-speech interfaces are not part of ConvoSketchpad.
 
-ConvoSketchpad turns those alternatives into a navigable workspace:
+## What it does
 
-- start multiple independent conversations on one canvas;
-- continue a direction without replaying healthy session history;
-- fork any completed interaction into a new OpenClaw session;
-- arrange branches and outputs on a pan-and-zoom graph;
-- attach images and files and retain stable, workspace-owned copies;
-- preserve generated artifacts beside the interaction that produced them;
-- isolate canvases and artifacts by managed user when authentication is enabled.
+- Multiple root branches on one pan-and-zoom Canvas.
+- Append-only interactions with explicit Continue and Fork semantics.
+- One OpenClaw Agent per Canvas.
+- New Canvases use the Gateway's default Agent automatically.
+- The Agent may be changed until the first send begins; it is locked once a send is prepared.
+- Durable, owner-scoped copies of user attachments and generated artifacts.
+- Canonical snapshot recovery when OpenClaw replaces or removes a branch Session.
+- Optional managed-user authentication and Canvas isolation.
 
-The Canvas is an additional interaction model. Existing Nerve chat, workspace,
-voice, telemetry, and agent controls remain available.
+```text
+Canvas
+├── Root A: Interaction 1 ── Interaction 2 ── Interaction 3
+│                                  └────────── Fork B
+└── Root C: Interaction 4 ── Interaction 5
+```
 
 ## Install
-
-### One command
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/MrToyy/convosketchpad/main/install.sh | bash
 ```
 
-The installer checks dependencies, clones the repository, builds the application,
-and starts the guided OpenClaw gateway setup.
-
-### Manual setup
+Manual setup:
 
 ```bash
 git clone https://github.com/MrToyy/convosketchpad.git
@@ -52,66 +47,38 @@ npm run setup
 npm run prod
 ```
 
-For development:
+Development:
 
 ```bash
 npm run dev
 PORT=3081 npm run dev:server
 ```
 
-Node.js 22.13 or newer and an OpenClaw gateway are required.
-
-## Product model
-
-```text
-Canvas
-├── Root branch A: Interaction 1 ── Interaction 2 ── Interaction 3
-│                                            └────── Fork branch B
-└── Root branch C: Interaction 4 ── Interaction 5
-```
-
-An interaction represents one complete user input → agent output run, including its
-attachments, tool activity, generated artifacts, and OpenClaw session metadata.
-Historical interactions are append-only. Forking creates a new session and leaves the
-source branch unchanged.
+Node.js 22.13+ and a reachable OpenClaw Gateway are required.
 
 ## Architecture
 
-ConvoSketchpad builds on OpenClaw Nerve and continues to use the OpenClaw gateway for
-agents, sessions, tools, streaming, transcripts, compaction, and workspace access.
-The project adds its own Canvas domain, persistent graph layout, managed-user
-authentication, artifact store, and session-recovery layer.
-
 ```text
-Browser / React Flow
-       │
-       ├── WebSocket ── OpenClaw Gateway
-       └── HTTP API ── ConvoSketchpad server ── SQLite + artifact store
+React Canvas ── WebSocket ── OpenClaw Gateway (agents, chat.send, events, transcripts)
+      │
+      └──────── HTTP ─────── ConvoSketchpad server ── SQLite + artifact store
 ```
 
-The `main` branch contains the ConvoSketchpad product. The `master` branch remains a
-clean mirror of `upstream/master`; upstream changes flow from `master` into `main`.
-See [the Git workflow](docs/canvas/GIT-WORKFLOW.md) before synchronizing or publishing.
+OpenClaw owns Agent execution and Session transcripts. ConvoSketchpad owns Canvas topology, layout, send reservations, recovery metadata, user isolation, and durable attachment/artifact copies.
 
 ## Documentation
 
-- [Canvas feature index](docs/canvas/README.md)
+- [Feature index](docs/canvas/README.md)
 - [Canvas code map](docs/canvas/CANVAS-CODE-MAP.md)
 - [Authentication code map](docs/canvas/AUTH-CODE-MAP.md)
-- [Canvas MVP design](docs/OPENCLAW-CANVAS-MVP-DESIGN.md)
+- [Architecture](docs/ARCHITECTURE.md)
+- [API](docs/API.md)
 - [Configuration](docs/CONFIGURATION.md)
 - [Security](docs/SECURITY.md)
-- [API reference](docs/API.md)
-- [Contributing](CONTRIBUTING.md)
+- [Git workflow](docs/canvas/GIT-WORKFLOW.md)
 
-## Upstream and attribution
+## Upstream and license
 
-ConvoSketchpad is derived from
-[OpenClaw Nerve](https://github.com/daggerhashimoto/openclaw-nerve) and retains its
-MIT license and Git history. Nerve remains the upstream source for the underlying
-OpenClaw web interface; ConvoSketchpad independently maintains the Canvas,
-branching-interaction, artifact, and managed-user experience.
-
-## License
+ConvoSketchpad is derived from [OpenClaw Nerve](https://github.com/daggerhashimoto/openclaw-nerve), retains its MIT license and Git history, and now develops independently as a Canvas-only product.
 
 [MIT](LICENSE)

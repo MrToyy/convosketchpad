@@ -5,12 +5,12 @@ import path from 'node:path';
 
 describe('agent-workspace', () => {
   let homeDir: string;
-  let memoryPath: string;
+  let workspaceRoot: string;
 
   beforeEach(async () => {
     vi.resetModules();
     homeDir = await fs.mkdtemp(path.join(os.tmpdir(), 'agent-workspace-test-'));
-    memoryPath = path.join(homeDir, '.openclaw', 'workspace', 'MEMORY.md');
+    workspaceRoot = path.join(homeDir, '.openclaw', 'workspace');
   });
 
   afterEach(async () => {
@@ -22,7 +22,7 @@ describe('agent-workspace', () => {
     vi.doMock('./config.js', () => ({
       config: {
         home: homeDir,
-        memoryPath,
+        workspaceRoot,
       },
     }));
 
@@ -34,16 +34,12 @@ describe('agent-workspace', () => {
 
     expect(resolveAgentWorkspace()).toEqual({
       agentId: 'main',
-      workspaceRoot: path.dirname(memoryPath),
-      memoryPath,
-      memoryDir: path.join(path.dirname(memoryPath), 'memory'),
+      workspaceRoot,
     });
 
     expect(resolveAgentWorkspace('   ')).toEqual({
       agentId: 'main',
-      workspaceRoot: path.dirname(memoryPath),
-      memoryPath,
-      memoryDir: path.join(path.dirname(memoryPath), 'memory'),
+      workspaceRoot,
     });
   });
 
@@ -53,8 +49,6 @@ describe('agent-workspace', () => {
     expect(resolveAgentWorkspace('research')).toEqual({
       agentId: 'research',
       workspaceRoot: path.join(homeDir, '.openclaw', 'workspace-research'),
-      memoryPath: path.join(homeDir, '.openclaw', 'workspace-research', 'MEMORY.md'),
-      memoryDir: path.join(homeDir, '.openclaw', 'workspace-research', 'memory'),
     });
   });
 
@@ -75,8 +69,6 @@ describe('agent-workspace', () => {
     expect(resolveAgentWorkspace('research')).toEqual({
       agentId: 'research',
       workspaceRoot: '/vaults/research',
-      memoryPath: '/vaults/research/MEMORY.md',
-      memoryDir: '/vaults/research/memory',
     });
   });
 
@@ -94,19 +86,16 @@ describe('agent-workspace', () => {
     expect(resolveAgentWorkspace('research')).toEqual({
       agentId: 'research',
       workspaceRoot: '/managed/workspaces/research',
-      memoryPath: '/managed/workspaces/research/MEMORY.md',
-      memoryDir: '/managed/workspaces/research/memory',
     });
   });
 
-  it('returns workspaceRoot, memoryPath, and memoryDir together', async () => {
+  it('returns only the Canvas workspace identity', async () => {
     const { resolveAgentWorkspace } = await loadModule();
 
     const workspace = resolveAgentWorkspace('research');
 
     expect(workspace.workspaceRoot).toBe(path.join(homeDir, '.openclaw', 'workspace-research'));
-    expect(workspace.memoryPath).toBe(path.join(workspace.workspaceRoot, 'MEMORY.md'));
-    expect(workspace.memoryDir).toBe(path.join(workspace.workspaceRoot, 'memory'));
+    expect(workspace).toEqual({ agentId: 'research', workspaceRoot: path.join(homeDir, '.openclaw', 'workspace-research') });
   });
 
   it('rejects invalid agent ids', async () => {

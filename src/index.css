@@ -137,119 +137,6 @@
 .animate-alive { animation: blink 1s step-end infinite; }
 .animate-status-flash { animation: status-flash 0.3s ease-out; }
 
-/* === Realtime Chat Animations === */
-
-/* New message slide-in animation */
-@keyframes message-enter {
-  from {
-    opacity: 0;
-    transform: translateY(12px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.msg {
-  animation: message-enter 0.25s ease-out;
-}
-
-/* Streaming message pulse border */
-@keyframes streaming-pulse {
-  0%, 100% {
-    border-left-color: var(--color-green);
-  }
-  50% {
-    border-left-color: color-mix(in srgb, var(--color-green) 40%, transparent);
-  }
-}
-
-.msg.streaming {
-  animation: streaming-pulse 1.5s ease-in-out infinite;
-}
-
-/* Pending message styles (optimistic updates) */
-.msg-pending {
-  opacity: 0.7;
-  position: relative;
-}
-
-.msg-pending::after {
-  content: '';
-  position: absolute;
-  right: 12px;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: currentColor;
-  opacity: 0.5;
-  animation: pulse-dot 1s infinite;
-}
-
-/* Failed message styles */
-.msg-failed {
-  border-left-color: var(--color-red) !important;
-  opacity: 0.8;
-}
-
-.msg-failed::before {
-  content: '⚠';
-  position: absolute;
-  right: 12px;
-  top: 8px;
-  font-size: 0.733rem;
-  color: var(--color-red);
-}
-
-/* Send button pulse animation */
-@keyframes send-pulse {
-  0% {
-    box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-primary) 50%, transparent);
-  }
-  70% {
-    box-shadow: 0 0 0 10px color-mix(in srgb, var(--color-primary) 0%, transparent);
-  }
-  100% {
-    box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-primary) 0%, transparent);
-  }
-}
-
-.animate-send-pulse {
-  animation: send-pulse 0.4s ease-out;
-}
-
-/* Send button shake animation (error) */
-@keyframes shake {
-  0%, 100% { transform: translateX(0); }
-  20%, 60% { transform: translateX(-3px); }
-  40%, 80% { transform: translateX(3px); }
-}
-
-.animate-shake {
-  animation: shake 0.4s ease-out;
-}
-
-/* Send button active state */
-.send-btn:active:not(:disabled) {
-  transform: scale(0.95);
-}
-
-/* Search bar slide-down */
-@keyframes slide-down {
-  from {
-    opacity: 0;
-    transform: translateY(-8px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-.animate-slide-down { animation: slide-down 0.15s ease-out; }
-
 /* Settings drawer slide-in */
 @keyframes slide-in-right {
   from {
@@ -265,14 +152,6 @@
 }
 .animate-slide-in-right { animation: slide-in-right 0.2s ease-out; }
 .animate-fade-in { animation: fade-in 0.15s ease-out; }
-
-/* Search highlight */
-.search-highlight {
-  background: color-mix(in srgb, var(--color-primary) 30%, transparent);
-  color: inherit;
-  padding: 0 2px;
-  border-radius: 2px;
-}
 
 /* Boot sequence */
 [data-booted="false"] .boot-panel {
@@ -742,49 +621,6 @@
   border-color: color-mix(in srgb, var(--color-destructive) 48%, var(--color-border));
   background: color-mix(in srgb, var(--color-destructive) 10%, transparent);
   color: color-mix(in srgb, var(--color-destructive) 84%, var(--color-foreground));
-}
-
-.cockpit-command-shell {
-  border: 1px solid color-mix(in srgb, var(--color-border) 84%, transparent);
-  border-radius: 28px;
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--color-card) 97%, transparent), color-mix(in srgb, var(--color-secondary) 90%, transparent));
-  box-shadow:
-    0 34px 90px rgba(0, 0, 0, 0.42),
-    inset 0 1px 0 rgba(255, 255, 255, 0.03);
-  backdrop-filter: blur(22px);
-  overflow: hidden;
-}
-
-.cockpit-command-section {
-  padding: 10px 18px 6px;
-  font-size: 0.667rem;
-  font-weight: 700;
-  letter-spacing: 0.2em;
-  text-transform: uppercase;
-  color: var(--color-muted-foreground);
-}
-
-.cockpit-command-item {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 11px 18px;
-  text-align: left;
-  transition:
-    background-color 0.15s ease,
-    color 0.15s ease,
-    transform 0.15s ease;
-}
-
-.cockpit-command-item:hover,
-.cockpit-command-item[data-active="true"] {
-  background: color-mix(in srgb, var(--color-primary) 9%, transparent);
-}
-
-.cockpit-command-item[data-active="true"] {
-  color: var(--color-foreground);
 }
 
 /* Panel header chrome */
@@ -1438,21 +1274,6 @@
 
 .heartbeat-pulse {
   animation: heartbeat-pulse 2s ease-out forwards;
-}
-
-/* Unread session indicator */
-@keyframes unread-pulse {
-  0%, 100% { opacity: 1; box-shadow: 0 0 4px var(--color-green); }
-  50% { opacity: 0.5; box-shadow: 0 0 8px var(--color-green); }
-}
-
-.unread-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--color-green);
-  animation: unread-pulse 2s ease-in-out infinite;
-  flex-shrink: 0;
 }
 
 /* Respect user preference for reduced motion */

@@ -9,7 +9,6 @@ async function importHelpers() {
 }
 
 const originalHome = process.env.HOME;
-const originalFileBrowserRoot = process.env.FILE_BROWSER_ROOT;
 const originalUploadStagingTempDir = process.env.NERVE_UPLOAD_STAGING_TEMP_DIR;
 const tempDirs = new Set<string>();
 
@@ -19,7 +18,6 @@ async function makeHomeWorkspace(): Promise<{ homeDir: string; workspaceRoot: st
   const workspaceRoot = path.join(homeDir, '.openclaw', 'workspace');
   await fs.mkdir(workspaceRoot, { recursive: true });
   process.env.HOME = homeDir;
-  delete process.env.FILE_BROWSER_ROOT;
   delete process.env.NERVE_UPLOAD_STAGING_TEMP_DIR;
   return { homeDir, workspaceRoot };
 }
@@ -29,12 +27,6 @@ afterEach(async () => {
     delete process.env.HOME;
   } else {
     process.env.HOME = originalHome;
-  }
-
-  if (originalFileBrowserRoot == null) {
-    delete process.env.FILE_BROWSER_ROOT;
-  } else {
-    process.env.FILE_BROWSER_ROOT = originalFileBrowserRoot;
   }
 
   if (originalUploadStagingTempDir == null) {

@@ -53,7 +53,6 @@ describe('gateway detection and repair', () => {
       gateway: {
         port: 18789,
         auth: { token: 'test-token' },
-        tools: { allow: ['cron', 'gateway'] },
         controlUi: {
           allowedOrigins: ['http://localhost:3080'],
         },
@@ -143,28 +142,6 @@ describe('gateway detection and repair', () => {
     expect(updated.gateway.controlUi.allowedOrigins).not.toContain(`  http://${EXAMPLE_TS_IPV4}:3080  `);
   });
 
-  it('detects missing sessions_spawn in gateway.tools.allow and patches it for isolated session execution', async () => {
-    const { mod } = await importGatewayDetect();
-
-    const changes = mod.detectNeededConfigChanges({
-      gatewayToken: 'test-token',
-    });
-    const toolsAllowChange = changes.find((change) => change.id === 'tools-allow');
-
-    expect(toolsAllowChange).toBeDefined();
-    expect(toolsAllowChange?.description).toContain('sessions_spawn');
-
-    const result = toolsAllowChange!.apply();
-    expect(result.ok).toBe(true);
-
-    const updated = JSON.parse(readFileSync(path.join(tempHome, '.openclaw', 'openclaw.json'), 'utf8'));
-    expect(updated.gateway.tools.allow).toEqual(expect.arrayContaining([
-      'cron',
-      'gateway',
-      'sessions_spawn',
-    ]));
-  });
-
   it('uses OPENCLAW_CONFIG_PATH when detecting gateway config', async () => {
     const customConfigPath = path.join(tempHome, 'custom', 'openclaw-alt.json');
     mkdirSync(path.dirname(customConfigPath), { recursive: true });
@@ -184,30 +161,6 @@ describe('gateway detection and repair', () => {
       token: 'custom-token',
       url: 'http://127.0.0.1:19999',
     });
-  });
-
-  it('uses OPENCLAW_CONFIG_PATH when patching gateway tool allowlist', async () => {
-    const customConfigPath = path.join(tempHome, 'custom', 'openclaw-alt.json');
-    mkdirSync(path.dirname(customConfigPath), { recursive: true });
-    writeFileSync(customConfigPath, JSON.stringify({
-      gateway: {
-        auth: { token: 'custom-token' },
-        tools: { allow: [] },
-      },
-    }, null, 2));
-    process.env.OPENCLAW_CONFIG_PATH = customConfigPath;
-
-    const { mod } = await importGatewayDetect();
-    const result = mod.patchGatewayToolsAllow();
-
-    expect(result.ok).toBe(true);
-    expect(result.configPath).toBe(customConfigPath);
-
-    const updatedCustom = JSON.parse(readFileSync(customConfigPath, 'utf8'));
-    expect(updatedCustom.gateway.tools.allow).toEqual(['cron', 'gateway', 'sessions_spawn']);
-
-    const unchangedDefault = JSON.parse(readFileSync(path.join(tempHome, '.openclaw', 'openclaw.json'), 'utf8'));
-    expect(unchangedDefault.gateway.tools.allow).toEqual(['cron', 'gateway']);
   });
 
   it('writes device repair under the OPENCLAW_HOME derived from OPENCLAW_CONFIG_PATH', async () => {

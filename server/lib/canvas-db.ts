@@ -468,6 +468,37 @@ export class CanvasStore {
     return this.getCanvas(ownerId, id);
   }
 
+  updateCanvasAgentBeforeFirstInteraction(ownerId: string, id: string, agentId: string): CanvasRecord | null {
+    return this.transaction(() => {
+      const canvas = this.getCanvas(ownerId, id);
+      if (!canvas) return null;
+      if (canvas.agentId === agentId) return canvas;
+
+      const locked = this.db.prepare(`SELECT 1
+        FROM branches b
+        LEFT JOIN interactions i ON i.branch_id = b.id
+        LEFT JOIN send_reservations r ON r.branch_id = b.id AND r.status = 'prepared'
+        WHERE b.canvas_id = ? AND (i.id IS NOT NULL OR r.id IS NOT NULL)
+        LIMIT 1`).get(id);
+      if (locked) throw new Error('agent_locked');
+
+      const now = Date.now();
+      this.db.prepare('UPDATE canvases SET agent_id = ?, updated_at = ? WHERE id = ? AND owner_id = ?')
+        .run(agentId, now, id, ownerId);
+      const draftBranches = this.db.prepare(
+        "SELECT id FROM branches WHERE canvas_id = ? AND session_state = 'draft'",
+      ).all(id) as SqlRow[];
+      const updateBranch = this.db.prepare(
+        "UPDATE branches SET session_key = ?, updated_at = ? WHERE id = ? AND session_state = 'draft'",
+      );
+      for (const branch of draftBranches) {
+        const branchId = asString(branch.id);
+        updateBranch.run(`agent:${agentId}:canvas:${branchId}`, now, branchId);
+      }
+      return this.getCanvas(ownerId, id);
+    });
+  }
+
   deleteCanvas(ownerId: string, id: string): boolean {
     return Number(this.db.prepare('DELETE FROM canvases WHERE id = ? AND owner_id = ?').run(id, ownerId).changes) > 0;
   }

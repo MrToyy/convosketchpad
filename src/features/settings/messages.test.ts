@@ -8,13 +8,8 @@ describe('settings copy', () => {
     expect(getSettingsCopy('en').drawer.title).toBe('Settings');
   });
 
-  it('localizes dynamic settings messages', () => {
-    const zh = getSettingsCopy('zh-CN');
-    const en = getSettingsCopy('en');
-
-    expect(zh.audio.voiceLanguageLabel('de', 'German', 'Deutsch')).toBe('德语 — Deutsch');
-    expect(zh.audio.downloading('base', 42)).toBe('正在下载 base… 42%');
-    expect(en.audio.downloading('base', 42)).toBe('Downloading base… 42%');
-    expect(zh.voicePhrases.saveFailedWithStatus(400)).toContain('400');
+  it('localizes Canvas-only appearance and connection settings', () => {
+    expect(getSettingsCopy('zh-CN').appearance.language).toBe('界面语言');
+    expect(getSettingsCopy('en').connection.restart).toBe('Restart');
   });
 });

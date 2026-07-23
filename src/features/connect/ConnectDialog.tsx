@@ -76,7 +76,7 @@ export function ConnectDialog({
               </div>
             </div>
             <DialogDescription className="max-w-[42ch] text-sm leading-6 text-muted-foreground">
-              Point ConvoSketchpad at the gateway endpoint, provide your token when needed, and bring the workspace online.
+              Point ConvoSketchpad at the Gateway endpoint, provide your token when needed, and bring the Canvas online.
             </DialogDescription>
           </DialogHeader>
         </div>
@@ -87,7 +87,7 @@ export function ConnectDialog({
               <div className="text-[0.667rem] font-medium uppercase tracking-[0.24em] text-muted-foreground">Connection</div>
               <div className="mt-2 text-sm font-medium text-foreground">Secure local bridge</div>
               <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                ConvoSketchpad talks to your gateway over WebSocket and keeps session state in sync live.
+                ConvoSketchpad uses WebSocket events to keep Canvas branches in sync live.
               </p>
             </div>
             <div className="shell-panel rounded-2xl px-4 py-3">

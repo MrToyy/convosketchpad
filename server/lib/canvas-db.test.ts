@@ -58,6 +58,35 @@ describe('CanvasStore', () => {
     expect(graph.branches[0].headInteractionId).toBe(interaction.id);
   });
 
+  it('changes the Canvas Agent and rewrites every draft branch session key before the first interaction', () => {
+    const store = createStore();
+    const canvas = seedUser(store);
+    const root = store.createRootBranch('user-a', canvas.id);
+
+    const updated = store.updateCanvasAgentBeforeFirstInteraction('user-a', canvas.id, 'designer');
+
+    expect(updated?.agentId).toBe('designer');
+    expect(store.getGraph('user-a', canvas.id)?.branches).toEqual([
+      expect.objectContaining({ id: root.id, sessionKey: `agent:designer:canvas:${root.id}`, sessionState: 'draft' }),
+    ]);
+  });
+
+  it('locks the Canvas Agent as soon as a send is prepared or an interaction exists', () => {
+    const store = createStore();
+    const preparedCanvas = seedUser(store);
+    const preparedBranch = store.createRootBranch('user-a', preparedCanvas.id);
+    store.prepareSend('user-a', { branchId: preparedBranch.id, userInput: 'hello', attachments: [] });
+
+    expect(() => store.updateCanvasAgentBeforeFirstInteraction('user-a', preparedCanvas.id, 'designer')).toThrow('agent_locked');
+
+    const activeCanvas = store.createCanvas('user-a', 'Active Canvas', 'main');
+    const activeBranch = store.createRootBranch('user-a', activeCanvas.id);
+    const reservation = store.prepareSend('user-a', { branchId: activeBranch.id, userInput: 'hello', attachments: [] });
+    store.acknowledgeSend('user-a', reservation.id, 'run-active');
+
+    expect(() => store.updateCanvasAgentBeforeFirstInteraction('user-a', activeCanvas.id, 'designer')).toThrow('agent_locked');
+  });
+
   it('continues the current session only when the expected head matches', () => {
     const store = createStore();
     const canvas = seedUser(store);

@@ -55,7 +55,7 @@ function getCspDirectives(): string {
     "font-src 'self' https://fonts.gstatic.com data:",
     `connect-src ${connectSrc}`,
     "img-src 'self' data: blob:",
-    "media-src 'self' blob:",  // Allow blob: URLs for TTS audio playback
+    "media-src 'self' blob:",  // Allow local attachment previews.
     "frame-src 'self' https://s3.tradingview.com https://www.tradingview.com https://www.tradingview-widget.com https://s.tradingview.com",
     "frame-ancestors 'self'",
     "base-uri 'self'",

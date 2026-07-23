@@ -781,78 +781,6 @@ else
   # Clean up temp logs on success
   rm -f "$npm_log" "$build_log" 2>/dev/null
 
-  # ── Download speech model (for local voice input) ──────────────────
-  # Keep installer bootstrap in sync with UI/server default (multilingual base).
-  WHISPER_MODEL_DIR="${HOME}/.nerve/models"
-  WHISPER_MODEL_KEY="base"
-  if [[ -f .env ]]; then
-    EXISTING_WHISPER_MODEL=$(grep -E '^WHISPER_MODEL=' .env 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '\r' || true)
-    if [[ -n "$EXISTING_WHISPER_MODEL" ]]; then
-      WHISPER_MODEL_KEY="$EXISTING_WHISPER_MODEL"
-    fi
-  fi
-
-  # Normalize .env value: trim whitespace, strip inline comments and wrapping quotes.
-  WHISPER_MODEL_KEY=$(printf '%s' "$WHISPER_MODEL_KEY" | sed -E 's/[[:space:]]+#.*$//; s/^[[:space:]]+//; s/[[:space:]]+$//')
-  if [[ "$WHISPER_MODEL_KEY" =~ ^\".*\"$ || "$WHISPER_MODEL_KEY" =~ ^\'.*\'$ ]]; then
-    WHISPER_MODEL_KEY="${WHISPER_MODEL_KEY:1:${#WHISPER_MODEL_KEY}-2}"
-  fi
-  WHISPER_MODEL_KEY=$(printf '%s' "$WHISPER_MODEL_KEY" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' | tr '[:upper:]' '[:lower:]')
-
-  WHISPER_MODEL_SIZE="75MB"
-  case "$WHISPER_MODEL_KEY" in
-    tiny.en)  WHISPER_MODEL_FILE="ggml-tiny.en.bin" ; WHISPER_MODEL_SIZE="75MB" ;;
-    base.en)  WHISPER_MODEL_FILE="ggml-base.en.bin" ; WHISPER_MODEL_SIZE="142MB" ;;
-    small.en) WHISPER_MODEL_FILE="ggml-small.en.bin"; WHISPER_MODEL_SIZE="466MB" ;;
-    tiny)     WHISPER_MODEL_FILE="ggml-tiny.bin"    ; WHISPER_MODEL_SIZE="75MB" ;;
-    base)     WHISPER_MODEL_FILE="ggml-base.bin"    ; WHISPER_MODEL_SIZE="142MB" ;;
-    small)    WHISPER_MODEL_FILE="ggml-small.bin"   ; WHISPER_MODEL_SIZE="466MB" ;;
-    *)
-      warn "Unknown WHISPER_MODEL='${WHISPER_MODEL_KEY}' in .env — defaulting to base"
-      WHISPER_MODEL_KEY="base"
-      WHISPER_MODEL_FILE="ggml-base.bin"
-      WHISPER_MODEL_SIZE="142MB"
-      ;;
-  esac
-
-  WHISPER_MODEL_PATH="${WHISPER_MODEL_DIR}/${WHISPER_MODEL_FILE}"
-  WHISPER_MODEL_URL="https://huggingface.co/ggerganov/whisper.cpp/resolve/main/${WHISPER_MODEL_FILE}"
-
-  if [[ -f "$WHISPER_MODEL_PATH" ]]; then
-    ok "Speech model already downloaded (${WHISPER_MODEL_KEY})"
-  else
-    mkdir -p "$WHISPER_MODEL_DIR"
-    run_with_dots "Downloading speech model ${WHISPER_MODEL_KEY} (${WHISPER_MODEL_SIZE})" bash -c "curl -fsSL -o '$WHISPER_MODEL_PATH' '$WHISPER_MODEL_URL' 2>/dev/null"
-    if [[ $RWD_EXIT -eq 0 ]]; then
-      ok "Speech model ready (${WHISPER_MODEL_KEY})"
-    else
-      warn "Speech model download failed — local STT may fail unless STT_PROVIDER=openai with OPENAI_API_KEY"
-      rm -f "$WHISPER_MODEL_PATH" 2>/dev/null
-    fi
-  fi
-
-  # ── Check for ffmpeg (needed for voice input) ──────────────────────
-  if ! command -v ffmpeg &>/dev/null; then
-    if $IS_MAC; then
-      warn "ffmpeg not found — needed for voice input"
-      hint "Install with:"
-      cmd "brew install ffmpeg"
-    elif $IS_DEBIAN; then
-      run_with_dots "Installing ffmpeg" bash -c "sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ffmpeg &>/dev/null"
-      if [[ $RWD_EXIT -eq 0 ]]; then
-        ok "ffmpeg installed"
-      else
-        warn "ffmpeg install failed — voice input may not work"
-      fi
-    elif $IS_FEDORA; then
-      run_with_dots "Installing ffmpeg" bash -c "sudo dnf install -y -q ffmpeg &>/dev/null"
-      if [[ $RWD_EXIT -eq 0 ]]; then
-        ok "ffmpeg installed"
-      else
-        warn "ffmpeg install failed — voice input may not work"
-      fi
-    fi
-  fi
 fi
 
 # ── Auto-generate .env from OpenClaw gateway config ───────────────────
@@ -928,7 +856,7 @@ if [[ "$DRY_RUN" == "true" ]]; then
     dry "Would run non-interactive setup wizard (--defaults --access-mode ${ACCESS_MODE})"
   else
     dry "Would launch interactive setup wizard"
-    dry "Would prompt for: gateway token, port, TTS config"
+    dry "Would prompt for: gateway token, access mode, and authentication"
   fi
   if [[ -n "$GATEWAY_URL_OVERRIDE" ]]; then
     dry "Would write GATEWAY_URL=${GATEWAY_URL_OVERRIDE}"

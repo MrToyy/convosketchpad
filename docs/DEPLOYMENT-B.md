@@ -1,175 +1,43 @@
-# Deployment: Remote Gateway + Local ConvoSketchpad
-
-ConvoSketchpad runs on your laptop, while the OpenClaw gateway runs somewhere else.
-
-This gives you a fast local UI, but it is **not** full deployment-A parity. The missing piece is workspace locality: the agent workspaces live on the remote gateway host, not on the ConvoSketchpad host.
-
-## Topology
+# Deployment: local UI with a remote Gateway
 
 ```text
-Browser (localhost) → ConvoSketchpad local (127.0.0.1:3080) → Gateway remote (<host>:18789)
+Browser (localhost) → ConvoSketchpad local → OpenClaw Gateway remote
 ```
 
-## Reality check
+Use a private network path such as Tailscale, WireGuard, or an SSH tunnel. Avoid publishing the Gateway port directly.
 
-This topology splits three things:
+## Configure
 
-- **browser ↔ ConvoSketchpad** is local
-- **ConvoSketchpad ↔ gateway** is remote
-- **ConvoSketchpad ↔ workspace filesystem** is remote
+Run `npm run setup` and enter the remote Gateway URL and Token. Keep ConvoSketchpad's access mode local unless the browser must also connect remotely.
 
-Chat, sessions, and cron can work well here.
-
-Workspace-heavy features do **not** have full parity, because ConvoSketchpad cannot directly walk or mutate the remote filesystem. Some routes fall back to gateway file RPC, but that fallback is intentionally narrow.
-
-## What works, what degrades
-
-| Surface | Status | Notes |
-|---|---|---|
-| Chat, session list, live agent status | Full | Requires the WebSocket proxy, gateway origins, and device identity path to be configured correctly |
-| Official gateway auto-connect without manual token entry | Usually full | Works well on the normal localhost browser path. Custom gateway URLs or untrusted paths still require manual token entry |
-| Allowlisted top-level workspace files (`SOUL.md`, `TOOLS.md`, `USER.md`, `AGENTS.md`, `HEARTBEAT.md`, `IDENTITY.md`) | Partial | Read/write fallback exists through gateway file RPC |
-| File browser | Partial | Top-level listing plus top-level text read/write only |
-| Nested directories | Not supported | No remote tree walk through subdirectories |
-| Rename / move / trash / restore | Not supported | Remote workspace routes return `501 Not supported for remote workspaces` |
-| Raw image / binary preview | Not supported | No remote raw-file fallback |
-| Memory | Limited | `MEMORY.md` has some backend fallback, but daily files are local-only and the current UI treats remote workspaces as constrained, not as deployment-A parity |
-| Crons | Full with extra config | Gateway must allow `cron`, `gateway`, and `sessions_spawn` on `/tools/invoke` |
-| Skills tab | Verify in your environment | Uses local `openclaw skills list`, not the remote file-browser fallback path |
-
-If you need full Files, Memory, raw previews, and file mutation behavior, move ConvoSketchpad onto the same machine as the gateway and workspace, or use same-host cloud deployment instead.
-
-## Prerequisites
-
-- ConvoSketchpad installed on your laptop
-- OpenClaw gateway running on the remote host
-- A private network path to the gateway host (Tailscale, WireGuard, SSH tunnel, private VPC, etc.)
-- Gateway token from the remote host
-- Access to the remote host's OpenClaw config (`~/.openclaw/openclaw.json`)
-
-## Recommended network approach
-
-Use a private network path. Do **not** expose gateway port `18789` publicly unless you have a very specific reason.
-
-## Setup
-
-### 1. Prepare the remote gateway
-
-On the remote host:
+Add the Gateway hostname/IP to local `.env`:
 
 ```bash
-openclaw gateway status
-curl -sS http://127.0.0.1:18789/health
+GATEWAY_URL=https://gateway.example.internal
+GATEWAY_TOKEN=<token>
+WS_ALLOWED_HOSTS=gateway.example.internal
 ```
 
-### 2. Configure ConvoSketchpad locally
+On the Gateway host, add the browser-facing ConvoSketchpad origin to `gateway.controlUi.allowedOrigins`. For a local browser these are normally:
 
-If you are installing fresh, either run the installer and then the setup wizard, or point the installer at the remote gateway up front.
+```text
+http://localhost:3080
+http://127.0.0.1:3080
+```
+
+If the browser reaches ConvoSketchpad through a custom origin, also set `NERVE_PUBLIC_ORIGIN` to that exact origin.
+
+## Canvas limitations
+
+Canvas execution, Branch/Fork behavior, events, and transcript reconciliation work through the Gateway. Upload staging and local-path Artifact access require the selected Agent workspace to be accessible on the ConvoSketchpad host. Multipart uploads can still be staged locally, but remote Agent tools cannot use a local-only filesystem path unless the hosts share that path.
+
+For the most predictable attachment and Artifact behavior, run ConvoSketchpad on the same host as OpenClaw.
+
+## Validate
 
 ```bash
-cd ~/nerve
-npm run setup
-```
-
-When prompted:
-
-- set **Gateway URL** to the remote gateway URL
-- set **Gateway token** from the remote host
-- keep access mode as **localhost** unless you intentionally want LAN / Tailscale access to the ConvoSketchpad UI itself
-
-### 3. Allow the remote gateway host in the WS proxy
-
-Add the gateway hostname or IP to `.env` on the ConvoSketchpad host:
-
-```bash
-WS_ALLOWED_HOSTS=<gateway-hostname-or-ip>
-```
-
-Restart ConvoSketchpad after changing it.
-
-### 4. Allow the ConvoSketchpad origin on the remote gateway
-
-On the remote gateway host, add the browser-facing ConvoSketchpad origin to `gateway.controlUi.allowedOrigins` in `~/.openclaw/openclaw.json`.
-
-For the normal localhost path, add both:
-
-- `http://localhost:3080`
-- `http://127.0.0.1:3080`
-
-Then restart the gateway.
-
-### 5. If ConvoSketchpad is not being accessed via localhost, set `NERVE_PUBLIC_ORIGIN`
-
-If the browser reaches ConvoSketchpad through anything other than localhost, set the exact browser origin in `.env` on the ConvoSketchpad host:
-
-```bash
-NERVE_PUBLIC_ORIGIN=https://nerve.example.com
-```
-
-Add that same origin to `gateway.controlUi.allowedOrigins` on the remote gateway.
-
-Why this matters: some workspace fallback paths open their own server-side WebSocket to the gateway. Those paths need the real browser-facing origin, not an invented loopback default.
-
-### 6. Ensure the gateway tool allowlist is complete
-
-On the remote gateway host, `gateway.tools.allow` must include:
-
-```json
-"gateway": {
-  "tools": {
-    "allow": ["cron", "gateway", "sessions_spawn"]
-  }
-}
-```
-
-Restart the gateway after updating it.
-
-## Validation
-
-```bash
-# On the ConvoSketchpad host
 curl -sS http://127.0.0.1:3080/health
-
-# Connectivity to the remote gateway
-curl -sS <your-gateway-url>/health
+curl -sS https://gateway.example.internal/health
 ```
 
-In the browser, verify these separately:
-
-1. connect succeeds
-2. session list loads
-3. messages send and receive
-4. Crons load without `Tool not available` errors
-5. the file browser only shows top-level remote files, which is expected in this topology
-
-## Common issues
-
-### `Target not allowed` on WebSocket connect
-
-The remote gateway host is missing from `WS_ALLOWED_HOSTS`.
-
-**Fix:** add the hostname or IP to `WS_ALLOWED_HOSTS`, then restart ConvoSketchpad.
-
-### Chat works, but Files / Config / workspace-adjacent panels fail with `origin not allowed`
-
-The browser-facing ConvoSketchpad origin is missing from `gateway.controlUi.allowedOrigins`, or `NERVE_PUBLIC_ORIGIN` is not set correctly for a non-localhost access path.
-
-**Fix:** set `NERVE_PUBLIC_ORIGIN` to the exact browser origin and add that same origin to the gateway allowlist.
-
-### Cron says a tool is unavailable
-
-The remote gateway is missing required HTTP tool allowlist entries.
-
-**Fix:** add `cron`, `gateway`, and `sessions_spawn` to `gateway.tools.allow`, then restart the gateway.
-
-### The file browser looks broken because directories are missing
-
-That is expected in this topology.
-
-Remote workspace fallback is top-level only. Nested directory browsing, file moves, trash/restore, and raw previews are not available unless ConvoSketchpad can access the workspace locally.
-
-## Recommendation
-
-Choose this topology when you want a **local UI with a remote runtime** and you can live with partial workspace tooling.
-
-If you want ConvoSketchpad to behave like deployment A, move ConvoSketchpad onto the same host as the gateway and workspace, or use same-host deployment C.
+Then create a Canvas, confirm the Agent list loads, send a text-only Interaction, and test an attachment appropriate to your shared-filesystem topology.

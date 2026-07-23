@@ -20,7 +20,6 @@ describe('GET /api/connect-defaults', () => {
       config: {
         gatewayUrl: 'http://127.0.0.1:18789',
         gatewayToken: 'test-token',
-        agentName: 'test-agent',
         auth: false,
         ...configOverrides,
       },
@@ -47,10 +46,9 @@ describe('GET /api/connect-defaults', () => {
     const res = await app.request('/api/connect-defaults');
     expect(res.status).toBe(200);
 
-    const json = (await res.json()) as { wsUrl: string; token: string | null; agentName: string; authEnabled: boolean; serverSideAuth: boolean };
+    const json = (await res.json()) as { wsUrl: string; token: string | null; authEnabled: boolean; serverSideAuth: boolean };
     expect(json.wsUrl).toBe('ws://localhost:18789/ws');
     expect(json.token).toBeNull();
-    expect(json.agentName).toBe('test-agent');
     expect(json.authEnabled).toBe(false);
     expect(json.serverSideAuth).toBe(true); // default mock has token and it's loopback
   });

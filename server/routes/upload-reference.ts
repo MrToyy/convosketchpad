@@ -1,39 +1,19 @@
 import { Hono } from 'hono';
 import { InvalidAgentIdError } from '../lib/agent-workspace.js';
+import { getCanvasIdentity } from '../lib/canvas-auth.js';
+import { getCanvasStore } from '../lib/canvas-db.js';
 import { rateLimitGeneral } from '../middleware/rate-limit.js';
-import {
-  importExternalUploadToCanonicalReference,
-  resolveDirectWorkspaceReference,
-} from '../lib/upload-reference.js';
+import { importExternalUploadToCanonicalReference } from '../lib/upload-reference.js';
 
 const app = new Hono();
+const MAX_CANVAS_FILES = 4;
+const MAX_CANVAS_FILE_BYTES = 20 * 1024 * 1024;
 
 app.post('/api/upload-reference/resolve', rateLimitGeneral, async (c) => {
   try {
-    const contentType = c.req.header('content-type') || '';
-
-    if (contentType.includes('application/json')) {
-      const body = await c.req.json().catch(() => null) as { path?: unknown; paths?: unknown; agentId?: unknown } | null;
-      const paths = Array.isArray(body?.paths)
-        ? body.paths.filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
-        : typeof body?.path === 'string' && body.path.trim().length > 0
-          ? [body.path]
-          : [];
-      const agentId = typeof body?.agentId === 'string' && body.agentId.trim().length > 0
-        ? body.agentId
-        : undefined;
-
-      if (paths.length === 0) {
-        return c.json({ ok: false, error: 'At least one workspace path is required.' }, 400);
-      }
-
-      const items = await Promise.all(paths.map((targetPath) => resolveDirectWorkspaceReference(targetPath, agentId)));
-      return c.json({ ok: true, items });
-    }
-
     const form = await c.req.formData();
     const requestedAgentId = form.get('agentId');
-    const agentId = typeof requestedAgentId === 'string' && requestedAgentId.trim() ? requestedAgentId.trim() : undefined;
+    const agentId = typeof requestedAgentId === 'string' ? requestedAgentId.trim() : '';
     const purpose = form.get('purpose');
     const requestedCanvasId = form.get('canvasId');
     const canvasId = typeof requestedCanvasId === 'string' && /^[a-f0-9-]{36}$/i.test(requestedCanvasId)
@@ -42,9 +22,15 @@ app.post('/api/upload-reference/resolve', rateLimitGeneral, async (c) => {
     const values = [...form.getAll('files'), ...form.getAll('file')];
     const files = values.filter((value): value is File => value instanceof File);
 
-    if (files.length === 0) {
-      return c.json({ ok: false, error: 'At least one file is required.' }, 400);
-    }
+    if (purpose !== 'canvas' || !canvasId || !agentId) return c.json({ ok: false, error: 'Valid Canvas upload metadata is required.' }, 400);
+    if (files.length === 0 || files.length > MAX_CANVAS_FILES) return c.json({ ok: false, error: 'Canvas uploads require between one and four files.' }, 400);
+    if (files.some((file) => file.size > MAX_CANVAS_FILE_BYTES)) return c.json({ ok: false, error: 'Canvas files must not exceed 20 MiB.' }, 413);
+
+    const identity = getCanvasIdentity(c);
+    if (!identity) return c.json({ ok: false, error: 'Authentication required' }, 401);
+    const canvas = getCanvasStore().getCanvas(identity.userId, canvasId);
+    if (!canvas) return c.json({ ok: false, error: 'Not found' }, 404);
+    if (canvas.agentId !== agentId) return c.json({ ok: false, error: 'agent_changed' }, 409);
 
     const items = await Promise.all(files.map(async (file) => {
       const bytes = new Uint8Array(await file.arrayBuffer());
@@ -53,8 +39,8 @@ app.post('/api/upload-reference/resolve', rateLimitGeneral, async (c) => {
         mimeType: file.type,
         bytes,
         agentId,
-        persistent: purpose === 'canvas',
-        persistentNamespace: purpose === 'canvas' ? canvasId : undefined,
+        persistent: true,
+        persistentNamespace: canvasId,
       });
     }));
 

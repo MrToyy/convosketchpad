@@ -11,10 +11,9 @@
 /** Mask a token for display, with a guard for short tokens. */
 // Show token in prompts so users can verify what they entered
 
-import { existsSync, readdirSync, mkdirSync, copyFileSync, lstatSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { execSync } from 'node:child_process';
-import { resolve, join } from 'node:path';
-import { homedir } from 'node:os';
+import { resolve } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { networkInterfaces } from 'node:os';
 import { input, password, confirm, select } from '@inquirer/prompts';
@@ -24,8 +23,6 @@ import {
   isValidUrl,
   isValidPort,
   testGatewayConnection,
-  isValidOpenAIKey,
-  isValidReplicateToken,
 } from './lib/validators.js';
 import {
   writeEnvFile,
@@ -39,14 +36,11 @@ import { generateSelfSignedCert } from './lib/cert-gen.js';
 import { detectGatewayConfig, getEnvGatewayToken, chooseSetupGatewayToken, restartGateway, approvePendingNerveDevice, detectNeededConfigChanges, type ConfigChange } from './lib/gateway-detect.js';
 import { applyAccessPlanToConfig, buildAccessPlan, type InstallerAccessProfile } from './lib/access-plan.js';
 import { getTailscaleState, type TailscaleState } from './lib/tailscale.js';
-import { detectAgentDisplayNameDefault } from './lib/agent-name-default.js';
 import { printDeploymentGuides, shouldPrintDeploymentGuides } from './lib/deployment-guides.js';
 
 const PROJECT_ROOT = resolve(process.cwd());
 const ENV_PATH = resolve(PROJECT_ROOT, '.env');
-const SKILLS_SRC = resolve(PROJECT_ROOT, 'skills');
-const SKILLS_DEST = resolve(homedir(), '.openclaw', 'workspace', 'skills');
-const TOTAL_SECTIONS = 6;
+const TOTAL_SECTIONS = 3;
 
 const args = process.argv.slice(2);
 const isHelp = args.includes('--help') || args.includes('-h');
@@ -156,53 +150,6 @@ process.on('SIGINT', () => {
   process.exit(130);
 });
 
-// ── Skill installation ───────────────────────────────────────────────
-
-function copyDirSync(src: string, dest: string): void {
-  mkdirSync(dest, { recursive: true });
-  for (const entry of readdirSync(src)) {
-    const srcPath = join(src, entry);
-    const destPath = join(dest, entry);
-    const stat = lstatSync(srcPath);
-    if (stat.isSymbolicLink()) continue;
-    if (stat.isDirectory()) {
-      copyDirSync(srcPath, destPath);
-    } else {
-      copyFileSync(srcPath, destPath);
-    }
-  }
-}
-
-function installBundledSkills(): void {
-  if (!existsSync(SKILLS_SRC)) return;
-
-  let installed = 0;
-  let entries: string[];
-  try {
-    entries = readdirSync(SKILLS_SRC);
-  } catch {
-    return;
-  }
-
-  for (const skillName of entries) {
-    try {
-      const skillSrc = join(SKILLS_SRC, skillName);
-      if (!lstatSync(skillSrc).isDirectory()) continue;
-      if (!existsSync(join(skillSrc, 'SKILL.md'))) continue;
-
-      const skillDest = join(SKILLS_DEST, skillName);
-      copyDirSync(skillSrc, skillDest);
-      installed++;
-    } catch (err) {
-      warn(`Failed to install skill "${skillName}": ${(err as Error).message}`);
-    }
-  }
-
-  if (installed > 0) {
-    success(`Installed ${installed} bundled skill${installed > 1 ? 's' : ''} to ${SKILLS_DEST}`);
-  }
-}
-
 // ── Main ─────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
@@ -223,13 +170,10 @@ async function main(): Promise<void> {
     tailscale-ip      Direct tailnet IP access
     tailscale-serve   Loopback + Tailscale Serve hostname
 
-  The setup wizard guides you through 6 steps:
+  The setup wizard guides you through 3 steps:
     1. Gateway Connection — connect to your OpenClaw gateway
-    2. Agent Identity     — set your agent's display name
-    3. Access Mode        — local, Tailscale IP, Tailscale Serve, LAN, or custom
-    4. Authentication     — trusted-user Token access (network mode)
-    5. TTS Configuration  — optional text-to-speech API keys
-    6. Advanced Settings  — custom file paths (most users skip this)
+    2. Access Mode        — local, Tailscale IP, Tailscale Serve, LAN, or custom
+    3. Authentication     — trusted-user Token access (network mode)
 
   Examples:
     npm run setup                                     # Interactive setup
@@ -309,9 +253,6 @@ async function main(): Promise<void> {
   console.log('');
   success('Configuration written to .env');
 
-  // Install bundled agent skills
-  installBundledSkills();
-
   printSummary(config);
 
   // When invoked from install.sh, build is already done — skip misleading "next steps"
@@ -329,7 +270,7 @@ async function collectInteractive(
 ): Promise<EnvConfig> {
   const config: EnvConfig = { ...existing };
 
-  // ── 1/5: Gateway Connection ──────────────────────────────────────
+  // ── 1/3: Gateway Connection ──────────────────────────────────────
 
   section(1, TOTAL_SECTIONS, 'Gateway Connection');
   dim('ConvoSketchpad connects to your OpenClaw gateway.');
@@ -430,19 +371,9 @@ async function collectInteractive(
     process.exit(1);
   }
 
-  // ── 2/5: Agent Identity ──────────────────────────────────────────
+  // ── 2/3: Access Mode ──────────────────────────────────────────────
 
-  section(2, TOTAL_SECTIONS, 'Agent Identity');
-
-  config.AGENT_NAME = await input({
-    theme: promptTheme,
-    message: 'Agent display name',
-    default: detectAgentDisplayNameDefault(existing.AGENT_NAME, DEFAULTS.AGENT_NAME),
-  });
-
-  // ── 3/5: Access Mode ──────────────────────────────────────────────
-
-  section(3, TOTAL_SECTIONS, 'How will you access ConvoSketchpad?');
+  section(2, TOTAL_SECTIONS, 'How will you access ConvoSketchpad?');
 
   const accessChoices: { name: string; value: AccessMode; description: string }[] = [
     { name: 'This machine only (localhost)', value: 'local', description: 'Safest, only accessible from this computer' },
@@ -483,18 +414,17 @@ async function collectInteractive(
 
   async function offerHttpsSetup(remoteHost: string): Promise<string | undefined> {
     console.log('');
-    warn('Voice input (microphone) requires HTTPS on non-localhost connections.');
-    dim('Browsers block microphone access over plain HTTP for security.');
+    warn('HTTPS protects Canvas content and credentials on non-localhost connections.');
     console.log('');
 
     const enableHttps = await confirm({
       theme: promptTheme,
-      message: 'Enable HTTPS? (recommended for voice input)',
+      message: 'Enable HTTPS? (recommended)',
       default: true,
     });
 
     if (!enableHttps) {
-      dim('Voice input will only work when accessing ConvoSketchpad from localhost');
+      dim('Remote traffic will remain unencrypted unless another HTTPS proxy is used.');
       return undefined;
     }
 
@@ -514,7 +444,7 @@ async function collectInteractive(
     }
 
     if (!certsReady) {
-      warn('HTTPS disabled, voice input will only work on localhost');
+      warn('HTTPS disabled because certificates could not be prepared.');
       return undefined;
     }
 
@@ -770,8 +700,6 @@ async function collectInteractive(
           dim('  • Device scopes: manually fix scopes in ~/.openclaw/devices/paired.json');
         } else if (change.id === 'pre-pair') {
           dim('  • Pre-pair: run `openclaw devices approve` after starting ConvoSketchpad');
-        } else if (change.id === 'tools-allow') {
-          dim('  • HTTP tools: add "cron", "gateway", and "sessions_spawn" to gateway.tools.allow in ~/.openclaw/openclaw.json');
         } else if (change.id.startsWith('allowed-origins')) {
           dim('  • Origins: add the required origin(s) to gateway.controlUi.allowedOrigins in ~/.openclaw/openclaw.json');
         }
@@ -779,7 +707,7 @@ async function collectInteractive(
     }
   }
 
-  // ── 4/6: Authentication ───────────────────────────────────────────
+  // ── 3/3: Authentication ───────────────────────────────────────────
 
   // Always generate a session secret if not already set
   if (!config.NERVE_SESSION_SECRET) {
@@ -789,7 +717,7 @@ async function collectInteractive(
   const isNetworkExposed = config.HOST === '0.0.0.0';
 
   if (isNetworkExposed) {
-    section(4, TOTAL_SECTIONS, 'Authentication');
+    section(3, TOTAL_SECTIONS, 'Authentication');
     warn('Your access mode exposes ConvoSketchpad to the network.');
     dim('Canvas MVP uses trusted-user tokens: a simple token identifies and isolates each user.');
     dim('This mode is intended for a small controlled environment, not hostile multi-tenant access.');
@@ -818,99 +746,6 @@ async function collectInteractive(
     if (existing.NERVE_SESSION_TTL) config.NERVE_SESSION_TTL = existing.NERVE_SESSION_TTL;
   }
 
-  // ── 5/6: TTS ─────────────────────────────────────────────────────
-
-  section(5, TOTAL_SECTIONS, 'Text-to-Speech (optional)');
-  dim('Edge TTS is always available (free, no API key needed).');
-  dim('Add API keys below for higher-quality alternatives.');
-  console.log('');
-
-  const openaiKey = await password({
-    theme: promptTheme,
-    message: 'OpenAI API Key (press Enter to skip)',
-  });
-
-  if (openaiKey && openaiKey.trim()) {
-    if (isValidOpenAIKey(openaiKey.trim())) {
-      config.OPENAI_API_KEY = openaiKey.trim();
-      success('OpenAI API key accepted (enables TTS + Whisper transcription)');
-    } else {
-      warn('Key doesn\'t look like a standard OpenAI key (expected sk-...)');
-      const useAnyway = await confirm({
-    theme: promptTheme,
-        message: 'Use this key anyway?',
-        default: true,
-      });
-      if (useAnyway) {
-        config.OPENAI_API_KEY = openaiKey.trim();
-      }
-    }
-  }
-
-  const replicateToken = await password({
-    theme: promptTheme,
-    message: 'Replicate API Token (press Enter to skip)',
-  });
-
-  if (replicateToken && replicateToken.trim()) {
-    if (isValidReplicateToken(replicateToken.trim())) {
-      config.REPLICATE_API_TOKEN = replicateToken.trim();
-      success('Replicate token accepted (enables Qwen TTS)');
-      if (!prereqs.ffmpegOk) {
-        warn('ffmpeg not found — Qwen TTS requires it for WAV→MP3 conversion');
-      }
-    } else {
-      warn('Token seems too short');
-      const useAnyway = await confirm({
-    theme: promptTheme,
-        message: 'Use this token anyway?',
-        default: true,
-      });
-      if (useAnyway) {
-        config.REPLICATE_API_TOKEN = replicateToken.trim();
-      }
-    }
-  }
-
-  // ── 6/6: Advanced Settings ────────────────────────────────────────
-
-  section(6, TOTAL_SECTIONS, 'Advanced Settings (optional)');
-
-  const configureAdvanced = await confirm({
-    theme: promptTheme,
-    message: 'Customize file paths? (most users should skip this)',
-    default: false,
-  });
-
-  if (configureAdvanced) {
-    const memPath = await input({
-    theme: promptTheme,
-      message: 'Custom memory file path (or Enter for default)',
-      default: existing.MEMORY_PATH || '',
-    });
-    if (memPath.trim()) config.MEMORY_PATH = memPath.trim();
-
-    const memDir = await input({
-    theme: promptTheme,
-      message: 'Custom memory directory path (or Enter for default)',
-      default: existing.MEMORY_DIR || '',
-    });
-    if (memDir.trim()) config.MEMORY_DIR = memDir.trim();
-
-    const sessDir = await input({
-    theme: promptTheme,
-      message: 'Custom sessions directory (or Enter for default)',
-      default: existing.SESSIONS_DIR || '',
-    });
-    if (sessDir.trim()) config.SESSIONS_DIR = sessDir.trim();
-  } else {
-    // Preserve any existing advanced settings on update
-    if (existing.MEMORY_PATH) config.MEMORY_PATH = existing.MEMORY_PATH;
-    if (existing.MEMORY_DIR) config.MEMORY_DIR = existing.MEMORY_DIR;
-    if (existing.SESSIONS_DIR) config.SESSIONS_DIR = existing.SESSIONS_DIR;
-    if (existing.USAGE_FILE) config.USAGE_FILE = existing.USAGE_FILE;
-  }
-
   return config;
 }
 
@@ -918,20 +753,10 @@ async function collectInteractive(
 
 function printSummary(config: EnvConfig): void {
   const gwUrl = config.GATEWAY_URL || DEFAULTS.GATEWAY_URL;
-  const agentName = config.AGENT_NAME || DEFAULTS.AGENT_NAME;
   const port = config.PORT || DEFAULTS.PORT;
   const sslPort = config.SSL_PORT || DEFAULTS.SSL_PORT;
   const host = config.HOST || DEFAULTS.HOST;
   const hasCerts = existsSync(resolve(PROJECT_ROOT, 'certs', 'cert.pem'));
-
-  let ttsProvider = 'Edge (free)';
-  if (config.OPENAI_API_KEY && config.REPLICATE_API_TOKEN) {
-    ttsProvider = 'OpenAI + Replicate + Edge';
-  } else if (config.OPENAI_API_KEY) {
-    ttsProvider = 'OpenAI + Edge (fallback)';
-  } else if (config.REPLICATE_API_TOKEN) {
-    ttsProvider = 'Replicate + Edge (fallback)';
-  }
 
   const hostLabel = host === '127.0.0.1' ? '127.0.0.1 (local only)' : `${host} (network)`;
   const authLabel = config.NERVE_AUTH === 'true' ? '🔒 Enabled' : 'Disabled';
@@ -941,12 +766,10 @@ function printSummary(config: EnvConfig): void {
     const r = `  \x1b[2m│\x1b[0m`;
     console.log('');
     console.log(`${r}  \x1b[2mGateway${' '.repeat(4)}\x1b[0m${gwUrl}`);
-    console.log(`${r}  \x1b[2mAgent${' '.repeat(6)}\x1b[0m${agentName}`);
     console.log(`${r}  \x1b[2mHTTP${' '.repeat(7)}\x1b[0m:${port}`);
     if (hasCerts) {
       console.log(`${r}  \x1b[2mHTTPS${' '.repeat(6)}\x1b[0m:${sslPort}`);
     }
-    console.log(`${r}  \x1b[2mTTS${' '.repeat(8)}\x1b[0m${ttsProvider}`);
     console.log(`${r}  \x1b[2mHost${' '.repeat(7)}\x1b[0m${hostLabel}`);
     console.log(`${r}  \x1b[2mAuth${' '.repeat(7)}\x1b[0m${authLabel}`);
   } else {
@@ -954,12 +777,10 @@ function printSummary(config: EnvConfig): void {
     console.log('');
     console.log('  \x1b[2m┌─────────────────────────────────────────┐\x1b[0m');
     console.log(`  \x1b[2m│\x1b[0m  Gateway    ${gwUrl.padEnd(28)}\x1b[2m│\x1b[0m`);
-    console.log(`  \x1b[2m│\x1b[0m  Agent      ${agentName.padEnd(28)}\x1b[2m│\x1b[0m`);
     console.log(`  \x1b[2m│\x1b[0m  HTTP       :${port.padEnd(27)}\x1b[2m│\x1b[0m`);
     if (hasCerts) {
       console.log(`  \x1b[2m│\x1b[0m  HTTPS      :${sslPort.padEnd(27)}\x1b[2m│\x1b[0m`);
     }
-    console.log(`  \x1b[2m│\x1b[0m  TTS        ${ttsProvider.padEnd(28)}\x1b[2m│\x1b[0m`);
     console.log(`  \x1b[2m│\x1b[0m  Host       ${hostLabel.padEnd(28)}\x1b[2m│\x1b[0m`);
     console.log(`  \x1b[2m│\x1b[0m  Auth       ${authLabel.padEnd(28)}\x1b[2m│\x1b[0m`);
     console.log('  \x1b[2m└─────────────────────────────────────────┘\x1b[0m');
@@ -1020,19 +841,6 @@ async function runCheck(config: EnvConfig): Promise<void> {
   } else {
     fail(`PORT is invalid: ${config.PORT}`);
     errors++;
-  }
-
-  // TTS
-  if (config.OPENAI_API_KEY) {
-    success('OPENAI_API_KEY is set (OpenAI TTS + Whisper enabled)');
-  } else {
-    info('OPENAI_API_KEY not set (Edge TTS will be used as fallback)');
-  }
-
-  if (config.REPLICATE_API_TOKEN) {
-    success('REPLICATE_API_TOKEN is set (Qwen TTS enabled)');
-  } else {
-    info('REPLICATE_API_TOKEN not set');
   }
 
   // Host binding
@@ -1112,7 +920,6 @@ async function runDefaults(existing: EnvConfig, prereqs: PrereqResult): Promise<
   }
 
   if (!config.GATEWAY_URL) config.GATEWAY_URL = DEFAULTS.GATEWAY_URL;
-  if (!config.AGENT_NAME) config.AGENT_NAME = detectAgentDisplayNameDefault(undefined, DEFAULTS.AGENT_NAME);
   if (!config.PORT) config.PORT = DEFAULTS.PORT;
   if (!config.HOST) config.HOST = DEFAULTS.HOST;
 
@@ -1185,8 +992,6 @@ async function runDefaults(existing: EnvConfig, prereqs: PrereqResult): Promise<
   writeEnvFile(ENV_PATH, config);
 
   success('Configuration written to .env');
-
-  installBundledSkills();
 
   printSummary(config);
   if (shouldPrintDeploymentGuides({ invokedFromInstaller: process.env.NERVE_INSTALLER === '1', defaultsMode: true })) {

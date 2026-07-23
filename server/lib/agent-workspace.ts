@@ -5,8 +5,6 @@ import { buildDefaultAgentWorkspacePath, getConfiguredAgentWorkspace } from './o
 export interface AgentWorkspace {
   agentId: string;
   workspaceRoot: string;
-  memoryPath: string;
-  memoryDir: string;
 }
 
 const AGENT_ID_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/;
@@ -32,21 +30,10 @@ export function resolveAgentWorkspace(agentId?: string): AgentWorkspace {
   const normalizedAgentId = normalizeAgentId(agentId);
 
   if (normalizedAgentId === 'main') {
-    const workspaceRoot = path.dirname(config.memoryPath);
-    return {
-      agentId: 'main',
-      workspaceRoot,
-      memoryPath: config.memoryPath,
-      memoryDir: config.memoryDir || path.join(workspaceRoot, 'memory'),
-    };
+    return { agentId: 'main', workspaceRoot: path.resolve(config.workspaceRoot) };
   }
 
   const workspaceRoot = getConfiguredAgentWorkspace(normalizedAgentId)
     || buildDefaultAgentWorkspacePath(normalizedAgentId);
-  return {
-    agentId: normalizedAgentId,
-    workspaceRoot,
-    memoryPath: path.join(workspaceRoot, 'MEMORY.md'),
-    memoryDir: path.join(workspaceRoot, 'memory'),
-  };
+  return { agentId: normalizedAgentId, workspaceRoot };
 }

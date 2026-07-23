@@ -75,15 +75,3 @@ export async function testGatewayConnection(url: string, token?: string): Promis
     return { ok: false, message: `Cannot reach gateway: ${msg}` };
   }
 }
-
-/** Loose validation for OpenAI API key format. */
-export function isValidOpenAIKey(key: string): boolean {
-  // OpenAI keys start with sk- and are long
-  return key.startsWith('sk-') && key.length > 20;
-}
-
-/** Loose validation for Replicate API token format. */
-export function isValidReplicateToken(token: string): boolean {
-  // Replicate tokens are typically r8_ prefixed or just long alphanumeric
-  return token.length > 10;
-}

@@ -31,7 +31,7 @@ function allowedPrefixes(): string[] {
   return [
     '/tmp',
     path.join(home, '.openclaw'),
-    config.memoryDir,
+    config.workspaceRoot,
   ].filter(Boolean);
 }
 

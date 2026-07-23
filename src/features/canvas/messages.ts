@@ -46,10 +46,14 @@ export interface CanvasCopy {
   saveLayoutFailed: string;
   createCanvasFailed: string;
   renameCanvasFailed: string;
+  changeAgentFailed: string;
   createSessionFailed: string;
   deleteCanvasConfirm: (name: string) => string;
   canvasList: string;
   agentLabel: (agentId: string) => string;
+  canvasWorkspace: string;
+  selectAgent: string;
+  retryAgentList: string;
   hideCanvasList: string;
   showCanvasList: string;
   newCanvas: string;
@@ -87,6 +91,7 @@ const knownErrors = {
     conflict: '当前位置已有一个未发送的输入框',
     'Not found': '未找到对应内容',
     'Invalid canvas': '画布信息无效',
+    'Invalid canvas update': '画布更新信息无效',
     'Invalid name': '画布名称无效',
     'Authentication required': '请先登录',
     'Invalid send request': '发送内容无效',
@@ -98,6 +103,10 @@ const knownErrors = {
     'Invalid completion': '交互完成信息无效',
     'Canvas operation failed': '画布操作失败',
     'Failed to fetch': '无法连接到服务端',
+    unknown_agent: '所选智能体不存在',
+    agent_locked: '首次交互已经提交，无法再修改智能体',
+    agent_changed: '智能体已在其他页面中修改，请重新发送',
+    agent_catalog_unavailable: '暂时无法读取 OpenClaw 智能体列表',
   },
   en: {
     not_found: 'The requested item was not found.',
@@ -109,6 +118,7 @@ const knownErrors = {
     conflict: 'An unsent composer already exists here.',
     'Not found': 'The requested item was not found.',
     'Invalid canvas': 'The Canvas data is invalid.',
+    'Invalid canvas update': 'The Canvas update is invalid.',
     'Invalid name': 'The Canvas name is invalid.',
     'Authentication required': 'Sign in to continue.',
     'Invalid send request': 'The send request is invalid.',
@@ -120,6 +130,10 @@ const knownErrors = {
     'Invalid completion': 'The completion information is invalid.',
     'Canvas operation failed': 'The Canvas operation failed.',
     'Failed to fetch': 'Unable to connect to the server.',
+    unknown_agent: 'The selected agent does not exist.',
+    agent_locked: 'The first interaction has been submitted, so the agent is locked.',
+    agent_changed: 'The agent changed in another tab. Send again.',
+    agent_catalog_unavailable: 'The OpenClaw agent list is temporarily unavailable.',
   },
 } satisfies Record<Language, Record<string, string>>;
 
@@ -158,15 +172,19 @@ export const canvasCopy = {
     openClawRunFailed: 'OpenClaw 运行失败',
     forkFailed: '无法创建新分支',
     createBranch: '创建分支',
-    newSession: '新会话',
+    newSession: '新建主分支',
     continueBranch: '继续分支',
     saveLayoutFailed: '无法保存画布布局',
     createCanvasFailed: '无法创建画布',
     renameCanvasFailed: '无法重命名画布',
-    createSessionFailed: '无法创建新会话',
+    changeAgentFailed: '无法修改智能体',
+    createSessionFailed: '无法创建主分支',
     deleteCanvasConfirm: (name) => `确定删除“${name}”及其画布数据吗？OpenClaw 原始会话记录不会被修改。`,
     canvasList: '画布列表',
     agentLabel: (agentId) => `智能体：${agentId}`,
+    canvasWorkspace: '视觉分支工作区',
+    selectAgent: '选择智能体',
+    retryAgentList: '重新加载智能体列表',
     hideCanvasList: '隐藏画布列表',
     showCanvasList: '显示画布列表',
     newCanvas: '新建画布',
@@ -182,7 +200,7 @@ export const canvasCopy = {
     toggleInteractive: '切换节点交互',
     minimap: '画布缩略图',
     emptyTitle: '开始使用 OpenClaw 画布',
-    emptyDescription: '创建画布后，你可以开始多个独立会话，并从历史交互创建新的分支。',
+    emptyDescription: '创建画布后，你可以开始多个主分支，并从历史交互继续派生新的分支。',
     previewDialog: (name) => `图片预览：${name}`,
     closeImagePreview: '关闭图片预览',
     closePreview: '关闭预览',
@@ -221,15 +239,19 @@ export const canvasCopy = {
     openClawRunFailed: 'OpenClaw run failed',
     forkFailed: 'Unable to create branch',
     createBranch: 'Create branch',
-    newSession: 'New session',
+    newSession: 'New root branch',
     continueBranch: 'Continue branch',
     saveLayoutFailed: 'Unable to save Canvas layout',
     createCanvasFailed: 'Unable to create Canvas',
     renameCanvasFailed: 'Unable to rename Canvas',
-    createSessionFailed: 'Unable to create session',
+    changeAgentFailed: 'Unable to change agent',
+    createSessionFailed: 'Unable to create a root branch',
     deleteCanvasConfirm: (name) => `Delete “${name}” and its Canvas data? The original OpenClaw session history will not be modified.`,
     canvasList: 'Canvas list',
     agentLabel: (agentId) => `Agent: ${agentId}`,
+    canvasWorkspace: 'Visual branching workspace',
+    selectAgent: 'Select agent',
+    retryAgentList: 'Reload agent list',
     hideCanvasList: 'Hide Canvas list',
     showCanvasList: 'Show Canvas list',
     newCanvas: 'New Canvas',
@@ -245,7 +267,7 @@ export const canvasCopy = {
     toggleInteractive: 'Toggle interactivity',
     minimap: 'Canvas minimap',
     emptyTitle: 'Start with ConvoSketchpad',
-    emptyDescription: 'Create a Canvas to start independent sessions and branch from historical interactions.',
+    emptyDescription: 'Create a Canvas to start root branches and branch from historical interactions.',
     previewDialog: (name) => `Image preview: ${name}`,
     closeImagePreview: 'Close image preview',
     closePreview: 'Close preview',

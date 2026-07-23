@@ -7,8 +7,6 @@
 import App from '@/App';
 import { GatewayProvider } from '@/contexts/GatewayContext';
 import { SettingsProvider } from '@/contexts/SettingsContext';
-import { SessionProvider } from '@/contexts/SessionContext';
-import { ChatProvider } from '@/contexts/ChatContext';
 import { LoginPage } from './LoginPage';
 import { useAuth } from './useAuth';
 
@@ -30,11 +28,7 @@ export function AuthGate() {
   return (
     <GatewayProvider>
       <SettingsProvider>
-        <SessionProvider>
-          <ChatProvider>
-            <App onLogout={logout} />
-          </ChatProvider>
-        </SessionProvider>
+        <App onLogout={logout} />
       </SettingsProvider>
     </GatewayProvider>
   );

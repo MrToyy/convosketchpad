@@ -1,62 +1,33 @@
-/**
- * sendMessage — Pure functions for building and sending chat messages.
- *
- * Extracted from ChatContext.handleSend. No React hooks, setState, or refs.
- */
-import { generateMsgId } from '@/features/chat/types';
-import type { ChatMsg, ImageAttachment, OutgoingUploadPayload, UploadAttachmentDescriptor } from '@/features/chat/types';
-import { renderMarkdown, renderToolResults } from '@/utils/helpers';
+import type { OutgoingUploadPayload, UploadAttachmentDescriptor } from '@/features/chat/types';
 
-// ─── Voice → TTS prompt hint ───────────────────────────────────────────────────
-const VOICE_PREFIX = '[voice] ';
-const TTS_HINT = '\n\n[system: User sent a voice message. Always include your full text reply AND a [tts:...] marker so it plays back as audio. Never send only TTS markers — the response must be readable in chat too. TTS marker format: [tts: your spoken text here] — place it at the end of your reply. Example reply:\n\nHere is my text response.\n\n[tts: Here is my text response.]]';
 const UPLOAD_MANIFEST_OPEN = '<nerve-upload-manifest>';
 const UPLOAD_MANIFEST_CLOSE = '</nerve-upload-manifest>';
-
-/** Detect voice messages and append a TTS prompt hint for the agent. */
-export function applyVoiceTTSHint(text: string): string {
-  if (!text.startsWith(VOICE_PREFIX)) return text;
-  return text + TTS_HINT;
-}
 
 function sanitizeUploadDescriptor(
   descriptor: UploadAttachmentDescriptor,
   exposeInlineBase64ToAgent: boolean,
 ): UploadAttachmentDescriptor {
-  if (descriptor.mode !== 'inline' || !descriptor.inline) {
-    return descriptor;
-  }
-
-  const inline = {
-    ...descriptor.inline,
-    previewUrl: undefined,
-    base64: exposeInlineBase64ToAgent ? descriptor.inline.base64 : '',
-  };
-
+  if (descriptor.mode !== 'inline' || !descriptor.inline) return descriptor;
   return {
     ...descriptor,
-    inline,
+    inline: {
+      ...descriptor.inline,
+      previewUrl: undefined,
+      base64: exposeInlineBase64ToAgent ? descriptor.inline.base64 : '',
+    },
   };
 }
 
-export function appendUploadManifest(
-  text: string,
-  uploadPayload?: OutgoingUploadPayload,
-): string {
-  if (!uploadPayload?.manifest.enabled) return text;
-  if (uploadPayload.descriptors.length === 0) return text;
-
+export function appendUploadManifest(text: string, uploadPayload?: OutgoingUploadPayload): string {
+  if (!uploadPayload?.manifest.enabled || uploadPayload.descriptors.length === 0) return text;
   const manifest = {
     version: 1,
     attachments: uploadPayload.descriptors.map((descriptor) =>
-      sanitizeUploadDescriptor(descriptor, uploadPayload.manifest.exposeInlineBase64ToAgent),
-    ),
+      sanitizeUploadDescriptor(descriptor, uploadPayload.manifest.exposeInlineBase64ToAgent)),
   };
-
   return `${text}\n\n${UPLOAD_MANIFEST_OPEN}${JSON.stringify(manifest)}${UPLOAD_MANIFEST_CLOSE}`;
 }
 
-// ─── RPC type alias ────────────────────────────────────────────────────────────
 type RpcFn = (method: string, params: Record<string, unknown>) => Promise<unknown>;
 
 export type ChatSendStatus = 'started' | 'in_flight' | 'ok';
@@ -66,80 +37,35 @@ export interface ChatSendAck {
   status?: ChatSendStatus;
 }
 
-// ─── Build optimistic user message ─────────────────────────────────────────────
-
-/**
- * Build the optimistic ChatMsg for a user message, ready for immediate insertion.
- * Returns both the message and a tempId for later confirmation/failure updates.
- */
-export function buildUserMessage(params: {
-  text: string;
-  images?: ImageAttachment[];
-  uploadPayload?: OutgoingUploadPayload;
-}): { msg: ChatMsg; tempId: string } {
-  const { text, images, uploadPayload } = params;
-  const tempId = crypto.randomUUID ? crypto.randomUUID() : 'temp-' + Date.now();
-
-  const msg: ChatMsg = {
-    msgId: generateMsgId(),
-    role: 'user',
-    html: renderToolResults(renderMarkdown(text)),
-    rawText: text,
-    timestamp: new Date(),
-    images: images?.map(i => ({
-      mimeType: i.mimeType,
-      content: i.content,
-      preview: i.preview,
-      name: i.name,
-    })),
-    uploadAttachments: uploadPayload?.descriptors,
-    pending: true,
-    tempId,
-  };
-
-  return { msg, tempId };
+export interface GatewayAttachmentPayload {
+  fileName?: string;
+  mimeType: string;
+  content: string;
 }
 
-// ─── Send the chat message via RPC ─────────────────────────────────────────────
-
-/**
- * Send a chat message through the gateway RPC. Pure network call — no state management.
- */
+/** Low-level OpenClaw `chat.send` transport used by Canvas interactions. */
 export async function sendChatMessage(params: {
   rpc: RpcFn;
   sessionKey: string;
   text: string;
-  images?: ImageAttachment[];
+  attachments?: GatewayAttachmentPayload[];
   uploadPayload?: OutgoingUploadPayload;
   idempotencyKey: string;
 }): Promise<ChatSendAck> {
-  const { rpc, sessionKey, text, images, uploadPayload, idempotencyKey } = params;
-
-  const messageWithManifest = appendUploadManifest(text, uploadPayload);
-
   const rpcParams: Record<string, unknown> = {
-    sessionKey,
-    message: applyVoiceTTSHint(messageWithManifest),
+    sessionKey: params.sessionKey,
+    message: appendUploadManifest(params.text, params.uploadPayload),
     deliver: false,
-    idempotencyKey,
+    idempotencyKey: params.idempotencyKey,
   };
-
-  if (images?.length) {
-    rpcParams.attachments = images.map(i => ({
-      mimeType: i.mimeType,
-      content: i.content,
+  if (params.attachments?.length) {
+    rpcParams.attachments = params.attachments.map(({ fileName, mimeType, content }) => ({
+      ...(fileName ? { fileName } : {}), mimeType, content,
     }));
   }
-
-  const ackRaw = await rpc('chat.send', rpcParams);
-  const ack = (ackRaw || {}) as { runId?: unknown; status?: unknown };
-
-  const status = typeof ack.status === 'string' && ['started', 'in_flight', 'ok'].includes(ack.status)
-    ? (ack.status as ChatSendStatus)
+  const raw = await params.rpc('chat.send', rpcParams) as { runId?: unknown; status?: unknown } | null;
+  const status = typeof raw?.status === 'string' && ['started', 'in_flight', 'ok'].includes(raw.status)
+    ? raw.status as ChatSendStatus
     : undefined;
-
-  return {
-    runId: typeof ack.runId === 'string' ? ack.runId : undefined,
-    status,
-  };
+  return { runId: typeof raw?.runId === 'string' ? raw.runId : undefined, status };
 }

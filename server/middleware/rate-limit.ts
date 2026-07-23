@@ -5,7 +5,7 @@
  * periodic cleanup, a hard cap on store size to prevent memory amplification
  * from spoofed IPs, and configurable trusted-proxy support for `X-Forwarded-For`.
  *
- * Presets exported: {@link rateLimitTTS}, {@link rateLimitTranscribe}, {@link rateLimitGeneral}.
+ * Presets cover normal API calls, authentication, and service restart.
  * @module
  */
 
@@ -150,13 +150,7 @@ export function rateLimit(config: RateLimitConfig) {
   };
 }
 
-/** Preset: 10 requests per minute (for expensive operations like TTS) */
-export const rateLimitTTS = rateLimit({ maxRequests: 10, windowMs: 60 * 1000 });
-
-/** Preset: 30 requests per minute (for transcription) */
-export const rateLimitTranscribe = rateLimit({ maxRequests: 30, windowMs: 60 * 1000 });
-
-/** Preset: 60 requests per minute (for general API calls like memories) */
+/** Preset: 60 requests per minute for general API calls. */
 export const rateLimitGeneral = rateLimit({ maxRequests: 60, windowMs: 60 * 1000 });
 
 /** Preset: 5 requests per minute (for authentication — brute-force protection) */

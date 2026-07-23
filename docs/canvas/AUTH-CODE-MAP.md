@@ -28,7 +28,6 @@
 | 登录失败次数和 IP 锁定 | [`server/lib/login-failures.ts`](../../server/lib/login-failures.ts) | [`server/lib/login-failures.test.ts`](../../server/lib/login-failures.test.ts) |
 | Canvas owner 解析 | [`server/lib/canvas-auth.ts`](../../server/lib/canvas-auth.ts) | [`server/routes/canvas.ts`](../../server/routes/canvas.ts) |
 | WebSocket upgrade 与运行中会话撤销 | [`server/lib/ws-proxy.ts`](../../server/lib/ws-proxy.ts) | [`server/lib/ws-proxy.test.ts`](../../server/lib/ws-proxy.test.ts) |
-| SSE 连接的用户撤销复查 | [`server/routes/events.ts`](../../server/routes/events.ts) | Auth middleware |
 | 真实客户端 IP 和可信反向代理 | [`server/middleware/rate-limit.ts`](../../server/middleware/rate-limit.ts) | [`server/lib/trust-utils.ts`](../../server/lib/trust-utils.ts) |
 | setup 提示和 `.env` 示例 | [`scripts/setup.ts`](../../scripts/setup.ts) | [`.env.example`](../../.env.example) |
 
@@ -88,7 +87,6 @@ POST /api/auth/login
 
 - HTTP middleware 每次请求都用数据库中的 `status` 和 `token_version` 复查 Cookie。
 - WebSocket upgrade 时复查；连接后每条客户端消息以及约 30 秒心跳再次复查。
-- SSE 约每 30 秒心跳复查。
 - Rotate、disable 和 enable 都递增 version；旧 Cookie 永久失效，用户必须重新登录。
 
 ### 防暴力破解

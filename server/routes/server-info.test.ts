@@ -33,14 +33,6 @@ vi.mock('node:fs', async (importOriginal) => {
   return { ...mock, default: mock };
 });
 
-vi.mock('../lib/config.js', () => ({
-  config: { agentName: 'Jen' },
-}));
-
-vi.mock('../lib/openclaw-config.js', () => ({
-  getDefaultAgentWorkspaceRoot: () => '/mock/workspaces',
-}));
-
 vi.mock('../middleware/rate-limit.js', () => ({
   rateLimitGeneral: vi.fn(async (_c: unknown, next: () => Promise<void>) => next()),
 }));
@@ -88,8 +80,8 @@ describe('GET /api/server-info', () => {
     const json = (await res.json()) as Record<string, unknown>;
     expect(json.gatewayStartedAt).toBe(1700000012340);
     expect(typeof json.serverTime).toBe('number');
-    expect(json.agentName).toBe('Jen');
-    expect(json.defaultAgentWorkspaceRoot).toBe('/mock/workspaces');
+    expect(json).not.toHaveProperty('agentName');
+    expect(json).not.toHaveProperty('defaultAgentWorkspaceRoot');
   });
 
   it('returns macOS gateway start time from ps output', async () => {
@@ -118,7 +110,7 @@ describe('GET /api/server-info', () => {
 
     const json = (await res.json()) as Record<string, unknown>;
     expect(json.gatewayStartedAt).toBe(new Date('Tue Mar 31 20:14:31 2026').getTime());
-    expect(json.defaultAgentWorkspaceRoot).toBe('/mock/workspaces');
+    expect(json).not.toHaveProperty('defaultAgentWorkspaceRoot');
     expect(execCalls).toEqual([
       { file: 'ps', args: ['-axo', 'pid=,comm='] },
       { file: 'ps', args: ['-p', '72246', '-o', 'lstart='] },

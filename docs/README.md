@@ -1,31 +1,21 @@
-# ConvoSketchpad Docs
+# Documentation
 
-Start here when you need setup, operations, or contributor guidance.
+ConvoSketchpad is a Canvas-only OpenClaw client. These documents describe the current product; older Nerve Chat and workspace-panel behavior is intentionally out of scope.
 
-## Top-level entry points
+## Start here
 
-- [Project README](../README.md), product overview and quick start
-- [Contributing](../CONTRIBUTING.md), local development, tests, and PR expectations
-- [Changelog](../CHANGELOG.md), release notes
+- [Canvas feature index](canvas/README.md)
+- [Architecture](ARCHITECTURE.md)
+- [API reference](API.md)
+- [Configuration](CONFIGURATION.md)
+- [Security](SECURITY.md)
+- [Installation contract](INSTALL.md)
+- [Troubleshooting](TROUBLESHOOTING.md)
 
-## Core docs
+## Maintainer references
 
-- [Canvas customization index](./canvas/README.md), code maps for Canvas, managed-user auth, and the upstream Git workflow
-- [Architecture](./ARCHITECTURE.md), codebase structure and system design
-- [Configuration](./CONFIGURATION.md), `.env`, auth, access modes, TTS providers, and UI settings
-- [API](./API.md), backend endpoints and behavior
-- [Security](./SECURITY.md), threat model and hardening notes
-- [Troubleshooting](./TROUBLESHOOTING.md), common failures and fixes
-- [Updating](./UPDATING.md), built-in updater flow and rollback
-- [Installer Steps](./INSTALLER-STEPS.md), what the installer does
-- [Agent Markers](./AGENT-MARKERS.md), TTS and chart markers
-- [Code Review](./CODE_REVIEW.md), review guidance for the current codebase
-
-## Setup and deployment
-
-- [AI Agent Setup](./AI_SETUP.md)
-- [ConvoSketchpad Agent Install Contract](./INSTALL.md)
-- [Run everything on one machine](./DEPLOYMENT-A.md)
-- [Use a cloud Gateway with ConvoSketchpad on your laptop](./DEPLOYMENT-B.md)
-- [Run both ConvoSketchpad and Gateway in the cloud](./DEPLOYMENT-C.md)
-- [Add Tailscale to an existing ConvoSketchpad install](./TAILSCALE.md)
+- [Canvas code map](canvas/CANVAS-CODE-MAP.md)
+- [Auth code map](canvas/AUTH-CODE-MAP.md)
+- [Canvas design decisions](OPENCLAW-CANVAS-MVP-DESIGN.md)
+- [Runtime and data flow](NERVE-RUNTIME-AND-DATA-FLOW.md)
+- [Git workflow](canvas/GIT-WORKFLOW.md)

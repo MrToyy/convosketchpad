@@ -7,7 +7,9 @@ import { useGateway } from '@/contexts/GatewayContext';
 interface StatusBarProps {
   /** Current WebSocket connection state to the gateway. */
   connectionState: 'disconnected' | 'connecting' | 'connected' | 'reconnecting';
-  /** Number of active agent sessions. */
+  /** Number of branches in the selected Canvas. */
+  branchCount: number;
+  /** Number of materialized OpenClaw sessions for those branches. */
   sessionCount: number;
   /** ASCII sparkline string rendered at the right edge of the bar. */
   sparkline: string;
@@ -47,7 +49,7 @@ async function fetchServerInfo(): Promise<{ serverTime?: number; gatewayStartedA
  * Shows connection state, server time, session count, gateway uptime,
  * an optional context-window meter, a sparkline, and the app version.
  */
-export function StatusBar({ connectionState, sessionCount, sparkline, contextTokens, contextLimit }: StatusBarProps) {
+export function StatusBar({ connectionState, branchCount, sessionCount, sparkline, contextTokens, contextLimit }: StatusBarProps) {
   useGateway(); // Keep gateway context connected
 
   // Server time: offset between local clock and server clock
@@ -138,11 +140,11 @@ export function StatusBar({ connectionState, sessionCount, sparkline, contextTok
 
         <span className="text-border max-[378px]:text-[0.533rem]">•</span>
 
-        {/* Session count */}
+        {/* Selected Canvas branch/session count */}
         <span className="shrink-0 text-foreground/78 max-[378px]:text-[0.6rem]">
-          <span className="font-mono tabular-nums text-foreground">{sessionCount}</span>
-          <span className="ml-1 sm:hidden">sessions</span>
-          <span className="ml-1 hidden sm:inline">active sessions</span>
+          <span className="font-mono tabular-nums text-foreground">{branchCount}</span><span className="ml-1">branches</span>
+          <span className="mx-1.5 text-border">·</span>
+          <span className="font-mono tabular-nums text-foreground">{sessionCount}</span><span className="ml-1">sessions</span>
         </span>
 
         {/* Gateway uptime (hidden on narrow/medium screens) */}

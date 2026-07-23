@@ -29,6 +29,7 @@ import {
   PanelLeftOpen,
   Pencil,
   Plus,
+  RefreshCw,
   Sparkles,
   Trash2,
   X,
@@ -39,7 +40,8 @@ import { MarkdownRenderer } from '@/features/markdown/MarkdownRenderer';
 import { useGateway } from '@/contexts/GatewayContext';
 import { useSettings } from '@/contexts/SettingsContext';
 import { classifyStreamEvent, extractStreamDelta } from '@/features/chat/operations';
-import { appendUploadManifest } from '@/features/chat/operations/sendMessage';
+import { appendUploadManifest, sendChatMessage } from '@/features/chat/operations/sendMessage';
+import { ImageLightbox } from '@/features/chat/ImageLightbox';
 import type { UploadAttachmentDescriptor } from '@/features/chat/types';
 import type { ChatEventPayload, GatewayEvent } from '@/types';
 import { canvasApi, canvasArtifactUrl, stageCanvasFiles, type StagedUpload } from './api';
@@ -83,7 +85,12 @@ interface InteractionNodeData extends Record<string, unknown> {
   composerOpen: boolean;
   canAdd: boolean;
   onAdd: (interaction: CanvasInteraction) => void;
-  onPreviewImage: (uri: string, name: string) => void;
+}
+
+interface GatewayAgentOption {
+  id: string;
+  name?: string;
+  identity?: { name?: string; emoji?: string };
 }
 
 interface ComposerNodeData extends Record<string, unknown> {
@@ -143,7 +150,7 @@ function reconciledActivity(interaction: CanvasInteraction): AgentActivity {
 function InteractionNode({ data }: NodeProps<InteractionFlowNode>) {
   const { language } = useSettings();
   const copy = getCanvasCopy(language);
-  const { interaction, activity, composerOpen, canAdd, onAdd, onPreviewImage } = data;
+  const { interaction, activity, composerOpen, canAdd, onAdd } = data;
   const bootstrapWarnings = Array.isArray(interaction.sessionMetadata.bootstrapWarnings)
     ? interaction.sessionMetadata.bootstrapWarnings.filter((item): item is string => typeof item === 'string')
     : [];
@@ -202,14 +209,11 @@ function InteractionNode({ data }: NodeProps<InteractionFlowNode>) {
             return (
               <div key={`${artifact.uri}-${index}`} className="overflow-hidden rounded-2xl border border-border/60 bg-background/45">
                 {isImage && available && (
-                  <button
-                    type="button"
-                    onClick={() => onPreviewImage(canvasArtifactUrl(artifact.uri), artifact.name)}
-                    className="block w-full cursor-zoom-in bg-black/10"
-                    aria-label={copy.previewImage(artifact.name)}
-                  >
-                    <img src={canvasArtifactUrl(artifact.uri)} alt={artifact.name} className="max-h-56 w-full object-contain" />
-                  </button>
+                  <ImageLightbox
+                    src={canvasArtifactUrl(artifact.uri)}
+                    alt={artifact.name}
+                    thumbnailClassName="max-h-56 w-full cursor-zoom-in bg-black/10 object-contain"
+                  />
                 )}
                 {available ? (
                   <a href={canvasArtifactUrl(artifact.uri)} target="_blank" rel="noreferrer" download className="flex items-center gap-2 px-3 py-2 text-xs text-foreground hover:bg-secondary/70">
@@ -350,7 +354,14 @@ function buildUploadDescriptors(staged: StagedUpload[], ids: string[]): UploadAt
   }));
 }
 
-export function CanvasPanel({ agentId }: { agentId: string }) {
+export interface CanvasContextStats {
+  branchCount: number;
+  sessionCount: number;
+  usedTokens?: number;
+  contextLimit?: number;
+}
+
+export function CanvasPanel({ onContextStatsChange }: { onContextStatsChange?: (stats: CanvasContextStats) => void }) {
   const { rpc, subscribe, connectionState } = useGateway();
   const { language } = useSettings();
   const copy = getCanvasCopy(language);
@@ -365,7 +376,10 @@ export function CanvasPanel({ agentId }: { agentId: string }) {
   const [canvasListVisible, setCanvasListVisible] = useState(true);
   const [editingCanvasId, setEditingCanvasId] = useState<string | null>(null);
   const [editingCanvasName, setEditingCanvasName] = useState('');
-  const [previewImage, setPreviewImage] = useState<{ uri: string; name: string } | null>(null);
+  const [agents, setAgents] = useState<GatewayAgentOption[]>([]);
+  const [agentCatalogError, setAgentCatalogError] = useState(false);
+  const [agentCatalogLoading, setAgentCatalogLoading] = useState(false);
+  const [agentChanging, setAgentChanging] = useState(false);
   const activeRuns = useRef(new Map<string, { interactionId: string; branchId: string; sessionKey: string }>());
   const saveTimer = useRef<number | null>(null);
   const nodesRef = useRef<CanvasFlowNode[]>([]);
@@ -420,15 +434,43 @@ export function CanvasPanel({ agentId }: { agentId: string }) {
 
   useEffect(() => { void loadCanvases().catch((cause) => setError(localizeError(cause, copy.loadCanvasListFailed))); }, [copy.loadCanvasListFailed, loadCanvases, localizeError]);
   useEffect(() => { void loadGraph().catch((cause) => setError(localizeError(cause, copy.loadCanvasFailed))); }, [copy.loadCanvasFailed, loadGraph, localizeError]);
-  useEffect(() => { setPreviewImage(null); }, [selectedId]);
+  const loadAgents = useCallback(async () => {
+    if (connectionState !== 'connected') return;
+    setAgentCatalogLoading(true);
+    setAgentCatalogError(false);
+    try {
+      const result = await rpc('agents.list', {}) as { agents?: GatewayAgentOption[] };
+      setAgents(Array.isArray(result.agents) ? result.agents.filter((agent) => typeof agent.id === 'string' && agent.id) : []);
+    } catch {
+      setAgentCatalogError(true);
+    } finally {
+      setAgentCatalogLoading(false);
+    }
+  }, [connectionState, rpc]);
+  useEffect(() => { void loadAgents(); }, [loadAgents]);
+  const refreshContextStats = useCallback(async () => {
+    if (!graph || connectionState !== 'connected') {
+      onContextStatsChange?.({ branchCount: graph?.branches.length || 0, sessionCount: 0 });
+      return;
+    }
+    const branchKeys = new Set(graph.branches.map((branch) => branch.sessionKey));
+    try {
+      const response = await rpc('sessions.list', { limit: 1000 }) as { sessions?: Array<{ key?: string; sessionKey?: string; totalTokens?: number; contextTokens?: number }> };
+      const matched = (Array.isArray(response.sessions) ? response.sessions : []).filter((session) => branchKeys.has(session.sessionKey || session.key || ''));
+      const usedTokens = matched.reduce((sum, session) => sum + (typeof session.totalTokens === 'number' && session.totalTokens > 0 ? session.totalTokens : 0), 0);
+      const withCapacity = matched.filter((session) => typeof session.contextTokens === 'number' && session.contextTokens > 0);
+      const contextLimit = withCapacity.reduce((sum, session) => sum + (session.contextTokens || 0), 0);
+      onContextStatsChange?.({ branchCount: graph.branches.length, sessionCount: matched.length, ...(contextLimit > 0 ? { usedTokens, contextLimit } : {}) });
+    } catch {
+      onContextStatsChange?.({ branchCount: graph.branches.length, sessionCount: 0 });
+    }
+  }, [connectionState, graph, onContextStatsChange, rpc]);
   useEffect(() => {
-    if (!previewImage) return;
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setPreviewImage(null);
-    };
-    window.addEventListener('keydown', closeOnEscape);
-    return () => window.removeEventListener('keydown', closeOnEscape);
-  }, [previewImage]);
+    void refreshContextStats();
+    if (connectionState !== 'connected') return;
+    const timer = window.setInterval(() => void refreshContextStats(), 30_000);
+    return () => window.clearInterval(timer);
+  }, [refreshContextStats, connectionState]);
   useEffect(() => {
     if (!graph?.interactions.some((interaction) => needsReconciliation(interaction, graph.reconciliationVersion))) return;
     const timer = window.setInterval(() => {
@@ -500,9 +542,9 @@ export function CanvasPanel({ agentId }: { agentId: string }) {
     setActivities((current) => ({ ...current, [branch.id]: 'queued' }));
     let reservationId: string | null = null;
     try {
-      const canvasAgentId = graph?.canvas.agentId || agentId;
+      const canvasAgentId = graph?.canvas.agentId;
       const canvasId = graph?.canvas.id;
-      if (!canvasId) throw new CanvasLocalizedError(copy.currentCanvasMissing);
+      if (!canvasId || !canvasAgentId) throw new CanvasLocalizedError(copy.currentCanvasMissing);
       const staged = draft.files.length ? await stageCanvasFiles(draft.files, canvasAgentId, canvasId) : [];
       const attachmentIds = staged.map(() => crypto.randomUUID());
       const attachmentMeta = staged.map((item, index) => ({
@@ -512,6 +554,7 @@ export function CanvasPanel({ agentId }: { agentId: string }) {
       }));
       const reservation = await canvasApi.prepareSend(branch.id, {
         expectedHeadInteractionId: branch.sessionState === 'active' ? branch.headInteractionId : null,
+        expectedAgentId: canvasAgentId,
         userInput: draft.text,
         attachments: attachmentMeta,
       });
@@ -546,14 +589,13 @@ export function CanvasPanel({ agentId }: { agentId: string }) {
       if (bootstrapWarnings.length > 0) {
         outgoingMessage += `\n\n<canvas-context-resource-warnings>${JSON.stringify(bootstrapWarnings)}</canvas-context-resource-warnings>`;
       }
-      const rpcParams: Record<string, unknown> = {
+      const ack = await sendChatMessage({
+        rpc,
         sessionKey: reservation.sessionKey,
-        message: outgoingMessage,
-        deliver: false,
+        text: outgoingMessage,
+        attachments: gatewayAttachments,
         idempotencyKey: reservation.id,
-      };
-      if (gatewayAttachments.length > 0) rpcParams.attachments = gatewayAttachments;
-      const ack = await rpc('chat.send', rpcParams) as { runId?: string };
+      });
       const interaction = await canvasApi.acknowledge(reservation.id, ack.runId, bootstrapWarnings);
       const runKey = ack.runId || `session:${reservation.sessionKey}`;
       activeRuns.current.set(runKey, { interactionId: interaction.id, branchId: branch.id, sessionKey: reservation.sessionKey });
@@ -571,7 +613,7 @@ export function CanvasPanel({ agentId }: { agentId: string }) {
       updateDraft(branch.id, (current) => ({ ...current, sending: false, error: message }));
       setActivities((current) => ({ ...current, [branch.id]: 'failed' }));
     }
-  }, [agentId, copy, drafts, graph?.canvas.agentId, graph?.canvas.id, language, loadGraph, localizeError, persistLayout, rpc, updateDraft]);
+  }, [copy, drafts, graph?.canvas.agentId, graph?.canvas.id, language, loadGraph, localizeError, persistLayout, rpc, updateDraft]);
 
   useEffect(() => subscribe((event: GatewayEvent) => {
     const classified = classifyStreamEvent(event);
@@ -642,7 +684,6 @@ export function CanvasPanel({ agentId }: { agentId: string }) {
         composerOpen: draftForkSources.has(interaction.id),
         canAdd: !headIds.has(interaction.id) && interaction.status === 'completed' && !draftForkSources.has(interaction.id),
         onAdd: addFromInteraction,
-        onPreviewImage: (uri, name) => setPreviewImage({ uri, name }),
       },
     }));
     const edges: Edge[] = graph.interactions.filter((interaction) => interaction.parentInteractionId).map((interaction) => ({
@@ -743,14 +784,33 @@ export function CanvasPanel({ agentId }: { agentId: string }) {
   const createCanvas = useCallback(async () => {
     const name = nextCanvasName(canvases, copy);
     try {
-      const canvas = await canvasApi.create(name, agentId || 'main');
+      const canvas = await canvasApi.create(name);
       await canvasApi.createRoot(canvas.id);
       await loadCanvases();
       setSelectedId(canvas.id);
       setEditingCanvasId(canvas.id);
       setEditingCanvasName(canvas.name);
     } catch (cause) { setError(localizeError(cause, copy.createCanvasFailed)); }
-  }, [agentId, canvases, copy, loadCanvases, localizeError]);
+  }, [canvases, copy, loadCanvases, localizeError]);
+
+  const agentEditable = graph !== null
+    && graph.interactions.length === 0
+    && !Object.values(drafts).some((draft) => draft.sending);
+
+  const changeAgent = useCallback(async (agentId: string) => {
+    if (!graph || !agentEditable || agentId === graph.canvas.agentId) return;
+    setAgentChanging(true);
+    try {
+      const updated = await canvasApi.updateAgent(graph.canvas.id, agentId);
+      setCanvases((current) => current.map((item) => item.id === updated.id ? updated : item));
+      await loadGraph();
+    } catch (cause) {
+      setError(localizeError(cause, copy.changeAgentFailed));
+      await loadGraph().catch(() => undefined);
+    } finally {
+      setAgentChanging(false);
+    }
+  }, [agentEditable, copy.changeAgentFailed, graph, loadGraph, localizeError]);
 
   const renameCanvas = useCallback(async (canvas: CanvasSummary) => {
     const name = editingCanvasName.trim();
@@ -782,7 +842,7 @@ export function CanvasPanel({ agentId }: { agentId: string }) {
       {canvasListVisible && (
         <aside className="flex w-64 shrink-0 flex-col border-r border-border/75 bg-card/65 p-3">
           <div className="flex items-center justify-between gap-2 px-1 py-2">
-            <div><div className="text-xs font-semibold uppercase tracking-[0.2em] text-primary">{copy.canvasList}</div><div className="mt-1 text-[0.667rem] text-muted-foreground">{copy.agentLabel(agentId)}</div></div>
+            <div><div className="text-xs font-semibold uppercase tracking-[0.2em] text-primary">{copy.canvasList}</div><div className="mt-1 text-[0.667rem] text-muted-foreground">{graph ? copy.agentLabel(graph.canvas.agentId) : copy.canvasWorkspace}</div></div>
             <div className="flex items-center gap-1">
               <Button size="icon" variant="ghost" onClick={() => setCanvasListVisible(false)} title={copy.hideCanvasList} aria-label={copy.hideCanvasList}><PanelLeftClose size={15} /></Button>
               <Button size="icon" variant="outline" onClick={() => void createCanvas()} title={copy.newCanvas}><Plus size={15} /></Button>
@@ -832,6 +892,21 @@ export function CanvasPanel({ agentId }: { agentId: string }) {
             <div className={`absolute top-4 z-10 flex items-center gap-3 rounded-2xl border border-border/75 bg-card/92 px-3 py-2 shadow-lg backdrop-blur ${canvasListVisible ? 'left-4' : 'left-16'}`}>
               <Bot size={16} className={connectionState === 'connected' ? 'text-green' : 'text-muted-foreground'} />
               <div><div className="text-sm font-semibold">{graph.canvas.name}</div><div translate="no" className="notranslate text-[0.667rem] text-muted-foreground">{connectionState === 'connected' ? copy.connected : copy.unavailable}</div></div>
+              {graph.interactions.length === 0 ? (
+                <div className="flex items-center gap-1">
+                  <select
+                    value={graph.canvas.agentId}
+                    onChange={(event) => void changeAgent(event.target.value)}
+                    disabled={!agentEditable || agentChanging || agentCatalogLoading || connectionState !== 'connected'}
+                    aria-label={copy.selectAgent}
+                    className="max-w-48 rounded-lg border border-border bg-background px-2 py-1.5 text-xs"
+                  >
+                    {!agents.some((agent) => agent.id === graph.canvas.agentId) && <option value={graph.canvas.agentId}>{graph.canvas.agentId}</option>}
+                    {agents.map((agent) => <option key={agent.id} value={agent.id}>{`${agent.identity?.emoji || ''} ${agent.identity?.name || agent.name || agent.id}`.trim()} · {agent.id}</option>)}
+                  </select>
+                  {agentCatalogError && <Button size="icon" variant="ghost" onClick={() => void loadAgents()} title={copy.retryAgentList}><RefreshCw size={13} /></Button>}
+                </div>
+              ) : <span className="rounded-lg bg-secondary px-2 py-1 text-xs text-muted-foreground">{copy.agentLabel(graph.canvas.agentId)}</span>}
               <Button size="sm" onClick={() => void createRoot()}><Plus size={14} /> {copy.newSession}</Button>
             </div>
             <ReactFlow
@@ -867,31 +942,6 @@ export function CanvasPanel({ agentId }: { agentId: string }) {
           </div>
         )}
       </main>
-      {previewImage && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-label={copy.previewDialog(previewImage.name)}
-          onClick={() => setPreviewImage(null)}
-          className="fixed inset-0 z-[100] flex cursor-zoom-out items-center justify-center bg-black/85 p-6 backdrop-blur-sm"
-        >
-          <button
-            type="button"
-            onClick={() => setPreviewImage(null)}
-            className="absolute right-5 top-5 flex size-10 items-center justify-center rounded-full border border-white/20 bg-black/45 text-white hover:bg-black/70"
-            aria-label={copy.closeImagePreview}
-            title={copy.closePreview}
-          >
-            <X size={22} />
-          </button>
-          <img
-            src={previewImage.uri}
-            alt={previewImage.name}
-            onClick={(event) => event.stopPropagation()}
-            className="max-h-full max-w-full cursor-default rounded-xl object-contain shadow-2xl"
-          />
-        </div>
-      )}
     </div>
   );
 }

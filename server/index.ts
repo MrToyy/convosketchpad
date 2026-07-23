@@ -2,8 +2,8 @@
  * ConvoSketchpad server entry point.
  *
  * Starts HTTP and optional HTTPS servers (for secure-context features like
- * microphone access), sets up WebSocket proxying to the OpenClaw gateway,
- * starts file watchers, and registers graceful shutdown handlers.
+ * TLS), sets up WebSocket proxying to the OpenClaw gateway, and registers
+ * graceful shutdown handlers.
  * @module
  */
 
@@ -13,10 +13,8 @@ import https from 'node:https';
 import { fileURLToPath } from 'node:url';
 import { serve } from '@hono/node-server';
 import app from './app.js';
-import { releaseWhisperContext } from './services/whisper-local.js';
 import { config, validateConfig, printStartupBanner, probeGateway } from './lib/config.js';
 import { setupWebSocketProxy, closeAllWebSockets } from './lib/ws-proxy.js';
-import { startFileWatcher, stopFileWatcher } from './lib/file-watcher.js';
 import { startCanvasReconciler, stopCanvasReconciler } from './lib/canvas-reconciler.js';
 
 // ── Startup banner + validation ──────────────────────────────────────
@@ -27,10 +25,6 @@ const pkgVersion: string = JSON.parse(fs.readFileSync(pkgPath, 'utf-8')).version
 
 printStartupBanner(pkgVersion);
 validateConfig();
-
-// ── Start file watchers ──────────────────────────────────────────────
-
-startFileWatcher();
 
 // ── HTTP server ──────────────────────────────────────────────────────
 
@@ -61,7 +55,7 @@ setupWebSocketProxy(httpServer as unknown as import('node:http').Server);
 probeGateway();
 startCanvasReconciler();
 
-// ── HTTPS server (for secure context — microphone access, WSS proxy) ─
+// ── HTTPS server (secure transport and WSS proxy) ───────────────────
 
 let sslServer: https.Server | undefined;
 
@@ -161,10 +155,8 @@ if (fs.existsSync(config.certPath) && fs.existsSync(config.keyPath)) {
 function shutdown(signal: string) {
   console.log(`\n[openclaw-ui] ${signal} received, shutting down...`);
 
-  stopFileWatcher();
   stopCanvasReconciler();
   closeAllWebSockets();
-  releaseWhisperContext().catch(() => {});
 
   httpServer.close(() => {
     console.log('[openclaw-ui] HTTP server closed');

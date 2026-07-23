@@ -22,7 +22,7 @@ describe('GET /api/files', () => {
     vi.doMock('../lib/config.js', () => ({
       config: {
         auth: false, port: 3000, host: '127.0.0.1', sslPort: 3443,
-        memoryDir: tmpDir,
+        workspaceRoot: tmpDir,
       },
       SESSION_COOKIE_NAME: 'nerve_session_3000',
     }));

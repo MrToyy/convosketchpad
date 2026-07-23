@@ -25,14 +25,19 @@ export const canvasApi = {
   async list(): Promise<CanvasSummary[]> {
     return (await request<{ canvases: CanvasSummary[] }>('/api/canvas/canvases')).canvases;
   },
-  async create(name: string, agentId: string): Promise<CanvasSummary> {
+  async create(name: string): Promise<CanvasSummary> {
     return (await request<{ canvas: CanvasSummary }>('/api/canvas/canvases', {
-      method: 'POST', body: JSON.stringify({ name, agentId }),
+      method: 'POST', body: JSON.stringify({ name }),
     })).canvas;
   },
   async update(id: string, name: string): Promise<CanvasSummary> {
     return (await request<{ canvas: CanvasSummary }>(`/api/canvas/canvases/${id}`, {
       method: 'PATCH', body: JSON.stringify({ name }),
+    })).canvas;
+  },
+  async updateAgent(id: string, agentId: string): Promise<CanvasSummary> {
+    return (await request<{ canvas: CanvasSummary }>(`/api/canvas/canvases/${id}`, {
+      method: 'PATCH', body: JSON.stringify({ agentId }),
     })).canvas;
   },
   async remove(id: string): Promise<void> {
@@ -52,6 +57,7 @@ export const canvasApi = {
   },
   async prepareSend(branchId: string, body: {
     expectedHeadInteractionId?: string | null;
+    expectedAgentId: string;
     userInput: string;
     attachments: CanvasAttachmentMeta[];
   }): Promise<SendReservation> {

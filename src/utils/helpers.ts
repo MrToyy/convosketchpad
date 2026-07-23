@@ -4,7 +4,6 @@
  * For formatting utilities, import directly from:
  *   - @/lib/formatting (esc, timeAgo, fmtTokens, fmtK)
  *   - @/lib/highlight (hljs, highlightCode)
- *   - @/features/voice/audio-feedback (playPing, playWakePing, etc.)
  */
 import { esc } from '@/lib/formatting';
 import { highlightCode } from '@/lib/highlight';
@@ -193,16 +192,9 @@ export function describeToolUse(toolName: string, input: Record<string, unknown>
     case 'edit': return 'editing ' + sanitizePath(String(p.path || p.file_path || 'file'));
     case 'web_search': return 'searching: ' + String(p.query || '');
     case 'web_fetch': return 'fetching: ' + String(p.url || '').replace(/https?:\/\/(www\.)?/, '').split('/')[0];
-    case 'sessions_spawn': return 'spawning sub-agent: ' + String(p.label || (typeof p.task === 'string' ? p.task : '') || 'task');
-    case 'sessions_list': return 'listing sessions';
-    case 'sessions_send': return 'messaging session';
-    case 'memory_search': return 'searching memory: ' + String(p.query || '');
-    case 'memory_get': return 'reading memory: ' + sanitizePath(String(p.path || 'memory'));
-    case 'cron': return 'cron: ' + (p.action || 'action');
     case 'gateway': return 'gateway: ' + (p.action || 'action');
     case 'browser': return 'browser: ' + (p.action || 'action');
     case 'message': return 'sending message';
-    case 'tts': return 'text-to-speech';
     case 'image': return 'analyzing image';
     case 'process': {
       const action = String(p.action || 'poll');
@@ -212,7 +204,6 @@ export function describeToolUse(toolName: string, input: Record<string, unknown>
       if (action === 'write' || action === 'send-keys' || action === 'paste') return 'sending input to background task';
       return 'managing background task';
     }
-    case 'session_status': return 'checking status';
     default: return 'using ' + toolName;
   }
 }

@@ -4,11 +4,6 @@ import { SettingsProvider } from '@/contexts/SettingsContext';
 import { LANGUAGE_STORAGE_KEY } from '@/lib/language';
 import { SettingsDrawer } from './SettingsDrawer';
 
-vi.mock('@/features/tts/useTTS', () => ({
-  migrateTTSProvider: (value: string) => value,
-  useTTS: () => ({ speak: vi.fn() }),
-}));
-
 const drawerProps = {
   open: true,
   onClose: vi.fn(),
@@ -18,22 +13,6 @@ const drawerProps = {
   onTokenChange: vi.fn(),
   onReconnect: vi.fn(),
   connectionState: 'connected' as const,
-  soundEnabled: false,
-  onToggleSound: vi.fn(),
-  ttsProvider: 'edge' as const,
-  ttsModel: '',
-  onTtsProviderChange: vi.fn(),
-  onTtsModelChange: vi.fn(),
-  sttProvider: 'local' as const,
-  sttInputMode: 'hybrid' as const,
-  sttModel: 'base',
-  onSttProviderChange: vi.fn(),
-  onSttInputModeChange: vi.fn(),
-  onSttModelChange: vi.fn(),
-  wakeWordEnabled: false,
-  onToggleWakeWord: vi.fn(),
-  liveTranscriptionPreview: false,
-  onToggleLiveTranscriptionPreview: vi.fn(),
   onLogout: vi.fn(),
 };
 
@@ -65,7 +44,7 @@ describe('SettingsDrawer interface language', () => {
 
     expect(screen.getByText('Settings')).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: 'Connection' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Sign Out' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Sign out' })).toBeInTheDocument();
     expect(localStorage.getItem(LANGUAGE_STORAGE_KEY)).toBe('en');
   });
 });

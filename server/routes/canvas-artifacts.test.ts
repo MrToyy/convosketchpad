@@ -87,6 +87,7 @@ describe('Canvas Artifact routes', () => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        expectedAgentId: 'main',
         userInput: 'inspect this',
         attachments: [{ name: 'source.png', mimeType: 'image/png', sizeBytes: 14, uri: source }],
       }),

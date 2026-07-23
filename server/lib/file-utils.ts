@@ -1,9 +1,7 @@
 /**
- * Shared file utilities for the file browser.
+ * Safe workspace-path resolution used by Canvas attachments.
  *
- * Path validation, exclusion lists, binary detection, and workspace
- * path resolution. Used by both the file-browser API routes and
- * the extended file watcher.
+ * Keeps attachment references inside the selected OpenClaw agent workspace.
  * @module
  */
 
@@ -12,9 +10,6 @@ import fs from 'node:fs/promises';
 import { config } from './config.js';
 
 // ── Exclusion rules ──────────────────────────────────────────────────
-// When FILE_BROWSER_ROOT is set, disable all exclusions to show complete directory structure
-// When using default workspace, apply standard exclusions for safety and cleanliness
-
 const DEFAULT_EXCLUDED_NAMES = new Set([
   'node_modules', '.git', 'dist', 'build', 'server-dist', 'certs',
   '.env', 'agent-log.json',
@@ -25,65 +20,28 @@ const DEFAULT_EXCLUDED_PATTERNS = [
   /\.log$/,
 ];
 
-const BINARY_EXTENSIONS = new Set([
-  '.png', '.jpg', '.jpeg', '.gif', '.webp', '.avif', '.svg', '.ico',
-  '.mp3', '.mp4', '.wav', '.ogg', '.flac', '.webm',
-  '.zip', '.tar', '.gz', '.bz2', '.7z', '.rar',
-  '.pdf', '.doc', '.docx', '.xls', '.xlsx',
-  '.exe', '.dll', '.so', '.dylib',
-  '.woff', '.woff2', '.ttf', '.eot',
-  '.sqlite', '.db',
-]);
-
-const EMPTY_EXCLUDED_NAMES = new Set<string>();
-const EMPTY_EXCLUDED_PATTERNS: RegExp[] = [];
-
 export interface ResolveWorkspacePathOptions {
   allowNonExistent?: boolean;
 }
 
-/** Get exclusion names based on current config state */
-function getExcludedNames(): Set<string> {
-  const customRoot = (config.fileBrowserRoot || '').trim();
-  return customRoot ? EMPTY_EXCLUDED_NAMES : DEFAULT_EXCLUDED_NAMES;
-}
-
-/** Get exclusion patterns based on current config state */
-function getExcludedPatterns(): RegExp[] {
-  const customRoot = (config.fileBrowserRoot || '').trim();
-  return customRoot ? EMPTY_EXCLUDED_PATTERNS : DEFAULT_EXCLUDED_PATTERNS;
-}
-
-/** Check if a file/directory name should be excluded from the tree. */
+/** Block sensitive and generated paths from Canvas attachment resolution. */
 export function isExcluded(name: string): boolean {
-  const excludedNames = getExcludedNames();
-  const excludedPatterns = getExcludedPatterns();
-
-  if (excludedNames.has(name)) return true;
-  return excludedPatterns.some((pattern) => pattern.test(name));
-}
-
-/** Check if a file extension indicates binary content. */
-export function isBinary(name: string): boolean {
-  return BINARY_EXTENSIONS.has(path.extname(name).toLowerCase());
+  if (DEFAULT_EXCLUDED_NAMES.has(name)) return true;
+  return DEFAULT_EXCLUDED_PATTERNS.some((pattern) => pattern.test(name));
 }
 
 // ── Workspace root ───────────────────────────────────────────────────
 
-/** Resolve the workspace root directory. Uses the explicit root if provided, otherwise FILE_BROWSER_ROOT or parent of MEMORY.md. */
+/** Resolve the explicit agent workspace or the configured default Canvas workspace. */
 export function getWorkspaceRoot(workspaceRoot?: string): string {
   if (workspaceRoot && workspaceRoot.trim()) {
     return path.resolve(workspaceRoot);
   }
 
-  const customRoot = (config.fileBrowserRoot || '').trim();
-  return customRoot ? path.resolve(customRoot) : path.dirname(config.memoryPath);
+  return path.resolve(config.workspaceRoot);
 }
 
 // ── Path validation ──────────────────────────────────────────────────
-
-/** Max file size for reading/writing (1 MB). */
-export const MAX_FILE_SIZE = 1_048_576;
 
 /**
  * Validate and resolve a relative path to an absolute path within an explicit workspace root.

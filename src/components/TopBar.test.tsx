@@ -4,46 +4,36 @@ import { describe, expect, it, vi } from 'vitest';
 import { TopBar } from './TopBar';
 
 vi.mock('./ConvoSketchpadLogo', () => ({
-  default: () => <div data-testid="nerve-logo" />,
+  default: () => <div data-testid="convosketchpad-logo" />,
 }));
 
-function renderTopBar(props: Partial<React.ComponentProps<typeof TopBar>> = {}) {
+function renderTopBar() {
   return render(
     <TopBar
       onSettings={vi.fn()}
       agentLogEntries={[]}
-      tokenData={null}
-      logGlow={false}
       eventEntries={[]}
-      eventsVisible={false}
-      logVisible={false}
-      viewMode="chat"
-      onViewModeChange={vi.fn()}
-      {...props}
+      tokenData={null}
     />,
   );
 }
 
 describe('TopBar', () => {
-  it('keeps the canvas navigation label fixed as CANVAS', () => {
+  it('identifies the product as a Canvas workspace', () => {
     renderTopBar();
 
-    const canvasButton = screen.getByRole('button', { name: /switch to canvas view/i });
-    expect(canvasButton).toHaveTextContent('CANVAS');
-    expect(canvasButton.querySelector('span')).toHaveAttribute('translate', 'no');
+    expect(screen.getByText('ConvoSketchpad')).toBeInTheDocument();
+    expect(screen.getByText('Visual branching workspace for OpenClaw')).toBeInTheDocument();
+    expect(screen.getByTestId('convosketchpad-logo')).toBeInTheDocument();
   });
 
-  it('renders only canvas and chat primary view toggles', () => {
+  it('only exposes Canvas telemetry and settings actions', () => {
     renderTopBar();
 
-    expect(screen.queryByRole('button', { name: /switch to tasks view/i })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /switch to canvas view/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /switch to chat view/i })).toBeInTheDocument();
-  });
-
-  it('does not render a top-bar Commands trigger', () => {
-    renderTopBar();
-
-    expect(screen.queryByRole('button', { name: /open command palette/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Log' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Events' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Usage' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Settings' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /chat|tasks|sessions|commands/i })).not.toBeInTheDocument();
   });
 });

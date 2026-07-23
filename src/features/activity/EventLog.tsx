@@ -8,7 +8,6 @@ interface EventLogProps {
 const badgeColors: Record<string, string> = {
   'badge-chat': 'bg-green/20 text-green',
   'badge-agent': 'bg-purple/20 text-purple',
-  'badge-cron': 'bg-orange/20 text-orange',
   'badge-system': 'bg-muted-foreground/20 text-muted-foreground',
   'badge-error': 'bg-red/20 text-red',
 };

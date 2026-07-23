@@ -64,7 +64,7 @@ export function ContextMeter({ used, limit }: ContextMeterProps) {
 
   const tooltipText = `Context: ${fmtK(used)} / ${fmtK(limit)} tokens (${percent.toFixed(0)}%)${
     isCritical
-      ? ' — CRITICAL: Consider starting a new session'
+      ? ' — CRITICAL: Consider starting a new root branch'
       : isWarning
       ? ' — Warning: Approaching context limit'
       : ''

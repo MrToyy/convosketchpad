@@ -1,5 +1,5 @@
 /**
- * Prerequisite checker — verifies Node.js version, npm, ffmpeg, openssl.
+ * Prerequisite checker — verifies Node.js, npm, openssl, and Tailscale.
  */
 
 import { execSync } from 'node:child_process';
@@ -10,7 +10,6 @@ export interface PrereqResult {
   nodeOk: boolean;
   nodeVersion: string;
   npmOk: boolean;
-  ffmpegOk: boolean;
   opensslOk: boolean;
   tailscaleOk: boolean;
   tailscaleIp: string | null;
@@ -38,12 +37,6 @@ export function checkPrerequisites(opts?: { quiet?: boolean }): PrereqResult {
     else fail('npm not found');
   }
 
-  const ffmpegOk = commandExists('ffmpeg');
-  if (!quiet) {
-    if (ffmpegOk) success('ffmpeg found (optional, for Qwen TTS)');
-    else warn('ffmpeg not found (optional — needed for Qwen TTS WAV→MP3)');
-  }
-
   const opensslOk = commandExists('openssl');
   if (!quiet) {
     if (opensslOk) success('openssl found (for HTTPS cert generation)');
@@ -59,7 +52,7 @@ export function checkPrerequisites(opts?: { quiet?: boolean }): PrereqResult {
     else warn('Tailscale installed but not connected');
   }
 
-  return { nodeOk, nodeVersion, npmOk, ffmpegOk, opensslOk, tailscaleOk, tailscaleIp, tailscale };
+  return { nodeOk, nodeVersion, npmOk, opensslOk, tailscaleOk, tailscaleIp, tailscale };
 }
 
 /** Check if a command exists on the system. */

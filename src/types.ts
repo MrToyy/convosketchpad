@@ -1,48 +1,3 @@
-/** Possible high-level states an agent session can be in. */
-export type AgentStatusKind = 'IDLE' | 'THINKING' | 'STREAMING' | 'DONE' | 'ERROR';
-
-/** Fine-grained agent state including current tool activity. */
-export interface GranularAgentState {
-  status: AgentStatusKind;
-  toolName?: string;        // e.g., "read", "exec", "web_search"
-  toolDescription?: string; // e.g., "Reading src/types.ts"
-  since: number;            // Date.now() of last state change
-}
-
-/** A gateway session (main agent or sub-agent). Fields are optional due to API version variance. */
-export interface Session {
-  sessionKey?: string;
-  key?: string;
-  id?: string;
-  label?: string;
-  identityName?: string;
-  state?: string;
-  agentState?: string;
-  busy?: boolean;
-  processing?: boolean;
-  status?: string;
-  lastActivity?: string | number;
-  updatedAt?: number;
-  abortedLastRun?: boolean;
-  model?: string;
-  thinking?: string;
-  thinkingLevel?: string;
-  totalTokens?: number;
-  contextTokens?: number;
-  parentSessionKey?: string; // from gateway API (newer session row shape)
-  parentId?: string;  // from gateway API (v2026.2.9+)
-  inputTokens?: number;
-  outputTokens?: number;
-  channel?: string;
-  kind?: string;
-  displayName?: string;
-}
-
-/** Extract the canonical key from a Session object (handles API inconsistency). */
-export function getSessionKey(s: Session): string {
-  return s.sessionKey || s.key || s.id || '';
-}
-
 /** A single entry in the agent activity log (displayed in the TopBar). */
 export interface AgentLogEntry {
   icon: string;
@@ -56,30 +11,6 @@ export interface EventEntry {
   badgeCls: string;
   desc: string;
   ts: Date;
-}
-
-export interface Memory {
-  type: 'section' | 'item' | 'daily';
-  text: string;
-  date?: string;
-  /** Temporary ID for optimistic updates */
-  tempId?: string;
-  /** True while the operation is pending confirmation */
-  pending?: boolean;
-  /** True if the operation failed (for error display before removal) */
-  failed?: boolean;
-  /** True if this memory is being deleted (fade out animation) */
-  deleting?: boolean;
-}
-
-/** Memory category types for storing new memories */
-export type MemoryCategory = 'preference' | 'fact' | 'decision' | 'entity' | 'other';
-
-/** API response for memory operations */
-export interface MemoryApiResponse {
-  ok: boolean;
-  error?: string;
-  result?: unknown;
 }
 
 /** Aggregated token usage and cost data from the gateway. */
@@ -177,22 +108,6 @@ export interface GatewayResponse {
 
 export type GatewayMessage = GatewayEvent | GatewayRequest | GatewayResponse;
 
-/** Generic event payload for gateway events */
-export interface EventPayload {
-  sessionKey?: string;
-  state?: string;
-  agentState?: string;
-  runId?: string;
-  seq?: number;
-  message?: ChatMessage | string;
-  messages?: ChatMessage[];
-  content?: ContentBlock[];
-  name?: string;
-  error?: string;
-  errorMessage?: string;
-  stopReason?: string;
-}
-
 // ─── Typed event payloads ────────────────────────────────────────────
 
 /** Payload for 'chat' events */
@@ -228,25 +143,4 @@ export interface AgentToolStreamData {
   toolCallId?: string;
   name?: string;
   args?: Record<string, unknown>;
-}
-
-/** Payload for 'cron' events */
-export interface CronEventPayload {
-  name?: string;
-}
-
-/** Payload for error events */
-export interface ErrorEventPayload {
-  message?: string;
-  error?: string;
-}
-
-/** Sessions list RPC response */
-export interface SessionsListResponse {
-  sessions?: Session[];
-}
-
-/** Chat history RPC response */
-export interface ChatHistoryResponse {
-  messages?: ChatMessage[];
 }

@@ -2,8 +2,8 @@
  * GET /api/server-info — Server time and gateway uptime info.
  *
  * Returns `serverTime` (epoch ms), `gatewayStartedAt` (epoch ms), `timezone`,
- * and `agentName` so the frontend can show a real-time server clock and true
- * gateway uptime. Gateway start time is derived from `/proc` on Linux and
+ * so the frontend can show a real-time server clock and true gateway uptime.
+ * Gateway start time is derived from `/proc` on Linux and
  * from `ps -o lstart` on platforms like macOS, then cached for 30 s.
  * @module
  */
@@ -12,8 +12,6 @@ import { Hono } from 'hono';
 import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
-import { config } from '../lib/config.js';
-import { getDefaultAgentWorkspaceRoot } from '../lib/openclaw-config.js';
 import { rateLimitGeneral } from '../middleware/rate-limit.js';
 
 const app = new Hono();
@@ -126,8 +124,6 @@ app.get('/api/server-info', rateLimitGeneral, async (c) => {
     serverTime: Date.now(),
     gatewayStartedAt: await getGatewayStartedAt(),
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-    agentName: config.agentName,
-    defaultAgentWorkspaceRoot: getDefaultAgentWorkspaceRoot(),
   });
 });
 

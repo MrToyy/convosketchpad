@@ -49,20 +49,20 @@ export function LoginPage({ onLogin, error }: LoginPageProps) {
               Private Cockpit Access
             </div>
             <h1 className="mt-3 max-w-[12ch] text-4xl font-semibold tracking-[-0.05em] text-foreground sm:text-5xl">
-              Sign in to your agent control surface
+              Sign in to your visual Canvas
             </h1>
             <p className="mt-4 max-w-[48ch] text-sm leading-6 text-muted-foreground sm:text-base">
-              ConvoSketchpad is a branching workspace for exploring OpenClaw conversations, artifacts, and creative directions. Authenticate once, then keep every canvas private to its owner.
+              ConvoSketchpad is a visual branching Canvas for exploring OpenClaw ideas, artifacts, and creative directions. Authenticate once, then keep every Canvas private to its owner.
             </p>
 
             <div className="mt-8 grid gap-3 sm:grid-cols-3">
               <div className="shell-panel rounded-2xl px-4 py-3">
-                <div className="text-[0.667rem] font-medium uppercase tracking-[0.22em] text-muted-foreground">Sessions</div>
-                <div className="mt-2 text-sm font-medium text-foreground">Live agent context</div>
+                <div className="text-[0.667rem] font-medium uppercase tracking-[0.22em] text-muted-foreground">Branches</div>
+                <div className="mt-2 text-sm font-medium text-foreground">Explore and compare</div>
               </div>
               <div className="shell-panel rounded-2xl px-4 py-3">
-                <div className="text-[0.667rem] font-medium uppercase tracking-[0.22em] text-muted-foreground">Workspace</div>
-                <div className="mt-2 text-sm font-medium text-foreground">Files, memory, and skills</div>
+                <div className="text-[0.667rem] font-medium uppercase tracking-[0.22em] text-muted-foreground">Artifacts</div>
+                <div className="mt-2 text-sm font-medium text-foreground">Keep creative outputs in context</div>
               </div>
               <div className="shell-panel rounded-2xl px-4 py-3">
                 <div className="text-[0.667rem] font-medium uppercase tracking-[0.22em] text-muted-foreground">Telemetry</div>

@@ -51,7 +51,7 @@ You must:
 
 You may apply minimal localhost-safe OpenClaw changes automatically when needed for the default local path. Examples:
 - adding missing local control UI origins
-- adding required gateway tool allow entries such as `cron`, `gateway`, and `sessions_spawn`
+- adding the local control-UI origins and device scopes required for Canvas Gateway access
 - fixing local device pairing or scopes needed for ConvoSketchpad to connect
 
 Ask first before any OpenClaw change that is remote, public, security-sensitive, destructive, or changes network exposure.

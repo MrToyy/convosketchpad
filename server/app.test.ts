@@ -16,10 +16,20 @@ describe('removed API surfaces', () => {
     }
   });
 
-  it('returns 404 for the retired Kanban API', async () => {
+  it('returns 404 for every retired product API family', async () => {
     const { default: app } = await import('./app.js');
-    const response = await app.request('/api/kanban/tasks');
-
-    expect(response.status).toBe(404);
+    const retiredPaths = [
+      '/api/kanban/tasks',
+      '/api/sessions',
+      '/api/memories',
+      '/api/workspace',
+      '/api/crons',
+      '/api/skills',
+      '/api/tts',
+      '/api/transcribe',
+    ];
+    for (const path of retiredPaths) {
+      expect((await app.request(path)).status, path).toBe(404);
+    }
   });
 });
