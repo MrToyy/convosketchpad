@@ -1,6 +1,6 @@
 # Canvas 功能与代码地图
 
-本文用于快速定位 Canvas 相关实现。产品级决策以 [Canvas MVP 设计说明](../OPENCLAW-CANVAS-MVP-DESIGN.md) 为准。
+本文用于快速定位 ConvoSketchpad Canvas 相关实现。产品级决策以 [Canvas MVP 设计说明](../OPENCLAW-CANVAS-MVP-DESIGN.md) 为准。
 
 ## 功能边界与不变量
 

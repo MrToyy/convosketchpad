@@ -1,7 +1,7 @@
 /**
  * Server configuration — all env vars, paths, and constants.
  *
- * Single source of truth for every tuneable value in the Nerve server.
+ * Single source of truth for every tuneable value in the ConvoSketchpad server.
  * Validated at startup via {@link validateConfig}. Also exports the
  * startup banner printer and a non-blocking gateway health probe.
  * @module
@@ -213,7 +213,7 @@ function sttProviderLabel(): string {
 
 /** Print startup banner with version and config summary. */
 export function printStartupBanner(version: string): void {
-  console.log(`\n  \x1b[33m⚡ Nerve v${version}\x1b[0m`);
+  console.log(`\n  \x1b[33m⚡ ConvoSketchpad v${version}\x1b[0m`);
   console.log(`  Agent: ${config.agentName} | TTS: ${ttsProviderLabel()} | STT: ${sttProviderLabel()}`);
   console.log(`  Gateway: ${config.gatewayUrl}`);
   if (config.auth) {

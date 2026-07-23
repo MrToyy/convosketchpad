@@ -244,7 +244,7 @@ export const canvasCopy = {
     fitView: 'Fit view',
     toggleInteractive: 'Toggle interactivity',
     minimap: 'Canvas minimap',
-    emptyTitle: 'Start with OpenClaw Canvas',
+    emptyTitle: 'Start with ConvoSketchpad',
     emptyDescription: 'Create a Canvas to start independent sessions and branch from historical interactions.',
     previewDialog: (name) => `Image preview: ${name}`,
     closeImagePreview: 'Close image preview',

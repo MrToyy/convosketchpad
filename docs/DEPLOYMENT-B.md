@@ -1,26 +1,26 @@
-# Deployment: Remote Gateway + Local Nerve
+# Deployment: Remote Gateway + Local ConvoSketchpad
 
-Nerve runs on your laptop, while the OpenClaw gateway runs somewhere else.
+ConvoSketchpad runs on your laptop, while the OpenClaw gateway runs somewhere else.
 
-This gives you a fast local UI, but it is **not** full deployment-A parity. The missing piece is workspace locality: the agent workspaces live on the remote gateway host, not on the Nerve host.
+This gives you a fast local UI, but it is **not** full deployment-A parity. The missing piece is workspace locality: the agent workspaces live on the remote gateway host, not on the ConvoSketchpad host.
 
 ## Topology
 
 ```text
-Browser (localhost) → Nerve local (127.0.0.1:3080) → Gateway remote (<host>:18789)
+Browser (localhost) → ConvoSketchpad local (127.0.0.1:3080) → Gateway remote (<host>:18789)
 ```
 
 ## Reality check
 
 This topology splits three things:
 
-- **browser ↔ Nerve** is local
-- **Nerve ↔ gateway** is remote
-- **Nerve ↔ workspace filesystem** is remote
+- **browser ↔ ConvoSketchpad** is local
+- **ConvoSketchpad ↔ gateway** is remote
+- **ConvoSketchpad ↔ workspace filesystem** is remote
 
 Chat, sessions, cron, and Kanban can work well here.
 
-Workspace-heavy features do **not** have full parity, because Nerve cannot directly walk or mutate the remote filesystem. Some routes fall back to gateway file RPC, but that fallback is intentionally narrow.
+Workspace-heavy features do **not** have full parity, because ConvoSketchpad cannot directly walk or mutate the remote filesystem. Some routes fall back to gateway file RPC, but that fallback is intentionally narrow.
 
 ## What works, what degrades
 
@@ -38,11 +38,11 @@ Workspace-heavy features do **not** have full parity, because Nerve cannot direc
 | Kanban execution | Full with extra config | Same allowlist requirement as crons. Assignee execution still depends on the remote gateway having the right sessions available |
 | Skills tab | Verify in your environment | Uses local `openclaw skills list`, not the remote file-browser fallback path |
 
-If you need full Files, Memory, raw previews, and file mutation behavior, move Nerve onto the same machine as the gateway and workspace, or use same-host cloud deployment instead.
+If you need full Files, Memory, raw previews, and file mutation behavior, move ConvoSketchpad onto the same machine as the gateway and workspace, or use same-host cloud deployment instead.
 
 ## Prerequisites
 
-- Nerve installed on your laptop
+- ConvoSketchpad installed on your laptop
 - OpenClaw gateway running on the remote host
 - A private network path to the gateway host (Tailscale, WireGuard, SSH tunnel, private VPC, etc.)
 - Gateway token from the remote host
@@ -63,7 +63,7 @@ openclaw gateway status
 curl -sS http://127.0.0.1:18789/health
 ```
 
-### 2. Configure Nerve locally
+### 2. Configure ConvoSketchpad locally
 
 If you are installing fresh, either run the installer and then the setup wizard, or point the installer at the remote gateway up front.
 
@@ -76,21 +76,21 @@ When prompted:
 
 - set **Gateway URL** to the remote gateway URL
 - set **Gateway token** from the remote host
-- keep access mode as **localhost** unless you intentionally want LAN / Tailscale access to the Nerve UI itself
+- keep access mode as **localhost** unless you intentionally want LAN / Tailscale access to the ConvoSketchpad UI itself
 
 ### 3. Allow the remote gateway host in the WS proxy
 
-Add the gateway hostname or IP to `.env` on the Nerve host:
+Add the gateway hostname or IP to `.env` on the ConvoSketchpad host:
 
 ```bash
 WS_ALLOWED_HOSTS=<gateway-hostname-or-ip>
 ```
 
-Restart Nerve after changing it.
+Restart ConvoSketchpad after changing it.
 
-### 4. Allow the Nerve origin on the remote gateway
+### 4. Allow the ConvoSketchpad origin on the remote gateway
 
-On the remote gateway host, add the browser-facing Nerve origin to `gateway.controlUi.allowedOrigins` in `~/.openclaw/openclaw.json`.
+On the remote gateway host, add the browser-facing ConvoSketchpad origin to `gateway.controlUi.allowedOrigins` in `~/.openclaw/openclaw.json`.
 
 For the normal localhost path, add both:
 
@@ -99,9 +99,9 @@ For the normal localhost path, add both:
 
 Then restart the gateway.
 
-### 5. If Nerve is not being accessed via localhost, set `NERVE_PUBLIC_ORIGIN`
+### 5. If ConvoSketchpad is not being accessed via localhost, set `NERVE_PUBLIC_ORIGIN`
 
-If the browser reaches Nerve through anything other than localhost, set the exact browser origin in `.env` on the Nerve host:
+If the browser reaches ConvoSketchpad through anything other than localhost, set the exact browser origin in `.env` on the ConvoSketchpad host:
 
 ```bash
 NERVE_PUBLIC_ORIGIN=https://nerve.example.com
@@ -128,7 +128,7 @@ Restart the gateway after updating it.
 ## Validation
 
 ```bash
-# On the Nerve host
+# On the ConvoSketchpad host
 curl -sS http://127.0.0.1:3080/health
 
 # Connectivity to the remote gateway
@@ -149,11 +149,11 @@ In the browser, verify these separately:
 
 The remote gateway host is missing from `WS_ALLOWED_HOSTS`.
 
-**Fix:** add the hostname or IP to `WS_ALLOWED_HOSTS`, then restart Nerve.
+**Fix:** add the hostname or IP to `WS_ALLOWED_HOSTS`, then restart ConvoSketchpad.
 
 ### Chat works, but Files / Config / workspace-adjacent panels fail with `origin not allowed`
 
-The browser-facing Nerve origin is missing from `gateway.controlUi.allowedOrigins`, or `NERVE_PUBLIC_ORIGIN` is not set correctly for a non-localhost access path.
+The browser-facing ConvoSketchpad origin is missing from `gateway.controlUi.allowedOrigins`, or `NERVE_PUBLIC_ORIGIN` is not set correctly for a non-localhost access path.
 
 **Fix:** set `NERVE_PUBLIC_ORIGIN` to the exact browser origin and add that same origin to the gateway allowlist.
 
@@ -167,10 +167,10 @@ The remote gateway is missing required HTTP tool allowlist entries.
 
 That is expected in this topology.
 
-Remote workspace fallback is top-level only. Nested directory browsing, file moves, trash/restore, and raw previews are not available unless Nerve can access the workspace locally.
+Remote workspace fallback is top-level only. Nested directory browsing, file moves, trash/restore, and raw previews are not available unless ConvoSketchpad can access the workspace locally.
 
 ## Recommendation
 
 Choose this topology when you want a **local UI with a remote runtime** and you can live with partial workspace tooling.
 
-If you want Nerve to behave like deployment A, move Nerve onto the same host as the gateway and workspace, or use same-host deployment C.
+If you want ConvoSketchpad to behave like deployment A, move ConvoSketchpad onto the same host as the gateway and workspace, or use same-host deployment C.

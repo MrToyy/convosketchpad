@@ -1,5 +1,5 @@
 /**
- * Interactive setup wizard for Nerve.
+ * Interactive setup wizard for ConvoSketchpad.
  * Guides users through first-time configuration.
  *
  * Usage:
@@ -332,7 +332,7 @@ async function collectInteractive(
   // ── 1/5: Gateway Connection ──────────────────────────────────────
 
   section(1, TOTAL_SECTIONS, 'Gateway Connection');
-  dim('Nerve connects to your OpenClaw gateway.');
+  dim('ConvoSketchpad connects to your OpenClaw gateway.');
   dim('Make sure the gateway is running before continuing.');
   console.log('');
 
@@ -442,7 +442,7 @@ async function collectInteractive(
 
   // ── 3/5: Access Mode ──────────────────────────────────────────────
 
-  section(3, TOTAL_SECTIONS, 'How will you access Nerve?');
+  section(3, TOTAL_SECTIONS, 'How will you access ConvoSketchpad?');
 
   const accessChoices: { name: string; value: AccessMode; description: string }[] = [
     { name: 'This machine only (localhost)', value: 'local', description: 'Safest, only accessible from this computer' },
@@ -456,7 +456,7 @@ async function collectInteractive(
     {
       name: prereqs.tailscale.dnsName ? `Via Tailscale Serve (${prereqs.tailscale.dnsName})` : 'Via Tailscale Serve',
       value: 'tailscale-serve',
-      description: 'Private by default, Nerve stays on 127.0.0.1 and is exposed through *.ts.net',
+      description: 'Private by default, ConvoSketchpad stays on 127.0.0.1 and is exposed through *.ts.net',
     },
     { name: 'From other devices on my network', value: 'network', description: 'Opens to LAN, you may need to configure your firewall' },
     { name: 'Custom setup (I know what I\'m doing)', value: 'custom', description: 'Manual port, bind address, HTTPS, CORS configuration' },
@@ -464,7 +464,7 @@ async function collectInteractive(
 
   const accessMode = await select<AccessMode>({
     theme: promptTheme,
-    message: 'How will you connect to Nerve?',
+    message: 'How will you connect to ConvoSketchpad?',
     choices: accessChoices,
   });
 
@@ -494,7 +494,7 @@ async function collectInteractive(
     });
 
     if (!enableHttps) {
-      dim('Voice input will only work when accessing Nerve from localhost');
+      dim('Voice input will only work when accessing ConvoSketchpad from localhost');
       return undefined;
     }
 
@@ -590,7 +590,7 @@ async function collectInteractive(
 
   if (accessMode === 'local') {
     accessPlan = buildAccessPlan({ profile: 'local', port });
-    success(`Nerve will be available at http://localhost:${port}`);
+    success(`ConvoSketchpad will be available at http://localhost:${port}`);
 
   } else if (accessMode === 'tailscale-ip') {
     tailscaleState = await ensureInteractiveTailscale();
@@ -601,7 +601,7 @@ async function collectInteractive(
       console.log('');
       process.exit(1);
     }
-    success(`Nerve will be available at ${accessPlan.browserOrigins[0]}`);
+    success(`ConvoSketchpad will be available at ${accessPlan.browserOrigins[0]}`);
     dim('Accessible from any device on your Tailscale network');
 
   } else if (accessMode === 'tailscale-serve') {
@@ -676,8 +676,8 @@ async function collectInteractive(
 
       success(`Falling back to tailnet IP access at ${accessPlan.browserOrigins[0]}`);
     } else {
-      success(`Nerve will be available at ${accessPlan.browserOrigins[0]}`);
-      dim('Nerve will stay private on 127.0.0.1 and be reached through Tailscale Serve');
+      success(`ConvoSketchpad will be available at ${accessPlan.browserOrigins[0]}`);
+      dim('ConvoSketchpad will stay private on 127.0.0.1 and be reached through Tailscale Serve');
     }
 
   } else if (accessMode === 'network') {
@@ -695,7 +695,7 @@ async function collectInteractive(
     const ip = lanIp.trim();
     sslPort = await offerHttpsSetup(ip);
     accessPlan = buildAccessPlan({ profile: 'network', port, remoteHost: ip, sslPort });
-    success(`Nerve will be available at http://${ip}:${port}`);
+    success(`ConvoSketchpad will be available at http://${ip}:${port}`);
     dim(`Make sure your firewall allows traffic on port ${port}`);
     dim('Need access from multiple devices? Add more origins to ALLOWED_ORIGINS in .env');
 
@@ -725,7 +725,7 @@ async function collectInteractive(
     }
 
     accessPlan = buildAccessPlan({ profile: 'custom', port, remoteHost: customHost, sslPort });
-    success(`Nerve will be available at http://${customHost}:${port}`);
+    success(`ConvoSketchpad will be available at http://${customHost}:${port}`);
   }
 
   delete config.ALLOWED_ORIGINS;
@@ -746,7 +746,7 @@ async function collectInteractive(
 
   if (neededChanges.length > 0) {
     console.log('');
-    warn('Nerve needs to update your OpenClaw gateway config.');
+    warn('ConvoSketchpad needs to update your OpenClaw gateway config.');
     dim('OpenClaw config files will be updated.');
     console.log('');
     dim('The following changes are needed:');
@@ -769,7 +769,7 @@ async function collectInteractive(
         if (change.id === 'device-scopes') {
           dim('  • Device scopes: manually fix scopes in ~/.openclaw/devices/paired.json');
         } else if (change.id === 'pre-pair') {
-          dim('  • Pre-pair: run `openclaw devices approve` after starting Nerve');
+          dim('  • Pre-pair: run `openclaw devices approve` after starting ConvoSketchpad');
         } else if (change.id === 'tools-allow') {
           dim('  • HTTP tools: add "cron", "gateway", and "sessions_spawn" to gateway.tools.allow in ~/.openclaw/openclaw.json');
         } else if (change.id.startsWith('allowed-origins')) {
@@ -790,7 +790,7 @@ async function collectInteractive(
 
   if (isNetworkExposed) {
     section(4, TOTAL_SECTIONS, 'Authentication');
-    warn('Your access mode exposes Nerve to the network.');
+    warn('Your access mode exposes ConvoSketchpad to the network.');
     dim('Canvas MVP uses trusted-user tokens: a simple token identifies and isolates each user.');
     dim('This mode is intended for a small controlled environment, not hostile multi-tenant access.');
     console.log('');

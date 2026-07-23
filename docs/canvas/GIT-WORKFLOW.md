@@ -4,15 +4,15 @@
 
 ## 分支职责
 
-- `master` 是 `upstream/master` 的干净镜像，只用于同步官方 Nerve；不要在此开发 Canvas 或创建项目定制提交。
-- `feat/canvas` 是本仓库长期维护 Canvas 定制功能的开发分支。
-- 合并方向固定为 `upstream/master → master → feat/canvas`。
-- 不要把 `feat/canvas` 合并回 `master`。
+- `master` 是 `upstream/master` 的干净镜像，只用于同步官方 Nerve；不要在此开发 ConvoSketchpad 或创建项目定制提交。
+- `main` 是 ConvoSketchpad 的默认分支，用于长期维护 Canvas、受管用户认证和产品品牌。
+- 合并方向固定为 `upstream/master → master → main`。
+- 不要把 `main` 合并回 `master`。
 
 ## Remotes
 
 - `upstream`：`https://github.com/daggerhashimoto/openclaw-nerve.git`，官方源仓库，只获取更新。
-- `origin`：`https://github.com/MrToyy/openclaw-canvas.git`，个人 fork，用于推送本地分支。
+- `origin`：`https://github.com/MrToyy/convosketchpad.git`，ConvoSketchpad 独立仓库，用于推送产品分支。
 
 禁止把项目定制提交推送到 `upstream`。
 
@@ -31,16 +31,17 @@ git remote -v
 ## 安全同步 Upstream
 
 ```bash
-git fetch --prune upstream origin
+git fetch --prune upstream
+git fetch --prune origin
 git switch master
 git merge --ff-only upstream/master
 git push origin master
-git switch feat/canvas
+git switch main
 git merge master
 ```
 
 - `master` 无法 fast-forward 时停止操作并调查分叉原因，不要通过 rebase 或 force push 掩盖问题。
-- 合并冲突只在 `feat/canvas` 解决。
+- 合并冲突只在 `main` 解决。
 - 冲突解决后运行与冲突文件相关的测试，并至少执行 `npm run lint` 和构建/类型检查。
 
 ## 提交前检查
@@ -78,7 +79,7 @@ bin-dist/
 首次建立 tracking branch：
 
 ```bash
-git push -u origin feat/canvas
+git push -u origin main
 ```
 
 后续推送：
@@ -87,7 +88,7 @@ git push -u origin feat/canvas
 git push
 ```
 
-未经用户明确要求，不要 force push `master` 或 `feat/canvas`。
+未经用户明确要求，不要 force push `master` 或 `main`。
 
 ## Canvas 变更的验证建议
 

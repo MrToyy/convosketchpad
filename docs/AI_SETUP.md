@@ -1,11 +1,11 @@
 # AI Agent Setup
 
-Nerve supports agent-driven installation.
+ConvoSketchpad supports agent-driven installation.
 
-If you want an AI agent to install, configure, and validate Nerve, the canonical raw instruction file is:
+If you want an AI agent to install, configure, and validate ConvoSketchpad, the canonical raw instruction file is:
 
 - [`INSTALL.md`](./INSTALL.md)
-- raw URL: `https://raw.githubusercontent.com/daggerhashimoto/openclaw-nerve/master/docs/INSTALL.md`
+- raw URL: `https://raw.githubusercontent.com/MrToyy/convosketchpad/main/docs/INSTALL.md`
 
 Use that file as the operational contract.
 Use this page for the human-readable explanation, boundaries, and topology map.
@@ -13,10 +13,10 @@ Use this page for the human-readable explanation, boundaries, and topology map.
 ## Copy-paste prompt
 
 ```text
-Install, configure, and validate Nerve on this machine.
+Install, configure, and validate ConvoSketchpad on this machine.
 
 Fetch and follow instructions from:
-https://raw.githubusercontent.com/daggerhashimoto/openclaw-nerve/master/docs/INSTALL.md
+https://raw.githubusercontent.com/MrToyy/convosketchpad/main/docs/INSTALL.md
 ```
 
 ## Default agent behavior
@@ -24,27 +24,27 @@ https://raw.githubusercontent.com/daggerhashimoto/openclaw-nerve/master/docs/INS
 Unless you say otherwise, agents should use these defaults:
 - local-first
 - localhost-only by default
-- `~/nerve` as the install path
+- `~/convosketchpad` as the install path
 - installer-first (`install.sh`)
 - setup wizard first
 - validate before reporting completion
 
 That means the common happy path is:
 1. detect an existing OpenClaw gateway
-2. install Nerve
+2. install ConvoSketchpad
 3. run setup
-4. start or restart Nerve
+4. start or restart ConvoSketchpad
 5. validate the UI and gateway connection
 
 ## What agents may do automatically
 
 For the default local path, agents may automatically:
 - inspect the current machine and existing install state
-- detect whether `~/nerve` already exists
+- detect whether `~/convosketchpad` already exists
 - detect whether OpenClaw is installed and reachable
 - detect the gateway token and gateway URL
 - install missing core prerequisites for the local path
-- run the Nerve installer
+- run the ConvoSketchpad installer
 - run the setup wizard
 - use defaults mode for local-only setup when no TTY is available
 - write a minimal local `.env` if the wizard cannot be used
@@ -59,7 +59,7 @@ Agents should ask before they do anything that changes exposure, trust, or insta
 
 That includes:
 - installing OpenClaw
-- exposing Nerve beyond localhost
+- exposing ConvoSketchpad beyond localhost
 - LAN access
 - public internet exposure
 - reverse proxy setup
@@ -72,7 +72,7 @@ Short version: local repair and local setup can be automated. Public or destruct
 
 ## Dependency behavior
 
-Nerve is not a standalone app. It depends on an OpenClaw gateway.
+ConvoSketchpad is not a standalone app. It depends on an OpenClaw gateway.
 
 Expected agent behavior:
 1. look for an existing reachable gateway first
@@ -80,15 +80,15 @@ Expected agent behavior:
 3. if none is found, explain the dependency clearly
 4. ask before installing OpenClaw
 
-For the default same-machine flow, agents may make the smallest safe local OpenClaw fixes required for Nerve to connect. For remote or public gateway changes, they should stop and ask.
+For the default same-machine flow, agents may make the smallest safe local OpenClaw fixes required for ConvoSketchpad to connect. For remote or public gateway changes, they should stop and ask.
 
 ## Topology map
 
 Choose the guide that matches the intended setup:
 
 - **Local / same machine:** [DEPLOYMENT-A.md](./DEPLOYMENT-A.md)
-- **Hybrid / local Nerve + remote gateway:** [DEPLOYMENT-B.md](./DEPLOYMENT-B.md)
-- **Cloud / remote Nerve:** [DEPLOYMENT-C.md](./DEPLOYMENT-C.md)
+- **Hybrid / local ConvoSketchpad + remote gateway:** [DEPLOYMENT-B.md](./DEPLOYMENT-B.md)
+- **Cloud / remote ConvoSketchpad:** [DEPLOYMENT-C.md](./DEPLOYMENT-C.md)
 - **Add Tailscale to an existing install:** [TAILSCALE.md](./TAILSCALE.md)
 
 Recommended default: start with the local setup unless you already know you need something else.
@@ -96,8 +96,8 @@ Recommended default: start with the local setup unless you already know you need
 ## Done criteria
 
 An agent should only report success when all of these are true:
-- Nerve is installed at the intended path
-- Nerve starts successfully
+- ConvoSketchpad is installed at the intended path
+- ConvoSketchpad starts successfully
 - it points at the intended OpenClaw gateway
 - access and auth match the requested mode
 - the smoke test passes
@@ -108,7 +108,7 @@ A script finishing is not enough. A valid install must actually respond and conn
 
 Keep validation minimal and real:
 
-1. confirm the Nerve service or process is running
+1. confirm the ConvoSketchpad service or process is running
 2. confirm the expected URL responds
 3. confirm the intended gateway responds
 4. confirm `.env` matches the intended gateway
@@ -130,7 +130,7 @@ Agents should fail clearly, not vaguely.
 
 ### No OpenClaw gateway found
 
-Explain that Nerve depends on OpenClaw and ask before installing it.
+Explain that ConvoSketchpad depends on OpenClaw and ask before installing it.
 
 ### Installer or setup wizard unavailable
 
@@ -158,41 +158,41 @@ Ask for the missing details instead of guessing. This especially matters for Tai
 ### Default local install
 
 ```text
-Install, configure, and validate Nerve on this machine.
+Install, configure, and validate ConvoSketchpad on this machine.
 Use the safest local-first path and keep it localhost-only unless you need my approval.
 
 Fetch and follow instructions from:
-https://raw.githubusercontent.com/daggerhashimoto/openclaw-nerve/master/docs/INSTALL.md
+https://raw.githubusercontent.com/MrToyy/convosketchpad/main/docs/INSTALL.md
 ```
 
-### Local Nerve + existing remote gateway
+### Local ConvoSketchpad + existing remote gateway
 
 ```text
-Install Nerve on this machine and connect it to my existing remote OpenClaw gateway.
-Do not expose Nerve beyond localhost unless I approve it.
+Install ConvoSketchpad on this machine and connect it to my existing remote OpenClaw gateway.
+Do not expose ConvoSketchpad beyond localhost unless I approve it.
 If remote gateway config needs changing, tell me before you do it.
 
 Fetch and follow instructions from:
-https://raw.githubusercontent.com/daggerhashimoto/openclaw-nerve/master/docs/INSTALL.md
+https://raw.githubusercontent.com/MrToyy/convosketchpad/main/docs/INSTALL.md
 ```
 
 ### Tailscale setup
 
 ```text
-Install Nerve and make it reachable over Tailscale.
+Install ConvoSketchpad and make it reachable over Tailscale.
 Ask before making any exposure or gateway allowlist changes.
 Use the repo's Tailscale guidance instead of inventing a new flow.
 
 Fetch and follow instructions from:
-https://raw.githubusercontent.com/daggerhashimoto/openclaw-nerve/master/docs/INSTALL.md
+https://raw.githubusercontent.com/MrToyy/convosketchpad/main/docs/INSTALL.md
 ```
 
 ### Existing install repair
 
 ```text
-Inspect my existing Nerve install, repair it if needed, and validate it.
+Inspect my existing ConvoSketchpad install, repair it if needed, and validate it.
 Do not reinstall or delete anything unless you ask first.
 
 Fetch and follow instructions from:
-https://raw.githubusercontent.com/daggerhashimoto/openclaw-nerve/master/docs/INSTALL.md
+https://raw.githubusercontent.com/MrToyy/convosketchpad/main/docs/INSTALL.md
 ```

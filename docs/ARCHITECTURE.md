@@ -1,6 +1,6 @@
 # Architecture
 
-> **Nerve** is a local-first web interface for OpenClaw: chat, voice input, TTS, workspace tooling, and agent monitoring in the browser. It usually talks to the OpenClaw gateway over WebSocket, but some UI surfaces also depend on whether the Nerve server can reach the agent workspace on its own filesystem.
+> **ConvoSketchpad** is a local-first web interface for OpenClaw: chat, voice input, TTS, workspace tooling, and agent monitoring in the browser. It usually talks to the OpenClaw gateway over WebSocket, but some UI surfaces also depend on whether the ConvoSketchpad server can reach the agent workspace on its own filesystem.
 
 ## System Diagram
 
@@ -19,7 +19,7 @@
 └───────────────────────────────┼──────────────────────────────────┘
                                 │
 ┌───────────────────────────────┼──────────────────────────────────┐
-│  Nerve Server (Hono + Node)   │                                  │
+│  ConvoSketchpad Server (Hono + Node)   │                                  │
 │                               │                                  │
 │  ┌────────────────────────────┴─────────────┐                    │
 │  │         WebSocket Proxy (ws-proxy.ts)     │                   │
@@ -48,27 +48,27 @@
 
 ## Locality model
 
-Nerve is easiest to reason about if you separate three boundaries:
+ConvoSketchpad is easiest to reason about if you separate three boundaries:
 
-1. **Browser ↔ Nerve server**
-2. **Nerve server ↔ OpenClaw gateway**
-3. **Nerve server ↔ agent workspace filesystem**
+1. **Browser ↔ ConvoSketchpad server**
+2. **ConvoSketchpad server ↔ OpenClaw gateway**
+3. **ConvoSketchpad server ↔ agent workspace filesystem**
 
 The biggest docs trap is assuming only the gateway matters. It does not.
 
-Full deployment-A behavior depends on **Nerve having local access to the same workspace filesystem as the gateway-backed agent**. That is true in deployment A, and usually also in same-host deployment C. It is **not** true in deployment B, or in split-host deployment C, unless you deliberately mount or replicate the workspace onto the Nerve host.
+Full deployment-A behavior depends on **ConvoSketchpad having local access to the same workspace filesystem as the gateway-backed agent**. That is true in deployment A, and usually also in same-host deployment C. It is **not** true in deployment B, or in split-host deployment C, unless you deliberately mount or replicate the workspace onto the ConvoSketchpad host.
 
 ### What each boundary changes
 
 | Boundary | Local case | Remote case |
 |----------|------------|-------------|
-| Browser ↔ Nerve | Loopback browser access is implicitly trusted for official gateway auto-connect flows | Remote browsers should use `NERVE_AUTH=true`. Trusted authenticated sessions can still get server-side gateway token injection for the official gateway URL |
-| Nerve ↔ Gateway | Default path. Minimal config, loopback origin, simplest support surface | Requires `WS_ALLOWED_HOSTS`, correct gateway `controlUi.allowedOrigins`, and in some cases `NERVE_PUBLIC_ORIGIN` so server-side gateway RPC uses the real browser-facing origin |
-| Nerve ↔ workspace filesystem | Full file browser, file mutations, raw previews, local watchers, and normal workspace UX | Falls back to gateway RPC only where specific routes support it. This is partial, not full parity |
+| Browser ↔ ConvoSketchpad | Loopback browser access is implicitly trusted for official gateway auto-connect flows | Remote browsers should use `NERVE_AUTH=true`. Trusted authenticated sessions can still get server-side gateway token injection for the official gateway URL |
+| ConvoSketchpad ↔ Gateway | Default path. Minimal config, loopback origin, simplest support surface | Requires `WS_ALLOWED_HOSTS`, correct gateway `controlUi.allowedOrigins`, and in some cases `NERVE_PUBLIC_ORIGIN` so server-side gateway RPC uses the real browser-facing origin |
+| ConvoSketchpad ↔ workspace filesystem | Full file browser, file mutations, raw previews, local watchers, and normal workspace UX | Falls back to gateway RPC only where specific routes support it. This is partial, not full parity |
 
 ### Remote workspace fallback boundaries
 
-When the Nerve server cannot access the workspace directory locally, the app enters a partial fallback mode.
+When the ConvoSketchpad server cannot access the workspace directory locally, the app enters a partial fallback mode.
 
 | Surface | Local workspace | Remote workspace |
 |---------|-----------------|------------------|
@@ -116,7 +116,7 @@ Authentication gate and login UI.
 | File | Purpose |
 |------|---------|
 | `AuthGate.tsx` | Top-level component — shows loading spinner, login page, or the full app depending on auth state |
-| `LoginPage.tsx` | Full-screen password form matching Nerve's dark theme. Auto-focus, Enter-to-submit, gateway token hint |
+| `LoginPage.tsx` | Full-screen password form matching ConvoSketchpad's dark theme. Auto-focus, Enter-to-submit, gateway token hint |
 | `useAuth.ts` | Auth state via `useSyncExternalStore`. Module-level fetch checks `/api/auth/status` once on load. Exposes `login`/`logout` callbacks |
 | `index.ts` | Barrel export |
 
@@ -166,7 +166,7 @@ Full workspace file browser with tabbed CodeMirror editor.
 | `EditorTab.tsx` | Single editor tab with modified indicator |
 | `FileEditor.tsx` | CodeMirror 6 editor — syntax highlighting, line numbers, search, Cmd+S save |
 | `TabbedContentArea.tsx` | Manages chat/editor tab switching (chat never unmounts) |
-| `editorTheme.ts` | One Dark-inspired CodeMirror theme matching Nerve's dark aesthetic |
+| `editorTheme.ts` | One Dark-inspired CodeMirror theme matching ConvoSketchpad's dark aesthetic |
 | `hooks/useFileTree.ts` | File tree data fetching and directory toggle state |
 | `hooks/useOpenFiles.ts` | Open file tab management, save with mtime conflict detection |
 | `utils/fileIcons.tsx` | File extension → icon mapping |
@@ -300,7 +300,7 @@ Cmd+K command palette.
 | `components/ConfirmDialog.tsx` | Reusable confirmation modal |
 | `components/ErrorBoundary.tsx` | Top-level error boundary |
 | `components/PanelErrorBoundary.tsx` | Per-panel error boundary (isolates failures) |
-| `components/NerveLogo.tsx` | SVG logo component |
+| `components/ConvoSketchpadLogo.tsx` | Animated ConvoSketchpad logo component |
 | `components/skeletons/` | Loading skeleton components (Message, Session, Memory) |
 | `components/ui/` | Primitives: `button`, `card`, `dialog`, `input`, `switch`, `scroll-area`, `collapsible`, `AnimatedNumber`, `InlineSelect` |
 
@@ -488,7 +488,7 @@ Compiled separately via `config/tsconfig.bin.json` to avoid changing the server'
 Browser WS → /ws?target=ws://gateway:18789/ws → ws-proxy.ts → OpenClaw Gateway
 ```
 
-1. Client connects to `/ws` endpoint on Nerve server
+1. Client connects to `/ws` endpoint on ConvoSketchpad server
 2. When auth is enabled, the session cookie is verified on the HTTP upgrade request (rejects with 401 if invalid)
 3. Proxy validates target URL against `WS_ALLOWED_HOSTS` allowlist. This matters in hybrid and split-host deployments where the gateway is not on loopback
 4. Proxy opens upstream WebSocket to the gateway

@@ -35,7 +35,7 @@ describe('CronsTab', () => {
       jobs: [],
       isLoading: false,
       error: 'Gateway tool invoke failed: 404 {"ok":false,"error":{"type":"not_found","message":"Tool not available: cron"}}',
-      cronWarning: 'This gateway does not expose cron management, so Nerve can’t load or edit crons right now.',
+      cronWarning: 'This gateway does not expose cron management, so ConvoSketchpad can’t load or edit crons right now.',
       fetchJobs: vi.fn(),
       toggleJob: vi.fn(),
       runJob: vi.fn(),

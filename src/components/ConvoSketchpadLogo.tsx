@@ -56,20 +56,20 @@ function glowLine(ctx: CanvasRenderingContext2D, x1: number, y1: number, x2: num
   ctx.restore();
 }
 
-/** Props for {@link NerveLogo}. */
-interface NerveLogoProps {
+/** Props for {@link ConvoSketchpadLogo}. */
+interface ConvoSketchpadLogoProps {
   /** Logical size in CSS pixels (canvas is rendered at 2× for retina). @default 28 */
   size?: number;
 }
 
 /**
- * Animated canvas logo for the Nerve brand.
+ * Animated canvas logo for the ConvoSketchpad brand.
  *
  * Renders a hexagonal node graph with glowing fire-pulse animations:
  * center ignition → outward propagation → return fire → ring chain.
  * The animation loops on a ~4.2 s cycle and includes ambient breathing.
  */
-export default function NerveLogo({ size = 28 }: NerveLogoProps) {
+export default function ConvoSketchpadLogo({ size = 28 }: ConvoSketchpadLogoProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const stateRef = useRef<{
     trails: Trail[];
@@ -253,5 +253,5 @@ export default function NerveLogo({ size = 28 }: NerveLogoProps) {
     };
   }, [size]);
 
-  return <canvas ref={canvasRef} role="img" aria-label="Nerve logo" style={{ display: 'block' }} />;
+  return <canvas ref={canvasRef} role="img" aria-label="ConvoSketchpad logo" style={{ display: 'block' }} />;
 }

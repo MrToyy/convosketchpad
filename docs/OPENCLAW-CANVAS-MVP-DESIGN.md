@@ -1,4 +1,4 @@
-# OpenClaw Canvas（MVP）基础设计说明
+# ConvoSketchpad Canvas（MVP）基础设计说明
 
 > 状态：MVP 实现基线 v4
 >
@@ -10,7 +10,7 @@
 
 ## 1. 项目目标
 
-在尽量复用 OpenClaw Nerve 和 OpenClaw 原生架构的前提下，为 OpenClaw 增加一个面向 AI 交互的 Canvas。
+ConvoSketchpad 在复用 OpenClaw Nerve 和 OpenClaw 原生架构的前提下，提供一个面向 AI 交互与设计探索的可视化 Canvas。
 
 Canvas 不替代 Chat，而是提供一种更适合浏览、组织和分支 AI 对话的交互方式。应用启动后默认进入 Canvas，用户仍可切换到现有 Chat 和 Tasks。
 
@@ -1179,8 +1179,8 @@ server/lib/canvas-reconciler.ts
 - 对现有组件通过 import/adapter 复用；
 - App、TopBar、commands、server/app 保持薄接线；
 - 普通 Session 过滤逻辑集中在一个可测试的 key predicate；
-- Canvas 开发只在 `feat/canvas`；
-- upstream 同步方向保持 `upstream/master → master → feat/canvas`。
+- ConvoSketchpad 开发只在 `main`；
+- upstream 同步方向保持 `upstream/master → master → main`。
 
 ## 21. 已确认决策
 

@@ -23,7 +23,7 @@ function shellQuote(value: string): string {
 
 /**
  * Shows an update badge next to the version in the status bar
- * when a newer version of Nerve is available. Clicking it opens
+ * when a newer version of ConvoSketchpad is available. Clicking it opens
  * a modal with update instructions.
  */
 export function UpdateBadge() {
@@ -72,7 +72,7 @@ export function UpdateBadge() {
           <DialogHeader>
             <DialogTitle>Update Available</DialogTitle>
             <DialogDescription>
-              Nerve <span className="font-mono font-semibold text-foreground">v{versionInfo.latest}</span> is
+              ConvoSketchpad <span className="font-mono font-semibold text-foreground">v{versionInfo.latest}</span> is
               available. You're running <span className="font-mono text-muted-foreground">v{versionInfo.current}</span>.
             </DialogDescription>
           </DialogHeader>
@@ -93,7 +93,7 @@ export function UpdateBadge() {
             </div>
             <div className="text-xs text-muted-foreground space-y-1">
               <p>This will fetch the latest release, rebuild, restart, and verify health.</p>
-              <p>If anything fails, Nerve automatically rolls back to your current version.</p>
+              <p>If anything fails, ConvoSketchpad automatically rolls back to your current version.</p>
             </div>
             <div>
               <p className="text-xs text-muted-foreground mb-1">Other options:</p>

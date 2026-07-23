@@ -1,6 +1,8 @@
-# Updating Nerve
+# Updating ConvoSketchpad
 
-Nerve ships a built-in updater that pulls the latest published release from GitHub, rebuilds, restarts the service, and verifies health — all in one command.
+ConvoSketchpad ships a built-in updater that pulls the latest published release from GitHub, rebuilds, restarts the service, and verifies health — all in one command.
+
+The updater becomes available after the first ConvoSketchpad release is published. Tags inherited from the upstream Nerve history are intentionally not republished as ConvoSketchpad releases.
 
 ## Prerequisites
 
@@ -50,7 +52,7 @@ This will:
 npm run update -- --dry-run
 
 # Update to a specific version
-npm run update -- --version v1.4.0 --yes
+npm run update -- --version v0.1.0 --yes
 
 # Rollback to the previous version
 npm run update -- --rollback
@@ -137,7 +139,7 @@ If no service manager is found, the updater skips restart and prints manual star
 
 ### 1.5.0, Kanban data path migration
 
-On first start after upgrading to 1.5.0, Nerve automatically migrates legacy Kanban runtime data from:
+On first start after upgrading to 1.5.0, ConvoSketchpad automatically migrates legacy Kanban runtime data from:
 - `server-dist/data/kanban`
 - `server/data/kanban`
 

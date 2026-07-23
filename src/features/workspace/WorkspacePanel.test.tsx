@@ -86,14 +86,14 @@ describe('WorkspacePanel', () => {
     localStorage.setItem('nerve-workspace-tab', 'config');
     mockUseCrons.mockReturnValue({
       activeCount: 0,
-      cronWarning: 'This gateway does not expose cron management, so Nerve can’t load or edit crons right now.',
+      cronWarning: 'This gateway does not expose cron management, so ConvoSketchpad can’t load or edit crons right now.',
     });
 
     render(
       <WorkspacePanel workspaceAgentId="alpha" memories={[]} onRefreshMemories={vi.fn()} />,
     );
 
-    expect(await screen.findByTestId('config-tab')).toHaveTextContent('Nerve can’t load or edit crons right now');
+    expect(await screen.findByTestId('config-tab')).toHaveTextContent('ConvoSketchpad can’t load or edit crons right now');
   });
 
   it('falls back to memory when kanban is hidden but persisted as active', () => {

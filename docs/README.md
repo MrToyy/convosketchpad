@@ -1,4 +1,4 @@
-# Nerve Docs
+# ConvoSketchpad Docs
 
 Start here when you need setup, operations, or contributor guidance.
 
@@ -24,8 +24,8 @@ Start here when you need setup, operations, or contributor guidance.
 ## Setup and deployment
 
 - [AI Agent Setup](./AI_SETUP.md)
-- [Nerve Agent Install Contract](./INSTALL.md)
+- [ConvoSketchpad Agent Install Contract](./INSTALL.md)
 - [Run everything on one machine](./DEPLOYMENT-A.md)
-- [Use a cloud Gateway with Nerve on your laptop](./DEPLOYMENT-B.md)
-- [Run both Nerve and Gateway in the cloud](./DEPLOYMENT-C.md)
-- [Add Tailscale to an existing Nerve install](./TAILSCALE.md)
+- [Use a cloud Gateway with ConvoSketchpad on your laptop](./DEPLOYMENT-B.md)
+- [Run both ConvoSketchpad and Gateway in the cloud](./DEPLOYMENT-C.md)
+- [Add Tailscale to an existing ConvoSketchpad install](./TAILSCALE.md)

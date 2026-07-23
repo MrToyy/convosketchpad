@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import NerveLogo from '@/components/NerveLogo';
+import ConvoSketchpadLogo from '@/components/ConvoSketchpadLogo';
 import { areGatewayUrlsEquivalent } from '@/lib/gatewayUrls';
 
 interface ConnectDialogProps {
@@ -66,17 +66,17 @@ export function ConnectDialog({
           <DialogHeader className="gap-3 text-left">
             <div className="flex items-center gap-3">
               <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-primary/20 bg-background/55 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
-                <NerveLogo size={26} />
+                <ConvoSketchpadLogo size={26} />
               </div>
               <div>
                 <div className="text-[0.667rem] font-medium uppercase tracking-[0.3em] text-primary/80">Gateway Handshake</div>
                 <DialogTitle className="mt-1 text-lg font-semibold tracking-[-0.03em] text-foreground sm:text-xl">
-                  Connect Nerve to your OpenClaw gateway
+                  Connect ConvoSketchpad to your OpenClaw gateway
                 </DialogTitle>
               </div>
             </div>
             <DialogDescription className="max-w-[42ch] text-sm leading-6 text-muted-foreground">
-              Point Nerve at the gateway endpoint, provide your token when needed, and bring the cockpit online.
+              Point ConvoSketchpad at the gateway endpoint, provide your token when needed, and bring the workspace online.
             </DialogDescription>
           </DialogHeader>
         </div>
@@ -87,7 +87,7 @@ export function ConnectDialog({
               <div className="text-[0.667rem] font-medium uppercase tracking-[0.24em] text-muted-foreground">Connection</div>
               <div className="mt-2 text-sm font-medium text-foreground">Secure local bridge</div>
               <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                Nerve talks to your gateway over WebSocket and keeps the session state in sync live.
+                ConvoSketchpad talks to your gateway over WebSocket and keeps session state in sync live.
               </p>
             </div>
             <div className="shell-panel rounded-2xl px-4 py-3">
@@ -132,7 +132,7 @@ export function ConnectDialog({
 
           <div className="mt-auto flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <p className="max-w-[34ch] text-xs leading-5 text-muted-foreground">
-              Keep Nerve bound to localhost unless you explicitly want remote access.
+              Keep ConvoSketchpad bound to localhost unless you explicitly want remote access.
             </p>
             <Button
               onClick={handleConnect}

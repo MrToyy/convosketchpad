@@ -1,6 +1,6 @@
 # Repository Agent Guide
 
-本仓库在 OpenClaw Nerve 上维护独立的 Canvas 与受管用户认证功能。开始工作前，先按任务类型读取对应索引；不要依靠全仓搜索重新推断已经记录的结构。
+本仓库是基于 OpenClaw Nerve 独立维护的 ConvoSketchpad，包含 Canvas 与受管用户认证功能。开始工作前，先按任务类型读取对应索引；不要依靠全仓搜索重新推断已经记录的结构。
 
 ## 功能导航
 
@@ -8,7 +8,7 @@
 |---|---|---|
 | Canvas 页面、节点、布局、Branch、Interaction、附件或 Artifact | [`docs/canvas/CANVAS-CODE-MAP.md`](docs/canvas/CANVAS-CODE-MAP.md) | 功能约束、前后端组件、数据流与测试入口 |
 | 登录、用户 Token、用户隔离、限流、Cookie、WS/SSE 鉴权 | [`docs/canvas/AUTH-CODE-MAP.md`](docs/canvas/AUTH-CODE-MAP.md) | Auth 组件、CLI、SQLite 用户数据与会话撤销链路 |
-| 分支、remote、同步 upstream、合并、提交或推送 | [`docs/canvas/GIT-WORKFLOW.md`](docs/canvas/GIT-WORKFLOW.md) | `master` / `feat/canvas` 职责和安全同步步骤 |
+| 分支、remote、同步 upstream、合并、提交或推送 | [`docs/canvas/GIT-WORKFLOW.md`](docs/canvas/GIT-WORKFLOW.md) | `master` / `main` 职责和安全同步步骤 |
 | 不确定从哪里开始 | [`docs/canvas/README.md`](docs/canvas/README.md) | Canvas 定制功能总索引和按任务阅读顺序 |
 
 ## 设计与运行机制

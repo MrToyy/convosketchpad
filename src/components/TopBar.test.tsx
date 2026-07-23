@@ -3,7 +3,7 @@ import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { TopBar } from './TopBar';
 
-vi.mock('./NerveLogo', () => ({
+vi.mock('./ConvoSketchpadLogo', () => ({
   default: () => <div data-testid="nerve-logo" />,
 }));
 

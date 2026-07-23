@@ -1,9 +1,9 @@
-# Nerve Installer Script: Step-by-Step Reference
+# ConvoSketchpad Installer Script: Step-by-Step Reference
 
 This document describes exactly what `install.sh` does, in the order it executes, including conditional branches.
 
 - Script: `install.sh`
-- Purpose: One-command install/update of **openclaw-nerve**
+- Purpose: One-command install/update of **convosketchpad**
 - Primary entrypoint: `curl .../install.sh | bash`
 
 ---
@@ -20,8 +20,8 @@ This makes it fail fast on command errors, unset variables, and pipeline failure
 ### 0.2 Default variables
 It initializes defaults such as:
 
-- `INSTALL_DIR` (default `~/nerve`, overridable via `NERVE_INSTALL_DIR`)
-- `BRANCH` (default `master`, used only for explicit/fallback branch installs)
+- `INSTALL_DIR` (default `~/convosketchpad`, overridable via `CONVOSKETCHPAD_INSTALL_DIR`; `NERVE_INSTALL_DIR` remains a compatibility fallback)
+- `BRANCH` (default `main`, used only for explicit/fallback branch installs)
 - `REPO`
 - `NODE_MIN=22`
 - flags: `SKIP_SETUP`, `DRY_RUN`
@@ -82,7 +82,7 @@ Interactive mode is true if either:
 This allows prompts even when invoked via `curl | bash`.
 
 ### 0.7 Banner output
-Prints the Nerve ASCII banner and a dry-run warning banner when relevant.
+Prints the ConvoSketchpad ASCII banner and a dry-run warning banner when relevant.
 
 ---
 
@@ -239,13 +239,13 @@ Inside the interactive setup wizard, access mode now splits Tailscale into two e
 Behavior by interactive profile:
 - `tailnet IP`
   - configures direct tailnet-IP access
-  - keeps Nerve network-reachable
+  - keeps ConvoSketchpad network-reachable
   - patches gateway allowed origins using the tailnet IP origin
 - `Tailscale Serve`
-  - keeps Nerve on `127.0.0.1`
+  - keeps ConvoSketchpad on `127.0.0.1`
   - asks whether to run `tailscale serve --bg http://127.0.0.1:<PORT>`
   - detects the resulting `https://<node>.tail<id>.ts.net` origin
-  - patches both Nerve and the gateway for that `*.ts.net` origin
+  - patches both ConvoSketchpad and the gateway for that `*.ts.net` origin
   - if Serve cannot be confirmed, asks whether to fall back to `tailnet IP` or stop
 
 If Tailscale is installed but not logged in:
@@ -279,9 +279,9 @@ After `.env` is written, the setup wizard detects and applies pending OpenClaw g
 
 #### Possible changes detected:
 1. **Device scopes** — bootstraps `~/.openclaw/devices/paired.json` with full operator scopes if missing or incomplete
-2. **Pre-pair Nerve device** — registers Nerve's Ed25519 identity in `paired.json` so it can connect without manual `openclaw devices approve`
+2. **Pre-pair ConvoSketchpad device** — registers ConvoSketchpad's Ed25519 identity in `paired.json` so it can connect without manual `openclaw devices approve`
 3. **Tools allow** — adds `"cron"`, `"gateway"`, and `"sessions_spawn"` to `gateway.tools.allow` in `~/.openclaw/openclaw.json` (required for OpenClaw ≥2026.2.23, which denies these tools on `/tools/invoke` by default; `sessions_spawn` is required for Kanban task execution)
-4. **Allowed origins** — adds all required Nerve browser origins to `gateway.controlUi.allowedOrigins`
+4. **Allowed origins** — adds all required ConvoSketchpad browser origins to `gateway.controlUi.allowedOrigins`
    - LAN or tailnet-IP mode: `http://<ip>:<port>`
    - Tailscale Serve mode: `https://<node>.tail<id>.ts.net`
 

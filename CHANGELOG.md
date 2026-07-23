@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- Renamed the independent product and repository to ConvoSketchpad.
+- Made `main` the product branch while retaining `master` as the clean upstream Nerve mirror.
+- Preserved the historical Nerve changelog below as upstream attribution and migration history.
+
 ## [1.5.3] - 2026-04-21
 
 ### Highlights

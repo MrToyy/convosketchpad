@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # ──────────────────────────────────────────────────────────────────────
-# Nerve Installer — one-command setup for the Nerve web interface
+# ConvoSketchpad Installer — one-command setup for the ConvoSketchpad web interface
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/daggerhashimoto/openclaw-nerve/master/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/MrToyy/convosketchpad/main/install.sh | bash
 #
 # Or with options:
-#   curl -fsSL ... | bash -s -- --dir ~/nerve --version v1.4.4
-#   curl -fsSL ... | bash -s -- --dir ~/nerve --branch main
+#   curl -fsSL ... | bash -s -- --dir ~/convosketchpad --version v0.1.0
+#   curl -fsSL ... | bash -s -- --dir ~/convosketchpad --branch main
 #   curl -fsSL ... | bash -s -- --gateway-url https://gw.example.com --gateway-token <token> --skip-setup
 # ──────────────────────────────────────────────────────────────────────
 set -euo pipefail
@@ -29,11 +29,11 @@ cleanup() {
 trap cleanup EXIT
 
 # ── Defaults ──────────────────────────────────────────────────────────
-INSTALL_DIR="${NERVE_INSTALL_DIR:-${HOME}/nerve}"
-BRANCH="master"
+INSTALL_DIR="${CONVOSKETCHPAD_INSTALL_DIR:-${NERVE_INSTALL_DIR:-${HOME}/convosketchpad}}"
+BRANCH="main"
 BRANCH_EXPLICIT=false
 VERSION=""
-REPO="https://github.com/daggerhashimoto/openclaw-nerve.git"
+REPO="https://github.com/MrToyy/convosketchpad.git"
 NODE_MIN=22
 SKIP_SETUP=false
 DRY_RUN=false
@@ -224,13 +224,13 @@ fetch_latest_release_tag() {
   if [[ -n "$token" ]]; then
     response=$(curl -fsSL \
       -H "Accept: application/vnd.github+json" \
-      -H "User-Agent: nerve-installer" \
+      -H "User-Agent: convosketchpad-installer" \
       -H "Authorization: Bearer ${token}" \
       "$api_url" 2>/dev/null) || return 1
   else
     response=$(curl -fsSL \
       -H "Accept: application/vnd.github+json" \
-      -H "User-Agent: nerve-installer" \
+      -H "User-Agent: convosketchpad-installer" \
       "$api_url" 2>/dev/null) || return 1
   fi
 
@@ -268,10 +268,10 @@ while [[ $# -gt 0 ]]; do
     --gateway-url) [[ $# -ge 2 ]] || { echo "Missing value for --gateway-url"; exit 1; }; GATEWAY_URL_OVERRIDE="$2"; shift 2 ;;
     --access-mode) [[ $# -ge 2 ]] || { echo "Missing value for --access-mode"; exit 1; }; ACCESS_MODE="$2"; shift 2 ;;
     --help|-h)
-      echo "Nerve Installer"
+      echo "ConvoSketchpad Installer"
       echo ""
       echo "Options:"
-      echo "  --dir <path>         Install directory (default: ~/nerve)"
+      echo "  --dir <path>         Install directory (default: ~/convosketchpad)"
       echo "  --version <vX.Y.Z>   Install a specific release version"
       echo "  --branch <name>      Install from a branch (dev override; bypasses release mode)"
       echo "  --repo <url>         Git repo URL"
@@ -675,9 +675,9 @@ else
     ok "Updated to ${TARGET_REF}"
   else
     if [[ "$TARGET_REF_KIND" == "branch" || "$TARGET_REF_KIND" == "branch-fallback" ]]; then
-      run_with_dots "Cloning Nerve" git clone --branch "$TARGET_REF" --depth 1 -q "$REPO" "$INSTALL_DIR"
+      run_with_dots "Cloning ConvoSketchpad" git clone --branch "$TARGET_REF" --depth 1 -q "$REPO" "$INSTALL_DIR"
     else
-      run_with_dots "Cloning Nerve" git clone --depth 1 -q "$REPO" "$INSTALL_DIR"
+      run_with_dots "Cloning ConvoSketchpad" git clone --depth 1 -q "$REPO" "$INSTALL_DIR"
       cd "$INSTALL_DIR"
       run_with_dots "Fetching tags" git fetch --tags origin -q
       run_with_dots "Checking out ${TARGET_REF}" git checkout --force "$TARGET_REF" -q
@@ -1041,7 +1041,7 @@ setup_systemd() {
 
   cat > "$tmp_service" <<EOF
 [Unit]
-Description=Nerve - OpenClaw Web UI
+Description=ConvoSketchpad - OpenClaw Web UI
 After=network.target
 
 [Service]
@@ -1108,7 +1108,7 @@ setup_launchd() {
   node_dir_escaped=$(dirname "${node_bin}")
   cat > "$start_script" <<STARTEOF
 #!/bin/bash
-# Nerve start wrapper — .env is loaded by the Node server at runtime.
+# ConvoSketchpad start wrapper — .env is loaded by the Node server at runtime.
 SCRIPT_DIR="\$(cd "\$(dirname "\$0")" && pwd)"
 cd "\${SCRIPT_DIR}"
 export PATH="${node_dir_escaped}:\${PATH}"
@@ -1152,10 +1152,10 @@ EOF
   uid=$(id -u)
   if launchctl bootstrap "gui/${uid}" "$plist_file" 2>/dev/null; then
     ok "launchd service installed and started"
-    info "Nerve will start automatically on login"
+    info "ConvoSketchpad will start automatically on login"
   elif launchctl load "$plist_file" 2>/dev/null; then
     ok "launchd service installed and started (legacy loader)"
-    info "Nerve will start automatically on login"
+    info "ConvoSketchpad will start automatically on login"
   else
     ok "launchd plist created at ${plist_file}"
     info "Load it with: launchctl load ${plist_file}"
@@ -1273,7 +1273,7 @@ else
   fi
   url_len=${#local_url}
   # Box must fit both the header text and the URL, with breathing room
-  header_len=29  # "Open Nerve in your browser:" + padding
+  header_len=29  # "Open ConvoSketchpad in your browser:" + padding
   url_line_len=$((url_len + 4))  # "→ " + url + padding
   if [[ $header_len -gt $url_line_len ]]; then
     box_inner=$((header_len + 4))
@@ -1282,11 +1282,11 @@ else
   fi
 
   echo ""
-  echo -e "     ${GREEN}${BOLD}✅ Nerve installed!${NC}"
+  echo -e "     ${GREEN}${BOLD}✅ ConvoSketchpad installed!${NC}"
   echo ""
   echo -e "     ${ORANGE}╭$(printf '─%.0s' $(seq 1 $box_inner))╮${NC}"
   echo -e "     ${ORANGE}│${NC}$(printf ' %.0s' $(seq 1 $box_inner))${ORANGE}│${NC}"
-  echo -e "     ${ORANGE}│${NC}  ${BOLD}Open Nerve in your browser:${NC}$(printf ' %.0s' $(seq 1 $((box_inner - 29))))${ORANGE}│${NC}"
+  echo -e "     ${ORANGE}│${NC}  ${BOLD}Open ConvoSketchpad in your browser:${NC}$(printf ' %.0s' $(seq 1 $((box_inner - 29))))${ORANGE}│${NC}"
   echo -e "     ${ORANGE}│${NC}  ${CYAN}${BOLD}→ ${local_url}${NC}$(printf ' %.0s' $(seq 1 $((box_inner - url_len - 4))))${ORANGE}│${NC}"
   echo -e "     ${ORANGE}│${NC}$(printf ' %.0s' $(seq 1 $box_inner))${ORANGE}│${NC}"
   echo -e "     ${ORANGE}╰$(printf '─%.0s' $(seq 1 $box_inner))╯${NC}"
@@ -1312,7 +1312,7 @@ if [[ "$DRY_RUN" == "true" ]]; then
 fi
 
 if [[ "$ENV_MISSING" == "true" ]] || [[ ! -f "${INSTALL_DIR}/.env" ]]; then
-  warn "Install complete but Nerve is not fully configured"
+  warn "Install complete but ConvoSketchpad is not fully configured"
   info "Run: cd ${INSTALL_DIR} && npm run setup"
   exit 2  # partial success — installed but non-functional
 fi

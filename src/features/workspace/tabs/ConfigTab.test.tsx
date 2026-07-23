@@ -152,11 +152,11 @@ describe('ConfigTab', () => {
     render(
       <ConfigTab
         agentId="alpha"
-        cronWarning="This gateway does not expose cron management, so Nerve can’t load or edit crons right now."
+        cronWarning="This gateway does not expose cron management, so ConvoSketchpad can’t load or edit crons right now."
       />,
     );
 
     expect(await screen.findByText(/this gateway does not expose cron management/i)).toBeInTheDocument();
-    expect(screen.getByText(/nerve can’t load or edit crons right now/i)).toBeInTheDocument();
+    expect(screen.getByText(/convosketchpad can’t load or edit crons right now/i)).toBeInTheDocument();
   });
 });
