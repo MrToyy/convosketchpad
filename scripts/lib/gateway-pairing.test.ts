@@ -103,6 +103,7 @@ describe('native Gateway pairing probe', () => {
       client: {
         id: 'openclaw-control-ui',
         displayName: 'ConvoSketchpad',
+        version: '0.2.0',
         mode: 'webchat',
       },
       device: { id: 'convosketchpad-device' },

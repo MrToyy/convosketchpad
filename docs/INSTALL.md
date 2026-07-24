@@ -10,10 +10,12 @@ curl -fsSL https://raw.githubusercontent.com/MrToyy/convosketchpad/main/install.
 
 The default installation path is `~/convosketchpad`. Override it with `CONVOSKETCHPAD_INSTALL_DIR` or `--dir <path>`.
 
+By default, the installer resolves the latest official stable GitHub Release. It does not fall back to `main` when GitHub is unavailable. `--version` accepts only an official stable Release from `MrToyy/convosketchpad`; use `--branch main` explicitly for a development or custom-repository installation.
+
 The installer runs five stages:
 
 1. **Prerequisites** — checks Node.js, npm, Git, native build tools, OpenClaw, and Gateway availability.
-2. **Download** — installs or updates the selected release or branch without discarding a dirty checkout.
+2. **Download** — verifies and installs the selected stable Release, or an explicitly requested development branch, without discarding a dirty checkout.
 3. **Install & Build** — installs npm dependencies and creates the production build.
 4. **Configure** — runs the setup wizard unless `--skip-setup` is used.
 5. **Service** — configures or restarts the supported service manager, or reports the direct start command.

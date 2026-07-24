@@ -1,7 +1,6 @@
 /** GET /api/version/check — resolve official ConvoSketchpad updates. */
 
 import { Hono } from 'hono';
-import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { rateLimitGeneral } from '../middleware/rate-limit.js';
@@ -11,11 +10,9 @@ import {
   lookupLatestRelease,
   type ReleaseLookupResult,
 } from '../lib/release-source.js';
+import { packageMetadata } from '../lib/package-metadata.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const pkg = JSON.parse(readFileSync(resolve(__dirname, '../../package.json'), 'utf-8')) as {
-  version: string;
-};
 
 export type VersionCheckStatus =
   | 'disabled'
@@ -47,7 +44,7 @@ function responseFor(result: ReleaseLookupResult) {
   if (result.status === 'no-release') {
     return {
       status: 'no-release' as const,
-      current: pkg.version,
+      current: packageMetadata.version,
       latest: null,
       source: null,
       updateAvailable: false,
@@ -57,7 +54,7 @@ function responseFor(result: ReleaseLookupResult) {
   if (result.status === 'unavailable') {
     return {
       status: 'unavailable' as const,
-      current: pkg.version,
+      current: packageMetadata.version,
       latest: null,
       source: null,
       updateAvailable: false,
@@ -65,10 +62,10 @@ function responseFor(result: ReleaseLookupResult) {
     };
   }
 
-  const updateAvailable = compareSemver(result.release.version, pkg.version) > 0;
+  const updateAvailable = compareSemver(result.release.version, packageMetadata.version) > 0;
   return {
     status: updateAvailable ? 'update-available' as const : 'up-to-date' as const,
-    current: pkg.version,
+    current: packageMetadata.version,
     latest: result.release.version,
     source: 'release' as const,
     updateAvailable,
@@ -82,7 +79,7 @@ app.get('/api/version/check', rateLimitGeneral, async (c) => {
   if (config.auth) {
     return c.json({
       status: 'disabled' as const,
-      current: pkg.version,
+      current: packageMetadata.version,
       latest: null,
       source: null,
       updateAvailable: false,

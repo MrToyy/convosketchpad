@@ -21,6 +21,7 @@ import {
   getStoredDeviceAuth,
   storeDeviceAuth,
 } from './device-identity.js';
+import { packageMetadata } from './package-metadata.js';
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -125,7 +126,7 @@ function buildConnectParams(nonce: string) {
       client: {
         id: clientId,
         displayName: 'ConvoSketchpad',
-        version: '0.1.0',
+        version: packageMetadata.version,
         platform: 'web',
         mode: clientMode,
         instanceId: `convosketchpad-rpc-${randomUUID().slice(0, 8)}`,

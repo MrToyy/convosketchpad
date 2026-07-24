@@ -126,6 +126,10 @@ function identityOr401(c: Context) {
   return identity;
 }
 
+function routeParam(c: Context, name: string): string {
+  return c.req.param(name) || '';
+}
+
 function isWithin(candidate: string, root: string): boolean {
   const relative = path.relative(root, candidate);
   return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
@@ -183,7 +187,7 @@ app.patch('/api/canvas/canvases/:id', rateLimitGeneral, async (c) => {
   if (!parsed.success) return c.json({ error: 'Invalid canvas update' }, 400);
   try {
     const store = getCanvasStore();
-    const id = c.req.param('id');
+    const id = routeParam(c, 'id');
     let canvas = store.getCanvas(identity.userId, id);
     if (!canvas) return c.json({ error: 'Not found' }, 404);
     if (parsed.data.agentId && parsed.data.agentId !== canvas.agentId) {
@@ -199,7 +203,7 @@ app.patch('/api/canvas/canvases/:id', rateLimitGeneral, async (c) => {
 app.delete('/api/canvas/canvases/:id', rateLimitGeneral, async (c) => {
   const identity = identityOr401(c);
   if (!identity) return c.json({ error: 'Authentication required' }, 401);
-  const canvasId = c.req.param('id');
+  const canvasId = routeParam(c, 'id');
   if (!getCanvasStore().getCanvas(identity.userId, canvasId)) return c.json({ error: 'Not found' }, 404);
   if (!getCanvasStore().deleteCanvas(identity.userId, canvasId)) return c.json({ error: 'Not found' }, 404);
   try {
@@ -214,7 +218,7 @@ app.delete('/api/canvas/canvases/:id', rateLimitGeneral, async (c) => {
 app.get('/api/canvas/canvases/:id/graph', rateLimitGeneral, (c) => {
   const identity = identityOr401(c);
   if (!identity) return c.json({ error: 'Authentication required' }, 401);
-  const graph = getCanvasStore().getGraph(identity.userId, c.req.param('id'));
+  const graph = getCanvasStore().getGraph(identity.userId, routeParam(c, 'id'));
   for (const interaction of graph?.interactions || []) {
     const reconciliation = interaction.sessionMetadata.reconciliation as Record<string, unknown> | undefined;
     if (interaction.status === 'streaming'
@@ -264,9 +268,9 @@ app.get('/api/canvas/openclaw-artifact', rateLimitGeneral, async (c) => {
 app.get('/api/canvas/artifacts/:canvasId/:interactionId/:artifactId', rateLimitGeneral, async (c) => {
   const identity = identityOr401(c);
   if (!identity) return c.json({ error: 'Authentication required' }, 401);
-  const interaction = getCanvasStore().getOwnedInteraction(identity.userId, c.req.param('interactionId'));
-  if (!interaction || interaction.canvasId !== c.req.param('canvasId')) return c.json({ error: 'Not found' }, 404);
-  const persisted = await readCanvasArtifact(interaction, c.req.param('artifactId')).catch(() => null);
+  const interaction = getCanvasStore().getOwnedInteraction(identity.userId, routeParam(c, 'interactionId'));
+  if (!interaction || interaction.canvasId !== routeParam(c, 'canvasId')) return c.json({ error: 'Not found' }, 404);
+  const persisted = await readCanvasArtifact(interaction, routeParam(c, 'artifactId')).catch(() => null);
   if (!persisted) return c.json({ error: 'Not found' }, 404);
   const safeName = persisted.artifact.name.replace(/[^\x20-\x7E]+/g, '_').replace(/[\r\n"\\]/g, '_').trim() || 'artifact';
   const encodedName = encodeURIComponent(persisted.artifact.name).replace(/['()]/g, (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`);
@@ -283,8 +287,8 @@ app.get('/api/canvas/artifacts/:canvasId/:interactionId/:artifactId', rateLimitG
 app.get('/api/canvas/attachments/:canvasId/:attachmentId', rateLimitGeneral, async (c) => {
   const identity = identityOr401(c);
   if (!identity) return c.json({ error: 'Authentication required' }, 401);
-  const canvasId = c.req.param('canvasId');
-  const attachmentId = c.req.param('attachmentId');
+  const canvasId = routeParam(c, 'canvasId');
+  const attachmentId = routeParam(c, 'attachmentId');
   const attachment = getCanvasStore().getOwnedCanvasAttachment(identity.userId, canvasId, attachmentId);
   if (!attachment) return c.json({ error: 'Not found' }, 404);
   const bytes = await readCanvasAttachment(identity.userId, canvasId, attachmentId);
@@ -304,7 +308,7 @@ app.get('/api/canvas/attachments/:canvasId/:attachmentId', rateLimitGeneral, asy
 app.get('/api/canvas/send-reservations/:id/resources/:resourceId', rateLimitGeneral, async (c) => {
   const identity = identityOr401(c);
   if (!identity) return c.json({ error: 'Authentication required' }, 401);
-  const owned = getCanvasStore().getOwnedReservationResource(identity.userId, c.req.param('id'), c.req.param('resourceId'));
+  const owned = getCanvasStore().getOwnedReservationResource(identity.userId, routeParam(c, 'id'), routeParam(c, 'resourceId'));
   if (!owned) return c.json({ error: 'Not found' }, 404);
   const { resource, agentId } = owned;
 
@@ -363,7 +367,7 @@ app.put('/api/canvas/canvases/:id/layout', rateLimitGeneral, async (c) => {
     viewport: z.object({ x: z.number(), y: z.number(), zoom: z.number().positive() }).optional(),
   }).safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: 'Invalid layout' }, 400);
-  return getCanvasStore().saveLayout(identity.userId, c.req.param('id'), parsed.data)
+  return getCanvasStore().saveLayout(identity.userId, routeParam(c, 'id'), parsed.data)
     ? c.json({ ok: true })
     : c.json({ error: 'Not found' }, 404);
 });
@@ -372,7 +376,7 @@ app.post('/api/canvas/canvases/:id/root-branches', rateLimitGeneral, (c) => {
   const identity = identityOr401(c);
   if (!identity) return c.json({ error: 'Authentication required' }, 401);
   try {
-    return c.json({ branch: getCanvasStore().createRootBranch(identity.userId, c.req.param('id')) }, 201);
+    return c.json({ branch: getCanvasStore().createRootBranch(identity.userId, routeParam(c, 'id')) }, 201);
   } catch (error) { return errorResponse(c, error); }
 });
 
@@ -380,7 +384,7 @@ app.post('/api/canvas/interactions/:id/fork', rateLimitGeneral, (c) => {
   const identity = identityOr401(c);
   if (!identity) return c.json({ error: 'Authentication required' }, 401);
   try {
-    return c.json({ branch: getCanvasStore().forkInteraction(identity.userId, c.req.param('id')) }, 201);
+    return c.json({ branch: getCanvasStore().forkInteraction(identity.userId, routeParam(c, 'id')) }, 201);
   } catch (error) { return errorResponse(c, error); }
 });
 
@@ -397,7 +401,7 @@ app.post('/api/canvas/branches/:id/prepare-send', rateLimitGeneral, async (c) =>
   if (!parsed.data.userInput.trim() && parsed.data.attachments.length === 0) return c.json({ error: 'Message or attachment required' }, 400);
   try {
     const store = getCanvasStore();
-    const branchId = c.req.param('id');
+    const branchId = routeParam(c, 'id');
     const branch = store.getOwnedBranch(identity.userId, branchId);
     if (!branch) return c.json({ error: 'Not found' }, 404);
     const canvas = store.getCanvas(identity.userId, branch.canvasId);
@@ -470,7 +474,7 @@ app.post('/api/canvas/send-reservations/:id/ack', rateLimitGeneral, async (c) =>
   if (!parsed.success) return c.json({ error: 'Invalid acknowledgement' }, 400);
   try {
     const store = getCanvasStore();
-    const reservationId = c.req.param('id');
+    const reservationId = routeParam(c, 'id');
     const target = store.getOwnedReservationSessionTarget(identity.userId, reservationId);
     if (target) {
       try {
@@ -498,7 +502,7 @@ app.post('/api/canvas/send-reservations/:id/fail', rateLimitGeneral, async (c) =
   if (!identity) return c.json({ error: 'Authentication required' }, 401);
   const parsed = z.object({ error: z.string().max(2000).default('Gateway rejected the message') }).safeParse(await c.req.json().catch(() => ({})));
   if (!parsed.success) return c.json({ error: 'Invalid failure' }, 400);
-  return getCanvasStore().failReservation(identity.userId, c.req.param('id'), parsed.data.error)
+  return getCanvasStore().failReservation(identity.userId, routeParam(c, 'id'), parsed.data.error)
     ? c.json({ ok: true })
     : c.json({ error: 'Not found' }, 404);
 });
@@ -513,7 +517,7 @@ app.post('/api/canvas/interactions/:id/complete', rateLimitGeneral, async (c) =>
     metadata: z.record(z.string(), z.unknown()).optional(),
   }).safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: 'Invalid completion' }, 400);
-  const interaction = getCanvasStore().completeInteraction(identity.userId, c.req.param('id'), {
+  const interaction = getCanvasStore().completeInteraction(identity.userId, routeParam(c, 'id'), {
     ...parsed.data,
     artifacts: parsed.data.artifacts as CanvasArtifact[],
   });
@@ -532,11 +536,11 @@ app.post('/api/canvas/interactions/:id/reconcile', rateLimitGeneral, async (c) =
   if (!parsed.success) return c.json({ error: 'Invalid reconciliation request' }, 400);
 
   const interaction = parsed.data.terminalHint || parsed.data.failureHint
-    ? signalCanvasInteractionTerminal(c.req.param('id'), identity.userId, {
+    ? signalCanvasInteractionTerminal(routeParam(c, 'id'), identity.userId, {
       runId: parsed.data.runId,
       failureHint: parsed.data.failureHint,
     })
-    : getCanvasStore().getOwnedInteraction(identity.userId, c.req.param('id'));
+    : getCanvasStore().getOwnedInteraction(identity.userId, routeParam(c, 'id'));
   if (!interaction) return c.json({ error: 'Not found' }, 404);
   if (parsed.data.force) {
     getCanvasStore().updateReconciliationMetadata(interaction.id, {

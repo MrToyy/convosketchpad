@@ -215,7 +215,7 @@ export function useWebSocket(): UseWebSocketReturn {
               client: {
                 id: 'openclaw-control-ui',
                 displayName: 'ConvoSketchpad',
-                version: '0.1.0',
+                version: __APP_VERSION__,
                 platform: 'web',
                 mode: 'webchat',
                 instanceId: instanceIdRef.current,

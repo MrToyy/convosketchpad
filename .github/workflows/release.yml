@@ -4,19 +4,19 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: Stable version to release (X.Y.Z)
+        description: Stable version to prepare as a Draft Release (X.Y.Z)
         required: true
         type: string
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: convosketchpad-release
   cancel-in-progress: false
 
 jobs:
-  release:
+  prepare:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     env:
@@ -29,44 +29,104 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Resolve latest official Release
+        id: latest
+        run: |
+          latest_tag="$(gh api "repos/${GITHUB_REPOSITORY}/releases" \
+            --jq 'map(select(.draft == false and .prerelease == false))[0].tag_name // ""')"
+          echo "tag=${latest_tag}" >> "$GITHUB_OUTPUT"
+
+      - name: Validate version and prepare release notes
+        env:
+          LATEST_RELEASE_TAG: ${{ steps.latest.outputs.tag }}
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const path = require('node:path');
+
+          const version = process.env.RELEASE_VERSION;
+          if (!/^\d+\.\d+\.\d+$/.test(version)) {
+            throw new Error('version must use the X.Y.Z format');
+          }
+
+          const parseVersion = (value) => {
+            const normalized = value.replace(/^v/, '');
+            if (!/^\d+\.\d+\.\d+$/.test(normalized)) {
+              throw new Error(`invalid semantic version: ${value}`);
+            }
+            return normalized.split('.').map(Number);
+          };
+          const compareVersions = (left, right) => {
+            for (let index = 0; index < 3; index += 1) {
+              if (left[index] !== right[index]) return left[index] > right[index] ? 1 : -1;
+            }
+            return 0;
+          };
+
+          const latestTag = process.env.LATEST_RELEASE_TAG || 'v0.1.0';
+          if (compareVersions(parseVersion(version), parseVersion(latestTag)) <= 0) {
+            throw new Error(`${version} must be greater than the latest official Release ${latestTag}`);
+          }
+
+          const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+          const lock = JSON.parse(fs.readFileSync('package-lock.json', 'utf8'));
+          if (pkg.version !== version || lock.version !== version || lock.packages?.['']?.version !== version) {
+            throw new Error('workflow input, package.json, and package-lock.json versions must match');
+          }
+
+          const changelog = fs.readFileSync('CHANGELOG.md', 'utf8');
+          const escapedVersion = version.replaceAll('.', '\\.');
+          const headingPattern = new RegExp(`^## \\[${escapedVersion}\\] - \\d{4}-\\d{2}-\\d{2}$`, 'm');
+          const heading = headingPattern.exec(changelog);
+          if (!heading || heading.index === undefined) {
+            throw new Error(`CHANGELOG.md must contain a dated [${version}] section`);
+          }
+          const bodyStart = heading.index + heading[0].length;
+          const nextSection = changelog.indexOf('\n## ', bodyStart);
+          const notes = changelog.slice(bodyStart, nextSection === -1 ? changelog.length : nextSection).trim();
+          if (!notes) {
+            throw new Error(`CHANGELOG.md [${version}] section must not be empty`);
+          }
+
+          fs.writeFileSync(path.join(process.env.RUNNER_TEMP, 'release-notes.md'), `${notes}\n`);
+          NODE
+
+      - name: Upload release notes
+        uses: actions/upload-artifact@v6
+        with:
+          name: release-notes
+          path: ${{ runner.temp }}/release-notes.md
+          if-no-files-found: error
+          retention-days: 1
+
+  validate:
+    needs: prepare
+    env:
+      RELEASE_VERSION: ${{ inputs.version }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
       - name: Setup Node.js 22
         uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: npm
 
-      - name: Validate release version
-        run: |
-          node <<'NODE'
-          const fs = require('node:fs');
-          const version = process.env.RELEASE_VERSION;
-          if (!/^\d+\.\d+\.\d+$/.test(version)) {
-            throw new Error('version must use the X.Y.Z format');
-          }
-          if (version === '0.1.0') {
-            throw new Error('v0.1.0 is intentionally unpublished; bump the project version first');
-          }
-          const requested = version.split('.').map(Number);
-          const baseline = [0, 1, 0];
-          let comparison = 0;
-          for (let index = 0; index < requested.length; index += 1) {
-            if (requested[index] !== baseline[index]) {
-              comparison = requested[index] > baseline[index] ? 1 : -1;
-              break;
-            }
-          }
-          if (comparison <= 0) {
-            throw new Error('the first published version must be greater than 0.1.0');
-          }
-          const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
-          const lock = JSON.parse(fs.readFileSync('package-lock.json', 'utf8'));
-          if (pkg.version !== version || lock.version !== version || lock.packages?.['']?.version !== version) {
-            throw new Error('workflow input, package.json, and package-lock.json versions must match');
-          }
-          NODE
-
       - name: Install dependencies
         run: npm ci
+
+      - name: Audit dependencies
+        if: runner.os == 'Linux'
+        run: |
+          npm audit --audit-level=moderate
+          npm audit --omit=dev --audit-level=moderate
 
       - name: Lint
         run: npm run lint
@@ -77,10 +137,61 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Smoke test built server
+        shell: bash
+        run: |
+          set -euo pipefail
+          log_file="${RUNNER_TEMP}/convosketchpad-server.log"
+          PORT=3180 HOST=127.0.0.1 GATEWAY_URL=http://127.0.0.1:9 npm start >"$log_file" 2>&1 &
+          server_pid=$!
+          cleanup() {
+            kill "$server_pid" 2>/dev/null || true
+            wait "$server_pid" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+
+          for attempt in {1..30}; do
+            if curl -fsS http://127.0.0.1:3180/health >/dev/null; then
+              curl -fsS http://127.0.0.1:3180/api/version | grep -q "\"version\":\"${RELEASE_VERSION}\""
+              exit 0
+            fi
+            sleep 1
+          done
+
+          cat "$log_file"
+          exit 1
+
+  release:
+    needs: [prepare, validate]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      RELEASE_VERSION: ${{ inputs.version }}
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: Checkout main with tags
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Download release notes
+        uses: actions/download-artifact@v8
+        with:
+          name: release-notes
+          path: ${{ runner.temp }}/release-notes
+
       - name: Prepare release tag
         run: |
           set -euo pipefail
           tag="v${RELEASE_VERSION}"
+
+          git fetch origin main
+          if [ "$(git rev-parse HEAD)" != "$(git rev-parse origin/main)" ]; then
+            echo "main changed after this workflow was dispatched; run the Release workflow again" >&2
+            exit 1
+          fi
 
           if gh release view "$tag" >/dev/null 2>&1; then
             echo "Release $tag already exists" >&2
@@ -100,5 +211,10 @@ jobs:
             git push origin "$tag"
           fi
 
-      - name: Create GitHub Release
-        run: gh release create "v${RELEASE_VERSION}" --verify-tag --generate-notes --latest --title "v${RELEASE_VERSION}"
+      - name: Create Draft Release
+        run: |
+          gh release create "v${RELEASE_VERSION}" \
+            --verify-tag \
+            --draft \
+            --title "v${RELEASE_VERSION}" \
+            --notes-file "${RUNNER_TEMP}/release-notes/release-notes.md"

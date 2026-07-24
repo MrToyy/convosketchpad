@@ -1,6 +1,6 @@
 # Updating ConvoSketchpad
 
-ConvoSketchpad includes a terminal-driven updater for published stable releases. The updater is inactive until the first official ConvoSketchpad GitHub Release is published.
+ConvoSketchpad includes a terminal-driven updater for published stable releases, beginning with version `0.2.0`.
 
 Only releases from `https://github.com/MrToyy/convosketchpad` are accepted. Local tags, tags inherited from OpenClaw Nerve, forks, branches, drafts, and prereleases are never update sources.
 
@@ -103,15 +103,21 @@ If fetching, validation, building, restarting, or health checking fails after th
 
 ## Release policy
 
-Version `0.1.0` intentionally has no GitHub Release, so the update entry remains hidden at that version. A future release must first update both `package.json` and `package-lock.json`, merge that change to `main`, and then run the manual **Release** GitHub Actions workflow with the matching `X.Y.Z` input.
+Version `0.1.0` intentionally has no GitHub Release. To prepare a release, update `package.json` and `package-lock.json`, add a dated matching section to `CHANGELOG.md`, push the release commit to `main`, and run the manual **Release** GitHub Actions workflow with the matching `X.Y.Z` input.
 
-The workflow validates, tests, and builds the exact `main` commit before creating an annotated `vX.Y.Z` tag and a stable GitHub Release.
+The workflow validates, tests, builds, audits, and starts the exact `main` commit on Ubuntu and macOS before creating an annotated `vX.Y.Z` tag and a Draft GitHub Release. Review the Draft notes and installation behavior, then publish it as Latest:
+
+```bash
+gh release edit vX.Y.Z --draft=false --latest
+```
+
+Drafts and prereleases are never offered by the installer or updater.
 
 ## Troubleshooting
 
-### No official release has been published
+### No stable release can be resolved
 
-This is expected while the project remains at `0.1.0`. Local or inherited tags are intentionally ignored.
+Check the repository Releases page and GitHub API availability. The installer fails closed instead of installing an unreleased branch. Local tags, inherited tags, Drafts, and prereleases are intentionally ignored; use `--branch main` only for an explicit development installation.
 
 ### Working tree is not clean
 

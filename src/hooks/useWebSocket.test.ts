@@ -165,7 +165,13 @@ describe('useWebSocket', () => {
 
       // The hook should have sent the auth request now; verify so the test fails
       // loudly if the precondition stops holding.
-      expect(getConnectRequest(ws)).toBeTruthy();
+      expect(getConnectRequest(ws)).toMatchObject({
+        params: {
+          client: {
+            version: '0.2.0',
+          },
+        },
+      });
 
       act(() => {
         ws.close();

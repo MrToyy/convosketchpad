@@ -5,41 +5,21 @@
  * rail + dot visual style as the installer for seamless continuity.
  */
 
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { packageMetadata } from './package-metadata.js';
 
 const isInstaller = !!process.env.CONVOSKETCHPAD_INSTALLER;
-const fallbackTagline = 'A branching AI workspace for visual thinkers';
 
 /** Inquirer theme that continues the rail in installer mode */
 export const promptTheme = isInstaller
   ? { prefix: `  \x1b[2m│\x1b[0m` }
   : {};
 
-interface PackageMetadata {
-  version: string;
-  description: string;
-}
-
-function readPackageMetadata(): PackageMetadata {
-  try {
-    const pkg = JSON.parse(readFileSync(resolve(process.cwd(), 'package.json'), 'utf-8'));
-    return {
-      version: pkg.version || '0.0.0',
-      description: pkg.description || fallbackTagline,
-    };
-  } catch {
-    return { version: '0.0.0', description: fallbackTagline };
-  }
-}
-
 /** Print the setup welcome banner unless the installer already printed it. */
 export function printBanner(): void {
   if (isInstaller) return;
-  const pkg = readPackageMetadata();
   console.log('');
-  console.log(`  \x1b[38;5;208m\x1b[1m◆ ConvoSketchpad v${pkg.version}\x1b[0m`);
-  console.log(`    \x1b[2m${pkg.description}\x1b[0m`);
+  console.log(`  \x1b[38;5;208m\x1b[1m◆ ConvoSketchpad v${packageMetadata.version}\x1b[0m`);
+  console.log(`    \x1b[2m${packageMetadata.description}\x1b[0m`);
   console.log('');
 }
 

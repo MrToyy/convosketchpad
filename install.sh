@@ -6,7 +6,7 @@
 #   curl -fsSL https://raw.githubusercontent.com/MrToyy/convosketchpad/main/install.sh | bash
 #
 # Or with options:
-#   curl -fsSL ... | bash -s -- --dir ~/convosketchpad --version v0.1.0
+#   curl -fsSL ... | bash -s -- --dir ~/convosketchpad --version v0.2.0
 #   curl -fsSL ... | bash -s -- --dir ~/convosketchpad --branch main
 #   curl -fsSL ... | bash -s -- --gateway-url https://gw.example.com --gateway-token <token> --skip-setup
 # ──────────────────────────────────────────────────────────────────────
@@ -214,11 +214,17 @@ github_repo_path_from_url() {
   echo "$path"
 }
 
-fetch_latest_release_tag() {
+fetch_stable_release_tag() {
+  local requested_tag="${1:-}"
   local repo_path
   repo_path=$(github_repo_path_from_url "$REPO") || return 1
+  [[ "$repo_path" == "MrToyy/convosketchpad" ]] || return 1
 
-  local api_url="https://api.github.com/repos/${repo_path}/releases/latest"
+  local endpoint="latest"
+  if [[ -n "$requested_tag" ]]; then
+    endpoint="tags/${requested_tag}"
+  fi
+  local api_url="https://api.github.com/repos/${repo_path}/releases/${endpoint}"
   local response
   local token="${GITHUB_TOKEN:-${GH_TOKEN:-}}"
 
@@ -236,9 +242,33 @@ fetch_latest_release_tag() {
   fi
 
   local tag
-  tag=$(printf '%s' "$response" | node -e 'let d="";process.stdin.on("data",c=>d+=c);process.stdin.on("end",()=>{try{const j=JSON.parse(d);if(typeof j.tag_name==="string")process.stdout.write(j.tag_name);}catch{}});') || return 1
+  tag=$(printf '%s' "$response" | node -e '
+    let data = "";
+    process.stdin.on("data", (chunk) => { data += chunk; });
+    process.stdin.on("end", () => {
+      try {
+        const release = JSON.parse(data);
+        const expected = process.argv[1];
+        if (
+          typeof release.tag_name !== "string"
+          || release.draft !== false
+          || release.prerelease !== false
+          || (expected && release.tag_name !== expected)
+        ) {
+          process.exit(1);
+        }
+        process.stdout.write(release.tag_name);
+      } catch {
+        process.exit(1);
+      }
+    });
+  ' "$requested_tag") || return 1
 
   normalize_version_tag "$tag" || return 1
+}
+
+fetch_latest_release_tag() {
+  fetch_stable_release_tag
 }
 
 STAGE_CURRENT=0
@@ -276,7 +306,7 @@ while [[ $# -gt 0 ]]; do
       echo "  --dir <path>         Install directory (default: ~/convosketchpad)"
       echo "  --version <vX.Y.Z>   Install a specific release version"
       echo "  --branch <name>      Install from a branch (dev override; bypasses release mode)"
-      echo "  --repo <url>         Git repo URL"
+      echo "  --repo <url>         Git repo URL (custom repositories require --branch)"
       echo "  --skip-setup         Skip the interactive setup wizard"
       echo "  --gateway-token <t>  Gateway token (for non-interactive installs)"
       echo "  --gateway-url <url>  Gateway URL (for remote/non-interactive installs)"
@@ -601,26 +631,24 @@ if [[ -n "$VERSION" ]]; then
     fail "Invalid --version: ${VERSION} (expected vX.Y.Z)"
     exit 1
   fi
+  if ! TARGET_REF=$(fetch_stable_release_tag "$TARGET_REF"); then
+    fail "${TARGET_REF:-$VERSION} is not an official stable ConvoSketchpad Release"
+    exit 1
+  fi
   TARGET_REF_KIND="version"
 elif [[ "$BRANCH_EXPLICIT" == "true" ]]; then
   TARGET_REF="$BRANCH"
   TARGET_REF_KIND="branch"
 else
-  TARGET_REF=$(fetch_latest_release_tag || true)
-  if [[ -n "$TARGET_REF" ]]; then
-    TARGET_REF_KIND="release"
-  else
-    TARGET_REF="$BRANCH"
-    TARGET_REF_KIND="branch-fallback"
-    warn "Could not resolve latest GitHub release — falling back to branch ${BRANCH}"
+  if ! TARGET_REF=$(fetch_latest_release_tag); then
+    fail "Could not resolve the latest stable ConvoSketchpad Release"
+    info "Retry later, select an official Release with --version, or use --branch main explicitly for development"
+    exit 1
   fi
+  TARGET_REF_KIND="release"
 fi
 
-if [[ "$TARGET_REF_KIND" == "release" || "$TARGET_REF_KIND" == "version" ]]; then
-  info "Using ref ${TARGET_REF} (${TARGET_REF_KIND})"
-else
-  info "Using ref ${TARGET_REF} (${TARGET_REF_KIND})"
-fi
+info "Using ref ${TARGET_REF} (${TARGET_REF_KIND})"
 
 if [[ "$DRY_RUN" == "true" ]]; then
   if [[ -d "$INSTALL_DIR/.git" ]]; then
@@ -657,7 +685,7 @@ else
 
     cd "$INSTALL_DIR"
 
-    if [[ "$TARGET_REF_KIND" == "branch" || "$TARGET_REF_KIND" == "branch-fallback" ]]; then
+    if [[ "$TARGET_REF_KIND" == "branch" ]]; then
       run_with_dots "Fetching ${TARGET_REF}" git fetch origin "$TARGET_REF" -q
       run_with_dots "Checking out ${TARGET_REF}" git checkout --force "$TARGET_REF" -q
       run_with_dots "Resetting to origin/${TARGET_REF}" git reset --hard "origin/${TARGET_REF}" -q
@@ -668,7 +696,7 @@ else
 
     ok "Updated to ${TARGET_REF}"
   else
-    if [[ "$TARGET_REF_KIND" == "branch" || "$TARGET_REF_KIND" == "branch-fallback" ]]; then
+    if [[ "$TARGET_REF_KIND" == "branch" ]]; then
       run_with_dots "Cloning ConvoSketchpad" git clone --branch "$TARGET_REF" --depth 1 -q "$REPO" "$INSTALL_DIR"
     else
       run_with_dots "Cloning ConvoSketchpad" git clone --depth 1 -q "$REPO" "$INSTALL_DIR"

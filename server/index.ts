@@ -8,24 +8,17 @@
  */
 
 import fs from 'node:fs';
-import path from 'node:path';
 import https from 'node:https';
-import { fileURLToPath } from 'node:url';
 import { serve } from '@hono/node-server';
 import app from './app.js';
 import { config, validateConfig, printStartupBanner, probeGateway } from './lib/config.js';
 import { setupWebSocketProxy, closeAllWebSockets } from './lib/ws-proxy.js';
 import { startCanvasReconciler, stopCanvasReconciler } from './lib/canvas-reconciler.js';
+import { packageMetadata } from './lib/package-metadata.js';
 
 // ── Startup banner + validation ──────────────────────────────────────
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const pkgPath = path.resolve(__dirname, '..', 'package.json');
-const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
-const pkgVersion: string = pkg.version || '0.0.0';
-const pkgTagline: string = pkg.description || 'A branching AI workspace for visual thinkers';
-
-printStartupBanner(pkgVersion, pkgTagline);
+printStartupBanner(packageMetadata.version, packageMetadata.description);
 validateConfig();
 
 // ── HTTP server ──────────────────────────────────────────────────────
@@ -37,14 +30,14 @@ const httpServer = serve(
     hostname: config.host,
   },
   (info) => {
-    console.log(`\x1b[33m[openclaw-ui]\x1b[0m http://${config.host}:${info.port}`);
+    console.log(`\x1b[33m[convosketchpad]\x1b[0m http://${config.host}:${info.port}`);
   },
 );
 
 // Friendly error on port conflict
 (httpServer as unknown as import('node:net').Server).on('error', (err: NodeJS.ErrnoException) => {
   if (err.code === 'EADDRINUSE') {
-    console.error(`\x1b[31m[openclaw-ui]\x1b[0m Port ${config.port} is already in use. Is another instance running?`);
+    console.error(`\x1b[31m[convosketchpad]\x1b[0m Port ${config.port} is already in use. Is another instance running?`);
     process.exit(1);
   }
   throw err;
@@ -146,7 +139,7 @@ if (fs.existsSync(config.certPath) && fs.existsSync(config.keyPath)) {
   });
 
   sslServer.listen(config.sslPort, config.host, () => {
-    console.log(`\x1b[33m[openclaw-ui]\x1b[0m https://${config.host}:${config.sslPort}`);
+    console.log(`\x1b[33m[convosketchpad]\x1b[0m https://${config.host}:${config.sslPort}`);
   });
 
   setupWebSocketProxy(sslServer);
@@ -155,24 +148,24 @@ if (fs.existsSync(config.certPath) && fs.existsSync(config.keyPath)) {
 // ── Graceful shutdown ────────────────────────────────────────────────
 
 function shutdown(signal: string) {
-  console.log(`\n[openclaw-ui] ${signal} received, shutting down...`);
+  console.log(`\n[convosketchpad] ${signal} received, shutting down...`);
 
   stopCanvasReconciler();
   closeAllWebSockets();
 
   httpServer.close(() => {
-    console.log('[openclaw-ui] HTTP server closed');
+    console.log('[convosketchpad] HTTP server closed');
   });
 
   if (sslServer) {
     sslServer.close(() => {
-      console.log('[openclaw-ui] HTTPS server closed');
+      console.log('[convosketchpad] HTTPS server closed');
     });
   }
 
   // Give connections 5s to drain, then force exit
   setTimeout(() => {
-    console.log('[openclaw-ui] Force exit');
+    console.log('[convosketchpad] Force exit');
     process.exit(0);
   }, 5000).unref();
 }

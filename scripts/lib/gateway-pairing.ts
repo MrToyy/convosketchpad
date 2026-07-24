@@ -5,6 +5,7 @@ import {
   createDeviceBlock,
   storeDeviceAuth,
 } from '../../server/lib/device-identity.js';
+import { packageMetadata } from './package-metadata.js';
 
 const PAIRING_TIMEOUT_MS = 12_000;
 
@@ -101,7 +102,7 @@ export function requestGatewayPairing(input: {
             client: {
               id: clientId,
               displayName: 'ConvoSketchpad',
-              version: '0.1.0',
+              version: packageMetadata.version,
               platform: 'web',
               mode: clientMode,
               instanceId: `convosketchpad-setup-${randomUUID()}`,

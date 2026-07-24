@@ -155,6 +155,7 @@ describe('gateway-rpc (persistent WebSocket)', () => {
       expect(lastConnectParams).toMatchObject({
         client: {
           id: 'openclaw-control-ui',
+          version: '0.2.0',
           mode: 'webchat',
         },
         auth: { token: 'test-token' },

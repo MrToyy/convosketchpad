@@ -35,6 +35,8 @@ Canvas
 curl -fsSL https://raw.githubusercontent.com/MrToyy/convosketchpad/main/install.sh | bash
 ```
 
+The installer resolves the latest official stable Release and fails closed if GitHub cannot verify one. Development installs must opt in explicitly with `--branch main`.
+
 Manual setup:
 
 ```bash

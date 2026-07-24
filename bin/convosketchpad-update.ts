@@ -5,7 +5,7 @@
  *
  * Usage:
  *   npm run update
- *   npm run update -- --version v1.4.0
+ *   npm run update -- --version v0.2.0
  *   npm run update -- --dry-run
  *   npm run update -- --rollback
  */
@@ -49,7 +49,7 @@ function parseArgs(argv: string[]): UpdateOptions {
       case '--version': {
         const next = args[++i];
         if (!next || next.startsWith('-')) {
-          process.stderr.write('Error: --version requires a value (e.g. --version v1.4.0)\n');
+          process.stderr.write('Error: --version requires a value (e.g. --version v0.2.0)\n');
           process.exit(1);
         }
         options.version = next;
