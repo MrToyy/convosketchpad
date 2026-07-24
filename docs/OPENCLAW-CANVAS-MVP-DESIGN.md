@@ -38,10 +38,13 @@ After the lock, users create another Canvas when they need a different Agent. Mi
 5. Draft Root and Fork composers are deduplicated.
 6. Interactions are append-only from the user's perspective.
 7. OpenClaw Sessions are created lazily on the first real send.
+8. The first send after a predicted or observed OpenClaw Session reset carries
+   the canonical Branch snapshot; recovery does not rewrite prior Canvas or
+   OpenClaw data.
 
 ## Context strategy
 
-Healthy Continue relies on the OpenClaw Session and does not replay Canvas history. Fork and Session recovery use a canonical snapshot assembled from persisted ancestor Interactions. The snapshot can include a resource manifest; readable files are resubmitted as OpenClaw attachments when materializing the new Session.
+Healthy Continue relies on the OpenClaw Session and does not replay Canvas history. Fork and Session recovery use a canonical snapshot assembled from persisted ancestor Interactions. Recovery is selected when the observed Session ID drifts or when the configured daily/idle OpenClaw reset policy predicts that the next send will create a replacement Session. The snapshot can include a resource manifest; readable files are resubmitted as OpenClaw attachments when materializing the new Session.
 
 The Canvas database is authoritative for topology and immutable history. OpenClaw remains authoritative for execution and transcript completion. The reconciler joins the two without rewriting OpenClaw history.
 

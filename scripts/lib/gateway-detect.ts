@@ -1,53 +1,36 @@
 /**
- * Auto-detect gateway token from the local OpenClaw configuration.
+ * OpenClaw discovery and native configuration helpers.
  *
- * Reads the OpenClaw config (default ~/.openclaw/openclaw.json, override via
- * OPENCLAW_CONFIG_PATH) and extracts the gateway auth token. Device/identity
- * files (paired.json, device.json, device-auth.json) live alongside that
- * config, so when the config path is overridden every other path under the
- * OpenClaw home shifts with it.
+ * OpenClaw owns its configuration and device-pairing state. This module only
+ * reads legacy discovery inputs and invokes supported `openclaw config` /
+ * `openclaw devices` commands; it never rewrites OpenClaw state files.
  */
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
-import { execSync } from 'node:child_process';
-import type { ExecSyncOptions } from 'node:child_process';
-import { dirname, join } from 'node:path';
-import crypto from 'node:crypto';
+import { existsSync, readFileSync } from 'node:fs';
+import { spawnSync, type SpawnSyncOptionsWithStringEncoding } from 'node:child_process';
+import { join } from 'node:path';
 import os from 'node:os';
 
 const HOME = process.env.HOME || os.homedir();
-const DEFAULT_OPENCLAW_HOME = join(HOME, '.openclaw');
-const DEFAULT_OPENCLAW_CONFIG = join(DEFAULT_OPENCLAW_HOME, 'openclaw.json');
+const DEFAULT_OPENCLAW_CONFIG = join(HOME, '.openclaw', 'openclaw.json');
+const SAFE_DEVICE_REQUEST_ID_RE = /^[A-Za-z0-9_-]+$/;
+const REQUIRED_OPERATOR_SCOPES = ['operator.read', 'operator.write'] as const;
 
 function resolveOpenClawConfigPath(): string {
   return process.env.OPENCLAW_CONFIG_PATH?.trim() || DEFAULT_OPENCLAW_CONFIG;
 }
 
-/**
- * Returns the directory that contains the OpenClaw config file.
- * Device and identity sub-directories (`devices/`, `identity/`) are expected
- * to be siblings of the config file, matching the default `~/.openclaw` layout.
- * Composed off of `resolveOpenClawConfigPath` so the two helpers can't drift
- * if the override/trim logic changes later.
- */
-function resolveOpenClawHome(): string {
-  const configPath = resolveOpenClawConfigPath();
-  return configPath !== DEFAULT_OPENCLAW_CONFIG ? dirname(configPath) : DEFAULT_OPENCLAW_HOME;
+function resolveOpenClawBin(): string {
+  return process.env.OPENCLAW_BIN?.trim() || 'openclaw';
 }
 
 interface OpenClawConfig {
   gateway?: {
     port?: number;
-    bind?: string;
     auth?: {
-      mode?: string;
       token?: string;
     };
-    controlUi?: {
-      allowedOrigins?: string[];
-    };
   };
-  [key: string]: unknown;
 }
 
 export interface DetectedGateway {
@@ -62,67 +45,74 @@ export interface GatewayTokenChoice {
   source: GatewayTokenSource;
 }
 
+export interface NativeCommandResult {
+  status: number | null;
+  stdout: string;
+  stderr: string;
+}
+
+export type NativeCommandOptions = Omit<SpawnSyncOptionsWithStringEncoding, 'encoding'> & {
+  encoding?: BufferEncoding;
+};
+
+export type NativeCommandRunner = (
+  command: string,
+  args: string[],
+  options?: NativeCommandOptions,
+) => NativeCommandResult;
+
+const runNativeCommand: NativeCommandRunner = (command, args, options = {}) => {
+  const result = spawnSync(command, args, {
+    ...options,
+    encoding: 'utf8',
+    timeout: options.timeout ?? 15_000,
+    maxBuffer: options.maxBuffer ?? 1024 * 1024,
+  });
+  return {
+    status: result.status,
+    stdout: result.stdout || '',
+    stderr: result.stderr || result.error?.message || '',
+  };
+};
+
 /**
- * Attempt to auto-detect gateway configuration from the local OpenClaw install.
- * Returns null values for anything that can't be detected.
+ * Read the active local Gateway token and URL for setup defaults.
+ *
+ * This remains read-only discovery. All mutations in this module go through
+ * the OpenClaw CLI.
  */
 export function detectGatewayConfig(): DetectedGateway {
-  const result: DetectedGateway = { token: null, url: null };
+  const result: DetectedGateway = { token: readSystemdGatewayToken(), url: null };
   const openclawConfigPath = resolveOpenClawConfigPath();
-
-  // The gateway process prefers the systemd env var over the config file token,
-  // so detect it first even when openclaw.json is absent or broken.
-  const systemdToken = readSystemdGatewayToken();
-  if (systemdToken) {
-    result.token = systemdToken;
-  }
-
-  if (!existsSync(openclawConfigPath)) {
-    return result;
-  }
+  if (!existsSync(openclawConfigPath)) return result;
 
   try {
-    const raw = readFileSync(openclawConfigPath, 'utf-8');
-    const config = JSON.parse(raw) as OpenClawConfig;
-
-    if (!result.token && config.gateway?.auth?.token) {
-      result.token = config.gateway.auth.token;
-    }
-
-    // Derive URL from port — always use 127.0.0.1 since Nerve connects locally
-    const port = config.gateway?.port || 18789;
-    result.url = `http://127.0.0.1:${port}`;
+    const config = JSON.parse(readFileSync(openclawConfigPath, 'utf8')) as OpenClawConfig;
+    if (!result.token && config.gateway?.auth?.token) result.token = config.gateway.auth.token;
+    result.url = `http://127.0.0.1:${config.gateway?.port || 18789}`;
   } catch {
-    // Config exists but can't be parsed — keep any detected token and return null URL
+    // Keep any service token already discovered.
   }
-
   return result;
 }
 
-/**
- * Read the gateway token from the systemd service file.
- * The gateway process uses this env var over the config file value.
- */
 function readSystemdGatewayToken(): string | null {
   const servicePaths = [
     join(HOME, '.config', 'systemd', 'user', 'openclaw-gateway.service'),
     '/etc/systemd/system/openclaw-gateway.service',
   ];
-  for (const p of servicePaths) {
-    if (!existsSync(p)) continue;
+  for (const servicePath of servicePaths) {
+    if (!existsSync(servicePath)) continue;
     try {
-      const content = readFileSync(p, 'utf-8');
-      const match = content.match(/OPENCLAW_GATEWAY_TOKEN=(\S+)/);
+      const match = readFileSync(servicePath, 'utf8').match(/OPENCLAW_GATEWAY_TOKEN=(\S+)/);
       if (match?.[1]) return match[1];
-    } catch { /* skip */ }
+    } catch {
+      // Try the next supported service path.
+    }
   }
   return null;
 }
 
-/**
- * Check if the OPENCLAW_GATEWAY_TOKEN environment variable is already set.
- * This is the standard env var that OpenClaw itself uses.
- */
 export function getEnvGatewayToken(): string | null {
   return process.env.OPENCLAW_GATEWAY_TOKEN || null;
 }
@@ -134,77 +124,153 @@ export function chooseSetupGatewayToken(opts: {
 }): GatewayTokenChoice {
   const existingToken = opts.existingToken?.trim();
   if (existingToken) return { token: existingToken, source: 'existing' };
-
   const detectedToken = opts.detectedToken?.trim();
   if (detectedToken) return { token: detectedToken, source: 'detected' };
-
   const envToken = opts.envToken?.trim();
   if (envToken) return { token: envToken, source: 'env' };
-
   return { token: null, source: 'none' };
 }
 
-export interface GatewayPatchResult {
-  ok: boolean;
-  message: string;
-  configPath: string;
+export interface NativeOpenClawCapabilities {
+  configPatch: boolean;
+  devicesList: boolean;
+  devicesApprove: boolean;
 }
 
-/**
- * Patch the OpenClaw gateway config to allow external origins.
- * Adds the given origin to gateway.controlUi.allowedOrigins (deduped).
- * Returns a result indicating success/failure.
- */
-export function patchGatewayAllowedOrigins(origin: string): GatewayPatchResult {
-  const openclawConfigPath = resolveOpenClawConfigPath();
-  const result: GatewayPatchResult = { ok: false, message: '', configPath: openclawConfigPath };
+export function detectNativeOpenClawCapabilities(
+  runner: NativeCommandRunner = runNativeCommand,
+): NativeOpenClawCapabilities {
+  const command = resolveOpenClawBin();
+  const supports = (args: string[], marker: string): boolean => {
+    const result = runner(command, args, { encoding: 'utf8', timeout: 10_000 });
+    return result.status === 0 && `${result.stdout}\n${result.stderr}`.includes(marker);
+  };
+  return {
+    configPatch: supports(['config', 'patch', '--help'], '--dry-run'),
+    devicesList: supports(['devices', 'list', '--help'], '--json'),
+    devicesApprove: supports(['devices', 'approve', '--help'], 'requestId'),
+  };
+}
 
-  if (!existsSync(openclawConfigPath)) {
-    result.message = `Config not found: ${openclawConfigPath}`;
-    return result;
-  }
-
+function normalizeOrigin(origin: string): string | null {
   try {
-    const raw = readFileSync(openclawConfigPath, 'utf-8');
-    const config = JSON.parse(raw) as OpenClawConfig;
-
-    config.gateway = config.gateway || {};
-    config.gateway.controlUi = config.gateway.controlUi || {};
-    const origins = config.gateway.controlUi.allowedOrigins || [];
-
-    if (origins.includes(origin)) {
-      result.ok = true;
-      result.message = `Origin already allowed: ${origin}`;
-      return result;
-    }
-
-    origins.push(origin);
-    config.gateway.controlUi.allowedOrigins = origins;
-
-    writeFileSync(openclawConfigPath, JSON.stringify(config, null, 2) + '\n');
-    result.ok = true;
-    result.message = `Added ${origin} to gateway.controlUi.allowedOrigins`;
-    return result;
-  } catch (err) {
-    result.message = `Failed to patch config: ${err instanceof Error ? err.message : String(err)}`;
-    return result;
+    const normalized = new URL(origin.trim()).origin;
+    return normalized === 'null' ? null : normalized;
+  } catch {
+    return null;
   }
 }
 
-// Must match the connect metadata sent by Nerve's browser WS client
-// (src/hooks/useWebSocket.ts) to avoid OpenClaw 2026.2.26+ metadata-repair prompts.
-const NERVE_PAIRED_PLATFORM = 'web';
-const NERVE_PAIRED_CLIENT_ID = 'webchat-ui';
-const NERVE_PAIRED_CLIENT_MODE = 'webchat';
-const NERVE_PAIRED_DISPLAY_NAME = 'Nerve UI';
+function parseOriginList(raw: string): string[] | null {
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return Array.isArray(parsed) && parsed.every(value => typeof value === 'string')
+      ? parsed
+      : null;
+  } catch {
+    return null;
+  }
+}
 
-const FULL_OPERATOR_SCOPES = [
-  'operator.admin',
-  'operator.read',
-  'operator.write',
-  'operator.approvals',
-  'operator.pairing',
-];
+export interface GatewayOriginUpdateResult {
+  ok: boolean;
+  changed: boolean;
+  origins: string[];
+  message: string;
+}
+
+export function ensureGatewayAllowedOrigins(
+  requestedOrigins: string[],
+  runner: NativeCommandRunner = runNativeCommand,
+): GatewayOriginUpdateResult {
+  const requested = [...new Set(
+    requestedOrigins
+      .map(normalizeOrigin)
+      .filter((origin): origin is string => Boolean(origin)),
+  )];
+  if (requested.length === 0) {
+    return { ok: true, changed: false, origins: [], message: 'No Gateway origins required' };
+  }
+
+  const command = resolveOpenClawBin();
+  const currentResult = runner(
+    command,
+    ['config', 'get', 'gateway.controlUi.allowedOrigins', '--json'],
+    { encoding: 'utf8', timeout: 10_000 },
+  );
+  const missingPath = `${currentResult.stdout}\n${currentResult.stderr}`.includes('Config path not found');
+  const current = currentResult.status === 0
+    ? parseOriginList(currentResult.stdout)
+    : missingPath ? [] : null;
+  if (!current) {
+    return {
+      ok: false,
+      changed: false,
+      origins: [],
+      message: `Could not read Gateway allowed origins: ${currentResult.stderr || currentResult.stdout}`.trim(),
+    };
+  }
+
+  const merged = [...current];
+  const normalizedCurrent = new Set(current.map(normalizeOrigin).filter(Boolean));
+  for (const origin of requested) {
+    if (!normalizedCurrent.has(origin)) {
+      merged.push(origin);
+      normalizedCurrent.add(origin);
+    }
+  }
+  if (merged.length === current.length) {
+    return {
+      ok: true,
+      changed: false,
+      origins: current,
+      message: 'Gateway allowed origins already include the required values',
+    };
+  }
+
+  const patch = JSON.stringify({ gateway: { controlUi: { allowedOrigins: merged } } });
+  const patchArgs = [
+    'config',
+    'patch',
+    '--stdin',
+    '--replace-path',
+    'gateway.controlUi.allowedOrigins',
+  ];
+  const dryRun = runner(command, [...patchArgs, '--dry-run', '--json'], {
+    encoding: 'utf8',
+    input: patch,
+    timeout: 20_000,
+  });
+  if (dryRun.status !== 0) {
+    return {
+      ok: false,
+      changed: false,
+      origins: current,
+      message: `OpenClaw rejected the origin update: ${dryRun.stderr || dryRun.stdout}`.trim(),
+    };
+  }
+
+  const applied = runner(command, patchArgs, {
+    encoding: 'utf8',
+    input: patch,
+    timeout: 20_000,
+  });
+  if (applied.status !== 0) {
+    return {
+      ok: false,
+      changed: false,
+      origins: current,
+      message: `Failed to update Gateway allowed origins: ${applied.stderr || applied.stdout}`.trim(),
+    };
+  }
+
+  return {
+    ok: true,
+    changed: true,
+    origins: merged,
+    message: `Added ${merged.length - current.length} Gateway allowed origin(s) with OpenClaw config`,
+  };
+}
 
 interface DeviceIdentityMatch {
   deviceId?: string;
@@ -217,523 +283,129 @@ interface PendingDeviceRequest {
   publicKey?: string;
 }
 
-const SAFE_DEVICE_REQUEST_ID_RE = /^[A-Za-z0-9_-]+$/;
-
-type PendingDeviceExec = (
-  command: string,
-  options?: Pick<ExecSyncOptions, 'timeout' | 'stdio'>,
-) => string | Buffer;
-
-function hasFullOperatorScopes(scopes?: string[]): boolean {
-  return FULL_OPERATOR_SCOPES.every(scope => (scopes || []).includes(scope));
-}
-
-function readGatewayDeviceId(): string | null {
-  const deviceJsonPath = join(resolveOpenClawHome(), 'identity', 'device.json');
-  if (!existsSync(deviceJsonPath)) return null;
-
-  try {
-    const device = JSON.parse(readFileSync(deviceJsonPath, 'utf-8')) as { deviceId?: string };
-    return device.deviceId || null;
-  } catch {
-    return null;
-  }
-}
-
 function readNerveDeviceIdentity(): DeviceIdentityMatch | null {
   const nerveDir = process.env.NERVE_DATA_DIR || join(process.env.HOME || HOME, '.nerve');
   const identityPath = join(nerveDir, 'device-identity.json');
   if (!existsSync(identityPath)) return null;
-
   try {
-    const stored = JSON.parse(readFileSync(identityPath, 'utf-8')) as {
+    const stored = JSON.parse(readFileSync(identityPath, 'utf8')) as {
       deviceId?: string;
       publicKeyB64url?: string;
     };
     const deviceId = stored.deviceId?.trim();
     const publicKey = stored.publicKeyB64url?.trim();
-    if (!deviceId && !publicKey) return null;
-    return { deviceId, publicKey };
+    return deviceId || publicKey ? { deviceId, publicKey } : null;
   } catch {
     return null;
   }
 }
 
-function matchesPendingDeviceRequest(item: PendingDeviceRequest, identity: DeviceIdentityMatch): boolean {
+function matchesPendingDeviceRequest(
+  item: PendingDeviceRequest,
+  identity: DeviceIdentityMatch,
+): boolean {
   const requestDeviceId = item.deviceId?.trim();
   const requestPublicKey = item.publicKey?.trim();
-
   if (identity.deviceId && identity.publicKey) {
     return requestDeviceId === identity.deviceId && requestPublicKey === identity.publicKey;
   }
-
-  if (identity.deviceId) {
-    return requestDeviceId === identity.deviceId;
-  }
-
-  if (identity.publicKey) {
-    return requestPublicKey === identity.publicKey;
-  }
-
-  return false;
+  if (identity.deviceId) return requestDeviceId === identity.deviceId;
+  return Boolean(identity.publicKey && requestPublicKey === identity.publicKey);
 }
 
-function localIdentityNeedsScopeFix(targetDeviceId: string): boolean {
-  const identityPath = join(resolveOpenClawHome(), 'identity', 'device-auth.json');
-  if (!existsSync(identityPath)) return false;
-
-  try {
-    const identity = JSON.parse(readFileSync(identityPath, 'utf-8')) as {
-      deviceId?: string;
-      tokens?: Record<string, { scopes?: string[] }>;
-    };
-    const identityDeviceId = identity.deviceId?.trim();
-    if (identityDeviceId && identityDeviceId !== targetDeviceId) {
-      return false;
-    }
-    return Object.values(identity.tokens || {}).some(token => !hasFullOperatorScopes(token.scopes));
-  } catch {
-    return false;
-  }
+function gatewayWsUrl(gatewayUrl: string): string {
+  const url = new URL(gatewayUrl);
+  url.protocol = url.protocol === 'https:' || url.protocol === 'wss:' ? 'wss:' : 'ws:';
+  if (!url.pathname || url.pathname === '/') url.pathname = '/ws';
+  return url.toString();
 }
 
-function repairPairedDeviceScopes(device: {
-  scopes?: string[];
-  tokens?: Record<string, { scopes?: string[] }>;
-}): boolean {
-  let changed = false;
-
-  if (!hasFullOperatorScopes(device.scopes)) {
-    device.scopes = [...FULL_OPERATOR_SCOPES];
-    changed = true;
-  }
-
-  if (device.tokens?.operator && !hasFullOperatorScopes(device.tokens.operator.scopes)) {
-    device.tokens.operator.scopes = [...FULL_OPERATOR_SCOPES];
-    changed = true;
-  }
-
-  return changed;
+export interface DeviceApprovalResult {
+  ok: boolean;
+  approved: number;
+  requestId?: string;
+  message: string;
 }
 
-/**
- * Bootstrap paired.json from scratch on a fresh install.
- * Reads the gateway's own device identity and creates the paired file
- * with full operator scopes + a device-auth.json for the CLI.
- */
-function bootstrapPairedJson(): { ok: boolean; message: string; needsRestart: boolean } {
-  const deviceJsonPath = join(resolveOpenClawHome(), 'identity', 'device.json');
-  const pairedPath = join(resolveOpenClawHome(), 'devices', 'paired.json');
-  const deviceAuthPath = join(resolveOpenClawHome(), 'identity', 'device-auth.json');
-
-  if (!existsSync(deviceJsonPath)) {
-    return { ok: false, message: 'No gateway device identity found', needsRestart: false };
-  }
-
-  try {
-    const device = JSON.parse(readFileSync(deviceJsonPath, 'utf-8'));
-    const deviceId = device.deviceId;
-    // Extract raw public key from PEM
-    const pubPem = device.publicKeyPem as string;
-    const pubDer = crypto.createPublicKey(pubPem).export({ type: 'spki', format: 'der' });
-    const rawPub = pubDer.slice(-32);
-    const publicKeyB64url = rawPub.toString('base64url');
-
-    const now = Date.now();
-    // Use the gateway auth token — the CLI sends this token in connect requests,
-    // so the device's stored token must match it.
-    const detected = detectGatewayConfig();
-    const token = detected.token || crypto.randomBytes(32).toString('base64url');
-
-    // Create paired.json
-    const paired: Record<string, unknown> = {
-      [deviceId]: {
-        deviceId,
-        publicKey: publicKeyB64url,
-        platform: process.platform,
-        clientId: 'gateway-client',
-        clientMode: 'backend',
-        role: 'operator',
-        roles: ['operator'],
-        scopes: FULL_OPERATOR_SCOPES,
-        tokens: {
-          operator: {
-            token,
-            role: 'operator',
-            scopes: FULL_OPERATOR_SCOPES,
-            createdAtMs: now,
-          },
-        },
-        createdAtMs: now,
-        approvedAtMs: now,
-      },
-    };
-
-    const devicesDir = join(resolveOpenClawHome(), 'devices');
-    if (!existsSync(devicesDir)) {
-      mkdirSync(devicesDir, { recursive: true, mode: 0o700 });
-    }
-    writeFileSync(pairedPath, JSON.stringify(paired, null, 2) + '\n', { mode: 0o600 });
-
-    // Create matching device-auth.json so the CLI can connect
-    const deviceAuth = {
-      version: 1,
-      deviceId,
-      tokens: {
-        operator: {
-          token,
-          role: 'operator',
-          scopes: FULL_OPERATOR_SCOPES,
-          updatedAtMs: now,
-        },
-      },
-    };
-    writeFileSync(deviceAuthPath, JSON.stringify(deviceAuth, null, 2) + '\n', { mode: 0o600 });
-
-    return { ok: true, message: 'Bootstrapped gateway device with full scopes', needsRestart: true };
-  } catch (err) {
-    return {
-      ok: false,
-      message: `Bootstrap failed: ${err instanceof Error ? err.message : String(err)}`,
-      needsRestart: false,
-    };
-  }
-}
-
-/**
- * Workaround for OpenClaw 2026.2.19 bootstrap bug.
- *
- * On fresh install, the gateway creates its own device identity with only
- * `operator.read` scope. But the CLI needs `operator.admin` + `operator.approvals`
- * + `operator.pairing` for commands like `devices list`. This creates a deadlock:
- * can't approve devices because the CLI can't connect with sufficient scopes.
- *
- * This function upgrades the gateway's own device scopes in paired.json and
- * restarts the gateway, breaking the deadlock.
- */
-export function fixGatewayDeviceScopes(opts: {
-  targetDeviceId?: string;
-} = {}): { ok: boolean; message: string; needsRestart: boolean } {
-  const pairedPath = join(resolveOpenClawHome(), 'devices', 'paired.json');
-
-  if (!existsSync(pairedPath)) {
-    // Fresh install — no paired.json yet. Bootstrap by creating it with the
-    // gateway's own device identity (from identity/device.json) fully scoped.
-    return bootstrapPairedJson();
-  }
-
-  const targetDeviceId = opts.targetDeviceId || readGatewayDeviceId();
-  if (!targetDeviceId) {
-    return { ok: false, message: 'Could not determine which gateway device to repair', needsRestart: false };
-  }
-
-  try {
-    const raw = readFileSync(pairedPath, 'utf-8');
-    const paired = JSON.parse(raw) as Record<string, {
-      scopes?: string[];
-      tokens?: Record<string, { scopes?: string[] }>;
-    }>;
-
-    const targetDevice = paired[targetDeviceId];
-    if (!targetDevice) {
-      return { ok: false, message: `Target device not found in paired.json: ${targetDeviceId}`, needsRestart: false };
-    }
-
-    const pairedChanged = repairPairedDeviceScopes(targetDevice);
-    if (pairedChanged) {
-      writeFileSync(pairedPath, JSON.stringify(paired, null, 2) + '\n');
-    }
-
-    // Also fix the CLI's own identity file — without this the gateway sees a
-    // scope mismatch (token claims operator.read, paired.json says full set)
-    // and triggers a scope-upgrade request that requires approval scopes to
-    // approve, creating another deadlock.
-    let identityChanged = false;
-    const identityPath = join(resolveOpenClawHome(), 'identity', 'device-auth.json');
-    if (existsSync(identityPath)) {
-      try {
-        const idRaw = readFileSync(identityPath, 'utf-8');
-        const identity = JSON.parse(idRaw) as {
-          deviceId?: string;
-          tokens?: Record<string, { scopes?: string[] }>;
-        };
-        const identityDeviceId = identity.deviceId?.trim();
-        if (!identityDeviceId || identityDeviceId === targetDeviceId) {
-          for (const [, tok] of Object.entries(identity.tokens || {})) {
-            if (!hasFullOperatorScopes(tok.scopes)) {
-              tok.scopes = [...FULL_OPERATOR_SCOPES];
-              identityChanged = true;
-            }
-          }
-        }
-        if (identityChanged) {
-          writeFileSync(identityPath, JSON.stringify(identity, null, 2) + '\n');
-        }
-      } catch {
-        // Non-fatal — paired.json fix is the critical one
-      }
-    }
-
-    if (!pairedChanged && !identityChanged) {
-      return { ok: true, message: 'Device scopes already correct', needsRestart: false };
-    }
-
-    return { ok: true, message: 'Upgraded gateway device scopes', needsRestart: true };
-  } catch (err) {
-    return {
-      ok: false,
-      message: `Failed to fix device scopes: ${err instanceof Error ? err.message : String(err)}`,
-      needsRestart: false,
-    };
-  }
-}
-
-/**
- * Approve only the pending pairing request that can be safely matched to Nerve.
- * If the request cannot be identified unambiguously, fail closed and require manual approval.
- */
-export function approvePendingNerveDevice(deps: {
-  exec?: PendingDeviceExec;
-} = {}): { ok: boolean; approved: number; message: string } {
-  const run = deps.exec || execSync;
+export function approvePendingNerveDevice(opts: {
+  gatewayUrl?: string;
+  gatewayToken?: string;
+  runner?: NativeCommandRunner;
+} = {}): DeviceApprovalResult {
+  const runner = opts.runner || runNativeCommand;
   const identity = readNerveDeviceIdentity();
   if (!identity) {
     return {
       ok: false,
       approved: 0,
-      message: 'Could not identify Nerve device identity, approve manually with `openclaw devices list`',
+      message: 'Could not identify the ConvoSketchpad device; use `openclaw devices list` on the Gateway host',
     };
   }
 
-  try {
-    const listOutput = run('openclaw devices list --json 2>/dev/null', {
-      timeout: 10000,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    }).toString();
-
-    let pendingItems: PendingDeviceRequest[] = [];
-    try {
-      const parsed = JSON.parse(listOutput);
-      if (!Array.isArray(parsed?.pending)) {
-        return {
-          ok: false,
-          approved: 0,
-          message: 'Could not safely inspect pending requests, approve Nerve manually with `openclaw devices list`',
-        };
-      }
-      pendingItems = parsed.pending;
-    } catch {
-      return {
-        ok: false,
-        approved: 0,
-        message: 'Could not safely inspect pending requests, approve Nerve manually with `openclaw devices list`',
-      };
-    }
-
-    const matches = pendingItems.filter((item) => {
-      if (!item?.requestId || typeof item.requestId !== 'string') return false;
-      if (!SAFE_DEVICE_REQUEST_ID_RE.test(item.requestId)) return false;
-      return matchesPendingDeviceRequest(item, identity);
-    });
-
-    if (matches.length === 0) {
-      if (pendingItems.length === 0) {
-        return { ok: true, approved: 0, message: 'No pending requests' };
-      }
-      return {
-        ok: false,
-        approved: 0,
-        message: 'Could not safely identify the Nerve request, approve manually with `openclaw devices list`',
-      };
-    }
-
-    if (matches.length !== 1) {
-      return {
-        ok: false,
-        approved: 0,
-        message: 'Could not safely identify a single Nerve request, approve manually with `openclaw devices list`',
-      };
-    }
-
-    run(`openclaw devices approve ${matches[0].requestId}`, { timeout: 10000, stdio: 'pipe' });
-    return { ok: true, approved: 1, message: 'Approved Nerve pending device request' };
-  } catch {
-    return { ok: false, approved: 0, message: 'Could not inspect pending requests safely, approve Nerve manually with `openclaw devices list`' };
-  }
-}
-
-/**
- * Pre-pair Nerve's device identity in the gateway's paired.json.
- *
- * Generates the Nerve device identity (Ed25519 keypair) if it doesn't exist,
- * then registers it directly in paired.json with full operator scopes.
- * This means Nerve can connect to the gateway immediately on first start
- * without any manual `openclaw devices approve` step.
- */
-export function prePairNerveDevice(gatewayToken?: string): { ok: boolean; message: string; needsRestart: boolean } {
-  const nerveDir = process.env.NERVE_DATA_DIR
-    || join(process.env.HOME || HOME, '.nerve');
-  const identityPath = join(nerveDir, 'device-identity.json');
-  const pairedPath = join(resolveOpenClawHome(), 'devices', 'paired.json');
-
-  if (!existsSync(pairedPath)) {
-    // fixGatewayDeviceScopes should have created this — but handle gracefully
-    return { ok: false, message: 'No paired devices file — run fixGatewayDeviceScopes first', needsRestart: false };
-  }
-
-  try {
-    // Load or generate Nerve device identity
-    let deviceId: string;
-    let publicKeyB64url: string;
-
-    if (existsSync(identityPath)) {
-      const stored = JSON.parse(readFileSync(identityPath, 'utf-8'));
-      deviceId = stored.deviceId;
-      publicKeyB64url = stored.publicKeyB64url;
-    } else {
-      // Generate new Ed25519 keypair (same logic as server/lib/device-identity.ts)
-      const { publicKey, privateKey } = crypto.generateKeyPairSync('ed25519');
-      const pubDer = publicKey.export({ type: 'spki', format: 'der' }) as Buffer;
-      const rawPub = pubDer.slice(-32);
-      publicKeyB64url = rawPub.toString('base64url');
-      deviceId = crypto.createHash('sha256').update(rawPub).digest('hex');
-      const privateKeyPem = privateKey.export({ type: 'pkcs8', format: 'pem' }) as string;
-
-      // Persist identity
-      if (!existsSync(nerveDir)) {
-        mkdirSync(nerveDir, { recursive: true, mode: 0o700 });
-      }
-      writeFileSync(identityPath, JSON.stringify({
-        deviceId,
-        publicKeyB64url,
-        privateKeyPem,
-        createdAt: new Date().toISOString(),
-      }, null, 2) + '\n', { mode: 0o600 });
-    }
-
-    // Register in paired.json
-    const paired = JSON.parse(readFileSync(pairedPath, 'utf-8')) as Record<string, unknown>;
-
-    // Use the gateway auth token — Nerve's WS proxy forwards the browser's
-    // connect request which includes this token. The gateway validates that
-    // the token in the connect request matches the device's stored token.
-    const now = Date.now();
-    const token = gatewayToken || detectGatewayConfig().token || crypto.randomBytes(32).toString('base64url');
-
-    // Update metadata/token if device already exists
-    if (paired[deviceId]) {
-      const existing = paired[deviceId] as {
-        scopes?: string[];
-        displayName?: string;
-        platform?: string;
-        clientId?: string;
-        clientMode?: string;
-        tokens?: Record<string, {
-          token?: string;
-          role?: string;
-          scopes?: string[];
-          createdAtMs?: number;
-        }>;
-      };
-
-      let changed = false;
-      const changedFields: string[] = [];
-
-      // Keep token aligned with gateway auth token used by Nerve
-      if (!existing.tokens) {
-        existing.tokens = {};
-        changed = true;
-      }
-      if (!existing.tokens.operator) {
-        existing.tokens.operator = {
-          token,
-          role: 'operator',
-          scopes: [...FULL_OPERATOR_SCOPES],
-          createdAtMs: now,
-        };
-        changed = true;
-        changedFields.push('token');
-      } else if (existing.tokens.operator.token !== token) {
-        existing.tokens.operator.token = token;
-        changed = true;
-        changedFields.push('token');
-      }
-
-      if (repairPairedDeviceScopes(existing)) {
-        changed = true;
-        changedFields.push('scopes');
-      }
-
-      // OpenClaw 2026.2.26+ pins platform/device metadata on paired devices.
-      // These must match the browser connect metadata Nerve sends.
-      if (existing.platform !== NERVE_PAIRED_PLATFORM) {
-        existing.platform = NERVE_PAIRED_PLATFORM;
-        changed = true;
-        changedFields.push('platform');
-      }
-      if (existing.clientId !== NERVE_PAIRED_CLIENT_ID) {
-        existing.clientId = NERVE_PAIRED_CLIENT_ID;
-        changed = true;
-        changedFields.push('clientId');
-      }
-      if (existing.clientMode !== NERVE_PAIRED_CLIENT_MODE) {
-        existing.clientMode = NERVE_PAIRED_CLIENT_MODE;
-        changed = true;
-        changedFields.push('clientMode');
-      }
-      if (existing.displayName !== NERVE_PAIRED_DISPLAY_NAME) {
-        existing.displayName = NERVE_PAIRED_DISPLAY_NAME;
-        changed = true;
-        changedFields.push('displayName');
-      }
-
-      if (!changed) {
-        return { ok: true, message: 'Nerve device already paired', needsRestart: false };
-      }
-
-      writeFileSync(pairedPath, JSON.stringify(paired, null, 2) + '\n');
-      const fieldsLabel = changedFields.length > 0 ? ` (${[...new Set(changedFields)].join(', ')})` : '';
-      return {
-        ok: true,
-        message: `Updated Nerve paired device ${deviceId.substring(0, 12)}…${fieldsLabel}`,
-        needsRestart: true,
-      };
-    }
-
-    paired[deviceId] = {
-      deviceId,
-      publicKey: publicKeyB64url,
-      displayName: NERVE_PAIRED_DISPLAY_NAME,
-      platform: NERVE_PAIRED_PLATFORM,
-      clientId: NERVE_PAIRED_CLIENT_ID,
-      clientMode: NERVE_PAIRED_CLIENT_MODE,
-      role: 'operator',
-      roles: ['operator'],
-      scopes: FULL_OPERATOR_SCOPES,
-      tokens: {
-        operator: {
-          token,
-          role: 'operator',
-          scopes: FULL_OPERATOR_SCOPES,
-          createdAtMs: now,
-        },
-      },
-      createdAtMs: now,
-      approvedAtMs: now,
-    };
-
-    writeFileSync(pairedPath, JSON.stringify(paired, null, 2) + '\n');
-    return { ok: true, message: `Pre-paired Nerve device ${deviceId.substring(0, 12)}…`, needsRestart: true };
-  } catch (err) {
+  const connectionArgs = opts.gatewayUrl
+    ? ['--url', gatewayWsUrl(opts.gatewayUrl), ...(opts.gatewayToken ? ['--token', opts.gatewayToken] : [])]
+    : [];
+  const command = resolveOpenClawBin();
+  const listed = runner(command, ['devices', 'list', '--json', ...connectionArgs], {
+    encoding: 'utf8',
+    timeout: 10_000,
+  });
+  if (listed.status !== 0) {
     return {
       ok: false,
-      message: `Failed to pre-pair: ${err instanceof Error ? err.message : String(err)}`,
-      needsRestart: false,
+      approved: 0,
+      message: 'Could not inspect pending devices; approve the ConvoSketchpad request on the Gateway host',
     };
   }
-}
 
-// ── Detection layer ──────────────────────────────────────────────────
+  let pendingItems: PendingDeviceRequest[];
+  try {
+    const parsed = JSON.parse(listed.stdout) as { pending?: unknown };
+    if (!Array.isArray(parsed.pending)) throw new Error('invalid pending shape');
+    pendingItems = parsed.pending as PendingDeviceRequest[];
+  } catch {
+    return {
+      ok: false,
+      approved: 0,
+      message: 'OpenClaw returned an unusable pending-device response',
+    };
+  }
+
+  const matches = pendingItems.filter(item =>
+    typeof item.requestId === 'string'
+    && SAFE_DEVICE_REQUEST_ID_RE.test(item.requestId)
+    && matchesPendingDeviceRequest(item, identity));
+  if (matches.length !== 1) {
+    return {
+      ok: matches.length === 0 && pendingItems.length === 0,
+      approved: 0,
+      message: matches.length === 0
+        ? 'No unambiguous ConvoSketchpad pairing request was found'
+        : 'Multiple ConvoSketchpad pairing requests matched; approve one manually',
+    };
+  }
+
+  const requestId = matches[0].requestId!;
+  const approved = runner(
+    command,
+    ['devices', 'approve', requestId, ...connectionArgs],
+    { encoding: 'utf8', timeout: 10_000 },
+  );
+  if (approved.status !== 0) {
+    return {
+      ok: false,
+      approved: 0,
+      requestId,
+      message: `OpenClaw could not approve ${requestId}; approve it on the Gateway host`,
+    };
+  }
+  return {
+    ok: true,
+    approved: 1,
+    requestId,
+    message: `Approved ConvoSketchpad device request ${requestId}`,
+  };
+}
 
 export interface ConfigChange {
   id: string;
@@ -741,181 +413,28 @@ export interface ConfigChange {
   apply: () => { ok: boolean; message: string; needsRestart: boolean };
 }
 
-/**
- * Detect whether gateway-side operator scopes need repair/bootstrap.
- */
-function needsDeviceScopeFix(): boolean {
-  const pairedPath = join(resolveOpenClawHome(), 'devices', 'paired.json');
-
-  if (!existsSync(pairedPath)) {
-    // Fresh install — needs bootstrap if the gateway identity exists
-    const deviceJsonPath = join(resolveOpenClawHome(), 'identity', 'device.json');
-    return existsSync(deviceJsonPath);
-  }
-
-  const gatewayDeviceId = readGatewayDeviceId();
-  if (!gatewayDeviceId) return false;
-
-  try {
-    const raw = readFileSync(pairedPath, 'utf-8');
-    const paired = JSON.parse(raw) as Record<string, {
-      scopes?: string[];
-      tokens?: Record<string, { scopes?: string[] }>;
-    }>;
-    const targetDevice = paired[gatewayDeviceId];
-
-    if (!hasFullOperatorScopes(targetDevice?.scopes)) return true;
-    if (targetDevice?.tokens?.operator && !hasFullOperatorScopes(targetDevice.tokens.operator.scopes)) return true;
-    if (localIdentityNeedsScopeFix(gatewayDeviceId)) return true;
-
-    return false;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Detect whether Nerve device pre-pairing is needed.
- * Returns false when paired.json is absent; device-scope bootstrap will create it first.
- */
-function needsPrePair(gatewayToken?: string): boolean {
-  const nerveDir = process.env.NERVE_DATA_DIR || join(process.env.HOME || HOME, '.nerve');
-  const identityPath = join(nerveDir, 'device-identity.json');
-  const pairedPath = join(resolveOpenClawHome(), 'devices', 'paired.json');
-
-  if (!existsSync(pairedPath)) return false;
-
-  try {
-    const paired = JSON.parse(readFileSync(pairedPath, 'utf-8')) as Record<string, unknown>;
-
-    if (!existsSync(identityPath)) return true; // No Nerve identity yet
-
-    const stored = JSON.parse(readFileSync(identityPath, 'utf-8'));
-    const deviceId = stored.deviceId;
-
-    if (!paired[deviceId]) return true; // Nerve not registered
-
-    const existing = paired[deviceId] as {
-      scopes?: string[];
-      displayName?: string;
-      platform?: string;
-      clientId?: string;
-      clientMode?: string;
-      tokens?: Record<string, { token?: string; scopes?: string[] }>;
-    };
-
-    // Check token match — if no token is available, assume mismatch (apply will generate one)
-    const token = gatewayToken || detectGatewayConfig().token;
-    if (!token) return true;
-    if (existing.tokens?.operator?.token !== token) return true;
-    if (!hasFullOperatorScopes(existing.scopes)) return true;
-    if (!hasFullOperatorScopes(existing.tokens?.operator?.scopes)) return true;
-
-    // OpenClaw 2026.2.26+ metadata pinning requires these to match runtime connect metadata.
-    if (existing.platform !== NERVE_PAIRED_PLATFORM) return true;
-    if (existing.clientId !== NERVE_PAIRED_CLIENT_ID) return true;
-    if (existing.clientMode !== NERVE_PAIRED_CLIENT_MODE) return true;
-    if (existing.displayName !== NERVE_PAIRED_DISPLAY_NAME) return true;
-
-    return false;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Detect whether a specific origin is missing from gateway.controlUi.allowedOrigins.
- */
-function needsOriginPatch(origin: string): boolean {
-  const openclawConfigPath = resolveOpenClawConfigPath();
-  if (!existsSync(openclawConfigPath)) return false;
-
-  try {
-    const raw = readFileSync(openclawConfigPath, 'utf-8');
-    const config = JSON.parse(raw) as OpenClawConfig;
-    const origins = config.gateway?.controlUi?.allowedOrigins || [];
-    return !origins.includes(origin);
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Detect which gateway config changes are needed without applying them.
- * Returns an array of pending changes with descriptions and apply functions.
- */
 export function detectNeededConfigChanges(opts: {
   nerveOrigin?: string;
   nerveHttpsOrigin?: string;
   allowedOrigins?: string[];
-  gatewayToken?: string;
 }): ConfigChange[] {
-  const changes: ConfigChange[] = [];
-  const pairedPath = join(resolveOpenClawHome(), 'devices', 'paired.json');
-
-  const deviceScopeFixNeeded = needsDeviceScopeFix();
-
-  if (deviceScopeFixNeeded) {
-    changes.push({
-      id: 'device-scopes',
-      description: 'Fix gateway device scopes (required for Nerve to connect)',
-      apply: () => fixGatewayDeviceScopes(),
-    });
-  }
-
-  // If device-scopes will bootstrap paired.json, always include pre-pair
-  // (paired.json won't exist yet for detection, but will after device-scopes runs)
-  if ((!existsSync(pairedPath) && deviceScopeFixNeeded) || needsPrePair(opts.gatewayToken)) {
-    changes.push({
-      id: 'pre-pair',
-      description: 'Pre-pair Nerve device identity (skip manual approval step)',
-      apply: () => prePairNerveDevice(opts.gatewayToken),
-    });
-  }
-
-  const trimmedNerveOrigin = opts.nerveOrigin?.trim() || undefined;
-  const trimmedNerveHttpsOrigin = opts.nerveHttpsOrigin?.trim() || undefined;
-
   const origins = [...new Set([
     ...(opts.allowedOrigins || []),
-    trimmedNerveOrigin,
-    trimmedNerveHttpsOrigin,
+    opts.nerveOrigin,
+    opts.nerveHttpsOrigin,
   ].map(origin => origin?.trim()).filter((origin): origin is string => Boolean(origin)))];
+  if (origins.length === 0) return [];
 
-  for (const origin of origins) {
-    if (!needsOriginPatch(origin)) continue;
-
-    let id = `allowed-origins:${origin}`;
-    if (origin === trimmedNerveOrigin) id = 'allowed-origins';
-    else if (origin === trimmedNerveHttpsOrigin) id = 'allowed-origins-https';
-
-    changes.push({
-      id,
-      description: `Add ${origin} to allowed origins (needed for WebSocket)`,
-      apply: () => {
-        const r = patchGatewayAllowedOrigins(origin);
-        return { ok: r.ok, message: r.message, needsRestart: r.ok };
-      },
-    });
-  }
-
-  return changes;
+  return [{
+    id: 'allowed-origins',
+    description: `Add ${origins.join(', ')} to the Gateway allowed origins`,
+    apply: () => {
+      const result = ensureGatewayAllowedOrigins(origins);
+      return { ok: result.ok, message: result.message, needsRestart: false };
+    },
+  }];
 }
 
-/**
- * Attempt to restart the OpenClaw gateway so config changes take effect.
- * Tries `openclaw gateway restart` first, falls back to kill + start.
- */
-export function restartGateway(): { ok: boolean; message: string } {
-  try {
-    execSync('openclaw gateway restart', { timeout: 15000, stdio: 'pipe' });
-    return { ok: true, message: 'Gateway restarted' };
-  } catch {
-    try {
-      execSync('pkill -f "openclaw gateway" || true', { timeout: 5000, stdio: 'pipe' });
-      return { ok: true, message: 'Gateway process killed (should auto-restart if supervised)' };
-    } catch {
-      return { ok: false, message: 'Could not restart gateway — restart it manually' };
-    }
-  }
+export function requiredOperatorScopes(): string[] {
+  return [...REQUIRED_OPERATOR_SCOPES];
 }

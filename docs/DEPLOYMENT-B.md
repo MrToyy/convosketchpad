@@ -15,14 +15,52 @@ Add the Gateway hostname/IP to local `.env`:
 ```bash
 GATEWAY_URL=https://gateway.example.internal
 GATEWAY_TOKEN=<token>
+NERVE_GATEWAY_TIMEZONE=Asia/Shanghai
 WS_ALLOWED_HOSTS=gateway.example.internal
 ```
+
+Set `NERVE_GATEWAY_TIMEZONE` to the timezone of the Gateway host, not
+necessarily the ConvoSketchpad host. Canvas uses it with OpenClaw's effective
+daily/idle reset policy to recover context on the first send after a reset.
 
 On the Gateway host, add the browser-facing ConvoSketchpad origin to `gateway.controlUi.allowedOrigins`. For a local browser these are normally:
 
 ```text
 http://localhost:3080
 http://127.0.0.1:3080
+```
+
+Inspect the current array, merge those origins, then use OpenClaw's validated
+writer on the Gateway host:
+
+```bash
+openclaw config get gateway.controlUi.allowedOrigins --json
+openclaw config patch --file ./convosketchpad-origin.patch.json5 --dry-run
+openclaw config patch --file ./convosketchpad-origin.patch.json5
+```
+
+The patch file is config-shaped and must contain the merged array, for example:
+
+```json5
+{
+  gateway: {
+    controlUi: {
+      allowedOrigins: [
+        "http://localhost:3080",
+        "http://127.0.0.1:3080",
+        // Preserve any existing entries reported by `config get`.
+      ],
+    },
+  },
+}
+```
+
+Local setup never writes the remote Gateway's local config. Pair the device on
+that host with:
+
+```bash
+openclaw devices list --json
+openclaw devices approve <requestId>
 ```
 
 If the browser reaches ConvoSketchpad through a custom origin, also set `NERVE_PUBLIC_ORIGIN` to that exact origin.

@@ -21,6 +21,7 @@ function findProjectRoot(startDir: string): string | null {
 
 const projectRoot = findProjectRoot(moduleDir) ?? findProjectRoot(process.cwd()) ?? path.resolve(process.cwd());
 const homeDir = process.env.HOME || os.homedir();
+const localTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
 
 function positiveNumber(value: string | undefined, fallback: number): number {
   const parsed = Number(value);
@@ -33,6 +34,7 @@ export const config = {
   host: process.env.HOST || DEFAULT_HOST,
   gatewayUrl: process.env.GATEWAY_URL || DEFAULT_GATEWAY_URL,
   gatewayToken: process.env.GATEWAY_TOKEN || process.env.OPENCLAW_GATEWAY_TOKEN || '',
+  gatewayTimezone: process.env.NERVE_GATEWAY_TIMEZONE?.trim() || localTimezone,
   publicOrigin: process.env.NERVE_PUBLIC_ORIGIN || '',
   home: homeDir,
   workspaceRoot: process.env.NERVE_WORKSPACE_ROOT || path.join(homeDir, '.openclaw', 'workspace'),
@@ -86,6 +88,14 @@ export async function probeGateway(): Promise<void> {
 }
 
 export function validateConfig(): void {
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: config.gatewayTimezone }).format();
+  } catch {
+    console.error(
+      `Invalid NERVE_GATEWAY_TIMEZONE: ${config.gatewayTimezone}. Expected an IANA timezone such as Asia/Shanghai.`,
+    );
+    process.exit(1);
+  }
   if (!config.gatewayToken) {
     console.warn('GATEWAY_TOKEN is not set; Canvas Gateway calls will fail until it is configured.');
   }

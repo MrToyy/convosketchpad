@@ -142,6 +142,56 @@ describe('CanvasStore', () => {
     });
   });
 
+  it('proactively recovers a session and advances lifecycle timestamps on acknowledgement', () => {
+    const store = createStore();
+    const canvas = seedUser(store);
+    const branch = store.createRootBranch('user-a', canvas.id);
+    const firstReservation = store.prepareSend('user-a', {
+      branchId: branch.id,
+      userInput: 'one',
+      attachments: [],
+    });
+    const first = store.acknowledgeSend('user-a', firstReservation.id, 'run-1');
+    store.completeInteraction('user-a', first.id, {
+      status: 'completed',
+      agentOutput: 'answer one',
+      artifacts: [],
+    });
+
+    store.observeBranchSession(branch.id, 'session-1', 1_000);
+    store.observeBranchSession(branch.id, 'session-1', 2_000);
+    expect(store.getOwnedBranchSessionLifecycle('user-a', branch.id)).toMatchObject({
+      sessionStartedAt: 1_000,
+      observedSessionStartedAt: 1_000,
+    });
+
+    const recovery = store.prepareSend('user-a', {
+      branchId: branch.id,
+      expectedHeadInteractionId: first.id,
+      userInput: 'two',
+      attachments: [],
+      forceSessionRecovery: true,
+    });
+    expect(recovery.materialization).toBe('session-recovery');
+
+    store.observeBranchSession(branch.id, 'session-2', 3_000);
+    expect(store.getOwnedReservationSessionTarget('user-a', recovery.id)).toEqual({
+      branchId: branch.id,
+      sessionKey: branch.sessionKey,
+    });
+    expect(store.getOwnedReservationSessionTarget('user-b', recovery.id)).toBeNull();
+
+    store.acknowledgeSend('user-a', recovery.id, 'run-2');
+    expect(store.getOwnedBranchSessionLifecycle('user-a', branch.id)).toMatchObject({
+      sessionStartedAt: 3_000,
+      observedSessionStartedAt: 3_000,
+    });
+    expect(store.getGraph('user-a', canvas.id)!.branches[0]).toMatchObject({
+      openClawSessionId: 'session-2',
+      sessionIntegrity: 'healthy',
+    });
+  });
+
   it('recovers context when a previously observed OpenClaw session disappears', () => {
     const store = createStore();
     const canvas = seedUser(store);

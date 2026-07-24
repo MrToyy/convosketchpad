@@ -1,681 +1,382 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import type {
+  NativeCommandOptions,
+  NativeCommandResult,
+  NativeCommandRunner,
+} from './gateway-detect.js';
 
-const EXAMPLE_TS_DNS = 'example-node.tail0000.ts.net';
-const EXAMPLE_TS_IPV4 = '100.64.0.42';
-
-const FULL_OPERATOR_SCOPES = [
-  'operator.admin',
-  'operator.read',
-  'operator.write',
-  'operator.approvals',
-  'operator.pairing',
-];
-
-async function importGatewayDetect(execSyncImpl = vi.fn()): Promise<{
-  execSyncMock: ReturnType<typeof vi.fn>;
-  mod: typeof import('./gateway-detect.js');
-}> {
-  vi.doUnmock('node:child_process');
-  vi.resetModules();
-  vi.doMock('node:child_process', async () => {
-    const actual = await vi.importActual<typeof import('node:child_process')>('node:child_process');
-    return {
-      ...actual,
-      default: actual,
-      execSync: execSyncImpl,
-    };
-  });
-  const mod = await import('./gateway-detect.js');
-  return { execSyncMock: execSyncImpl, mod };
+interface NativeCall {
+  command: string;
+  args: string[];
+  options?: NativeCommandOptions;
 }
 
-describe('gateway detection and repair', () => {
+function commandResult(
+  status: number,
+  stdout = '',
+  stderr = '',
+): NativeCommandResult {
+  return { status, stdout, stderr };
+}
+
+describe('OpenClaw native gateway configuration', () => {
   const originalEnv = { ...process.env };
   let tempHome = '';
+  let nerveDir = '';
 
   beforeEach(() => {
     vi.restoreAllMocks();
     vi.resetModules();
-    tempHome = mkdtempSync(path.join(os.tmpdir(), 'nerve-gateway-detect-'));
+    tempHome = mkdtempSync(path.join(os.tmpdir(), 'convosketchpad-gateway-'));
+    nerveDir = path.join(tempHome, '.nerve');
     process.env.HOME = tempHome;
-    process.env.NERVE_DATA_DIR = path.join(tempHome, '.nerve');
+    process.env.NERVE_DATA_DIR = nerveDir;
+    delete process.env.OPENCLAW_CONFIG_PATH;
+    delete process.env.OPENCLAW_BIN;
     delete process.env.OPENCLAW_GATEWAY_TOKEN;
 
-    mkdirSync(path.join(tempHome, '.openclaw', 'devices'), { recursive: true });
-    mkdirSync(path.join(tempHome, '.openclaw', 'identity'), { recursive: true });
     mkdirSync(path.join(tempHome, '.openclaw'), { recursive: true });
-    mkdirSync(path.join(tempHome, '.nerve'), { recursive: true });
-
+    mkdirSync(nerveDir, { recursive: true });
     writeFileSync(path.join(tempHome, '.openclaw', 'openclaw.json'), JSON.stringify({
       gateway: {
         port: 18789,
-        auth: { token: 'test-token' },
-        controlUi: {
-          allowedOrigins: ['http://localhost:3080'],
-        },
+        auth: { token: 'detected-token' },
       },
-    }, null, 2));
-
-    writeFileSync(path.join(tempHome, '.nerve', 'device-identity.json'), JSON.stringify({
-      deviceId: 'nerve-device',
-      publicKeyB64url: 'nerve-public-key',
-    }, null, 2));
-
-    writeFileSync(path.join(tempHome, '.openclaw', 'devices', 'paired.json'), JSON.stringify({
-      'gateway-device': {
-        deviceId: 'gateway-device',
-        scopes: FULL_OPERATOR_SCOPES,
-        tokens: {
-          operator: {
-            token: 'gateway-token',
-            scopes: FULL_OPERATOR_SCOPES,
-          },
-        },
-      },
-      'nerve-device': {
-        deviceId: 'nerve-device',
-        scopes: FULL_OPERATOR_SCOPES,
-        displayName: 'Nerve UI',
-        platform: 'web',
-        clientId: 'webchat-ui',
-        clientMode: 'webchat',
-        tokens: {
-          operator: {
-            token: 'test-token',
-            scopes: FULL_OPERATOR_SCOPES,
-          },
-        },
-      },
-    }, null, 2));
-
-    writeFileSync(path.join(tempHome, '.openclaw', 'identity', 'device.json'), JSON.stringify({
-      deviceId: 'gateway-device',
-      publicKeyPem: '-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA2sI3DpP2u80EIk1BddY5hAzvY4xXHzkwmo7aX6ixkm0=\n-----END PUBLIC KEY-----\n',
-    }, null, 2));
-
-    writeFileSync(path.join(tempHome, '.openclaw', 'identity', 'device-auth.json'), JSON.stringify({
-      version: 1,
-      deviceId: 'gateway-device',
-      tokens: {
-        operator: {
-          token: 'gateway-token',
-          scopes: ['operator.read'],
-        },
-      },
-    }, null, 2));
+    }));
+    writeFileSync(path.join(nerveDir, 'device-identity.json'), JSON.stringify({
+      deviceId: 'convosketchpad-device',
+      publicKeyB64url: 'convosketchpad-public-key',
+      privateKeyPem: 'not-used-by-these-tests',
+    }));
   });
 
   afterEach(() => {
-    vi.doUnmock('node:child_process');
     process.env = { ...originalEnv };
-    if (tempHome) rmSync(tempHome, { recursive: true, force: true });
+    rmSync(tempHome, { recursive: true, force: true });
   });
 
-  it('emits one change per missing origin and patches both when applied', async () => {
-    const { mod } = await importGatewayDetect();
+  async function loadModule() {
+    vi.resetModules();
+    return import('./gateway-detect.js');
+  }
 
-    const changes = mod.detectNeededConfigChanges({
-      gatewayToken: 'test-token',
-      allowedOrigins: [
-        `  http://${EXAMPLE_TS_IPV4}:3080  `,
-        `https://${EXAMPLE_TS_DNS}`,
-      ],
+  it('detects the local Gateway without changing OpenClaw state', async () => {
+    const mod = await loadModule();
+    expect(mod.detectGatewayConfig()).toEqual({
+      token: 'detected-token',
+      url: 'http://127.0.0.1:18789',
     });
-
-    expect(changes.some(change => change.description.includes(`${EXAMPLE_TS_IPV4}:3080`))).toBe(true);
-    expect(changes.some(change => change.description.includes(EXAMPLE_TS_DNS))).toBe(true);
-
-    for (const change of changes.filter(change => change.description.includes('allowed origins'))) {
-      const result = change.apply();
-      expect(result.ok).toBe(true);
-    }
-
-    const updated = JSON.parse(readFileSync(path.join(tempHome, '.openclaw', 'openclaw.json'), 'utf8'));
-    expect(updated.gateway.controlUi.allowedOrigins).toEqual(expect.arrayContaining([
-      'http://localhost:3080',
-      `http://${EXAMPLE_TS_IPV4}:3080`,
-      `https://${EXAMPLE_TS_DNS}`,
-    ]));
-    expect(updated.gateway.controlUi.allowedOrigins).not.toContain(`  http://${EXAMPLE_TS_IPV4}:3080  `);
   });
 
-  it('uses OPENCLAW_CONFIG_PATH when detecting gateway config', async () => {
-    const customConfigPath = path.join(tempHome, 'custom', 'openclaw-alt.json');
-    mkdirSync(path.dirname(customConfigPath), { recursive: true });
-    writeFileSync(customConfigPath, JSON.stringify({
-      gateway: {
-        port: 19999,
-        auth: { token: 'custom-token' },
-        tools: { allow: [] },
-      },
-    }, null, 2));
-    process.env.OPENCLAW_CONFIG_PATH = customConfigPath;
+  it('honours OPENCLAW_CONFIG_PATH for read-only discovery', async () => {
+    const customPath = path.join(tempHome, 'custom', 'openclaw.json');
+    mkdirSync(path.dirname(customPath), { recursive: true });
+    writeFileSync(customPath, JSON.stringify({
+      gateway: { port: 19999, auth: { token: 'custom-token' } },
+    }));
+    process.env.OPENCLAW_CONFIG_PATH = customPath;
 
-    const { mod } = await importGatewayDetect();
-    const detected = mod.detectGatewayConfig();
-
-    expect(detected).toEqual({
+    const mod = await loadModule();
+    expect(mod.detectGatewayConfig()).toEqual({
       token: 'custom-token',
       url: 'http://127.0.0.1:19999',
     });
   });
 
-  it('writes device repair under the OPENCLAW_HOME derived from OPENCLAW_CONFIG_PATH', async () => {
-    const customHome = path.join(tempHome, 'custom');
-    const customConfigPath = path.join(customHome, 'openclaw.json');
-    mkdirSync(path.join(customHome, 'devices'), { recursive: true });
-    mkdirSync(path.join(customHome, 'identity'), { recursive: true });
-
-    writeFileSync(customConfigPath, JSON.stringify({
-      gateway: { port: 19999, auth: { token: 'custom-token' } },
-    }, null, 2));
-    writeFileSync(path.join(customHome, 'identity', 'device.json'), JSON.stringify({
-      deviceId: 'custom-gateway-device',
-      publicKeyPem: '-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA2sI3DpP2u80EIk1BddY5hAzvY4xXHzkwmo7aX6ixkm0=\n-----END PUBLIC KEY-----\n',
-    }, null, 2));
-    writeFileSync(path.join(customHome, 'devices', 'paired.json'), JSON.stringify({
-      'custom-gateway-device': {
-        deviceId: 'custom-gateway-device',
-        scopes: ['operator.read'],
-        tokens: {
-          operator: { token: 'custom-token', scopes: ['operator.read'] },
-        },
-      },
-    }, null, 2));
-    writeFileSync(path.join(customHome, 'identity', 'device-auth.json'), JSON.stringify({
-      version: 1,
-      deviceId: 'custom-gateway-device',
-      tokens: {
-        operator: { token: 'custom-token', scopes: ['operator.read'] },
-      },
-    }, null, 2));
-
-    process.env.OPENCLAW_CONFIG_PATH = customConfigPath;
-
-    const { mod } = await importGatewayDetect();
-    const result = mod.fixGatewayDeviceScopes();
-    expect(result.ok).toBe(true);
-
-    const repairedCustom = JSON.parse(readFileSync(path.join(customHome, 'devices', 'paired.json'), 'utf8'));
-    expect(repairedCustom['custom-gateway-device'].scopes).toEqual(expect.arrayContaining(FULL_OPERATOR_SCOPES));
-
-    const repairedIdentity = JSON.parse(readFileSync(path.join(customHome, 'identity', 'device-auth.json'), 'utf8'));
-    expect(repairedIdentity.tokens.operator.scopes).toEqual(expect.arrayContaining(FULL_OPERATOR_SCOPES));
-
-    const untouchedDefault = JSON.parse(readFileSync(path.join(tempHome, '.openclaw', 'devices', 'paired.json'), 'utf8'));
-    expect(untouchedDefault['gateway-device'].scopes).toEqual(FULL_OPERATOR_SCOPES);
-    expect(untouchedDefault['custom-gateway-device']).toBeUndefined();
-  });
-
-  it('uses OPENCLAW_CONFIG_PATH when patching gateway allowed origins', async () => {
-    const customConfigPath = path.join(tempHome, 'custom', 'openclaw-alt.json');
-    mkdirSync(path.dirname(customConfigPath), { recursive: true });
-    writeFileSync(customConfigPath, JSON.stringify({
-      gateway: { controlUi: { allowedOrigins: [] } },
-    }, null, 2));
-    process.env.OPENCLAW_CONFIG_PATH = customConfigPath;
-
-    const { mod } = await importGatewayDetect();
-    const result = mod.patchGatewayAllowedOrigins('http://custom.local:3080');
-
-    expect(result.ok).toBe(true);
-    expect(result.configPath).toBe(customConfigPath);
-
-    const updatedCustom = JSON.parse(readFileSync(customConfigPath, 'utf8'));
-    expect(updatedCustom.gateway.controlUi.allowedOrigins).toContain('http://custom.local:3080');
-
-    const unchangedDefault = JSON.parse(
-      readFileSync(path.join(tempHome, '.openclaw', 'openclaw.json'), 'utf8'),
-    );
-    expect(unchangedDefault.gateway.controlUi.allowedOrigins).not.toContain('http://custom.local:3080');
-  });
-
-  it('prefers a detected config token over a stale shell env token during setup', async () => {
-    process.env.OPENCLAW_GATEWAY_TOKEN = 'stale-shell-token';
-
-    const { mod } = await importGatewayDetect();
-    const detected = mod.detectGatewayConfig();
-
-    expect(detected.token).toBe('test-token');
+  it('keeps the documented token precedence', async () => {
+    const mod = await loadModule();
     expect(mod.chooseSetupGatewayToken({
-      envToken: mod.getEnvGatewayToken(),
-      detectedToken: detected.token,
-    })).toEqual({
-      token: 'test-token',
-      source: 'detected',
+      existingToken: ' existing ',
+      detectedToken: 'detected',
+      envToken: 'env',
+    })).toEqual({ token: 'existing', source: 'existing' });
+    expect(mod.chooseSetupGatewayToken({
+      detectedToken: ' detected ',
+      envToken: 'env',
+    })).toEqual({ token: 'detected', source: 'detected' });
+    expect(mod.chooseSetupGatewayToken({ envToken: ' env ' }))
+      .toEqual({ token: 'env', source: 'env' });
+    expect(mod.chooseSetupGatewayToken({}))
+      .toEqual({ token: null, source: 'none' });
+  });
+
+  it('detects required CLI capabilities instead of relying on a version number', async () => {
+    const mod = await loadModule();
+    const runner: NativeCommandRunner = (_command, args) => {
+      const key = args.join(' ');
+      if (key === 'config patch --help') return commandResult(0, '--dry-run');
+      if (key === 'devices list --help') return commandResult(0, '--json');
+      if (key === 'devices approve --help') return commandResult(0, '<requestId>');
+      return commandResult(1);
+    };
+
+    expect(mod.detectNativeOpenClawCapabilities(runner)).toEqual({
+      configPatch: true,
+      devicesList: true,
+      devicesApprove: true,
     });
   });
 
-  it('prefers the systemd runtime token over a stale shell env token during setup', async () => {
-    process.env.OPENCLAW_GATEWAY_TOKEN = 'stale-shell-token';
-    mkdirSync(path.join(tempHome, '.config', 'systemd', 'user'), { recursive: true });
-    writeFileSync(
-      path.join(tempHome, '.config', 'systemd', 'user', 'openclaw-gateway.service'),
-      '[Service]\nEnvironment=OPENCLAW_GATEWAY_TOKEN=real-systemd-token\n',
+  it('reports missing CLI capabilities individually', async () => {
+    const mod = await loadModule();
+    const runner: NativeCommandRunner = (_command, args) => (
+      args[0] === 'devices' && args[1] === 'list'
+        ? commandResult(0, '--json')
+        : commandResult(1, '', 'unsupported')
     );
 
-    const { mod } = await importGatewayDetect();
-    const detected = mod.detectGatewayConfig();
-
-    expect(detected.token).toBe('real-systemd-token');
-    expect(mod.chooseSetupGatewayToken({
-      envToken: mod.getEnvGatewayToken(),
-      detectedToken: detected.token,
-    })).toEqual({
-      token: 'real-systemd-token',
-      source: 'detected',
+    expect(mod.detectNativeOpenClawCapabilities(runner)).toEqual({
+      configPatch: false,
+      devicesList: true,
+      devicesApprove: false,
     });
   });
 
-  it('detects a systemd-only runtime token even when openclaw.json is missing', async () => {
-    process.env.OPENCLAW_GATEWAY_TOKEN = 'stale-shell-token';
-    rmSync(path.join(tempHome, '.openclaw', 'openclaw.json'));
-    mkdirSync(path.join(tempHome, '.config', 'systemd', 'user'), { recursive: true });
-    writeFileSync(
-      path.join(tempHome, '.config', 'systemd', 'user', 'openclaw-gateway.service'),
-      '[Service]\nEnvironment=OPENCLAW_GATEWAY_TOKEN=real-systemd-token\n',
-    );
-
-    const { mod } = await importGatewayDetect();
-    const detected = mod.detectGatewayConfig();
-
-    expect(detected.token).toBe('real-systemd-token');
-    expect(mod.chooseSetupGatewayToken({
-      envToken: mod.getEnvGatewayToken(),
-      detectedToken: detected.token,
-    })).toEqual({
-      token: 'real-systemd-token',
-      source: 'detected',
-    });
-  });
-
-  it('approves only the pending request that matches Nerve and leaves unrelated requests untouched', async () => {
-    const execSyncMock = vi.fn((command: string) => {
-      if (command.includes('devices list --json')) {
-        return Buffer.from(JSON.stringify({
-          pending: [
-            {
-              requestId: 'req-nerve',
-              deviceId: 'nerve-device',
-              publicKey: 'nerve-public-key',
-              displayName: 'Nerve UI',
-            },
-            {
-              requestId: 'req-other',
-              deviceId: 'other-device',
-              publicKey: 'other-public-key',
-              displayName: 'Other Device',
-            },
-          ],
-        }));
+  it('merges normalized origins through dry-run and native config patch', async () => {
+    const mod = await loadModule();
+    const calls: NativeCall[] = [];
+    const runner: NativeCommandRunner = (command, args, options) => {
+      calls.push({ command, args, options });
+      if (args[0] === 'config' && args[1] === 'get') {
+        return commandResult(0, JSON.stringify(['http://localhost:3080']));
       }
+      return commandResult(0, '{}');
+    };
 
-      if (command === 'openclaw devices approve req-nerve') {
-        return Buffer.from('approved');
-      }
-
-      throw new Error(`Unexpected command: ${command}`);
-    });
-
-    const { mod } = await importGatewayDetect();
-    const result = mod.approvePendingNerveDevice({
-      exec: execSyncMock,
-    });
+    const result = mod.ensureGatewayAllowedOrigins([
+      ' https://canvas.example.test/path ',
+      'https://canvas.example.test',
+    ], runner);
 
     expect(result).toMatchObject({
       ok: true,
-      approved: 1,
+      changed: true,
+      origins: ['http://localhost:3080', 'https://canvas.example.test'],
     });
-    expect(execSyncMock).toHaveBeenCalledWith(
-      'openclaw devices approve req-nerve',
-      expect.objectContaining({ timeout: 10000, stdio: 'pipe' }),
-    );
-    expect(execSyncMock).not.toHaveBeenCalledWith(
-      'openclaw devices approve req-other',
-      expect.anything(),
-    );
+    expect(calls.map(call => call.args)).toEqual([
+      ['config', 'get', 'gateway.controlUi.allowedOrigins', '--json'],
+      [
+        'config',
+        'patch',
+        '--stdin',
+        '--replace-path',
+        'gateway.controlUi.allowedOrigins',
+        '--dry-run',
+        '--json',
+      ],
+      [
+        'config',
+        'patch',
+        '--stdin',
+        '--replace-path',
+        'gateway.controlUi.allowedOrigins',
+      ],
+    ]);
+    const patch = JSON.parse(String(calls[1].options?.input));
+    expect(patch.gateway.controlUi.allowedOrigins).toEqual([
+      'http://localhost:3080',
+      'https://canvas.example.test',
+    ]);
+    expect(calls[2].options?.input).toBe(calls[1].options?.input);
   });
 
-  it('does not approve a pending request with an invalid requestId', async () => {
-    const execSyncMock = vi.fn((command: string) => {
-      if (command.includes('devices list --json')) {
-        return Buffer.from(JSON.stringify({
+  it('treats a missing allowedOrigins path as an empty list', async () => {
+    const mod = await loadModule();
+    const calls: NativeCall[] = [];
+    const runner: NativeCommandRunner = (command, args, options) => {
+      calls.push({ command, args, options });
+      if (args[1] === 'get') return commandResult(1, '', 'Config path not found');
+      return commandResult(0);
+    };
+
+    const result = mod.ensureGatewayAllowedOrigins(['http://127.0.0.1:3080'], runner);
+    expect(result).toMatchObject({
+      ok: true,
+      changed: true,
+      origins: ['http://127.0.0.1:3080'],
+    });
+    expect(calls).toHaveLength(3);
+  });
+
+  it('does not patch when every required origin is already present', async () => {
+    const mod = await loadModule();
+    const calls: NativeCall[] = [];
+    const runner: NativeCommandRunner = (command, args, options) => {
+      calls.push({ command, args, options });
+      return commandResult(0, JSON.stringify(['https://canvas.example.test']));
+    };
+
+    const result = mod.ensureGatewayAllowedOrigins(['https://canvas.example.test/'], runner);
+    expect(result).toMatchObject({ ok: true, changed: false });
+    expect(calls).toHaveLength(1);
+  });
+
+  it('never applies a patch rejected by OpenClaw dry-run', async () => {
+    const mod = await loadModule();
+    const calls: NativeCall[] = [];
+    const runner: NativeCommandRunner = (command, args, options) => {
+      calls.push({ command, args, options });
+      if (args[1] === 'get') return commandResult(0, '[]');
+      if (args.includes('--dry-run')) return commandResult(1, '', 'invalid patch');
+      return commandResult(0);
+    };
+
+    const result = mod.ensureGatewayAllowedOrigins(['https://canvas.example.test'], runner);
+    expect(result).toMatchObject({ ok: false, changed: false });
+    expect(result.message).toContain('invalid patch');
+    expect(calls).toHaveLength(2);
+  });
+
+  it('approves exactly one matching native pending request', async () => {
+    const mod = await loadModule();
+    const calls: NativeCall[] = [];
+    const runner: NativeCommandRunner = (command, args, options) => {
+      calls.push({ command, args, options });
+      if (args[0] === 'devices' && args[1] === 'list') {
+        return commandResult(0, JSON.stringify({
           pending: [
             {
-              requestId: 'req-nerve; rm -rf /',
-              deviceId: 'nerve-device',
-              publicKey: 'nerve-public-key',
-              displayName: 'Nerve UI',
-            },
-          ],
-        }));
-      }
-
-      throw new Error(`Unexpected command: ${command}`);
-    });
-
-    const { mod } = await importGatewayDetect();
-    const result = mod.approvePendingNerveDevice({
-      exec: execSyncMock,
-    });
-
-    expect(result.ok).toBe(false);
-    expect(result.approved).toBe(0);
-    expect(result.message.toLowerCase()).toContain('manual');
-    expect(execSyncMock).not.toHaveBeenCalledWith(
-      expect.stringContaining('openclaw devices approve'),
-      expect.anything(),
-    );
-  });
-
-  it('does not approve any pending request when Nerve cannot be identified safely', async () => {
-    const execSyncMock = vi.fn((command: string) => {
-      if (command.includes('devices list --json')) {
-        return Buffer.from(JSON.stringify({
-          pending: [
-            {
-              requestId: 'req-a',
-              displayName: 'Nerve UI',
-            },
-            {
-              requestId: 'req-b',
-              displayName: 'Nerve UI',
-            },
-          ],
-        }));
-      }
-
-      throw new Error(`Unexpected command: ${command}`);
-    });
-
-    const { mod } = await importGatewayDetect();
-    const result = mod.approvePendingNerveDevice({
-      exec: execSyncMock,
-    });
-
-    expect(result.ok).toBe(false);
-    expect(result.approved).toBe(0);
-    expect(result.message.toLowerCase()).toContain('manual');
-    expect(execSyncMock).not.toHaveBeenCalledWith(
-      expect.stringContaining('openclaw devices approve'),
-      expect.anything(),
-    );
-  });
-
-  it('fails closed when devices list returns parseable JSON with an unusable pending shape', async () => {
-    const execSyncMock = vi.fn((command: string) => {
-      if (command.includes('devices list --json')) {
-        return Buffer.from(JSON.stringify({
-          pending: {
-            requestId: 'req-nerve',
-            deviceId: 'nerve-device',
-            publicKey: 'nerve-public-key',
-          },
-        }));
-      }
-
-      throw new Error(`Unexpected command: ${command}`);
-    });
-
-    const { mod } = await importGatewayDetect();
-    const result = mod.approvePendingNerveDevice({
-      exec: execSyncMock,
-    });
-
-    expect(result.ok).toBe(false);
-    expect(result.approved).toBe(0);
-    expect(result.message.toLowerCase()).toContain('manual');
-    expect(execSyncMock).not.toHaveBeenCalledWith(
-      expect.stringContaining('openclaw devices approve'),
-      expect.anything(),
-    );
-  });
-
-  it('fails closed when a pending request matches only one of Nerve\'s known identifiers', async () => {
-    const execSyncMock = vi.fn((command: string) => {
-      if (command.includes('devices list --json')) {
-        return Buffer.from(JSON.stringify({
-          pending: [
-            {
-              requestId: 'req-partial',
-              deviceId: 'nerve-device',
-              publicKey: 'wrong-public-key',
-              displayName: 'Nerve UI',
-            },
-            {
-              requestId: 'req-other',
+              requestId: 'other-request',
               deviceId: 'other-device',
-              publicKey: 'other-public-key',
-              displayName: 'Other Device',
+              publicKey: 'other-key',
+            },
+            {
+              requestId: 'canvas-request_1',
+              deviceId: 'convosketchpad-device',
+              publicKey: 'convosketchpad-public-key',
             },
           ],
         }));
       }
+      return commandResult(0);
+    };
 
-      throw new Error(`Unexpected command: ${command}`);
-    });
-
-    const { mod } = await importGatewayDetect();
     const result = mod.approvePendingNerveDevice({
-      exec: execSyncMock,
+      gatewayUrl: 'https://gateway.example.test',
+      gatewayToken: 'gateway-token',
+      runner,
     });
 
-    expect(result.ok).toBe(false);
-    expect(result.approved).toBe(0);
-    expect(result.message.toLowerCase()).toContain('manual');
-    expect(execSyncMock).not.toHaveBeenCalledWith(
-      expect.stringContaining('openclaw devices approve'),
-      expect.anything(),
-    );
+    expect(result).toEqual({
+      ok: true,
+      approved: 1,
+      requestId: 'canvas-request_1',
+      message: 'Approved ConvoSketchpad device request canvas-request_1',
+    });
+    expect(calls[0].args).toEqual([
+      'devices',
+      'list',
+      '--json',
+      '--url',
+      'wss://gateway.example.test/ws',
+      '--token',
+      'gateway-token',
+    ]);
+    expect(calls[1].args).toEqual([
+      'devices',
+      'approve',
+      'canvas-request_1',
+      '--url',
+      'wss://gateway.example.test/ws',
+      '--token',
+      'gateway-token',
+    ]);
   });
 
-  it('fails closed when pending-request inspection cannot run safely', async () => {
-    const execSyncMock = vi.fn((command: string) => {
-      if (command.includes('devices list --json')) {
-        throw new Error('openclaw devices list failed');
+  it('fails closed for ambiguous or unsafe pairing requests', async () => {
+    const mod = await loadModule();
+    const approvals: string[][] = [];
+    const runner: NativeCommandRunner = (_command, args) => {
+      if (args[1] === 'list') {
+        return commandResult(0, JSON.stringify({
+          pending: [
+            {
+              requestId: 'first',
+              deviceId: 'convosketchpad-device',
+              publicKey: 'convosketchpad-public-key',
+            },
+            {
+              requestId: 'second',
+              deviceId: 'convosketchpad-device',
+              publicKey: 'convosketchpad-public-key',
+            },
+            {
+              requestId: 'unsafe;command',
+              deviceId: 'convosketchpad-device',
+              publicKey: 'convosketchpad-public-key',
+            },
+          ],
+        }));
       }
+      approvals.push(args);
+      return commandResult(0);
+    };
 
-      throw new Error(`Unexpected command: ${command}`);
-    });
+    const result = mod.approvePendingNerveDevice({ runner });
+    expect(result).toMatchObject({ ok: false, approved: 0 });
+    expect(result.message).toContain('Multiple');
+    expect(approvals).toEqual([]);
+  });
 
-    const { mod } = await importGatewayDetect();
-    const result = mod.approvePendingNerveDevice({
-      exec: execSyncMock,
-    });
+  it('does not accept a partial identity match', async () => {
+    const mod = await loadModule();
+    const runner: NativeCommandRunner = (_command, args) => {
+      if (args[1] === 'list') {
+        return commandResult(0, JSON.stringify({
+          pending: [{
+            requestId: 'wrong-key',
+            deviceId: 'convosketchpad-device',
+            publicKey: 'different-public-key',
+          }],
+        }));
+      }
+      throw new Error('approve must not be called');
+    };
 
-    expect(result.ok).toBe(false);
-    expect(result.approved).toBe(0);
-    expect(result.message.toLowerCase()).toContain('manual');
-    expect(execSyncMock).not.toHaveBeenCalledWith(
-      expect.stringContaining('openclaw devices approve'),
-      expect.anything(),
+    expect(mod.approvePendingNerveDevice({ runner }))
+      .toMatchObject({ ok: false, approved: 0 });
+  });
+
+  it('never rewrites legacy pairing files', async () => {
+    const mod = await loadModule();
+    const pairedPath = path.join(tempHome, '.openclaw', 'devices', 'paired.json');
+    const deviceAuthPath = path.join(tempHome, '.openclaw', 'identity', 'device-auth.json');
+    mkdirSync(path.dirname(pairedPath), { recursive: true });
+    mkdirSync(path.dirname(deviceAuthPath), { recursive: true });
+    writeFileSync(pairedPath, '{"sentinel":"paired"}\n');
+    writeFileSync(deviceAuthPath, '{"sentinel":"device-auth"}\n');
+
+    const runner: NativeCommandRunner = (_command, args) => (
+      args[1] === 'list'
+        ? commandResult(0, JSON.stringify({ pending: [] }))
+        : commandResult(0)
     );
+    mod.approvePendingNerveDevice({ runner });
+
+    expect(readFileSync(pairedPath, 'utf8')).toBe('{"sentinel":"paired"}\n');
+    expect(readFileSync(deviceAuthPath, 'utf8')).toBe('{"sentinel":"device-auth"}\n');
   });
 
-  it('repairs only the Nerve paired device record and preserves unrelated devices', async () => {
-    writeFileSync(path.join(tempHome, '.openclaw', 'devices', 'paired.json'), JSON.stringify({
-      'gateway-device': {
-        deviceId: 'gateway-device',
-        scopes: FULL_OPERATOR_SCOPES,
-        tokens: { operator: { token: 'gateway-token', scopes: FULL_OPERATOR_SCOPES } },
-      },
-      'nerve-device': {
-        deviceId: 'nerve-device',
-        scopes: ['operator.read'],
-        displayName: 'Nerve UI',
-        platform: 'web',
-        clientId: 'webchat-ui',
-        clientMode: 'webchat',
-        tokens: { operator: { token: 'old-token', scopes: ['operator.read'] } },
-      },
-      'other-device': {
-        deviceId: 'other-device',
-        scopes: ['operator.read'],
-        displayName: 'Other Device',
-        platform: 'cli',
-        clientId: 'other-cli',
-        clientMode: 'terminal',
-        tokens: { operator: { token: 'other-token', scopes: ['operator.read'] } },
-      },
-    }, null, 2));
-
-    const { mod } = await importGatewayDetect();
-    const result = mod.prePairNerveDevice('test-token');
-    const paired = JSON.parse(readFileSync(path.join(tempHome, '.openclaw', 'devices', 'paired.json'), 'utf8'));
-
-    expect(result.ok).toBe(true);
-    expect(paired['nerve-device'].scopes).toEqual(FULL_OPERATOR_SCOPES);
-    expect(paired['nerve-device'].tokens.operator.scopes).toEqual(FULL_OPERATOR_SCOPES);
-    expect(paired['nerve-device'].tokens.operator.token).toBe('test-token');
-    expect(paired['other-device'].scopes).toEqual(['operator.read']);
-    expect(paired['other-device'].tokens.operator.scopes).toEqual(['operator.read']);
+  it('only requests read/write operator scopes', async () => {
+    const mod = await loadModule();
+    expect(mod.requiredOperatorScopes()).toEqual(['operator.read', 'operator.write']);
   });
 
-  it('repairs only the explicitly targeted identity and does not broaden every paired device', async () => {
-    writeFileSync(path.join(tempHome, '.openclaw', 'devices', 'paired.json'), JSON.stringify({
-      'gateway-device': {
-        deviceId: 'gateway-device',
-        scopes: ['operator.read'],
-        tokens: { operator: { token: 'gateway-token', scopes: ['operator.read'] } },
-      },
-      'other-device': {
-        deviceId: 'other-device',
-        scopes: ['operator.read'],
-        tokens: { operator: { token: 'other-token', scopes: ['operator.read'] } },
-      },
-    }, null, 2));
-
-    const { mod } = await importGatewayDetect();
-    const result = mod.fixGatewayDeviceScopes({ targetDeviceId: 'gateway-device' });
-    const paired = JSON.parse(readFileSync(path.join(tempHome, '.openclaw', 'devices', 'paired.json'), 'utf8'));
-    const deviceAuth = JSON.parse(readFileSync(path.join(tempHome, '.openclaw', 'identity', 'device-auth.json'), 'utf8'));
-
-    expect(result.ok).toBe(true);
-    expect(paired['gateway-device'].scopes).toEqual(FULL_OPERATOR_SCOPES);
-    expect(paired['gateway-device'].tokens.operator.scopes).toEqual(FULL_OPERATOR_SCOPES);
-    expect(paired['other-device'].scopes).toEqual(['operator.read']);
-    expect(paired['other-device'].tokens.operator.scopes).toEqual(['operator.read']);
-    expect(deviceAuth.tokens.operator.scopes).toEqual(FULL_OPERATOR_SCOPES);
-  });
-
-  it('requests a gateway scope repair when the targeted paired operator token scopes are stale', async () => {
-    writeFileSync(path.join(tempHome, '.openclaw', 'devices', 'paired.json'), JSON.stringify({
-      'gateway-device': {
-        deviceId: 'gateway-device',
-        scopes: FULL_OPERATOR_SCOPES,
-        tokens: { operator: { token: 'gateway-token', scopes: ['operator.read'] } },
-      },
-      'nerve-device': {
-        deviceId: 'nerve-device',
-        scopes: FULL_OPERATOR_SCOPES,
-        displayName: 'Nerve UI',
-        platform: 'web',
-        clientId: 'webchat-ui',
-        clientMode: 'webchat',
-        tokens: { operator: { token: 'test-token', scopes: FULL_OPERATOR_SCOPES } },
-      },
-    }, null, 2));
-
-    writeFileSync(path.join(tempHome, '.openclaw', 'identity', 'device-auth.json'), JSON.stringify({
-      version: 1,
-      deviceId: 'gateway-device',
-      tokens: {
-        operator: {
-          token: 'gateway-token',
-          scopes: FULL_OPERATOR_SCOPES,
-        },
-      },
-    }, null, 2));
-
-    const { mod } = await importGatewayDetect();
-    const changes = mod.detectNeededConfigChanges({ gatewayToken: 'test-token' });
-
-    expect(changes.map(change => change.id)).toContain('device-scopes');
-    expect(changes.map(change => change.id)).not.toContain('pre-pair');
-  });
-
-  it('requests a gateway scope repair when the local targeted identity token scopes are stale', async () => {
-    writeFileSync(path.join(tempHome, '.openclaw', 'devices', 'paired.json'), JSON.stringify({
-      'gateway-device': {
-        deviceId: 'gateway-device',
-        scopes: FULL_OPERATOR_SCOPES,
-        tokens: { operator: { token: 'gateway-token', scopes: FULL_OPERATOR_SCOPES } },
-      },
-      'nerve-device': {
-        deviceId: 'nerve-device',
-        scopes: FULL_OPERATOR_SCOPES,
-        displayName: 'Nerve UI',
-        platform: 'web',
-        clientId: 'webchat-ui',
-        clientMode: 'webchat',
-        tokens: { operator: { token: 'test-token', scopes: FULL_OPERATOR_SCOPES } },
-      },
-      'other-device': {
-        deviceId: 'other-device',
-        scopes: ['operator.read'],
-        tokens: { operator: { token: 'other-token', scopes: ['operator.read'] } },
-      },
-    }, null, 2));
-
-    writeFileSync(path.join(tempHome, '.openclaw', 'identity', 'device-auth.json'), JSON.stringify({
-      version: 1,
-      deviceId: 'gateway-device',
-      tokens: {
-        operator: {
-          token: 'gateway-token',
-          scopes: ['operator.read'],
-        },
-      },
-    }, null, 2));
-
-    const { mod } = await importGatewayDetect();
-    const changes = mod.detectNeededConfigChanges({ gatewayToken: 'test-token' });
-
-    expect(changes.map(change => change.id)).toContain('device-scopes');
-    expect(changes.map(change => change.id)).not.toContain('pre-pair');
-  });
-
-  it('does not request a blanket scope repair just because an unrelated paired device is under-scoped', async () => {
-    writeFileSync(path.join(tempHome, '.openclaw', 'devices', 'paired.json'), JSON.stringify({
-      'gateway-device': {
-        deviceId: 'gateway-device',
-        scopes: FULL_OPERATOR_SCOPES,
-        tokens: { operator: { token: 'gateway-token', scopes: FULL_OPERATOR_SCOPES } },
-      },
-      'nerve-device': {
-        deviceId: 'nerve-device',
-        scopes: FULL_OPERATOR_SCOPES,
-        displayName: 'Nerve UI',
-        platform: 'web',
-        clientId: 'webchat-ui',
-        clientMode: 'webchat',
-        tokens: { operator: { token: 'test-token', scopes: FULL_OPERATOR_SCOPES } },
-      },
-      'other-device': {
-        deviceId: 'other-device',
-        scopes: ['operator.read'],
-        tokens: { operator: { token: 'other-token', scopes: ['operator.read'] } },
-      },
-    }, null, 2));
-
-    writeFileSync(path.join(tempHome, '.openclaw', 'identity', 'device-auth.json'), JSON.stringify({
-      version: 1,
-      deviceId: 'gateway-device',
-      tokens: {
-        operator: {
-          token: 'gateway-token',
-          scopes: FULL_OPERATOR_SCOPES,
-        },
-      },
-    }, null, 2));
-
-    const { mod } = await importGatewayDetect();
-    const changes = mod.detectNeededConfigChanges({ gatewayToken: 'test-token' });
-
-    expect(changes.map(change => change.id)).not.toContain('device-scopes');
-    expect(changes.map(change => change.id)).not.toContain('pre-pair');
+  it('models the only supported config mutation as allowed origins', async () => {
+    const mod = await loadModule();
+    const changes = mod.detectNeededConfigChanges({
+      allowedOrigins: ['https://canvas.example.test'],
+    });
+    expect(changes.map(change => change.id)).toEqual(['allowed-origins']);
+    expect(changes[0].description).toContain('Gateway allowed origins');
   });
 });

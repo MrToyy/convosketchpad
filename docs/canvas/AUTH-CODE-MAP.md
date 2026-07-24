@@ -12,6 +12,8 @@
 - `NERVE_AUTH=false` 时使用固定 Local User；启用认证后所有 Canvas 查询按 Cookie 中的 owner 过滤。
 - 产品级隔离面向少量可信用户；用户仍共享同一个 OpenClaw Gateway 能力边界。
 - 同一客户端 IP 默认 30 分钟内失败 3 次后锁定 30 分钟；记录只在内存中保存。
+- Gateway 设备身份固定请求 `operator.read` / `operator.write`；设备 Token 只保存在服务端并在转发给浏览器前脱敏。
+- 配对审批和状态由 OpenClaw 原生 `devices list/approve` 管理，不直接改写 OpenClaw 配对文件。
 
 ## 按问题定位代码
 
@@ -28,6 +30,8 @@
 | 登录失败次数和 IP 锁定 | [`server/lib/login-failures.ts`](../../server/lib/login-failures.ts) | [`server/lib/login-failures.test.ts`](../../server/lib/login-failures.test.ts) |
 | Canvas owner 解析 | [`server/lib/canvas-auth.ts`](../../server/lib/canvas-auth.ts) | [`server/routes/canvas.ts`](../../server/routes/canvas.ts) |
 | WebSocket upgrade 与运行中会话撤销 | [`server/lib/ws-proxy.ts`](../../server/lib/ws-proxy.ts) | [`server/lib/ws-proxy.test.ts`](../../server/lib/ws-proxy.test.ts) |
+| Gateway 设备身份、签名和服务端 Token 存储 | [`server/lib/device-identity.ts`](../../server/lib/device-identity.ts) | [`server/lib/device-identity.test.ts`](../../server/lib/device-identity.test.ts)、[`server/lib/gateway-rpc.ts`](../../server/lib/gateway-rpc.ts) |
+| OpenClaw 原生配置与配对安装流程 | [`scripts/lib/gateway-detect.ts`](../../scripts/lib/gateway-detect.ts) | [`scripts/lib/gateway-pairing.ts`](../../scripts/lib/gateway-pairing.ts)、[`scripts/setup.ts`](../../scripts/setup.ts) |
 | 真实客户端 IP 和可信反向代理 | [`server/middleware/rate-limit.ts`](../../server/middleware/rate-limit.ts) | [`server/lib/trust-utils.ts`](../../server/lib/trust-utils.ts) |
 | setup 提示和 `.env` 示例 | [`scripts/setup.ts`](../../scripts/setup.ts) | [`.env.example`](../../.env.example) |
 

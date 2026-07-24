@@ -8,6 +8,8 @@ import { readFileSync, writeFileSync, renameSync, copyFileSync, existsSync, unli
 export interface EnvConfig {
   GATEWAY_URL?: string;
   GATEWAY_TOKEN?: string;
+  NERVE_GATEWAY_TIMEZONE?: string;
+  NERVE_PUBLIC_ORIGIN?: string;
   PORT?: string;
   HOST?: string;
   SSL_PORT?: string;
@@ -52,6 +54,12 @@ export function generateEnvContent(config: EnvConfig): string {
     lines.push(`GATEWAY_URL=${config.GATEWAY_URL}`);
   }
   lines.push(`GATEWAY_TOKEN=${config.GATEWAY_TOKEN || ''}`);
+  if (config.NERVE_GATEWAY_TIMEZONE) {
+    lines.push(`NERVE_GATEWAY_TIMEZONE=${config.NERVE_GATEWAY_TIMEZONE}`);
+  }
+  if (config.NERVE_PUBLIC_ORIGIN) {
+    lines.push(`NERVE_PUBLIC_ORIGIN=${config.NERVE_PUBLIC_ORIGIN}`);
+  }
   lines.push('');
 
   // Server — always write PORT for clarity (even if default)

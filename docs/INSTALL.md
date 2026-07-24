@@ -51,8 +51,10 @@ You must:
 
 You may apply minimal localhost-safe OpenClaw changes automatically when needed for the default local path. Examples:
 - adding missing local control UI origins
-- adding the local control-UI origins and device scopes required for Canvas Gateway access
-- fixing local device pairing or scopes needed for ConvoSketchpad to connect
+- approving the exact native pending device request created by ConvoSketchpad
+
+Use only supported `openclaw config` and `openclaw devices` commands. Never
+repair or synthesize OpenClaw `paired.json` or `device-auth.json` records.
 
 Ask first before any OpenClaw change that is remote, public, security-sensitive, destructive, or changes network exposure.
 

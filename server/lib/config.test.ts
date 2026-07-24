@@ -5,6 +5,9 @@ import { config, printStartupBanner, SESSION_COOKIE_NAME, validateConfig, WS_ALL
 describe('Canvas server config', () => {
   it('contains only the runtime paths and limits used by retained features', () => {
     expect(config.gatewayUrl).toMatch(/^https?:\/\//);
+    expect(() =>
+      new Intl.DateTimeFormat('en-US', { timeZone: config.gatewayTimezone }).format()
+    ).not.toThrow();
     expect(path.basename(config.canvasDatabasePath)).toBe('canvas.sqlite');
     expect(path.basename(config.canvasArtifactsPath)).toBe('artifacts');
     expect(config.limits.maxBodyBytes).toBeGreaterThan(80 * 1024 * 1024);

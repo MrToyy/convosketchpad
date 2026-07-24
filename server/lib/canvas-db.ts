@@ -138,6 +138,12 @@ export interface SendReservation {
   interactionId: string | null;
 }
 
+export interface BranchSessionLifecycle {
+  sessionStartedAt: number | null;
+  observedSessionStartedAt: number | null;
+  lastInteractionAt: number | null;
+}
+
 type SqlRow = Record<string, unknown>;
 
 function asString(value: unknown): string {
@@ -277,7 +283,9 @@ export class CanvasStore {
         forked_from_interaction_id TEXT,
         session_key TEXT NOT NULL UNIQUE,
         openclaw_session_id TEXT,
+        openclaw_session_started_at INTEGER,
         observed_session_id TEXT,
+        observed_session_started_at INTEGER,
         session_integrity TEXT NOT NULL DEFAULT 'unknown',
         session_state TEXT NOT NULL CHECK(session_state IN ('draft', 'active')),
         head_interaction_id TEXT,
@@ -353,6 +361,28 @@ export class CanvasStore {
     if (!branchColumns.some((column) => asString(column.name) === 'session_integrity')) {
       this.db.exec("ALTER TABLE branches ADD COLUMN session_integrity TEXT NOT NULL DEFAULT 'unknown'");
     }
+    if (!branchColumns.some((column) => asString(column.name) === 'openclaw_session_started_at')) {
+      this.db.exec('ALTER TABLE branches ADD COLUMN openclaw_session_started_at INTEGER');
+    }
+    if (!branchColumns.some((column) => asString(column.name) === 'observed_session_started_at')) {
+      this.db.exec('ALTER TABLE branches ADD COLUMN observed_session_started_at INTEGER');
+    }
+    this.db.exec(`
+      UPDATE branches
+      SET openclaw_session_started_at = COALESCE(
+        (SELECT MIN(i.created_at) FROM interactions i WHERE i.branch_id = branches.id),
+        created_at
+      )
+      WHERE openclaw_session_id IS NOT NULL
+        AND openclaw_session_started_at IS NULL;
+      UPDATE branches
+      SET observed_session_started_at = CASE
+        WHEN observed_session_id = openclaw_session_id THEN openclaw_session_started_at
+        ELSE updated_at
+      END
+      WHERE observed_session_id IS NOT NULL
+        AND observed_session_started_at IS NULL;
+    `);
   }
 
   transaction<T>(fn: () => T): T {
@@ -541,24 +571,49 @@ export class CanvasStore {
     return row ? mapBranch(row) : null;
   }
 
-  observeBranchSession(branchId: string, sessionId: string): BranchRecord | null {
+  getOwnedBranchSessionLifecycle(ownerId: string, branchId: string): BranchSessionLifecycle | null {
+    const row = this.db.prepare(`SELECT
+        b.openclaw_session_started_at,
+        b.observed_session_started_at,
+        (SELECT i.created_at FROM interactions i
+          WHERE i.id = b.head_interaction_id) AS last_interaction_at
+      FROM branches b JOIN canvases c ON c.id = b.canvas_id
+      WHERE b.id = ? AND c.owner_id = ?`).get(branchId, ownerId) as SqlRow | undefined;
+    if (!row) return null;
+    const nullableNumber = (value: unknown): number | null =>
+      value === null || value === undefined ? null : asNumber(value);
+    return {
+      sessionStartedAt: nullableNumber(row.openclaw_session_started_at),
+      observedSessionStartedAt: nullableNumber(row.observed_session_started_at),
+      lastInteractionAt: nullableNumber(row.last_interaction_at),
+    };
+  }
+
+  observeBranchSession(branchId: string, sessionId: string, observedAt = Date.now()): BranchRecord | null {
     const normalized = sessionId.trim();
     if (!normalized) return this.getBranchById(branchId);
     const branch = this.getBranchById(branchId);
     if (!branch) return null;
-    const now = Date.now();
     if (!branch.openClawSessionId) {
       this.db.prepare(`UPDATE branches
-        SET openclaw_session_id = ?, observed_session_id = ?, session_integrity = 'healthy', updated_at = ?
-        WHERE id = ?`).run(normalized, normalized, now, branchId);
+        SET openclaw_session_id = ?, openclaw_session_started_at = ?,
+          observed_session_id = ?, observed_session_started_at = ?,
+          session_integrity = 'healthy', updated_at = ?
+        WHERE id = ?`).run(normalized, observedAt, normalized, observedAt, observedAt, branchId);
     } else if (branch.openClawSessionId === normalized) {
       this.db.prepare(`UPDATE branches
-        SET observed_session_id = ?, session_integrity = 'healthy', updated_at = ?
-        WHERE id = ?`).run(normalized, now, branchId);
+        SET openclaw_session_started_at = COALESCE(openclaw_session_started_at, ?),
+          observed_session_id = ?,
+          observed_session_started_at = COALESCE(openclaw_session_started_at, ?),
+          session_integrity = 'healthy', updated_at = ?
+        WHERE id = ?`).run(observedAt, normalized, observedAt, observedAt, branchId);
     } else {
       this.db.prepare(`UPDATE branches
-        SET observed_session_id = ?, session_integrity = 'drifted', updated_at = ?
-        WHERE id = ?`).run(normalized, now, branchId);
+        SET observed_session_started_at = CASE
+          WHEN observed_session_id = ? THEN observed_session_started_at
+          ELSE ? END,
+          observed_session_id = ?, session_integrity = 'drifted', updated_at = ?
+        WHERE id = ?`).run(normalized, observedAt, normalized, observedAt, branchId);
     }
     return this.getBranchById(branchId);
   }
@@ -567,7 +622,8 @@ export class CanvasStore {
     const branch = this.getBranchById(branchId);
     if (!branch?.openClawSessionId) return branch;
     this.db.prepare(`UPDATE branches
-      SET observed_session_id = NULL, session_integrity = 'drifted', updated_at = ?
+      SET observed_session_id = NULL, observed_session_started_at = NULL,
+        session_integrity = 'drifted', updated_at = ?
       WHERE id = ?`).run(Date.now(), branchId);
     return this.getBranchById(branchId);
   }
@@ -664,6 +720,7 @@ export class CanvasStore {
     expectedHeadInteractionId?: string | null;
     userInput: string;
     attachments: CanvasAttachment[];
+    forceSessionRecovery?: boolean;
   }): SendReservation {
     return this.transaction(() => {
       const branch = this.getOwnedBranch(ownerId, input.branchId);
@@ -692,7 +749,7 @@ export class CanvasStore {
         outgoingMessage = `<canvas-context-snapshot>\nThe user forked an earlier Canvas interaction. Continue from this immutable prior context.\n\n${transcript}${resourceManifest}\n</canvas-context-snapshot>\n\n${input.userInput}`;
       } else if (branch.sessionState === 'active' && branch.headInteractionId && input.expectedHeadInteractionId === branch.headInteractionId) {
         expectedHead = branch.headInteractionId;
-        if (branch.sessionIntegrity === 'drifted') {
+        if (branch.sessionIntegrity === 'drifted' || input.forceSessionRecovery) {
           materialization = 'session-recovery';
           const snapshot = this.buildCanonicalSnapshot(branch.headInteractionId);
           bootstrapResources = snapshot.resources;
@@ -742,6 +799,20 @@ export class CanvasStore {
     };
   }
 
+  getOwnedReservationSessionTarget(
+    ownerId: string,
+    reservationId: string,
+  ): { branchId: string; sessionKey: string } | null {
+    const row = this.db.prepare(`SELECT r.branch_id, r.session_key
+      FROM send_reservations r
+      JOIN branches b ON b.id = r.branch_id
+      JOIN canvases c ON c.id = b.canvas_id
+      WHERE r.id = ? AND c.owner_id = ?`).get(reservationId, ownerId) as SqlRow | undefined;
+    return row
+      ? { branchId: asString(row.branch_id), sessionKey: asString(row.session_key) }
+      : null;
+  }
+
   acknowledgeSend(ownerId: string, reservationId: string, runId: string | null, bootstrapWarnings: string[] = []): InteractionRecord {
     return this.transaction(() => {
       const row = this.db.prepare(`SELECT r.*, b.canvas_id, b.kind, b.session_state, b.head_interaction_id, b.forked_from_interaction_id
@@ -770,10 +841,20 @@ export class CanvasStore {
         }), now, now);
       this.db.prepare(`UPDATE branches SET session_state = 'active', head_interaction_id = ?,
         openclaw_session_id = CASE WHEN ? = 'session-recovery' THEN observed_session_id ELSE openclaw_session_id END,
+        openclaw_session_started_at = CASE WHEN ? = 'session-recovery'
+          THEN observed_session_started_at ELSE openclaw_session_started_at END,
         session_integrity = CASE WHEN ? = 'session-recovery' AND observed_session_id IS NOT NULL THEN 'healthy'
           WHEN ? = 'session-recovery' THEN 'unknown' ELSE session_integrity END,
         updated_at = ? WHERE id = ?`)
-        .run(id, asString(row.materialization), asString(row.materialization), asString(row.materialization), now, asString(row.branch_id));
+        .run(
+          id,
+          asString(row.materialization),
+          asString(row.materialization),
+          asString(row.materialization),
+          asString(row.materialization),
+          now,
+          asString(row.branch_id),
+        );
       this.db.prepare(`UPDATE send_reservations SET status = 'acknowledged', run_id = ?, interaction_id = ?, updated_at = ? WHERE id = ?`)
         .run(runId, id, now, reservationId);
       this.db.prepare('UPDATE canvases SET updated_at = ? WHERE id = ?').run(now, asString(row.canvas_id));

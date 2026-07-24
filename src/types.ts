@@ -103,7 +103,7 @@ export interface GatewayResponse {
   id: string;
   ok: boolean;
   payload?: unknown;
-  error?: { message: string; code?: string };
+  error?: { message: string; code?: string; details?: Record<string, unknown> };
 }
 
 export type GatewayMessage = GatewayEvent | GatewayRequest | GatewayResponse;

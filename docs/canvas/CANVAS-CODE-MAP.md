@@ -6,7 +6,7 @@
 - One Canvas owns one Agent and any number of Root/Fork Branches.
 - Creation uses the Gateway default Agent; selection is editable until the first send is prepared.
 - A Branch Session is created lazily on first input.
-- Continue reuses a healthy Session; Fork and drift recovery use a canonical snapshot.
+- Continue reuses a healthy Session; Fork, observed drift, and predicted reset recovery use a canonical snapshot.
 - SQLite owns topology/state/layout; OpenClaw owns execution/transcripts.
 - Attachments and Artifacts receive durable owner-scoped copies.
 
@@ -33,9 +33,10 @@ The residual `features/chat` path contains protocol/media primitives used by Can
 | Canvas HTTP API, Agent catalog validation | `server/routes/canvas.ts` |
 | SQLite schema and Branch state machine | `server/lib/canvas-db.ts` |
 | Reconciliation and Session drift | `server/lib/canvas-reconciler.ts` |
+| Effective OpenClaw reset policy and timezone boundary prediction | `server/lib/openclaw-session-policy.ts` |
 | Durable files | `server/lib/canvas-artifact-store.ts` |
 | Upload staging and workspace path safety | `server/lib/upload-reference.ts`, `server/lib/file-utils.ts`, `server/lib/agent-workspace.ts` |
-| Gateway server RPC and browser relay | `server/lib/gateway-rpc.ts`, `server/lib/ws-proxy.ts` |
+| Gateway server RPC, browser relay, and device-token boundary | `server/lib/gateway-rpc.ts`, `server/lib/ws-proxy.ts`, `server/lib/device-identity.ts` |
 | Route mounting | `server/app.ts` |
 
 ## Agent flow
@@ -56,12 +57,19 @@ Tests: `server/lib/canvas-db.test.ts` covers transactional rewrite/lock behavior
 ```text
 stage files
   → prepare-send
+  → inspect Session identity + effective reset policy
+  → use canonical recovery snapshot if the send crosses daily/idle expiry
   → chat.send
-  → ack(runId)
+  → ack(runId) + refresh actual Session ID
   → Gateway agent/chat events
   → reconcile transcript and Artifacts
   → completed Interaction + next composer
 ```
+
+The Branch persists baseline and observed Session-start timestamps internally.
+If policy inspection is unavailable, an active Branch takes the conservative
+recovery path; previous Interactions and OpenClaw transcripts are never
+rewritten.
 
 ## Documentation updates
 

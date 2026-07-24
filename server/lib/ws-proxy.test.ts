@@ -34,6 +34,8 @@ vi.mock('./managed-users.js', () => ({
 }));
 
 vi.mock('./device-identity.js', () => ({
+  clearStoredDeviceAuth: vi.fn(),
+  CONVOSKETCHPAD_OPERATOR_SCOPES: ['operator.read', 'operator.write'],
   getDeviceIdentity: vi.fn(() => ({
     deviceId: 'mock-device-id-' + '0'.repeat(48),
     publicKeyRaw: Buffer.alloc(32),
@@ -47,6 +49,8 @@ vi.mock('./device-identity.js', () => ({
     signedAt: Date.now(),
     nonce: 'test-nonce',
   })),
+  getStoredDeviceAuth: vi.fn(() => null),
+  storeDeviceAuth: vi.fn(),
 }));
 
 vi.mock('./openclaw-bin.js', () => ({
@@ -56,12 +60,13 @@ vi.mock('./openclaw-bin.js', () => ({
 import { setupWebSocketProxy, closeAllWebSockets, _internals } from './ws-proxy.js';
 import { config } from './config.js';
 import { verifySession, parseSessionCookie } from './session.js';
-import { createDeviceBlock } from './device-identity.js';
+import { createDeviceBlock, storeDeviceAuth } from './device-identity.js';
 import { createServer as createHttpServer } from 'node:http';
 
 const mockedConfig = config as { auth: boolean; sessionSecret: string };
 const mockedVerifySession = verifySession as ReturnType<typeof vi.fn>;
 const mockedParseSessionCookie = parseSessionCookie as ReturnType<typeof vi.fn>;
+const mockedStoreDeviceAuth = storeDeviceAuth as ReturnType<typeof vi.fn>;
 
 function waitForMessage(ws: WebSocket, timeoutMs = 3000): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -444,7 +449,12 @@ describe('ws-proxy', () => {
         type: 'req',
         method: 'connect',
         id: 'c1',
-        params: { auth: { token: 'test-token' }, client: { id: 'nerve-ui', mode: 'webchat' } },
+        params: {
+          auth: { token: 'test-token' },
+          client: { id: 'nerve-ui', mode: 'webchat' },
+          role: 'admin',
+          scopes: ['operator.admin', 'operator.read', 'operator.write'],
+        },
       }));
 
       // Wait for the connect response from mock gateway
@@ -472,6 +482,8 @@ describe('ws-proxy', () => {
       const params = (connectMsg!.data as Record<string, unknown>).params as Record<string, unknown>;
       expect(params.device).toBeTruthy();
       expect((params.device as Record<string, unknown>).id).toMatch(/^mock-device-id/);
+      expect(params.role).toBe('operator');
+      expect(params.scopes).toEqual(['operator.read', 'operator.write']);
 
       ws.close();
     });
@@ -513,7 +525,7 @@ describe('ws-proxy', () => {
       ws.close();
     });
 
-    it('sends connect without device identity on challenge timeout', async () => {
+    it('refuses an unsigned connection on challenge timeout', async () => {
       const originalTimeout = _internals.challengeTimeoutMs;
       _internals.challengeTimeoutMs = 200; // Short timeout for testing
 
@@ -561,25 +573,86 @@ describe('ws-proxy', () => {
           params: { auth: { token: 'test-token' }, client: { id: 'nerve-ui' } },
         }));
 
-        // Wait for the connect response (arrives after 200ms timeout fires)
-        const response = await waitForMessage(ws, 5000);
-        const parsed = JSON.parse(response);
-        expect(parsed.type).toBe('res');
-        expect(parsed.id).toBe('c3');
-        expect(parsed.ok).toBe(true);
+        const { code, reason } = await waitForClose(ws, 5000);
+        expect(code).toBe(1008);
+        expect(reason).toContain('challenge timed out');
 
-        // Verify gateway received connect WITHOUT device block (timeout degradation)
+        // No unsigned connect request may reach the Gateway.
         const connectMsg = ncReceived.find(
           (m: unknown) => (m as Record<string, unknown>).type === 'req' && (m as Record<string, unknown>).method === 'connect',
         ) as Record<string, unknown> | undefined;
-        expect(connectMsg).toBeTruthy();
-        expect((connectMsg!.params as Record<string, unknown>).device).toBeUndefined();
-
-        ws.close();
+        expect(connectMsg).toBeUndefined();
       } finally {
         ncWss.close();
         await new Promise<void>((resolve) => ncServer.close(() => resolve()));
         _internals.challengeTimeoutMs = originalTimeout;
+      }
+    });
+
+    it('stores Gateway device tokens server-side and redacts them from the browser', async () => {
+      const tokenServer = createHttpServer();
+      const tokenWss = new WebSocketServer({ server: tokenServer });
+      tokenWss.on('connection', (tokenWs: WebSocket) => {
+        tokenWs.send(JSON.stringify({
+          type: 'event',
+          event: 'connect.challenge',
+          payload: { nonce: 'token-nonce' },
+        }));
+        tokenWs.on('message', (data: Buffer | string) => {
+          const parsed = JSON.parse(data.toString());
+          if (parsed.method !== 'connect') return;
+          tokenWs.send(JSON.stringify({
+            type: 'res',
+            id: parsed.id,
+            ok: true,
+            payload: {
+              auth: {
+                deviceToken: 'server-only-device-token',
+                deviceTokens: { operator: 'server-only-device-token' },
+                role: 'operator',
+                scopes: ['operator.read', 'operator.write'],
+              },
+            },
+          }));
+        });
+      });
+      await new Promise<void>((resolve) => {
+        tokenServer.listen(0, '127.0.0.1', () => resolve());
+      });
+      const address = tokenServer.address();
+      const tokenPort = typeof address === 'object' && address ? address.port : 0;
+
+      try {
+        mockedStoreDeviceAuth.mockClear();
+        const ws = new WebSocket(
+          `ws://127.0.0.1:${proxyPort}/ws?target=${encodeURIComponent(`ws://127.0.0.1:${tokenPort}`)}`,
+        );
+        expect(JSON.parse(await waitForMessage(ws)).event).toBe('connect.challenge');
+        ws.send(JSON.stringify({
+          type: 'req',
+          method: 'connect',
+          id: 'token-connect',
+          params: {
+            auth: { token: 'bootstrap-token' },
+            client: { id: 'openclaw-control-ui', mode: 'webchat' },
+          },
+        }));
+
+        const response = JSON.parse(await waitForMessage(ws));
+        expect(response.payload.auth).toEqual({
+          role: 'operator',
+          scopes: ['operator.read', 'operator.write'],
+        });
+        expect(mockedStoreDeviceAuth).toHaveBeenCalledWith({
+          gatewayUrl: expect.any(URL),
+          token: 'server-only-device-token',
+          role: 'operator',
+          scopes: ['operator.read', 'operator.write'],
+        });
+        ws.close();
+      } finally {
+        tokenWss.close();
+        await new Promise<void>((resolve) => tokenServer.close(() => resolve()));
       }
     });
 

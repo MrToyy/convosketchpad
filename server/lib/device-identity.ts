@@ -13,6 +13,8 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
+export const CONVOSKETCHPAD_OPERATOR_SCOPES = ['operator.read', 'operator.write'] as const;
+
 interface DeviceIdentity {
   deviceId: string;
   publicKeyRaw: Buffer;      // 32-byte raw Ed25519 public key
@@ -22,13 +24,112 @@ interface DeviceIdentity {
 
 let cached: DeviceIdentity | null = null;
 
-/** Path to the identity file (next to the running process) */
-function identityPath(): string {
-  // Store in the .nerve directory under the user's home, or fallback to cwd
+function dataDir(): string {
   const dir = process.env.NERVE_DATA_DIR
     || path.join(process.env.HOME || process.cwd(), '.nerve');
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  return dir;
+}
+
+/** Path to the identity file (next to the running process) */
+function identityPath(): string {
+  const dir = dataDir();
   return path.join(dir, 'device-identity.json');
+}
+
+function gatewayAuthPath(): string {
+  return path.join(dataDir(), 'gateway-auth.json');
+}
+
+export function normalizeGatewayAuthKey(gatewayUrl: string | URL): string {
+  const parsed = gatewayUrl instanceof URL ? new URL(gatewayUrl) : new URL(gatewayUrl);
+  if (parsed.protocol === 'http:') parsed.protocol = 'ws:';
+  if (parsed.protocol === 'https:') parsed.protocol = 'wss:';
+  if (!parsed.pathname || parsed.pathname === '/') parsed.pathname = '/ws';
+  parsed.search = '';
+  parsed.hash = '';
+  return parsed.toString();
+}
+
+interface StoredGatewayAuth {
+  deviceId: string;
+  role: 'operator';
+  scopes: string[];
+  token: string;
+  updatedAt: string;
+}
+
+interface GatewayAuthStore {
+  version: 1;
+  gateways: Record<string, StoredGatewayAuth>;
+}
+
+function hasExactOperatorScopes(scopes: string[]): boolean {
+  return scopes.length === CONVOSKETCHPAD_OPERATOR_SCOPES.length
+    && CONVOSKETCHPAD_OPERATOR_SCOPES.every(scope => scopes.includes(scope));
+}
+
+function readGatewayAuthStore(): GatewayAuthStore {
+  const authPath = gatewayAuthPath();
+  if (!fs.existsSync(authPath)) return { version: 1, gateways: {} };
+  try {
+    const parsed = JSON.parse(fs.readFileSync(authPath, 'utf8')) as GatewayAuthStore;
+    if (parsed.version !== 1 || !parsed.gateways || typeof parsed.gateways !== 'object') {
+      return { version: 1, gateways: {} };
+    }
+    return parsed;
+  } catch {
+    return { version: 1, gateways: {} };
+  }
+}
+
+function writeGatewayAuthStore(store: GatewayAuthStore): void {
+  const authPath = gatewayAuthPath();
+  const tempPath = `${authPath}.${process.pid}.tmp`;
+  fs.writeFileSync(tempPath, `${JSON.stringify(store, null, 2)}\n`, { mode: 0o600 });
+  fs.renameSync(tempPath, authPath);
+  fs.chmodSync(authPath, 0o600);
+}
+
+export function getStoredDeviceAuth(gatewayUrl: string | URL): StoredGatewayAuth | null {
+  const identity = getDeviceIdentity();
+  const stored = readGatewayAuthStore().gateways[normalizeGatewayAuthKey(gatewayUrl)];
+  if (!stored || stored.deviceId !== identity.deviceId || !stored.token) return null;
+  if (!hasExactOperatorScopes(stored.scopes)) return null;
+  return stored;
+}
+
+export function storeDeviceAuth(input: {
+  gatewayUrl: string | URL;
+  token: string;
+  role?: string;
+  scopes?: string[];
+}): void {
+  const token = input.token.trim();
+  if (!token) return;
+  const role = input.role || 'operator';
+  if (role !== 'operator') return;
+  const scopes = [...new Set(input.scopes || [])];
+  if (!hasExactOperatorScopes(scopes)) return;
+
+  const store = readGatewayAuthStore();
+  const identity = getDeviceIdentity();
+  store.gateways[normalizeGatewayAuthKey(input.gatewayUrl)] = {
+    deviceId: identity.deviceId,
+    role: 'operator',
+    scopes,
+    token,
+    updatedAt: new Date().toISOString(),
+  };
+  writeGatewayAuthStore(store);
+}
+
+export function clearStoredDeviceAuth(gatewayUrl: string | URL): void {
+  const store = readGatewayAuthStore();
+  const key = normalizeGatewayAuthKey(gatewayUrl);
+  if (!store.gateways[key]) return;
+  delete store.gateways[key];
+  writeGatewayAuthStore(store);
 }
 
 /** Load or generate a persistent Ed25519 device identity */

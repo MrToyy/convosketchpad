@@ -61,16 +61,18 @@ All three should succeed. Open `http://localhost:3080` in your browser.
 
 After an OpenClaw update or re-onboard, the connect dialog may fail with auth errors.
 
-**Fix:** Re-run `npm run setup`, restart both services, and open a fresh browser tab.
+**Fix:** Re-run `npm run setup`. It uses OpenClaw's native device flow and does
+not rewrite pairing files. If needed, rotate/remove the stale device with the
+OpenClaw devices CLI and approve the new exact request.
 
 ### Missing scopes after first connect
 
 Canvas connects but interactions fail with "missing scope" errors.
 
-**Fix:** Re-run `npm run setup`, or manually approve the device:
+**Fix:** Re-run `npm run setup`, or manually inspect and approve the exact request:
 
 ```bash
-openclaw devices list
+openclaw devices list --json
 openclaw devices approve <requestId>
 ```
 

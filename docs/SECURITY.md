@@ -23,6 +23,13 @@ Set a stable, random `NERVE_SESSION_SECRET` in production. Configure `TRUSTED_PR
 
 The server can inject `GATEWAY_TOKEN` into trusted local/authenticated WebSocket handshakes so the browser does not need to persist it. External unauthenticated clients never receive server-side Token injection. Restrict `WS_ALLOWED_HOSTS`, `ALLOWED_ORIGINS`, and `CSP_CONNECT_EXTRA` to required values.
 
+ConvoSketchpad uses one persistent Ed25519 device identity and asks OpenClaw
+for exactly `operator.read` and `operator.write`. Pairing approval and pairing
+state remain owned by OpenClaw; ConvoSketchpad does not edit OpenClaw pairing
+files. The issued device token is stored server-side in
+`~/.nerve/gateway-auth.json` (or `NERVE_DATA_DIR`) with mode `0600` and is
+redacted from Gateway responses before they reach the browser.
+
 ## Canvas ownership
 
 Every Canvas, Branch, Interaction, attachment, Artifact, and send resource is resolved through the authenticated owner. Artifact proxying additionally requires an owned Canvas Session key. Requests for another owner's resources return 404.
@@ -44,5 +51,5 @@ Changing a Canvas Agent is allowed only before the first send. The server valida
 2. Enable managed authentication and set `NERVE_SESSION_SECRET`.
 3. Limit origins, WS target hosts, and trusted proxies.
 4. Grant OpenClaw Agents only the tools and filesystem access users should have.
-5. Protect `.env`, `database/`, `artifacts/`, and the OpenClaw configuration directory.
+5. Protect `.env`, `.nerve/`, `database/`, `artifacts/`, and the OpenClaw configuration directory.
 6. Back up SQLite and Artifacts together.

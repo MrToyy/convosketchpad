@@ -9,6 +9,10 @@ let getDeviceIdentity: typeof import('./device-identity.js').getDeviceIdentity;
 let buildSigningPayload: typeof import('./device-identity.js').buildSigningPayload;
 let signPayload: typeof import('./device-identity.js').signPayload;
 let createDeviceBlock: typeof import('./device-identity.js').createDeviceBlock;
+let getStoredDeviceAuth: typeof import('./device-identity.js').getStoredDeviceAuth;
+let storeDeviceAuth: typeof import('./device-identity.js').storeDeviceAuth;
+let clearStoredDeviceAuth: typeof import('./device-identity.js').clearStoredDeviceAuth;
+let normalizeGatewayAuthKey: typeof import('./device-identity.js').normalizeGatewayAuthKey;
 
 describe('device-identity', () => {
   let tmpDir: string;
@@ -24,6 +28,10 @@ describe('device-identity', () => {
     buildSigningPayload = mod.buildSigningPayload;
     signPayload = mod.signPayload;
     createDeviceBlock = mod.createDeviceBlock;
+    getStoredDeviceAuth = mod.getStoredDeviceAuth;
+    storeDeviceAuth = mod.storeDeviceAuth;
+    clearStoredDeviceAuth = mod.clearStoredDeviceAuth;
+    normalizeGatewayAuthKey = mod.normalizeGatewayAuthKey;
   });
 
   afterEach(() => {
@@ -334,6 +342,101 @@ describe('device-identity', () => {
       expect(block1.id).toBe(block2.id);
       expect(block1.publicKey).toBe(block2.publicKey);
       expect(block1.signature).not.toBe(block2.signature);
+    });
+  });
+
+  describe('Gateway device-token storage', () => {
+    it('normalizes HTTP Gateway URLs to a stable WebSocket key', () => {
+      expect(normalizeGatewayAuthKey('https://gateway.example.test?ignored=1#hash'))
+        .toBe('wss://gateway.example.test/ws');
+      expect(normalizeGatewayAuthKey('ws://127.0.0.1:18789/ws?token=secret'))
+        .toBe('ws://127.0.0.1:18789/ws');
+    });
+
+    it('persists a read/write device token in a server-only mode-0600 file', () => {
+      const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+      storeDeviceAuth({
+        gatewayUrl: 'https://gateway.example.test',
+        token: 'device-token-secret',
+        role: 'operator',
+        scopes: ['operator.read', 'operator.write'],
+      });
+
+      expect(getStoredDeviceAuth('wss://gateway.example.test/ws')).toMatchObject({
+        token: 'device-token-secret',
+        role: 'operator',
+        scopes: ['operator.read', 'operator.write'],
+      });
+
+      const authPath = path.join(tmpDir, 'gateway-auth.json');
+      const stored = JSON.parse(fs.readFileSync(authPath, 'utf8'));
+      expect(stored.gateways['wss://gateway.example.test/ws'].token)
+        .toBe('device-token-secret');
+      expect(fs.statSync(authPath).mode & 0o777).toBe(0o600);
+      logSpy.mockRestore();
+    });
+
+    it('isolates device tokens by Gateway URL', () => {
+      const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+      storeDeviceAuth({
+        gatewayUrl: 'https://one.example.test',
+        token: 'token-one',
+        scopes: ['operator.read', 'operator.write'],
+      });
+      storeDeviceAuth({
+        gatewayUrl: 'https://two.example.test',
+        token: 'token-two',
+        scopes: ['operator.read', 'operator.write'],
+      });
+
+      expect(getStoredDeviceAuth('https://one.example.test')?.token).toBe('token-one');
+      expect(getStoredDeviceAuth('https://two.example.test')?.token).toBe('token-two');
+      logSpy.mockRestore();
+    });
+
+    it('rejects under-scoped, over-scoped, or non-operator tokens', () => {
+      const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+      storeDeviceAuth({
+        gatewayUrl: 'https://under-scoped.example.test',
+        token: 'read-only-token',
+        scopes: ['operator.read'],
+      });
+      storeDeviceAuth({
+        gatewayUrl: 'https://wrong-role.example.test',
+        token: 'admin-token',
+        role: 'admin',
+        scopes: ['operator.read', 'operator.write'],
+      });
+      storeDeviceAuth({
+        gatewayUrl: 'https://over-scoped.example.test',
+        token: 'over-scoped-token',
+        scopes: ['operator.read', 'operator.write', 'operator.admin'],
+      });
+
+      expect(getStoredDeviceAuth('https://under-scoped.example.test')).toBeNull();
+      expect(getStoredDeviceAuth('https://wrong-role.example.test')).toBeNull();
+      expect(getStoredDeviceAuth('https://over-scoped.example.test')).toBeNull();
+      expect(fs.existsSync(path.join(tmpDir, 'gateway-auth.json'))).toBe(false);
+      logSpy.mockRestore();
+    });
+
+    it('clears only the selected Gateway token', () => {
+      const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+      for (const [gatewayUrl, token] of [
+        ['https://one.example.test', 'token-one'],
+        ['https://two.example.test', 'token-two'],
+      ]) {
+        storeDeviceAuth({
+          gatewayUrl,
+          token,
+          scopes: ['operator.read', 'operator.write'],
+        });
+      }
+
+      clearStoredDeviceAuth('https://one.example.test');
+      expect(getStoredDeviceAuth('https://one.example.test')).toBeNull();
+      expect(getStoredDeviceAuth('https://two.example.test')?.token).toBe('token-two');
+      logSpy.mockRestore();
     });
   });
 });

@@ -14,7 +14,13 @@
 import { randomUUID } from 'node:crypto';
 import { WebSocket } from 'ws';
 import { config } from './config.js';
-import { createDeviceBlock } from './device-identity.js';
+import {
+  clearStoredDeviceAuth,
+  CONVOSKETCHPAD_OPERATOR_SCOPES,
+  createDeviceBlock,
+  getStoredDeviceAuth,
+  storeDeviceAuth,
+} from './device-identity.js';
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -64,6 +70,7 @@ let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let connectPromise: Promise<void> | null = null;
 let connectResolve: (() => void) | null = null;
 let connectReject: ((err: Error) => void) | null = null;
+let deviceTokenRetryUsed = false;
 
 function normalizeOrigin(value: string | undefined | null): string | null {
   if (!value) return null;
@@ -105,30 +112,36 @@ function buildConnectParams(nonce: string) {
   const clientId = 'openclaw-control-ui';
   const clientMode = 'webchat';
   const role = 'operator';
-  const scopes = ['operator.admin', 'operator.read', 'operator.write'];
-  const token = config.gatewayToken;
+  const scopes = [...CONVOSKETCHPAD_OPERATOR_SCOPES];
+  const gatewayUrl = getGatewayWsUrl();
+  const storedAuth = deviceTokenRetryUsed ? null : getStoredDeviceAuth(gatewayUrl);
+  const token = storedAuth?.token || config.gatewayToken;
 
   return {
-    minProtocol: 4,
-    maxProtocol: 4,
-    client: {
-      id: clientId,
-      version: '0.1.0',
-      platform: 'web',
-      mode: clientMode,
-      instanceId: `nerve-rpc-${randomUUID().slice(0, 8)}`,
-    },
-    role,
-    scopes,
-    auth: { token },
-    device: createDeviceBlock({
-      clientId,
-      clientMode,
+    usedStoredDeviceToken: Boolean(storedAuth),
+    params: {
+      minProtocol: 4,
+      maxProtocol: 4,
+      client: {
+        id: clientId,
+        displayName: 'ConvoSketchpad',
+        version: '0.1.0',
+        platform: 'web',
+        mode: clientMode,
+        instanceId: `convosketchpad-rpc-${randomUUID().slice(0, 8)}`,
+      },
       role,
       scopes,
-      token,
-      nonce,
-    }),
+      auth: { token },
+      device: createDeviceBlock({
+        clientId,
+        clientMode,
+        role,
+        scopes,
+        token,
+        nonce,
+      }),
+    },
   };
 }
 
@@ -163,14 +176,18 @@ function rejectConnect(reason: string): void {
 /** Establish the persistent gateway connection. */
 function ensureConnection(): void {
   if (ws || connecting) return;
-  if (!config.gatewayToken) return; // No token = can't connect
+  if (!config.gatewayToken && !getStoredDeviceAuth(getGatewayWsUrl())) return;
 
   connecting = true;
-  connectPromise = new Promise<void>((resolve, reject) => {
-    connectResolve = resolve;
-    connectReject = reject;
-  });
+  if (!connectPromise) {
+    connectPromise = new Promise<void>((resolve, reject) => {
+      connectResolve = resolve;
+      connectReject = reject;
+    });
+  }
   const wsUrl = getGatewayWsUrl();
+  let connectUsedStoredDeviceToken = false;
+  let retryAfterClearingDeviceToken = false;
 
   const socket = new WebSocket(wsUrl, {
     headers: { Origin: getGatewayRequestOrigin() },
@@ -186,11 +203,13 @@ function ensureConnection(): void {
 
       // Handle connect.challenge → send connect
       if (msg.type === 'event' && msg.event === 'connect.challenge' && msg.payload?.nonce) {
+        const assembled = buildConnectParams(msg.payload.nonce);
+        connectUsedStoredDeviceToken = assembled.usedStoredDeviceToken;
         socket.send(JSON.stringify({
           type: 'req',
           id: '__connect__',
           method: 'connect',
-          params: buildConnectParams(msg.payload.nonce),
+          params: assembled.params,
         }));
         return;
       }
@@ -199,6 +218,20 @@ function ensureConnection(): void {
       if (msg.type === 'res' && msg.id === '__connect__') {
         connecting = false;
         if (msg.ok) {
+          const auth = msg.payload?.auth as {
+            deviceToken?: string;
+            role?: string;
+            scopes?: string[];
+          } | undefined;
+          if (auth?.deviceToken) {
+            storeDeviceAuth({
+              gatewayUrl: wsUrl,
+              token: auth.deviceToken,
+              role: auth.role,
+              scopes: auth.scopes,
+            });
+          }
+          deviceTokenRetryUsed = false;
           ws = socket;
           connected = true;
           if (connectResolve) {
@@ -208,6 +241,24 @@ function ensureConnection(): void {
           connectReject = null;
           console.log('[gateway-rpc] Connected to gateway (persistent)');
         } else {
+          const detailCode = msg.error?.details?.code;
+          if (
+            connectUsedStoredDeviceToken
+            && !deviceTokenRetryUsed
+            && (
+              detailCode === 'AUTH_TOKEN_MISMATCH'
+              || detailCode === 'AUTH_DEVICE_TOKEN_MISMATCH'
+              || detailCode === 'AUTH_SCOPE_MISMATCH'
+            )
+            && config.gatewayToken
+          ) {
+            clearStoredDeviceAuth(wsUrl);
+            deviceTokenRetryUsed = true;
+            retryAfterClearingDeviceToken = true;
+            connecting = false;
+            socket.close(1000, 'retrying with bootstrap auth');
+            return;
+          }
           const reason = msg.error?.message || 'Gateway connect rejected';
           console.error('[gateway-rpc] Gateway connect rejected:', reason);
           rejectConnect(reason);
@@ -240,6 +291,13 @@ function ensureConnection(): void {
   });
 
   socket.on('close', () => {
+    if (retryAfterClearingDeviceToken) {
+      ws = null;
+      connected = false;
+      connecting = false;
+      setTimeout(() => ensureConnection(), 0);
+      return;
+    }
     const wasConnected = connected;
     const wasConnecting = connecting;
     ws = null;

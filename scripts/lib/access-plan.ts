@@ -175,6 +175,8 @@ export function applyAccessPlanToConfig(config: EnvConfig, plan: AccessPlan): En
 
   if (plan.browserOrigins.length > 0) next.ALLOWED_ORIGINS = dedupe(plan.browserOrigins).join(',');
   else delete next.ALLOWED_ORIGINS;
+  if (plan.browserOrigins.length > 0) next.NERVE_PUBLIC_ORIGIN = plan.browserOrigins[0];
+  else delete next.NERVE_PUBLIC_ORIGIN;
 
   if (plan.cspConnectExtra.length > 0) next.CSP_CONNECT_EXTRA = dedupe(plan.cspConnectExtra).join(' ');
   else delete next.CSP_CONNECT_EXTRA;

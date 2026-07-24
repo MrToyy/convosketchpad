@@ -12,9 +12,23 @@ curl -sS http://127.0.0.1:3080/health
 
 Run `npm run setup` again after a Gateway re-onboard or Token rotation. For a remote Gateway, add its hostname to `WS_ALLOWED_HOSTS`.
 
+If the error is pairing- or scope-related, use OpenClaw's native recovery:
+
+```bash
+openclaw devices list --json
+openclaw devices approve <requestId>
+```
+
+Do not copy tokens between `paired.json` and `device-auth.json`. If a stored
+device token has drifted, use `openclaw devices rotate/remove` and re-approve.
+
 ## `origin not allowed`
 
-Use the exact browser origin in OpenClaw `gateway.controlUi.allowedOrigins`. For remote access, set the same origin in `NERVE_PUBLIC_ORIGIN` and `ALLOWED_ORIGINS`, then restart both services.
+Use the exact browser origin in OpenClaw
+`gateway.controlUi.allowedOrigins`. `npm run setup` changes this only through
+`openclaw config get/patch` with a dry run. For remote access, set the same
+origin in `NERVE_PUBLIC_ORIGIN` and `ALLOWED_ORIGINS`, and run the OpenClaw
+config command on the Gateway host.
 
 ## Agent list cannot load or Canvas creation returns 502
 

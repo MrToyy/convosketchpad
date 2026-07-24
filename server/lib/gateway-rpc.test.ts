@@ -2,6 +2,14 @@
 import { describe, it, expect, vi, beforeEach, afterEach, beforeAll, afterAll } from 'vitest';
 import { WebSocketServer } from 'ws';
 
+interface MockStoredDeviceAuth {
+  deviceId: string;
+  role: 'operator';
+  scopes: string[];
+  token: string;
+  updatedAt: string;
+}
+
 // Mock config to point at our test server
 let testPort: number;
 vi.mock('./config.js', () => ({
@@ -15,7 +23,13 @@ vi.mock('./config.js', () => ({
   },
 }));
 
-const { createDeviceBlockMock } = vi.hoisted(() => ({
+const {
+  clearStoredDeviceAuthMock,
+  createDeviceBlockMock,
+  getStoredDeviceAuthMock,
+  storeDeviceAuthMock,
+} = vi.hoisted(() => ({
+  clearStoredDeviceAuthMock: vi.fn(),
   createDeviceBlockMock: vi.fn(({ nonce, clientId, clientMode, role, scopes, token }) => ({
     id: 'device-123',
     publicKey: 'pubkey-123',
@@ -24,10 +38,16 @@ const { createDeviceBlockMock } = vi.hoisted(() => ({
     nonce,
     _debug: { clientId, clientMode, role, scopes, token },
   })),
+  getStoredDeviceAuthMock: vi.fn<() => MockStoredDeviceAuth | null>(() => null),
+  storeDeviceAuthMock: vi.fn(),
 }));
 
 vi.mock('./device-identity.js', () => ({
+  clearStoredDeviceAuth: clearStoredDeviceAuthMock,
+  CONVOSKETCHPAD_OPERATOR_SCOPES: ['operator.read', 'operator.write'],
   createDeviceBlock: createDeviceBlockMock,
+  getStoredDeviceAuth: getStoredDeviceAuthMock,
+  storeDeviceAuth: storeDeviceAuthMock,
 }));
 
 import {
@@ -109,6 +129,7 @@ describe('gateway-rpc (persistent WebSocket)', () => {
     lastConnectParams = null;
     lastRequestOrigin = undefined;
     connectMode = 'accept';
+    getStoredDeviceAuthMock.mockReturnValue(null);
     delete process.env.NERVE_PUBLIC_ORIGIN;
     delete process.env.ALLOWED_ORIGINS;
   });
@@ -127,7 +148,7 @@ describe('gateway-rpc (persistent WebSocket)', () => {
         clientId: 'openclaw-control-ui',
         clientMode: 'webchat',
         role: 'operator',
-        scopes: ['operator.admin', 'operator.read', 'operator.write'],
+        scopes: ['operator.read', 'operator.write'],
         token: 'test-token',
         nonce: 'test-nonce',
       });
@@ -156,6 +177,33 @@ describe('gateway-rpc (persistent WebSocket)', () => {
         minProtocol: 4,
         maxProtocol: 4,
       });
+    });
+
+    it('reuses a stored device token through auth.token without exposing a custom auth field', async () => {
+      getStoredDeviceAuthMock.mockReturnValue({
+        deviceId: 'device-123',
+        role: 'operator',
+        scopes: ['operator.read', 'operator.write'],
+        token: 'stored-device-token',
+        updatedAt: new Date().toISOString(),
+      });
+      rpcHandler = () => ({ ok: true });
+
+      const { gatewayRpcCall } = await importFreshGatewayRpc();
+      await gatewayRpcCall('test.method', {});
+
+      expect(lastConnectParams).toMatchObject({
+        auth: { token: 'stored-device-token' },
+        role: 'operator',
+        scopes: ['operator.read', 'operator.write'],
+      });
+      expect((lastConnectParams as { auth: Record<string, unknown> }).auth)
+        .not.toHaveProperty('deviceToken');
+      expect(createDeviceBlockMock).toHaveBeenCalledWith(expect.objectContaining({
+        token: 'stored-device-token',
+        role: 'operator',
+        scopes: ['operator.read', 'operator.write'],
+      }));
     });
 
     it('uses the configured public origin for the gateway websocket handshake', async () => {

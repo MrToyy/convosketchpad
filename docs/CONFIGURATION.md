@@ -8,11 +8,52 @@ Run `npm run setup` for the guided path. Copy `.env.example` only when configuri
 |---|---|---|
 | `GATEWAY_URL` | `http://127.0.0.1:18789` | OpenClaw Gateway HTTP origin |
 | `GATEWAY_TOKEN` | empty | Gateway Token used by server RPC and trusted WS injection |
+| `NERVE_GATEWAY_TIMEZONE` | application host timezone | IANA timezone used by the Gateway for daily Session resets; set this for a remote Gateway |
 | `PORT` | `3080` | HTTP port |
 | `HOST` | `127.0.0.1` | Bind host |
 | `SSL_PORT` | `3443` | Optional built-in TLS port when certificates exist |
 | `NERVE_PUBLIC_ORIGIN` | empty | Browser-facing origin for Gateway handshakes |
 | `OPENCLAW_CONFIG_PATH` | `~/.openclaw/openclaw.json` | Optional OpenClaw config override |
+
+`NERVE_GATEWAY_TIMEZONE` must be an IANA name such as `Asia/Shanghai` or
+`America/New_York`. An invalid explicit value stops startup, because using the
+wrong timezone could make Canvas miss the first recovery send after OpenClaw's
+daily reset.
+
+## OpenClaw-owned Gateway setup
+
+ConvoSketchpad needs no OpenClaw tool allowlist or admin scope. For a browser
+origin outside the Gateway's loopback defaults, the only OpenClaw config value
+it changes is:
+
+```text
+gateway.controlUi.allowedOrigins
+```
+
+`npm run setup` reads that value with `openclaw config get`, merges the required
+origins, validates the full change with `openclaw config patch --dry-run`, and
+then applies it with `openclaw config patch`. It never writes
+`openclaw.json`, `devices/paired.json`, or `identity/device-auth.json`
+directly.
+
+Device enrollment uses OpenClaw's native pending-request flow:
+
+```bash
+openclaw devices list --json
+openclaw devices approve <requestId>
+```
+
+Interactive setup shows the exact matched request and asks before approval.
+`--defaults` creates/checks the pending request but leaves approval to the
+operator. ConvoSketchpad requests only `operator.read` and `operator.write`.
+
+For a remote Gateway, setup does not mutate a local OpenClaw config. Run the
+printed `openclaw config` and `openclaw devices` commands on the Gateway host.
+
+After approval, OpenClaw's returned device token is stored in
+`$NERVE_DATA_DIR/gateway-auth.json` (default `~/.nerve/gateway-auth.json`) with
+mode `0600`, keyed by Gateway URL. The server removes device-token fields from
+the connect response before forwarding it to the browser.
 
 ## Canvas storage and usage
 

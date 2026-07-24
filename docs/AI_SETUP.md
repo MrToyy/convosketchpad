@@ -51,7 +51,10 @@ For the default local path, agents may automatically:
 - restart local services or processes
 - run validation and smoke checks
 
-Agents may also apply minimal localhost-safe OpenClaw changes needed for the default path, such as local origin allowlisting, local pairing fixes, or required local tool allow entries.
+Agents may also apply the minimal localhost-safe OpenClaw changes needed for
+the default path: native origin allowlisting and explicit approval of the
+exact ConvoSketchpad pending device request. They must use `openclaw config`
+and `openclaw devices`; direct pairing-file repair is not supported.
 
 ## What requires confirmation
 
@@ -68,7 +71,8 @@ That includes:
 - remote gateway auth or allowlist changes
 - cloud-hosted assumptions that materially change the security posture
 
-Short version: local repair and local setup can be automated. Public or destructive changes need consent.
+Short version: local setup through OpenClaw's native commands can be automated.
+Public or destructive changes need consent.
 
 ## Dependency behavior
 
@@ -80,7 +84,9 @@ Expected agent behavior:
 3. if none is found, explain the dependency clearly
 4. ask before installing OpenClaw
 
-For the default same-machine flow, agents may make the smallest safe local OpenClaw fixes required for ConvoSketchpad to connect. For remote or public gateway changes, they should stop and ask.
+For the default same-machine flow, agents may use the smallest supported local
+OpenClaw config/pairing commands required for ConvoSketchpad to connect. For
+remote or public Gateway changes, they should stop and ask.
 
 ## Topology map
 

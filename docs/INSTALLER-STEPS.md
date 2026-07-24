@@ -10,11 +10,21 @@
 
 The setup wizard contains:
 
-1. **Gateway Connection** — URL, Token, connectivity, and minimal control-UI origin/device setup.
+1. **Gateway Connection** — URL, Token, connectivity, remote-Gateway timezone, native control-UI origin config, and native device pairing.
 2. **Access Mode** — localhost, Tailscale IP, Tailscale Serve, network, or custom.
 3. **Authentication** — managed-user login and session configuration for non-local access.
 
 The installer does not install speech models, ffmpeg for audio, configure TTS/STT providers, create an Agent identity, install bundled Skills, or add Cron/Session-spawn tool permissions.
+
+Gateway changes use only supported OpenClaw commands. Setup capability-checks
+`config patch`, `devices list`, and `devices approve`; it never repairs
+`paired.json` or `device-auth.json`. Remote Gateway config is left untouched
+and setup prints the commands to run on that host.
+
+When `npm run setup` detects a non-loopback Gateway URL, it asks for the
+Gateway's IANA timezone so Canvas can predict OpenClaw's daily Session reset.
+For non-interactive setup, pass
+`npm run setup -- --defaults --gateway-timezone Asia/Shanghai`.
 
 Common flags:
 

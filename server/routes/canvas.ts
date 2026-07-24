@@ -12,7 +12,12 @@ import {
   readCanvasAttachment,
 } from '../lib/canvas-artifact-store.js';
 import { resolveAgentWorkspace } from '../lib/agent-workspace.js';
-import { getCanvasStore, type CanvasArtifact, type CanvasAttachment } from '../lib/canvas-db.js';
+import {
+  getCanvasStore,
+  type CanvasArtifact,
+  type CanvasAttachment,
+  type CanvasStore,
+} from '../lib/canvas-db.js';
 import {
   CANVAS_RECONCILIATION_VERSION,
   resolveOpenClawArtifactUrl,
@@ -21,6 +26,10 @@ import {
 } from '../lib/canvas-reconciler.js';
 import { config } from '../lib/config.js';
 import { gatewayRpcCall } from '../lib/gateway-rpc.js';
+import {
+  getCanvasSessionResetPolicy,
+  sessionWillResetBeforeSend,
+} from '../lib/openclaw-session-policy.js';
 import { rateLimitGeneral } from '../middleware/rate-limit.js';
 
 const app = new Hono();
@@ -33,6 +42,31 @@ interface GatewayAgentSummary {
 interface GatewayAgentList {
   defaultId?: string;
   agents?: GatewayAgentSummary[];
+}
+
+interface GatewaySessionSummary {
+  key?: string;
+  sessionKey?: string;
+  id?: string;
+  sessionId?: string;
+}
+
+async function refreshBranchSessionIdentity(
+  store: CanvasStore,
+  target: { branchId: string; sessionKey: string },
+  markMissing: boolean,
+): Promise<void> {
+  const response = await gatewayRpcCall('sessions.list', {
+    limit: SESSION_LIST_LIMIT,
+  }, 15_000) as { sessions?: GatewaySessionSummary[] };
+  if (!Array.isArray(response.sessions)) return;
+
+  const session = response.sessions.find(
+    (candidate) => (candidate.sessionKey || candidate.key) === target.sessionKey,
+  );
+  const sessionId = session?.sessionId || session?.id;
+  if (sessionId) store.observeBranchSession(target.branchId, sessionId);
+  else if (!session && markMissing) store.markBranchSessionMissing(target.branchId);
 }
 
 async function listGatewayAgents(): Promise<{ defaultId: string; ids: Set<string> }> {
@@ -372,15 +406,10 @@ app.post('/api/canvas/branches/:id/prepare-send', rateLimitGeneral, async (c) =>
 
     if (branch.sessionState === 'active') {
       try {
-        const response = await gatewayRpcCall('sessions.list', {
-          limit: SESSION_LIST_LIMIT,
-        }, 15_000) as { sessions?: Array<{ key?: string; sessionKey?: string; id?: string; sessionId?: string }> };
-        if (Array.isArray(response.sessions)) {
-          const session = response.sessions.find((candidate) => (candidate.sessionKey || candidate.key) === branch.sessionKey);
-          const sessionId = session?.sessionId || session?.id;
-          if (sessionId) store.observeBranchSession(branch.id, sessionId);
-          else if (!session) store.markBranchSessionMissing(branch.id);
-        }
+        await refreshBranchSessionIdentity(store, {
+          branchId: branch.id,
+          sessionKey: branch.sessionKey,
+        }, true);
       } catch (error) {
         console.warn('[canvas] Session identity preflight skipped:', error instanceof Error ? error.message : error);
       }
@@ -401,11 +430,31 @@ app.post('/api/canvas/branches/:id/prepare-send', rateLimitGeneral, async (c) =>
       }, 422);
     }
 
+    let forceSessionRecovery = false;
+    if (branch.sessionState === 'active') {
+      const refreshedBranch = store.getOwnedBranch(identity.userId, branch.id);
+      if (refreshedBranch?.sessionIntegrity !== 'drifted') {
+        const lifecycle = store.getOwnedBranchSessionLifecycle(identity.userId, branch.id);
+        const resetPolicy = await getCanvasSessionResetPolicy();
+        forceSessionRecovery =
+          !resetPolicy.available ||
+          !resetPolicy.policy ||
+          !lifecycle ||
+          sessionWillResetBeforeSend({
+            policy: resetPolicy.policy,
+            sessionStartedAt: lifecycle.sessionStartedAt,
+            lastInteractionAt: lifecycle.lastInteractionAt,
+            timeZone: config.gatewayTimezone,
+          });
+      }
+    }
+
     const reservation = store.prepareSend(identity.userId, {
       branchId,
       expectedHeadInteractionId: parsed.data.expectedHeadInteractionId,
       userInput: parsed.data.userInput,
       attachments,
+      forceSessionRecovery,
     });
     return c.json({ reservation });
   } catch (error) { return errorResponse(c, error); }
@@ -420,7 +469,25 @@ app.post('/api/canvas/send-reservations/:id/ack', rateLimitGeneral, async (c) =>
   }).safeParse(await c.req.json().catch(() => ({})));
   if (!parsed.success) return c.json({ error: 'Invalid acknowledgement' }, 400);
   try {
-    const interaction = getCanvasStore().acknowledgeSend(identity.userId, c.req.param('id'), parsed.data.runId || null, parsed.data.bootstrapWarnings);
+    const store = getCanvasStore();
+    const reservationId = c.req.param('id');
+    const target = store.getOwnedReservationSessionTarget(identity.userId, reservationId);
+    if (target) {
+      try {
+        await refreshBranchSessionIdentity(store, target, false);
+      } catch (error) {
+        console.warn(
+          '[canvas] Session identity acknowledgement refresh skipped:',
+          error instanceof Error ? error.message : error,
+        );
+      }
+    }
+    const interaction = store.acknowledgeSend(
+      identity.userId,
+      reservationId,
+      parsed.data.runId || null,
+      parsed.data.bootstrapWarnings,
+    );
     scheduleCanvasInteractionReconciliation(interaction.id);
     return c.json({ interaction });
   } catch (error) { return errorResponse(c, error); }

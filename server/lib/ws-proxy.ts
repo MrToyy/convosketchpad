@@ -8,8 +8,8 @@
  *
  * On the first ever connection the gateway creates a pending pairing request.
  * The user must approve it once via `openclaw devices approve <requestId>`.
- * If the device is rejected for any reason, the proxy retries without device
- * identity — the browser still connects but with reduced (token-only) scopes.
+ * Device tokens returned by OpenClaw are stored server-side and removed from
+ * responses before they are relayed to the browser.
  * @module
  */
 
@@ -21,7 +21,14 @@ import type { Duplex } from 'node:stream';
 import { randomUUID } from 'node:crypto';
 import { config, WS_ALLOWED_HOSTS, SESSION_COOKIE_NAME } from './config.js';
 import { verifySession, parseSessionCookie } from './session.js';
-import { createDeviceBlock, getDeviceIdentity } from './device-identity.js';
+import {
+  clearStoredDeviceAuth,
+  CONVOSKETCHPAD_OPERATOR_SCOPES,
+  createDeviceBlock,
+  getDeviceIdentity,
+  getStoredDeviceAuth,
+  storeDeviceAuth,
+} from './device-identity.js';
 import { gatewayRpcCall } from './gateway-rpc.js';
 import { canInjectGatewayToken } from './trust-utils.js';
 import { isAllowedOrigin } from './origin-utils.js';
@@ -155,10 +162,7 @@ export function setupWebSocketProxy(server: HttpServer | HttpsServer): void {
  * operator scopes. The connect message is held until the gateway sends a
  * `connect.challenge` nonce so that device identity can always be injected.
  * If the nonce doesn't arrive within `_internals.challengeTimeoutMs`, the
- * connect message is sent without identity (graceful degradation).
- *
- * If the gateway rejects the device (pairing required, token mismatch),
- * transparently retries without device identity.
+ * connection is refused instead of falling back to unsigned authentication.
  */
 function createGatewayRelay(
   clientWs: WebSocket,
@@ -208,8 +212,10 @@ function createGatewayRelay(
   let gwWs: WebSocket;
   let challengeNonce: string | null = null;
   let handshakeComplete = false;
-  let useDeviceIdentity = true;
   let hasRetried = false;
+  let forceBootstrapAuth = false;
+  let connectUsedStoredDeviceToken = false;
+  let retryAfterAuthFailure = false;
   /** Saved connect message — held separately from pending until challenge arrives */
   let savedConnectMsg: Record<string, unknown> | null = null;
   /** Whether the saved connect message has been dispatched to the gateway */
@@ -261,44 +267,47 @@ function createGatewayRelay(
 
   /**
    * Dispatch the saved connect message to the gateway.
-   * Injects device identity when `useDeviceIdentity` is true and a nonce is available.
+   * Injects device identity using the required Gateway challenge nonce.
    */
-  function dispatchConnect(nonce: string | null): void {
+  function dispatchConnect(nonce: string): void {
     if (!savedConnectMsg || connectSent) return;
     if (gwWs.readyState !== WebSocket.OPEN) return;
     connectSent = true;
     clearChallengeTimer();
 
     let modified = savedConnectMsg;
-    // Inject gateway token proxy-side for trusted clients if not provided by browser
-    if (isTrusted && config.gatewayToken && !(modified.params as ConnectParams)?.auth?.token) {
+    const incomingAuth = (modified.params as ConnectParams)?.auth || {};
+    const storedAuth = forceBootstrapAuth ? null : getStoredDeviceAuth(targetUrl);
+    const bootstrapToken = incomingAuth.token || (isTrusted ? config.gatewayToken : '');
+    const selectedToken = storedAuth?.token || bootstrapToken;
+    connectUsedStoredDeviceToken = Boolean(storedAuth);
+    if (selectedToken) {
       modified = {
         ...modified,
         params: {
           ...(modified.params as object),
           auth: {
-            ...((modified.params as ConnectParams)?.auth as object),
-            token: config.gatewayToken,
+            ...incomingAuth,
+            token: selectedToken,
           },
         },
       };
     }
 
-    const final = (useDeviceIdentity && nonce)
-      ? injectDeviceIdentity(modified, nonce)
-      : modified;
+    const final = injectDeviceIdentity(modified, nonce);
 
     gwWs.send(JSON.stringify(final));
     handshakeComplete = true;
     flushPending();
   }
 
-  /** Start a deadline timer — sends connect without identity on expiry. */
+  /** Start a deadline timer — refuse the connection if no signed challenge is possible. */
   function startChallengeDeadline(): void {
     clearChallengeTimer();
     challengeTimer = setTimeout(() => {
-      console.log('[ws-proxy] Challenge nonce timeout — sending connect without device identity');
-      dispatchConnect(null);
+      console.warn('[ws-proxy] Challenge nonce timeout — refusing an unsigned Gateway connection');
+      clientWs.close(1008, 'Gateway device challenge timed out');
+      gwWs.close(1008, 'device challenge timed out');
     }, _internals.challengeTimeoutMs);
   }
 
@@ -321,19 +330,72 @@ function createGatewayRelay(
       if (!handshakeComplete && !isBinary) {
         try {
           const msg = JSON.parse(data.toString());
-          if (msg.type === 'event' && msg.event === 'connect.challenge' && msg.payload?.nonce) {
-            challengeNonce = msg.payload.nonce;
+          const nonce = msg.payload?.nonce;
+          if (msg.type === 'event' && msg.event === 'connect.challenge' && typeof nonce === 'string') {
+            challengeNonce = nonce;
             // If we have a deferred connect message waiting, send it now with identity
             if (savedConnectMsg && !connectSent && gwWs.readyState === WebSocket.OPEN) {
-              dispatchConnect(challengeNonce);
+              dispatchConnect(nonce);
             }
           }
         } catch { /* ignore */ }
       }
 
+      let forwarded = data.toString();
+      if (!isBinary) {
+        try {
+          const msg = JSON.parse(forwarded);
+          const connectId = savedConnectMsg?.id;
+          if (msg.type === 'res' && connectId && msg.id === connectId) {
+            const auth = msg.payload?.auth as {
+              deviceToken?: string;
+              deviceTokens?: unknown;
+              role?: string;
+              scopes?: string[];
+            } | undefined;
+            if (msg.ok && auth) {
+              if (auth.deviceToken) {
+                storeDeviceAuth({
+                  gatewayUrl: targetUrl,
+                  token: auth.deviceToken,
+                  role: auth.role,
+                  scopes: auth.scopes,
+                });
+              }
+              const safeAuth = { ...auth };
+              delete safeAuth.deviceToken;
+              delete safeAuth.deviceTokens;
+              forwarded = JSON.stringify({
+                ...msg,
+                payload: { ...msg.payload, auth: safeAuth },
+              });
+              forceBootstrapAuth = false;
+              hasRetried = false;
+            } else if (
+              !msg.ok
+              && connectUsedStoredDeviceToken
+              && !hasRetried
+              && (msg.error?.details?.code === 'AUTH_TOKEN_MISMATCH'
+                || msg.error?.details?.code === 'AUTH_DEVICE_TOKEN_MISMATCH'
+                || msg.error?.details?.code === 'AUTH_SCOPE_MISMATCH')
+              && (incomingBootstrapToken(savedConnectMsg) || (isTrusted && config.gatewayToken))
+            ) {
+              clearStoredDeviceAuth(targetUrl);
+              forceBootstrapAuth = true;
+              hasRetried = true;
+              retryAfterAuthFailure = true;
+              gwWs.close(1000, 'retrying with bootstrap auth');
+              return;
+            }
+          }
+        } catch {
+          // Forward non-JSON and unrecognized Gateway messages unchanged.
+        }
+      }
+
       if (clientWs.readyState === WebSocket.OPEN) {
         gatewayToClientCount++;
-        clientWs.send(isBinary ? data : data.toString());
+        clientWs.send(isBinary ? data : forwarded);
       }
     });
 
@@ -341,14 +403,11 @@ function createGatewayRelay(
       // Handle deferred connect message first. Non-connect pending messages are
       // flushed only after connect is dispatched to preserve protocol ordering.
       if (savedConnectMsg && !connectSent) {
-        if (hasRetried) {
-          // Retry path — send immediately without device identity
-          dispatchConnect(null);
-        } else if (challengeNonce) {
+        if (challengeNonce) {
           // Challenge already arrived — send with identity
           dispatchConnect(challengeNonce);
         } else {
-          // Wait for challenge nonce; timeout sends without identity (graceful degradation)
+          // Wait for a challenge nonce; unsigned connections are never attempted.
           startChallengeDeadline();
         }
       } else {
@@ -368,18 +427,8 @@ function createGatewayRelay(
       console.log(`${tag} Gateway closed: code=${code}, reason=${reasonStr}`);
       clearChallengeTimer();
 
-      // Device auth rejected — retry without device identity
-      const isDeviceRejection = code === 1008 && (
-        reasonStr.includes('device token mismatch') ||
-        reasonStr.includes('device signature invalid') ||
-        reasonStr.includes('unknown device') ||
-        reasonStr.includes('pairing required')
-      );
-
-      if (useDeviceIdentity && !hasRetried && isDeviceRejection && clientWs.readyState === WebSocket.OPEN) {
-        console.log(`${tag} Device rejected (${reasonStr}) — retrying without device identity`);
-        useDeviceIdentity = false;
-        hasRetried = true;
+      if (retryAfterAuthFailure && clientWs.readyState === WebSocket.OPEN) {
+        retryAfterAuthFailure = false;
         openGateway();
         return;
       }
@@ -518,14 +567,9 @@ function injectDeviceIdentity(msg: Record<string, unknown>, nonce: string, logTa
   const params = (msg.params || {}) as ConnectParams;
   const clientId = params.client?.id || 'nerve-ui';
   const clientMode = params.client?.mode || 'webchat';
-  const role = params.role || 'operator';
-  const scopes = params.scopes || ['operator.admin', 'operator.read', 'operator.write'];
+  const role = 'operator';
+  const finalScopes = [...CONVOSKETCHPAD_OPERATOR_SCOPES];
   const token = params.auth?.token || '';
-
-  const scopeSet = new Set(scopes);
-  scopeSet.add('operator.read');
-  scopeSet.add('operator.write');
-  const finalScopes = [...scopeSet] as string[];
 
   const device = createDeviceBlock({
     clientId,
@@ -542,8 +586,15 @@ function injectDeviceIdentity(msg: Record<string, unknown>, nonce: string, logTa
     ...msg,
     params: {
       ...params,
+      role,
       scopes: finalScopes,
       device,
     },
   };
+}
+
+function incomingBootstrapToken(msg: Record<string, unknown> | null): string {
+  if (!msg) return '';
+  const params = (msg.params || {}) as ConnectParams;
+  return params.auth?.token || '';
 }

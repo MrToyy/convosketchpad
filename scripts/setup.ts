@@ -33,10 +33,24 @@ import {
   type EnvConfig,
 } from './lib/env-writer.js';
 import { generateSelfSignedCert } from './lib/cert-gen.js';
-import { detectGatewayConfig, getEnvGatewayToken, chooseSetupGatewayToken, restartGateway, approvePendingNerveDevice, detectNeededConfigChanges, type ConfigChange } from './lib/gateway-detect.js';
+import {
+  approvePendingNerveDevice,
+  chooseSetupGatewayToken,
+  detectGatewayConfig,
+  detectNativeOpenClawCapabilities,
+  detectNeededConfigChanges,
+  getEnvGatewayToken,
+  type ConfigChange,
+} from './lib/gateway-detect.js';
+import { requestGatewayPairing } from './lib/gateway-pairing.js';
 import { applyAccessPlanToConfig, buildAccessPlan, type InstallerAccessProfile } from './lib/access-plan.js';
 import { getTailscaleState, type TailscaleState } from './lib/tailscale.js';
 import { printDeploymentGuides, shouldPrintDeploymentGuides } from './lib/deployment-guides.js';
+import {
+  isRemoteGatewayUrl,
+  isValidIanaTimezone,
+  localIanaTimezone,
+} from './lib/gateway-timezone.js';
 
 const PROJECT_ROOT = resolve(process.cwd());
 const ENV_PATH = resolve(PROJECT_ROOT, '.env');
@@ -72,6 +86,7 @@ function normalizeAccessMode(value?: string | null): AccessMode | undefined {
 }
 
 const requestedAccessMode = normalizeAccessMode(getArgValue('--access-mode'));
+const requestedGatewayTimezone = getArgValue('--gateway-timezone')?.trim();
 
 function detectPrimaryIpv4(): string | null {
   const nets = networkInterfaces();
@@ -93,53 +108,100 @@ function sleep(ms: number): Promise<void> {
 }
 
 /**
- * Apply a list of config changes, restart gateway if needed, and optionally approve pending devices.
- * Shared between interactive and defaults flows to avoid duplication.
+ * Apply validated OpenClaw-owned config changes.
  */
 async function applyConfigChanges(changes: ConfigChange[]): Promise<void> {
-  let needsRestart = false;
-  let deviceScopeFixFailed = false;
-  let shouldApprovePending = false;
-
   for (const change of changes) {
-    if (change.id === 'pre-pair' && deviceScopeFixFailed) {
-      warn('Skipping pre-pair because device scope fix failed');
-      continue;
-    }
-
     const result = change.apply();
     if (result.ok) {
       success(result.message);
-      if (result.needsRestart) needsRestart = true;
-      if (change.id === 'device-scopes' || change.id === 'pre-pair') {
-        shouldApprovePending = true;
-      }
     } else {
       warn(result.message);
-      if (change.id === 'device-scopes') {
-        deviceScopeFixFailed = true;
-      }
     }
+  }
+}
+
+function requireNativeOpenClawCapabilities(
+  required: Array<keyof ReturnType<typeof detectNativeOpenClawCapabilities>>,
+): void {
+  const capabilities = detectNativeOpenClawCapabilities();
+  const missing = required.filter(name => !capabilities[name]);
+  if (missing.length === 0) return;
+  fail(`OpenClaw is missing required native capabilities: ${missing.join(', ')}`);
+  dim('Upgrade OpenClaw, then re-run setup. ConvoSketchpad does not patch legacy pairing files.');
+  process.exit(1);
+}
+
+function pairingOrigin(config: EnvConfig): string {
+  return config.NERVE_PUBLIC_ORIGIN
+    || config.ALLOWED_ORIGINS?.split(',').map(value => value.trim()).find(Boolean)
+    || `http://127.0.0.1:${config.PORT || DEFAULTS.PORT}`;
+}
+
+function printRemoteOriginInstructions(origins: string[]): void {
+  if (origins.length === 0) return;
+  warn('The Gateway is remote, so its local OpenClaw configuration was not modified.');
+  dim('On the Gateway host, merge these exact origins into gateway.controlUi.allowedOrigins:');
+  for (const origin of origins) dim(`  • ${origin}`);
+  dim('Use: openclaw config get gateway.controlUi.allowedOrigins --json');
+  dim('Put the merged array in a config-shaped JSON5 patch, then run:');
+  dim('  openclaw config patch --file ./convosketchpad-origin.patch.json5 --dry-run');
+  dim('  openclaw config patch --file ./convosketchpad-origin.patch.json5');
+}
+
+async function configureNativePairing(
+  config: EnvConfig,
+  interactive: boolean,
+): Promise<string | null> {
+  const probe = await requestGatewayPairing({
+    gatewayUrl: config.GATEWAY_URL || DEFAULTS.GATEWAY_URL,
+    gatewayToken: config.GATEWAY_TOKEN || '',
+    origin: pairingOrigin(config),
+  });
+  if (probe.status === 'connected') {
+    success(probe.message);
+    return null;
+  }
+  if (probe.status !== 'pending') {
+    warn(`Could not complete native OpenClaw pairing: ${probe.message}`);
+    return 'Start ConvoSketchpad, then approve its request with `openclaw devices list` and `openclaw devices approve <requestId>`.';
   }
 
-  if (needsRestart) {
-    dim('Restarting gateway to apply changes...');
-    const restart = restartGateway();
-    if (restart.ok) {
-      await new Promise(r => setTimeout(r, 3000));
-      if (shouldApprovePending) {
-        const approved = approvePendingNerveDevice();
-        if (approved.ok && approved.approved > 0) {
-          success(approved.message);
-        } else if (!approved.ok) {
-          warn(approved.message);
-        }
-      }
-      success('Gateway configuration updated');
-    } else {
-      warn(restart.message);
-    }
+  const requestLabel = probe.requestId || '<requestId>';
+  if (!interactive) {
+    warn(`Native OpenClaw pairing is pending: ${requestLabel}`);
+    return `Approve the ConvoSketchpad device on the Gateway host: openclaw devices approve ${requestLabel}`;
   }
+
+  const shouldApprove = await confirm({
+    theme: promptTheme,
+    message: `Approve ConvoSketchpad device request ${requestLabel} with read/write access?`,
+    default: true,
+  });
+  if (!shouldApprove) {
+    return `Approve later with: openclaw devices approve ${requestLabel}`;
+  }
+
+  const approved = approvePendingNerveDevice({
+    gatewayUrl: config.GATEWAY_URL,
+    gatewayToken: config.GATEWAY_TOKEN,
+  });
+  if (!approved.ok || approved.approved !== 1) {
+    warn(approved.message);
+    return `Approve on the Gateway host with: openclaw devices approve ${requestLabel}`;
+  }
+  success(approved.message);
+
+  const verified = await requestGatewayPairing({
+    gatewayUrl: config.GATEWAY_URL || DEFAULTS.GATEWAY_URL,
+    gatewayToken: config.GATEWAY_TOKEN || '',
+    origin: pairingOrigin(config),
+  });
+  if (verified.status === 'connected') {
+    success('Native OpenClaw device pairing verified');
+    return null;
+  }
+  return `Pairing was approved but reconnect is still pending: ${verified.message}`;
 }
 
 // ── Ctrl+C handler ───────────────────────────────────────────────────
@@ -161,6 +223,7 @@ async function main(): Promise<void> {
     --check                   Validate existing .env config and test gateway connection
     --defaults                Non-interactive setup using auto-detected values
     --access-mode <mode>      Explicit non-interactive access mode
+    --gateway-timezone <tz>   Gateway IANA timezone (for example Asia/Shanghai)
     --help, -h                Show this help message
 
   Access modes:
@@ -180,11 +243,18 @@ async function main(): Promise<void> {
     npm run setup -- --check                          # Validate existing config
     npm run setup -- --defaults                       # Auto-configure with detected values
     npm run setup -- --defaults --access-mode tailscale-serve
+    npm run setup -- --defaults --gateway-timezone Asia/Shanghai
 `);
     return;
   }
 
   printBanner(); // no-ops when NERVE_INSTALLER is set
+
+  if (requestedGatewayTimezone && !isValidIanaTimezone(requestedGatewayTimezone)) {
+    fail(`Invalid --gateway-timezone value: ${requestedGatewayTimezone}`);
+    dim('Use an IANA timezone such as Asia/Shanghai or America/New_York.');
+    process.exit(1);
+  }
 
   // Clean up stale .env.tmp from previous interrupted runs
   cleanupTmp(ENV_PATH);
@@ -369,6 +439,26 @@ async function collectInteractive(
     dim('  Start it with: openclaw gateway start');
     console.log('\n  Setup could not verify your gateway token. Fix the gateway or token, then re-run setup.\n');
     process.exit(1);
+  }
+
+  if (requestedGatewayTimezone) {
+    config.NERVE_GATEWAY_TIMEZONE = requestedGatewayTimezone;
+  }
+  if (isRemoteGatewayUrl(config.GATEWAY_URL!)) {
+    console.log('');
+    dim('Canvas uses the Gateway timezone to predict OpenClaw daily session resets.');
+    config.NERVE_GATEWAY_TIMEZONE = (await input({
+      theme: promptTheme,
+      message: 'Gateway timezone',
+      default:
+        requestedGatewayTimezone ||
+        existing.NERVE_GATEWAY_TIMEZONE ||
+        localIanaTimezone(),
+      validate: (value) =>
+        isValidIanaTimezone(value)
+          ? true
+          : 'Enter an IANA timezone such as Asia/Shanghai or America/New_York',
+    })).trim();
   }
 
   // ── 2/3: Access Mode ──────────────────────────────────────────────
@@ -669,15 +759,23 @@ async function collectInteractive(
 
   // ── Gateway config updates ─────────────────────────────────────────
 
-  const neededChanges = detectNeededConfigChanges({
-    allowedOrigins: accessPlan.gatewayAllowedOrigins,
-    gatewayToken: config.GATEWAY_TOKEN,
-  });
+  const gatewayIsRemote = isRemoteGatewayUrl(config.GATEWAY_URL || DEFAULTS.GATEWAY_URL);
+  requireNativeOpenClawCapabilities(
+    gatewayIsRemote
+      ? ['devicesList', 'devicesApprove']
+      : ['configPatch', 'devicesList', 'devicesApprove'],
+  );
+  const neededChanges = gatewayIsRemote
+    ? []
+    : detectNeededConfigChanges({ allowedOrigins: accessPlan.gatewayAllowedOrigins });
+  if (gatewayIsRemote) {
+    printRemoteOriginInstructions(accessPlan.gatewayAllowedOrigins);
+  }
 
   if (neededChanges.length > 0) {
     console.log('');
     warn('ConvoSketchpad needs to update your OpenClaw gateway config.');
-    dim('OpenClaw config files will be updated.');
+    dim('The OpenClaw CLI will validate and apply the change.');
     console.log('');
     dim('The following changes are needed:');
     neededChanges.forEach((change, i) => {
@@ -696,16 +794,15 @@ async function collectInteractive(
     } else {
       warn('Skipped gateway config changes. Some features may not work:');
       for (const change of neededChanges) {
-        if (change.id === 'device-scopes') {
-          dim('  • Device scopes: manually fix scopes in ~/.openclaw/devices/paired.json');
-        } else if (change.id === 'pre-pair') {
-          dim('  • Pre-pair: run `openclaw devices approve` after starting ConvoSketchpad');
-        } else if (change.id.startsWith('allowed-origins')) {
-          dim('  • Origins: add the required origin(s) to gateway.controlUi.allowedOrigins in ~/.openclaw/openclaw.json');
+        if (change.id.startsWith('allowed-origins')) {
+          dim('  • Origins: use `openclaw config get/patch` to update gateway.controlUi.allowedOrigins');
         }
       }
     }
   }
+
+  const pairingFollowUp = await configureNativePairing(config, true);
+  if (pairingFollowUp) warn(pairingFollowUp);
 
   // ── 3/3: Authentication ───────────────────────────────────────────
 
@@ -760,12 +857,16 @@ function printSummary(config: EnvConfig): void {
 
   const hostLabel = host === '127.0.0.1' ? '127.0.0.1 (local only)' : `${host} (network)`;
   const authLabel = config.NERVE_AUTH === 'true' ? '🔒 Enabled' : 'Disabled';
+  const gatewayTimezone = config.NERVE_GATEWAY_TIMEZONE;
 
   if (process.env.NERVE_INSTALLER) {
     // Rail-style summary — stays inside the installer's visual flow
     const r = `  \x1b[2m│\x1b[0m`;
     console.log('');
     console.log(`${r}  \x1b[2mGateway${' '.repeat(4)}\x1b[0m${gwUrl}`);
+    if (gatewayTimezone) {
+      console.log(`${r}  \x1b[2mGateway TZ${' '.repeat(1)}\x1b[0m${gatewayTimezone}`);
+    }
     console.log(`${r}  \x1b[2mHTTP${' '.repeat(7)}\x1b[0m:${port}`);
     if (hasCerts) {
       console.log(`${r}  \x1b[2mHTTPS${' '.repeat(6)}\x1b[0m:${sslPort}`);
@@ -777,6 +878,9 @@ function printSummary(config: EnvConfig): void {
     console.log('');
     console.log('  \x1b[2m┌─────────────────────────────────────────┐\x1b[0m');
     console.log(`  \x1b[2m│\x1b[0m  Gateway    ${gwUrl.padEnd(28)}\x1b[2m│\x1b[0m`);
+    if (gatewayTimezone) {
+      console.log(`  \x1b[2m│\x1b[0m  Gateway TZ ${gatewayTimezone.padEnd(28)}\x1b[2m│\x1b[0m`);
+    }
     console.log(`  \x1b[2m│\x1b[0m  HTTP       :${port.padEnd(27)}\x1b[2m│\x1b[0m`);
     if (hasCerts) {
       console.log(`  \x1b[2m│\x1b[0m  HTTPS      :${sslPort.padEnd(27)}\x1b[2m│\x1b[0m`);
@@ -832,6 +936,18 @@ async function runCheck(config: EnvConfig): Promise<void> {
   } else {
     fail(`GATEWAY_URL is invalid: ${gwUrl}`);
     errors++;
+  }
+
+  if (config.NERVE_GATEWAY_TIMEZONE) {
+    if (isValidIanaTimezone(config.NERVE_GATEWAY_TIMEZONE)) {
+      success(`Gateway timezone is valid: ${config.NERVE_GATEWAY_TIMEZONE}`);
+    } else {
+      fail(`NERVE_GATEWAY_TIMEZONE is invalid: ${config.NERVE_GATEWAY_TIMEZONE}`);
+      errors++;
+    }
+  } else if (isRemoteGatewayUrl(gwUrl)) {
+    warn(`NERVE_GATEWAY_TIMEZONE is not set; using this host's timezone (${localIanaTimezone()})`);
+    dim('Set it to the timezone used by the remote OpenClaw Gateway.');
   }
 
   // Port
@@ -920,6 +1036,23 @@ async function runDefaults(existing: EnvConfig, prereqs: PrereqResult): Promise<
   }
 
   if (!config.GATEWAY_URL) config.GATEWAY_URL = DEFAULTS.GATEWAY_URL;
+  if (requestedGatewayTimezone) {
+    config.NERVE_GATEWAY_TIMEZONE = requestedGatewayTimezone;
+  } else if (
+    isRemoteGatewayUrl(config.GATEWAY_URL) &&
+    !config.NERVE_GATEWAY_TIMEZONE
+  ) {
+    config.NERVE_GATEWAY_TIMEZONE = localIanaTimezone();
+    warn(`Remote Gateway detected; using Gateway timezone ${config.NERVE_GATEWAY_TIMEZONE}`);
+    dim('Override with --gateway-timezone <IANA timezone> when the Gateway uses another timezone.');
+  }
+  if (
+    config.NERVE_GATEWAY_TIMEZONE &&
+    !isValidIanaTimezone(config.NERVE_GATEWAY_TIMEZONE)
+  ) {
+    fail(`NERVE_GATEWAY_TIMEZONE is invalid: ${config.NERVE_GATEWAY_TIMEZONE}`);
+    process.exit(1);
+  }
   if (!config.PORT) config.PORT = DEFAULTS.PORT;
   if (!config.HOST) config.HOST = DEFAULTS.HOST;
 
@@ -985,6 +1118,24 @@ async function runDefaults(existing: EnvConfig, prereqs: PrereqResult): Promise<
     process.exit(1);
   }
 
+  const requestedOrigins = config.ALLOWED_ORIGINS
+    ?.split(',')
+    .map(origin => origin.trim())
+    .filter(Boolean) || [];
+  const gatewayIsRemote = isRemoteGatewayUrl(config.GATEWAY_URL || DEFAULTS.GATEWAY_URL);
+  if (!gatewayIsRemote) {
+    requireNativeOpenClawCapabilities(['configPatch']);
+  }
+  const changes = gatewayIsRemote
+    ? []
+    : detectNeededConfigChanges({ allowedOrigins: requestedOrigins });
+  if (gatewayIsRemote) {
+    printRemoteOriginInstructions(requestedOrigins);
+  }
+  if (changes.length > 0) {
+    await applyConfigChanges(changes);
+  }
+
   if (existsSync(ENV_PATH)) {
     const backupPath = backupExistingEnv(ENV_PATH);
     info(`Previous config backed up to ${backupPath.replace(PROJECT_ROOT + '/', '')}`);
@@ -998,14 +1149,8 @@ async function runDefaults(existing: EnvConfig, prereqs: PrereqResult): Promise<
     printDeploymentGuides();
   }
 
-  const changes = detectNeededConfigChanges({
-    allowedOrigins: config.ALLOWED_ORIGINS?.split(',').map(origin => origin.trim()).filter(Boolean),
-    gatewayToken: config.GATEWAY_TOKEN,
-  });
-
-  if (changes.length > 0) {
-    await applyConfigChanges(changes);
-  }
+  const pairingFollowUp = await configureNativePairing(config, false);
+  if (pairingFollowUp) appendFollowUp([pairingFollowUp]);
 
   if (followUpSteps.length > 0) {
     console.log('');

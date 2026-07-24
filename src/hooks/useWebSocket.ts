@@ -214,13 +214,14 @@ export function useWebSocket(): UseWebSocketReturn {
               minProtocol: 4, maxProtocol: 4,
               client: {
                 id: 'openclaw-control-ui',
+                displayName: 'ConvoSketchpad',
                 version: '0.1.0',
                 platform: 'web',
                 mode: 'webchat',
                 instanceId: instanceIdRef.current,
               },
               role: 'operator',
-              scopes: ['operator.admin', 'operator.read', 'operator.write', 'operator.approvals', 'operator.pairing'],
+              scopes: ['operator.read', 'operator.write'],
               auth: { token },
               caps: ['tool-events']
             }
@@ -241,7 +242,11 @@ export function useWebSocket(): UseWebSocketReturn {
               setConnectionState('connected');
               settleConnectSuccess();
             } else {
-              const errMsg = 'Auth failed: ' + (response.error?.message || 'unknown');
+              const details = response.error?.details as { code?: string; requestId?: string } | undefined;
+              const pairingHint = details?.code === 'PAIRING_REQUIRED' && details.requestId
+                ? ` Run: openclaw devices approve ${details.requestId}`
+                : '';
+              const errMsg = `Auth failed: ${response.error?.message || 'unknown'}${pairingHint}`;
               setConnectError(errMsg);
               setConnectionState('disconnected');
               // Treat auth failures during reconnect like transient failures so the
