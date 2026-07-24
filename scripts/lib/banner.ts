@@ -1,14 +1,14 @@
 /**
  * Banner and formatting utilities for the setup CLI.
  *
- * When NERVE_INSTALLER=1 (called from install.sh), uses the same
+ * When CONVOSKETCHPAD_INSTALLER=1 (called from install.sh), uses the same
  * rail + dot visual style as the installer for seamless continuity.
  */
 
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-const isInstaller = !!process.env.NERVE_INSTALLER;
+const isInstaller = !!process.env.CONVOSKETCHPAD_INSTALLER;
 
 /** Inquirer theme that continues the rail in installer mode */
 export const promptTheme = isInstaller

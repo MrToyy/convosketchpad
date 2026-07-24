@@ -39,7 +39,7 @@ Recommended choices:
 
 ```bash
 # systemd service
-sudo systemctl restart nerve.service
+sudo systemctl restart convosketchpad.service
 
 # or run directly
 npm run prod
@@ -83,7 +83,7 @@ openclaw devices approve <requestId>
 ## Security notes
 
 - Keep `HOST=127.0.0.1` for local-only deployments
-- If you expose ConvoSketchpad (`HOST=0.0.0.0`), enable `NERVE_AUTH=true`
+- If you expose ConvoSketchpad (`HOST=0.0.0.0`), enable `CONVOSKETCHPAD_AUTH=true`
 - See [Security](SECURITY.md) for the full threat model
 
 ## Recommendation

@@ -29,7 +29,7 @@ cleanup() {
 trap cleanup EXIT
 
 # ── Defaults ──────────────────────────────────────────────────────────
-INSTALL_DIR="${CONVOSKETCHPAD_INSTALL_DIR:-${NERVE_INSTALL_DIR:-${HOME}/convosketchpad}}"
+INSTALL_DIR="${CONVOSKETCHPAD_INSTALL_DIR:-${HOME}/convosketchpad}"
 BRANCH="main"
 BRANCH_EXPLICIT=false
 VERSION=""
@@ -130,7 +130,7 @@ repo_has_local_changes() {
 run_with_dots() {
   local msg="$1"; shift
   local stderr_file
-  stderr_file=$(mktemp /tmp/nerve-rwd-XXXXXX)
+  stderr_file=$(mktemp /tmp/convosketchpad-rwd-XXXXXX)
   TEMP_FILES+=("$stderr_file")
   printf "  ${RAIL}  ${CYAN}→${NC} %s " "$msg"
   "$@" 2>"$stderr_file" &
@@ -341,16 +341,8 @@ fi
 
 # ── Banner ────────────────────────────────────────────────────────────
 echo ""
-echo -e "  ${ORANGE}██████   █████ ██████████ ███████████   █████   █████ ██████████${NC}"
-echo -e "  ${ORANGE}░░██████ ░░███ ░░███░░░░░█░░███░░░░░███ ░░███   ░░███ ░░███░░░░░█${NC}"
-echo -e "  ${ORANGE} ░███░███ ░███  ░███  █ ░  ░███    ░███  ░███    ░███  ░███  █ ░${NC}"
-echo -e "  ${ORANGE} ░███░░███░███  ░██████    ░██████████   ░███    ░███  ░██████${NC}"
-echo -e "  ${ORANGE} ░███ ░░██████  ░███░░█    ░███░░░░░███  ░░███   ███   ░███░░█${NC}"
-echo -e "  ${ORANGE} ░███  ░░█████  ░███ ░   █ ░███    ░███   ░░░█████░    ░███ ░   █${NC}"
-echo -e "  ${ORANGE} █████  ░░█████ ██████████ █████   █████    ░░███      ██████████${NC}"
-echo -e "  ${ORANGE}░░░░░    ░░░░░ ░░░░░░░░░░ ░░░░░   ░░░░░      ░░░      ░░░░░░░░░░${NC}"
-echo ""
-echo -e "  ${DIM}  Web interface for OpenClaw${NC}"
+echo -e "  ${ORANGE}${BOLD}◆ ConvoSketchpad${NC}"
+echo -e "  ${DIM}  Branching Canvas for OpenClaw${NC}"
 echo ""
 if [[ "$DRY_RUN" == "true" ]]; then
   echo -e "  ${YELLOW}${BOLD}  ⊘  DRY RUN — nothing will be modified${NC}"
@@ -695,7 +687,7 @@ if [[ "$DRY_RUN" == "true" ]]; then
   dry "Would run: npm ci"
   dry "Would run: npm run build"
 else
-  npm_log=$(mktemp /tmp/nerve-npm-install-XXXXXX)
+  npm_log=$(mktemp /tmp/convosketchpad-npm-install-XXXXXX)
 
   run_with_dots "Installing dependencies" bash -c "npm ci --loglevel=error > '$npm_log' 2>&1"
   if [[ $RWD_EXIT -eq 0 ]]; then
@@ -704,7 +696,7 @@ else
     # Back up existing build outputs for rollback on failure
     BUILD_BACKUP=""
     if [[ -d dist || -d server-dist ]]; then
-      BUILD_BACKUP=$(mktemp -d /tmp/nerve-build-backup-XXXXXX)
+      BUILD_BACKUP=$(mktemp -d /tmp/convosketchpad-build-backup-XXXXXX)
       TEMP_FILES+=("$BUILD_BACKUP")
       [[ -d dist ]] && cp -a dist "$BUILD_BACKUP/dist"
       [[ -d server-dist ]] && cp -a server-dist "$BUILD_BACKUP/server-dist"
@@ -750,7 +742,7 @@ else
     exit 1
   fi
 
-  build_log=$(mktemp /tmp/nerve-build-XXXXXX)
+  build_log=$(mktemp /tmp/convosketchpad-build-XXXXXX)
 
   run_with_dots "Building project" bash -c "npm run build > '$build_log' 2>&1"
   if [[ $RWD_EXIT -eq 0 ]]; then
@@ -809,34 +801,34 @@ generate_env_from_gateway() {
   fi
 
   if [[ -n "$gw_token" ]]; then
-    local nerve_port=3080
-    if ! check_port "$nerve_port"; then
+    local convosketchpad_port=3080
+    if ! check_port "$convosketchpad_port"; then
       if [[ "$INTERACTIVE" != "true" ]]; then
-        fail "Port ${nerve_port} is already in use. Set a different PORT in .env or free the port."
+        fail "Port ${convosketchpad_port} is already in use. Set a different PORT in .env or free the port."
         exit 1
       else
-        warn "Port ${nerve_port} is already in use"
+        warn "Port ${convosketchpad_port} is already in use"
         while true; do
           printf "  ${RAIL}  ${CYAN}→${NC} Enter an available port: "
-          if ! read -r nerve_port < /dev/tty 2>/dev/null; then
+          if ! read -r convosketchpad_port < /dev/tty 2>/dev/null; then
             fail "Cannot read from terminal"
             exit 1
           fi
-          if [[ ! "$nerve_port" =~ ^[0-9]+$ ]] || (( nerve_port < 1 || nerve_port > 65535 )); then
+          if [[ ! "$convosketchpad_port" =~ ^[0-9]+$ ]] || (( convosketchpad_port < 1 || convosketchpad_port > 65535 )); then
             warn "Invalid port number"
             continue
           fi
-          if check_port "$nerve_port"; then
+          if check_port "$convosketchpad_port"; then
             break
           fi
-          warn "Port ${nerve_port} is also in use"
+          warn "Port ${convosketchpad_port} is also in use"
         done
       fi
     fi
     cat > .env <<ENVEOF
 GATEWAY_URL=${gw_url}
 GATEWAY_TOKEN=${gw_token}
-PORT=${nerve_port}
+PORT=${convosketchpad_port}
 ENVEOF
     ok "Generated .env from OpenClaw gateway config"
   else
@@ -877,7 +869,7 @@ else
         if read -r answer < /dev/tty 2>/dev/null; then
           if [[ "$(echo "$answer" | tr "[:upper:]" "[:lower:]")" == "y" ]]; then
             echo ""
-            NERVE_INSTALLER=1 npm run setup < /dev/tty 2>/dev/null || {
+            CONVOSKETCHPAD_INSTALLER=1 npm run setup < /dev/tty 2>/dev/null || {
               warn "Setup wizard failed (no TTY?) — run ${CYAN}npm run setup${NC} manually"
             }
           else
@@ -891,12 +883,12 @@ else
       fi
     elif [[ -n "$ACCESS_MODE" ]]; then
       info "Explicit access mode requested — running non-interactive setup wizard..."
-      NERVE_INSTALLER=1 npm run setup -- --defaults --access-mode "$ACCESS_MODE" || {
+      CONVOSKETCHPAD_INSTALLER=1 npm run setup -- --defaults --access-mode "$ACCESS_MODE" || {
         fail "Setup failed for --access-mode ${ACCESS_MODE}"
         exit 1
       }
     elif [[ "$INTERACTIVE" == "true" ]]; then
-      NERVE_INSTALLER=1 npm run setup < /dev/tty 2>/dev/null || {
+      CONVOSKETCHPAD_INSTALLER=1 npm run setup < /dev/tty 2>/dev/null || {
         warn "Setup wizard failed — attempting auto-config from gateway..."
         generate_env_from_gateway
       }
@@ -911,7 +903,7 @@ fi
 stage "Service"
 
 setup_systemd() {
-  local service_file="/etc/systemd/system/nerve.service"
+  local service_file="/etc/systemd/system/convosketchpad.service"
   local node_bin
   node_bin=$(which node)
   local working_dir="$INSTALL_DIR"
@@ -965,7 +957,7 @@ setup_systemd() {
   fi
 
   local tmp_service
-  tmp_service=$(mktemp /tmp/nerve.service.XXXXXX)
+  tmp_service=$(mktemp /tmp/convosketchpad.service.XXXXXX)
 
   cat > "$tmp_service" <<EOF
 [Unit]
@@ -992,16 +984,16 @@ EOF
   if [[ $EUID -eq 0 ]]; then
     mv "$tmp_service" "$service_file"
     if [[ -f "${working_dir}/.env" ]]; then
-      run_with_dots "Systemd service" bash -c "systemctl daemon-reload && systemctl enable nerve.service &>/dev/null && systemctl start nerve.service"
+      run_with_dots "Systemd service" bash -c "systemctl daemon-reload && systemctl enable convosketchpad.service &>/dev/null && systemctl start convosketchpad.service"
       if [[ $RWD_EXIT -eq 0 ]]; then
         ok "Systemd service installed and started"
       else
-        warn "Systemd service install failed — try: sudo systemctl start nerve.service"
+        warn "Systemd service install failed — try: sudo systemctl start convosketchpad.service"
       fi
     else
       systemctl daemon-reload
-      systemctl enable nerve.service &>/dev/null
-      ok "Systemd service installed (not started — run ${CYAN}npm run setup${NC} first, then ${CYAN}systemctl start nerve.service${NC})"
+      systemctl enable convosketchpad.service &>/dev/null
+      ok "Systemd service installed (not started — run ${CYAN}npm run setup${NC} first, then ${CYAN}systemctl start convosketchpad.service${NC})"
     fi
   else
     echo ""
@@ -1009,8 +1001,8 @@ EOF
     echo ""
     echo "    sudo mv ${tmp_service} ${service_file}"
     echo "    sudo systemctl daemon-reload"
-    echo "    sudo systemctl enable nerve.service"
-    echo "    sudo systemctl start nerve.service"
+    echo "    sudo systemctl enable convosketchpad.service"
+    echo "    sudo systemctl start convosketchpad.service"
     echo ""
     info "Service will run as: ${install_user}"
     echo ""
@@ -1022,7 +1014,7 @@ setup_launchd() {
   node_bin=$(which node)
   local working_dir="$INSTALL_DIR"
   local plist_dir="${HOME}/Library/LaunchAgents"
-  local plist_file="${plist_dir}/com.nerve.server.plist"
+  local plist_file="${plist_dir}/com.mrtoyy.convosketchpad.plist"
 
   mkdir -p "$plist_dir"
 
@@ -1051,7 +1043,7 @@ STARTEOF
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>com.nerve.server</string>
+  <string>com.mrtoyy.convosketchpad</string>
   <key>ProgramArguments</key>
   <array>
     <string>${start_script}</string>
@@ -1068,9 +1060,9 @@ STARTEOF
   <key>KeepAlive</key>
   <true/>
   <key>StandardOutPath</key>
-  <string>${working_dir}/nerve.log</string>
+  <string>${working_dir}/convosketchpad.log</string>
   <key>StandardErrorPath</key>
-  <string>${working_dir}/nerve.log</string>
+  <string>${working_dir}/convosketchpad.log</string>
 </dict>
 </plist>
 EOF
@@ -1090,20 +1082,20 @@ EOF
   fi
   echo ""
   info "Manage:"
-  echo "    launchctl stop com.nerve.server"
-  echo "    launchctl start com.nerve.server"
+  echo "    launchctl stop com.mrtoyy.convosketchpad"
+  echo "    launchctl start com.mrtoyy.convosketchpad"
   echo "    launchctl unload ${plist_file}"
   echo ""
 }
 
 if [[ "$(uname -s)" == "Darwin" ]]; then
   # ── macOS: launchd service ──────────────────────────────────────────
-  plist_check="${HOME}/Library/LaunchAgents/com.nerve.server.plist"
+  plist_check="${HOME}/Library/LaunchAgents/com.mrtoyy.convosketchpad.plist"
   if [[ "$DRY_RUN" == "true" ]]; then
     if [[ -f "$plist_check" ]]; then
       dry "launchd service already exists — would restart it"
     else
-      dry "Would create launchd service (~/Library/LaunchAgents/com.nerve.server.plist)"
+      dry "Would create launchd service (~/Library/LaunchAgents/com.mrtoyy.convosketchpad.plist)"
     fi
   else
     echo -e "${BOLD}  Service${NC}"
@@ -1111,7 +1103,7 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
     if [[ -f "$plist_check" ]]; then
       info "Updating existing launchd service..."
       uid=$(id -u)
-      launchctl bootout "gui/${uid}/com.nerve.server" 2>/dev/null || launchctl stop com.nerve.server 2>/dev/null || true
+      launchctl bootout "gui/${uid}/com.mrtoyy.convosketchpad" 2>/dev/null || launchctl stop com.mrtoyy.convosketchpad 2>/dev/null || true
       setup_launchd
     elif [[ "$INTERACTIVE" == "true" ]]; then
       printf "  ${RAIL}  ${YELLOW}?${NC} Install as a launchd service (starts on login)? (Y/n) "
@@ -1133,22 +1125,22 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
   fi
 elif command -v systemctl &>/dev/null; then
   if [[ "$DRY_RUN" == "true" ]]; then
-    if [[ -f /etc/systemd/system/nerve.service ]]; then
+    if [[ -f /etc/systemd/system/convosketchpad.service ]]; then
       dry "Service already exists — would restart it"
     else
       dry "Would prompt to install systemd service"
-      dry "Would create /etc/systemd/system/nerve.service"
+      dry "Would create /etc/systemd/system/convosketchpad.service"
       dry "Would enable and start the service"
     fi
   else
     echo -e "${BOLD}  Systemd service${NC}"
     echo ""
-    if [[ -f /etc/systemd/system/nerve.service ]]; then
+    if [[ -f /etc/systemd/system/convosketchpad.service ]]; then
       info "Updating existing systemd service..."
       if [[ $EUID -eq 0 ]]; then
-        systemctl stop nerve.service 2>/dev/null || true
+        systemctl stop convosketchpad.service 2>/dev/null || true
       else
-        sudo systemctl stop nerve.service 2>/dev/null || true
+        sudo systemctl stop convosketchpad.service 2>/dev/null || true
       fi
       setup_systemd
     elif [[ "$INTERACTIVE" == "true" ]]; then
@@ -1223,11 +1215,11 @@ else
   echo ""
   echo -e "     ${DIM}Directory:  cd ${INSTALL_DIR}${NC}"
   if $IS_MAC; then
-    echo -e "     ${DIM}Restart:   launchctl stop com.nerve.server && launchctl start com.nerve.server${NC}"
-    echo -e "     ${DIM}Logs:      tail -f ${INSTALL_DIR}/nerve.log${NC}"
+    echo -e "     ${DIM}Restart:   launchctl stop com.mrtoyy.convosketchpad && launchctl start com.mrtoyy.convosketchpad${NC}"
+    echo -e "     ${DIM}Logs:      tail -f ${INSTALL_DIR}/convosketchpad.log${NC}"
   elif command -v systemctl &>/dev/null; then
-    echo -e "     ${DIM}Restart:   sudo systemctl restart nerve.service${NC}"
-    echo -e "     ${DIM}Logs:      sudo journalctl -u nerve.service -f${NC}"
+    echo -e "     ${DIM}Restart:   sudo systemctl restart convosketchpad.service${NC}"
+    echo -e "     ${DIM}Logs:      sudo journalctl -u convosketchpad.service -f${NC}"
   else
     echo -e "     ${DIM}Start:     cd ${INSTALL_DIR} && npm run prod${NC}"
   fi

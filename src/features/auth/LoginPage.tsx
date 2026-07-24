@@ -84,12 +84,12 @@ export function LoginPage({ onLogin, error }: LoginPageProps) {
 
             <form onSubmit={handleSubmit} className="mt-8 space-y-4">
               <div>
-                <label htmlFor="nerve-token" className="mb-2 block text-[0.733rem] font-medium uppercase tracking-[0.2em] text-muted-foreground">
+                <label htmlFor="convosketchpad-token" className="mb-2 block text-[0.733rem] font-medium uppercase tracking-[0.2em] text-muted-foreground">
                   User Token
                 </label>
                 <Input
                   ref={inputRef}
-                  id="nerve-token"
+                  id="convosketchpad-token"
                   type="text"
                   value={token}
                   onChange={(e) => setToken(e.target.value)}

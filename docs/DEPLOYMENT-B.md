@@ -15,11 +15,11 @@ Add the Gateway hostname/IP to local `.env`:
 ```bash
 GATEWAY_URL=https://gateway.example.internal
 GATEWAY_TOKEN=<token>
-NERVE_GATEWAY_TIMEZONE=Asia/Shanghai
+CONVOSKETCHPAD_GATEWAY_TIMEZONE=Asia/Shanghai
 WS_ALLOWED_HOSTS=gateway.example.internal
 ```
 
-Set `NERVE_GATEWAY_TIMEZONE` to the timezone of the Gateway host, not
+Set `CONVOSKETCHPAD_GATEWAY_TIMEZONE` to the timezone of the Gateway host, not
 necessarily the ConvoSketchpad host. Canvas uses it with OpenClaw's effective
 daily/idle reset policy to recover context on the first send after a reset.
 
@@ -63,7 +63,7 @@ openclaw devices list --json
 openclaw devices approve <requestId>
 ```
 
-If the browser reaches ConvoSketchpad through a custom origin, also set `NERVE_PUBLIC_ORIGIN` to that exact origin.
+If the browser reaches ConvoSketchpad through a custom origin, also set `CONVOSKETCHPAD_PUBLIC_ORIGIN` to that exact origin.
 
 ## Canvas limitations
 

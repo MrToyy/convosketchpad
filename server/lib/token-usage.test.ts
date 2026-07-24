@@ -132,7 +132,7 @@ describe('aggregateTranscriptUsageEntries', () => {
 
 describe('resolveSessionTranscriptDirs', () => {
   it('expands a main agent sessions path to all sibling agent session dirs', async () => {
-    const root = mkdtempSync(path.join(os.tmpdir(), 'nerve-token-usage-'));
+    const root = mkdtempSync(path.join(os.tmpdir(), 'convosketchpad-token-usage-'));
     tempDirs.push(root);
 
     const mainSessionsDir = path.join(root, 'agents', 'main', 'sessions');
@@ -152,7 +152,7 @@ describe('resolveSessionTranscriptDirs', () => {
 
 describe('scanTranscriptUsageFromDirs', () => {
   it('aggregates provider usage across sibling agent session dirs, not just main', async () => {
-    const root = mkdtempSync(path.join(os.tmpdir(), 'nerve-token-usage-'));
+    const root = mkdtempSync(path.join(os.tmpdir(), 'convosketchpad-token-usage-'));
     tempDirs.push(root);
 
     const mainSessionsDir = path.join(root, 'agents', 'main', 'sessions');

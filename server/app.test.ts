@@ -1,18 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 describe('removed API surfaces', () => {
-  const originalAuth = process.env.NERVE_AUTH;
+  const originalAuth = process.env.CONVOSKETCHPAD_AUTH;
 
   beforeEach(() => {
     vi.resetModules();
-    process.env.NERVE_AUTH = 'false';
+    process.env.CONVOSKETCHPAD_AUTH = 'false';
   });
 
   afterEach(() => {
     if (originalAuth === undefined) {
-      delete process.env.NERVE_AUTH;
+      delete process.env.CONVOSKETCHPAD_AUTH;
     } else {
-      process.env.NERVE_AUTH = originalAuth;
+      process.env.CONVOSKETCHPAD_AUTH = originalAuth;
     }
   });
 

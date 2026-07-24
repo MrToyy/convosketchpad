@@ -6,8 +6,8 @@
 import { execSync } from 'node:child_process';
 import type { ServiceManager } from './types.js';
 
-const SYSTEMD_UNIT = 'nerve.service';
-const LAUNCHD_LABEL = 'com.nerve.server';
+const SYSTEMD_UNIT = 'convosketchpad.service';
+const LAUNCHD_LABEL = 'com.mrtoyy.convosketchpad';
 
 export function findSystemdUnitFromOutput(output: string): string | null {
   for (const line of output.split('\n')) {
@@ -161,7 +161,7 @@ class LaunchdManager implements ServiceManager {
   async getLogs(lines: number): Promise<string> {
     try {
       return execSync(
-        `log show --predicate 'processImagePath contains "nerve"' --last 5m --info | tail -${lines}`,
+        `log show --predicate 'processImagePath contains "convosketchpad"' --last 5m --info | tail -${lines}`,
         { stdio: 'pipe' },
       ).toString();
     } catch {

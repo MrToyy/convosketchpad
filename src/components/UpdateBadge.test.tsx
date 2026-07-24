@@ -22,7 +22,7 @@ describe('UpdateBadge', () => {
       current: '1.5.2',
       latest: '1.5.3',
       updateAvailable: true,
-      projectDir: '/tmp/nerve repo',
+      projectDir: '/tmp/convosketchpad repo',
     }));
   });
 
@@ -41,10 +41,10 @@ describe('UpdateBadge', () => {
       expect(screen.getByText('Project directory')).toBeInTheDocument();
     });
 
-    expect(screen.getByText('/tmp/nerve repo')).toBeInTheDocument();
-    expect(screen.getByText("cd '/tmp/nerve repo' && npm run update")).toBeInTheDocument();
+    expect(screen.getByText('/tmp/convosketchpad repo')).toBeInTheDocument();
+    expect(screen.getByText("cd '/tmp/convosketchpad repo' && npm run update")).toBeInTheDocument();
     expect(screen.queryByText(/npm run update -- --yes/)).not.toBeInTheDocument();
-    expect(screen.getByText(/cd '\/tmp\/nerve repo' && npm run update -- --dry-run/i)).toBeInTheDocument();
+    expect(screen.getByText(/cd '\/tmp\/convosketchpad repo' && npm run update -- --dry-run/i)).toBeInTheDocument();
   });
 
   it('does not render when the server omits the project directory', async () => {

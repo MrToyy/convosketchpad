@@ -14,7 +14,7 @@ describe('Canvas server config', () => {
   });
 
   it('keeps auth and WebSocket host defaults', () => {
-    expect(SESSION_COOKIE_NAME).toBe(`nerve_session_${config.port}`);
+    expect(SESSION_COOKIE_NAME).toBe(`convosketchpad_session_${config.port}`);
     expect(WS_ALLOWED_HOSTS).toEqual(expect.objectContaining({}));
     expect(WS_ALLOWED_HOSTS.has('localhost')).toBe(true);
   });

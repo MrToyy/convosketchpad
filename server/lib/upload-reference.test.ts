@@ -9,16 +9,16 @@ async function importHelpers() {
 }
 
 const originalHome = process.env.HOME;
-const originalUploadStagingTempDir = process.env.NERVE_UPLOAD_STAGING_TEMP_DIR;
+const originalUploadStagingTempDir = process.env.CONVOSKETCHPAD_UPLOAD_STAGING_TEMP_DIR;
 const tempDirs = new Set<string>();
 
 async function makeHomeWorkspace(): Promise<{ homeDir: string; workspaceRoot: string }> {
-  const homeDir = await fs.mkdtemp(path.join(os.tmpdir(), 'nerve-upload-reference-lib-home-'));
+  const homeDir = await fs.mkdtemp(path.join(os.tmpdir(), 'convosketchpad-upload-reference-lib-home-'));
   tempDirs.add(homeDir);
   const workspaceRoot = path.join(homeDir, '.openclaw', 'workspace');
   await fs.mkdir(workspaceRoot, { recursive: true });
   process.env.HOME = homeDir;
-  delete process.env.NERVE_UPLOAD_STAGING_TEMP_DIR;
+  delete process.env.CONVOSKETCHPAD_UPLOAD_STAGING_TEMP_DIR;
   return { homeDir, workspaceRoot };
 }
 
@@ -30,9 +30,9 @@ afterEach(async () => {
   }
 
   if (originalUploadStagingTempDir == null) {
-    delete process.env.NERVE_UPLOAD_STAGING_TEMP_DIR;
+    delete process.env.CONVOSKETCHPAD_UPLOAD_STAGING_TEMP_DIR;
   } else {
-    process.env.NERVE_UPLOAD_STAGING_TEMP_DIR = originalUploadStagingTempDir;
+    process.env.CONVOSKETCHPAD_UPLOAD_STAGING_TEMP_DIR = originalUploadStagingTempDir;
   }
 
   for (const dir of tempDirs) {
@@ -53,7 +53,7 @@ describe('upload-reference helpers', () => {
     });
 
     expect(result.kind).toBe('imported_workspace_reference');
-    expect(result.canonicalPath).toMatch(/^\.temp\/nerve-uploads\/\d{4}\/\d{2}\/\d{2}\/proof-[a-f0-9]{8}\.txt$/);
+    expect(result.canonicalPath).toMatch(/^\.temp\/convosketchpad-uploads\/\d{4}\/\d{2}\/\d{2}\/proof-[a-f0-9]{8}\.txt$/);
     expect(result.absolutePath).toBe(path.join(workspaceRoot, result.canonicalPath));
     expect(result.mimeType).toBe('text/plain');
     expect(result.sizeBytes).toBe(12);
@@ -64,7 +64,7 @@ describe('upload-reference helpers', () => {
   it('rejects imported staging output when the configured staging root escapes the workspace', async () => {
     const { homeDir } = await makeHomeWorkspace();
     const outsideStageRoot = path.join(homeDir, 'outside-stage');
-    process.env.NERVE_UPLOAD_STAGING_TEMP_DIR = outsideStageRoot;
+    process.env.CONVOSKETCHPAD_UPLOAD_STAGING_TEMP_DIR = outsideStageRoot;
     const { importExternalUploadToCanonicalReference } = await importHelpers();
 
     await expect(importExternalUploadToCanonicalReference({

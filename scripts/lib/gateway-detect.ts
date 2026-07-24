@@ -283,9 +283,9 @@ interface PendingDeviceRequest {
   publicKey?: string;
 }
 
-function readNerveDeviceIdentity(): DeviceIdentityMatch | null {
-  const nerveDir = process.env.NERVE_DATA_DIR || join(process.env.HOME || HOME, '.nerve');
-  const identityPath = join(nerveDir, 'device-identity.json');
+function readConvoSketchpadDeviceIdentity(): DeviceIdentityMatch | null {
+  const dataDir = process.env.CONVOSKETCHPAD_DATA_DIR || join(process.env.HOME || HOME, '.convosketchpad');
+  const identityPath = join(dataDir, 'device-identity.json');
   if (!existsSync(identityPath)) return null;
   try {
     const stored = JSON.parse(readFileSync(identityPath, 'utf8')) as {
@@ -327,13 +327,13 @@ export interface DeviceApprovalResult {
   message: string;
 }
 
-export function approvePendingNerveDevice(opts: {
+export function approvePendingConvoSketchpadDevice(opts: {
   gatewayUrl?: string;
   gatewayToken?: string;
   runner?: NativeCommandRunner;
 } = {}): DeviceApprovalResult {
   const runner = opts.runner || runNativeCommand;
-  const identity = readNerveDeviceIdentity();
+  const identity = readConvoSketchpadDeviceIdentity();
   if (!identity) {
     return {
       ok: false,
@@ -414,14 +414,10 @@ export interface ConfigChange {
 }
 
 export function detectNeededConfigChanges(opts: {
-  nerveOrigin?: string;
-  nerveHttpsOrigin?: string;
   allowedOrigins?: string[];
 }): ConfigChange[] {
   const origins = [...new Set([
     ...(opts.allowedOrigins || []),
-    opts.nerveOrigin,
-    opts.nerveHttpsOrigin,
   ].map(origin => origin?.trim()).filter((origin): origin is string => Boolean(origin)))];
   if (origins.length === 0) return [];
 

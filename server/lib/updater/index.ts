@@ -1,5 +1,5 @@
 /**
- * Nerve Updater — barrel export.
+ * ConvoSketchpad Updater — barrel export.
  */
 
 export { orchestrate } from './orchestrator.js';

@@ -11,7 +11,7 @@ ConvoSketchpad maintains a focused Canvas interaction environment plus managed-u
 Detailed references:
 
 - [Canvas design decisions](../OPENCLAW-CANVAS-MVP-DESIGN.md)
-- [Runtime and data flow](../NERVE-RUNTIME-AND-DATA-FLOW.md)
+- [Runtime and data flow](../CONVOSKETCHPAD-RUNTIME-AND-DATA-FLOW.md)
 - [Architecture](../ARCHITECTURE.md)
 - [API](../API.md)
 - [Configuration](../CONFIGURATION.md)

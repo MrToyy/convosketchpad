@@ -14,7 +14,7 @@ async function buildApp(canvas: { id: string; agentId: string } | null = { id: c
   const workspaceRoot = path.join(homeDir, '.openclaw', 'workspace');
   await fs.mkdir(workspaceRoot, { recursive: true });
   process.env.HOME = homeDir;
-  delete process.env.NERVE_UPLOAD_STAGING_TEMP_DIR;
+  delete process.env.CONVOSKETCHPAD_UPLOAD_STAGING_TEMP_DIR;
   vi.doMock('../lib/canvas-auth.js', () => ({ getCanvasIdentity: () => ({ userId: 'owner-a', name: 'Owner A' }) }));
   vi.doMock('../lib/canvas-db.js', () => ({ getCanvasStore: () => ({ getCanvas: () => canvas }) }));
   const route = await import('./upload-reference.js');
@@ -45,7 +45,7 @@ describe('POST /api/upload-reference/resolve', () => {
 
     expect(response.status).toBe(200);
     const json = await response.json() as { items: Array<{ absolutePath: string; canonicalPath: string }> };
-    expect(json.items[0].canonicalPath).toMatch(new RegExp(`^\\.nerve/canvas-uploads/${canvasId}/`));
+    expect(json.items[0].canonicalPath).toMatch(new RegExp(`^\\.convosketchpad/canvas-uploads/${canvasId}/`));
     expect(json.items[0].absolutePath).toBe(path.join(workspaceRoot, json.items[0].canonicalPath));
     await expect(fs.readFile(json.items[0].absolutePath, 'utf8')).resolves.toBe('canvas upload');
   });

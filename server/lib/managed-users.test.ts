@@ -10,7 +10,7 @@ const stores: CanvasStore[] = [];
 const dirs: string[] = [];
 
 function createStore(): CanvasStore {
-  const dir = mkdtempSync(path.join(tmpdir(), 'nerve-users-'));
+  const dir = mkdtempSync(path.join(tmpdir(), 'convosketchpad-users-'));
   dirs.push(dir);
   const store = new CanvasStore(path.join(dir, 'canvas.sqlite'));
   stores.push(store);

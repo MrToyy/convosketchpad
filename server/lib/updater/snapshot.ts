@@ -17,7 +17,8 @@ import { createHash } from 'node:crypto';
 import { execSync } from 'node:child_process';
 import type { Snapshot } from './types.js';
 
-const STATE_DIR = join(homedir(), '.nerve', 'updater');
+const DATA_DIR = process.env.CONVOSKETCHPAD_DATA_DIR || join(homedir(), '.convosketchpad');
+const STATE_DIR = join(DATA_DIR, 'updater');
 const LAST_GOOD_PATH = join(STATE_DIR, 'last-good.json');
 
 /**

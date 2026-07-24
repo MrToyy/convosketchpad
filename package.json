@@ -1,7 +1,7 @@
 {
   "name": "convosketchpad",
   "version": "0.1.0",
-  "description": "A branching AI workspace for visual thinkers, built on OpenClaw Nerve",
+  "description": "A branching OpenClaw Canvas workspace for visual thinkers",
   "license": "MIT",
   "engines": {
     "node": ">=22.13.0"
@@ -14,7 +14,6 @@
   "keywords": [
     "openclaw",
     "convosketchpad",
-    "nerve",
     "canvas",
     "design",
     "visual-workspace",
@@ -26,10 +25,11 @@
   "scripts": {
     "dev": "vite",
     "dev:server": "tsx watch server/index.ts",
-    "build": "tsc -b && vite build && npm run build:server",
+    "clean": "node -e \"for (const path of ['dist','server-dist','bin-dist']) require('fs').rmSync(path,{recursive:true,force:true})\"",
+    "build": "npm run clean && tsc -b && vite build && npm run build:server",
     "build:server": "tsc -p config/tsconfig.server.json --outDir server-dist --noEmit false --declaration false && tsc -p config/tsconfig.bin.json",
-    "update": "node bin-dist/bin/nerve-update.js",
-    "users": "node bin-dist/bin/nerve-users.js",
+    "update": "node bin-dist/bin/convosketchpad-update.js",
+    "users": "node bin-dist/bin/convosketchpad-users.js",
     "lint": "eslint .",
     "preview": "vite preview",
     "start": "node server-dist/index.js",

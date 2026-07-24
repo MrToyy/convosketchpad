@@ -34,10 +34,10 @@ export const config = {
   host: process.env.HOST || DEFAULT_HOST,
   gatewayUrl: process.env.GATEWAY_URL || DEFAULT_GATEWAY_URL,
   gatewayToken: process.env.GATEWAY_TOKEN || process.env.OPENCLAW_GATEWAY_TOKEN || '',
-  gatewayTimezone: process.env.NERVE_GATEWAY_TIMEZONE?.trim() || localTimezone,
-  publicOrigin: process.env.NERVE_PUBLIC_ORIGIN || '',
+  gatewayTimezone: process.env.CONVOSKETCHPAD_GATEWAY_TIMEZONE?.trim() || localTimezone,
+  publicOrigin: process.env.CONVOSKETCHPAD_PUBLIC_ORIGIN || '',
   home: homeDir,
-  workspaceRoot: process.env.NERVE_WORKSPACE_ROOT || path.join(homeDir, '.openclaw', 'workspace'),
+  workspaceRoot: process.env.CONVOSKETCHPAD_WORKSPACE_ROOT || path.join(homeDir, '.openclaw', 'workspace'),
   sessionsDir: process.env.SESSIONS_DIR || path.join(homeDir, '.openclaw', 'agents', 'main', 'sessions'),
   usageFile: process.env.USAGE_FILE || path.join(homeDir, '.openclaw', 'token-usage.json'),
   agentLogPath: path.join(projectRoot, 'agent-log.json'),
@@ -50,13 +50,12 @@ export const config = {
     maxBodyBytes: 85 * 1024 * 1024,
   },
   agentLogMax: 200,
-  auth: (process.env.NERVE_AUTH || 'false').toLowerCase() === 'true',
-  passwordHash: process.env.NERVE_PASSWORD_HASH || '',
-  sessionSecret: process.env.NERVE_SESSION_SECRET || '',
-  sessionTtlMs: Number(process.env.NERVE_SESSION_TTL || 30 * 24 * 60 * 60 * 1000),
-  authMaxFailures: Math.max(1, Math.floor(positiveNumber(process.env.NERVE_AUTH_MAX_FAILURES, 3))),
-  authFailureWindowMs: positiveNumber(process.env.NERVE_AUTH_FAILURE_WINDOW, 30 * 60 * 1000),
-  authLockoutMs: positiveNumber(process.env.NERVE_AUTH_LOCKOUT, 30 * 60 * 1000),
+  auth: (process.env.CONVOSKETCHPAD_AUTH || 'false').toLowerCase() === 'true',
+  sessionSecret: process.env.CONVOSKETCHPAD_SESSION_SECRET || '',
+  sessionTtlMs: Number(process.env.CONVOSKETCHPAD_SESSION_TTL || 30 * 24 * 60 * 60 * 1000),
+  authMaxFailures: Math.max(1, Math.floor(positiveNumber(process.env.CONVOSKETCHPAD_AUTH_MAX_FAILURES, 3))),
+  authFailureWindowMs: positiveNumber(process.env.CONVOSKETCHPAD_AUTH_FAILURE_WINDOW, 30 * 60 * 1000),
+  authLockoutMs: positiveNumber(process.env.CONVOSKETCHPAD_AUTH_LOCKOUT, 30 * 60 * 1000),
 } as const;
 
 export function updateConfig(key: 'sessionSecret', value: string): void {
@@ -64,7 +63,7 @@ export function updateConfig(key: 'sessionSecret', value: string): void {
   (config as typeof config & { sessionSecret: string }).sessionSecret = value;
 }
 
-export const SESSION_COOKIE_NAME = `nerve_session_${config.port}`;
+export const SESSION_COOKIE_NAME = `convosketchpad_session_${config.port}`;
 
 export const WS_ALLOWED_HOSTS = new Set([
   'localhost', '127.0.0.1', '::1',
@@ -92,7 +91,7 @@ export function validateConfig(): void {
     new Intl.DateTimeFormat('en-US', { timeZone: config.gatewayTimezone }).format();
   } catch {
     console.error(
-      `Invalid NERVE_GATEWAY_TIMEZONE: ${config.gatewayTimezone}. Expected an IANA timezone such as Asia/Shanghai.`,
+      `Invalid CONVOSKETCHPAD_GATEWAY_TIMEZONE: ${config.gatewayTimezone}. Expected an IANA timezone such as Asia/Shanghai.`,
     );
     process.exit(1);
   }
@@ -100,10 +99,10 @@ export function validateConfig(): void {
     console.warn('GATEWAY_TOKEN is not set; Canvas Gateway calls will fail until it is configured.');
   }
   if (config.auth && !config.sessionSecret) {
-    console.warn('NERVE_SESSION_SECRET is not set; generated sessions will not survive a restart.');
+    console.warn('CONVOSKETCHPAD_SESSION_SECRET is not set; generated sessions will not survive a restart.');
     updateConfig('sessionSecret', crypto.randomBytes(32).toString('hex'));
   }
-  if (config.host === '0.0.0.0' && !config.auth && process.env.NERVE_ALLOW_INSECURE !== 'true') {
+  if (config.host === '0.0.0.0' && !config.auth && process.env.CONVOSKETCHPAD_ALLOW_INSECURE !== 'true') {
     console.error('Refusing to expose ConvoSketchpad on 0.0.0.0 without authentication.');
     process.exit(1);
   }

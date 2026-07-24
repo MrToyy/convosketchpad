@@ -84,8 +84,8 @@ function buildStagedSubdir(now = new Date()): string {
 }
 
 function getUploadStagingDir(): string {
-  const stagingRoot = process.env.NERVE_UPLOAD_STAGING_TEMP_DIR
-    || path.join(getWorkspaceRoot(), '.temp', 'nerve-uploads');
+  const stagingRoot = process.env.CONVOSKETCHPAD_UPLOAD_STAGING_TEMP_DIR
+    || path.join(getWorkspaceRoot(), '.temp', 'convosketchpad-uploads');
   return path.resolve(expandHomePath(stagingRoot));
 }
 
@@ -153,8 +153,8 @@ export async function importExternalUploadToCanonicalReference(params: {
     ? path.join(
       workspaceRoot,
       params.persistent
-        ? path.join('.nerve/canvas-uploads', sanitizeFileName(params.persistentNamespace || 'shared'))
-        : '.temp/nerve-uploads',
+        ? path.join('.convosketchpad/canvas-uploads', sanitizeFileName(params.persistentNamespace || 'shared'))
+        : '.temp/convosketchpad-uploads',
     )
     : getUploadStagingDir();
   const targetDir = path.join(rootDir, buildStagedSubdir());

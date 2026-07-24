@@ -1,6 +1,6 @@
 import type { SessionPayload } from './session.js';
 import { getCanvasStore, type CanvasStore, type CanvasUserRecord } from './canvas-db.js';
-import { verifyPassword } from './session.js';
+import { verifyManagedTokenHash } from './session.js';
 
 export interface ManagedIdentity {
   userId: string;
@@ -25,7 +25,7 @@ export async function authenticateManagedToken(
   // Always check every stored credential so the response time does not reveal
   // which account matched. This mode is deliberately limited to a few users.
   for (const account of accounts) {
-    if (account.tokenHash && await verifyPassword(token, account.tokenHash)) matched = account;
+    if (account.tokenHash && await verifyManagedTokenHash(token, account.tokenHash)) matched = account;
   }
   if (!matched || matched.status !== 'active') return null;
   return { userId: matched.id, name: matched.displayName, tokenVersion: matched.tokenVersion };

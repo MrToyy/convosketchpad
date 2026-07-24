@@ -31,6 +31,8 @@ Unless the user clearly asks for something else, use these defaults:
 - if the setup wizard is unavailable, skipped, or fails: fall back to explicit manual config
 - install, configure, and validate before reporting completion
 
+Set `CONVOSKETCHPAD_INSTALL_DIR` or pass `--dir <path>` to override the install path.
+
 ## Existing install handling
 
 If `~/convosketchpad` already exists:
@@ -162,8 +164,8 @@ GATEWAY_TOKEN=<detected-token>
 Then handle runtime like this:
 
 1. if the installer already configured a service manager, use that instead of starting a duplicate foreground process
-2. on Linux, check for `systemd` service management via `nerve.service`
-3. on macOS, check for `launchd` management via `~/Library/LaunchAgents/com.nerve.server.plist`
+2. on Linux, check for `systemd` service management via `convosketchpad.service`
+3. on macOS, check for `launchd` management via `~/Library/LaunchAgents/com.mrtoyy.convosketchpad.plist`
 4. if no service manager is configured, run ConvoSketchpad directly with the production entrypoint
 
 Typical commands:
@@ -173,11 +175,11 @@ Typical commands:
 npm run build
 
 # Linux, service managed
-sudo systemctl restart nerve.service
+sudo systemctl restart convosketchpad.service
 
 # macOS, service managed
-launchctl stop com.nerve.server || true
-launchctl start com.nerve.server
+launchctl stop com.mrtoyy.convosketchpad || true
+launchctl start com.mrtoyy.convosketchpad
 
 # no service manager present
 npm run prod

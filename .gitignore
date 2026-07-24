@@ -35,7 +35,7 @@ agent-log.json
 tsconfig.server.tsbuildinfo
 server-dist/
 bin-dist/
-.nerve/
+.convosketchpad/
 tts-config.json
 voice-phrases.json
 coverage/

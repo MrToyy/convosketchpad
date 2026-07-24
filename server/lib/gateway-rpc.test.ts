@@ -18,7 +18,7 @@ vi.mock('./config.js', () => ({
       gatewayUrl: `http://127.0.0.1:${testPort}`,
       gatewayToken: 'test-token',
       port: 3080,
-      publicOrigin: process.env.NERVE_PUBLIC_ORIGIN || '',
+      publicOrigin: process.env.CONVOSKETCHPAD_PUBLIC_ORIGIN || '',
     };
   },
 }));
@@ -130,7 +130,7 @@ describe('gateway-rpc (persistent WebSocket)', () => {
     lastRequestOrigin = undefined;
     connectMode = 'accept';
     getStoredDeviceAuthMock.mockReturnValue(null);
-    delete process.env.NERVE_PUBLIC_ORIGIN;
+    delete process.env.CONVOSKETCHPAD_PUBLIC_ORIGIN;
     delete process.env.ALLOWED_ORIGINS;
   });
 
@@ -207,7 +207,7 @@ describe('gateway-rpc (persistent WebSocket)', () => {
     });
 
     it('uses the configured public origin for the gateway websocket handshake', async () => {
-      process.env.NERVE_PUBLIC_ORIGIN = 'https://192.168.192.252:3443';
+      process.env.CONVOSKETCHPAD_PUBLIC_ORIGIN = 'https://192.168.192.252:3443';
       rpcHandler = () => ({ ok: true });
 
       const { gatewayRpcCall } = await importFreshGatewayRpc();

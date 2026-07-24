@@ -1,7 +1,7 @@
 import type { OutgoingUploadPayload, UploadAttachmentDescriptor } from '@/features/chat/types';
 
-const UPLOAD_MANIFEST_OPEN = '<nerve-upload-manifest>';
-const UPLOAD_MANIFEST_CLOSE = '</nerve-upload-manifest>';
+const UPLOAD_MANIFEST_OPEN = '<convosketchpad-upload-manifest>';
+const UPLOAD_MANIFEST_CLOSE = '</convosketchpad-upload-manifest>';
 
 function sanitizeUploadDescriptor(
   descriptor: UploadAttachmentDescriptor,

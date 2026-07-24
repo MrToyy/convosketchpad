@@ -22,7 +22,7 @@ async function setup() {
       memoryPath: path.join(workspaceRoot, 'MEMORY.md'),
       memoryDir: path.join(workspaceRoot, 'memory'),
     },
-    SESSION_COOKIE_NAME: 'nerve_session_test',
+    SESSION_COOKIE_NAME: 'convosketchpad_session_test',
   }));
   vi.doMock('../lib/canvas-auth.js', () => ({ getCanvasIdentity: () => ({ userId: 'owner-a', name: 'Owner A' }) }));
   vi.doMock('../middleware/rate-limit.js', () => ({ rateLimitGeneral: async (_c: unknown, next: () => Promise<void>) => next() }));
@@ -79,7 +79,7 @@ describe('Canvas Artifact routes', () => {
     store.ensureUser('owner-a', 'Owner A');
     const canvas = store.createCanvas('owner-a', 'Attachments', 'main');
     const branch = store.createRootBranch('owner-a', canvas.id);
-    const source = path.join(workspaceRoot, '.nerve', 'canvas-uploads', canvas.id, 'source.png');
+    const source = path.join(workspaceRoot, '.convosketchpad', 'canvas-uploads', canvas.id, 'source.png');
     await fs.mkdir(path.dirname(source), { recursive: true });
     await fs.writeFile(source, 'durable-upload');
 

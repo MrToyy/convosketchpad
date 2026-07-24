@@ -21,5 +21,6 @@
     "rootDir": "..",
     "outDir": "../bin-dist"
   },
-  "include": ["../bin", "../server/lib/updater"]
+  "include": ["../bin", "../server/lib/updater"],
+  "exclude": ["../server/lib/updater/**/*.test.ts"]
 }

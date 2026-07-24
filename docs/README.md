@@ -17,5 +17,5 @@ ConvoSketchpad is a Canvas-only OpenClaw client. These documents describe the cu
 - [Canvas code map](canvas/CANVAS-CODE-MAP.md)
 - [Auth code map](canvas/AUTH-CODE-MAP.md)
 - [Canvas design decisions](OPENCLAW-CANVAS-MVP-DESIGN.md)
-- [Runtime and data flow](NERVE-RUNTIME-AND-DATA-FLOW.md)
+- [Runtime and data flow](CONVOSKETCHPAD-RUNTIME-AND-DATA-FLOW.md)
 - [Git workflow](canvas/GIT-WORKFLOW.md)

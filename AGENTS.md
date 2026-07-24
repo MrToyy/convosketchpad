@@ -14,7 +14,7 @@
 ## 设计与运行机制
 
 - Canvas MVP 的产品与架构决策：[`docs/OPENCLAW-CANVAS-MVP-DESIGN.md`](docs/OPENCLAW-CANVAS-MVP-DESIGN.md)
-- Nerve 原有前后端、Session 和数据流：[`docs/NERVE-RUNTIME-AND-DATA-FLOW.md`](docs/NERVE-RUNTIME-AND-DATA-FLOW.md)
+- ConvoSketchpad 前后端、Session 和数据流：[`docs/CONVOSKETCHPAD-RUNTIME-AND-DATA-FLOW.md`](docs/CONVOSKETCHPAD-RUNTIME-AND-DATA-FLOW.md)
 - 通用配置、安全与 API：[`docs/CONFIGURATION.md`](docs/CONFIGURATION.md)、[`docs/SECURITY.md`](docs/SECURITY.md)、[`docs/API.md`](docs/API.md)
 
 ## 文档维护约定

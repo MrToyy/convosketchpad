@@ -17,7 +17,7 @@ vi.mock('./config.js', () => {
       gatewayToken: 'test-token',
     },
     WS_ALLOWED_HOSTS,
-    SESSION_COOKIE_NAME: 'nerve_session_3080',
+    SESSION_COOKIE_NAME: 'convosketchpad_session_3080',
   };
 });
 
@@ -320,7 +320,7 @@ describe('ws-proxy', () => {
 
       const ws = new WebSocket(
         `ws://127.0.0.1:${proxyPort}/ws?target=${encodeURIComponent(mockGw.url + '/ws')}`,
-        { headers: { Cookie: 'nerve_session_3080=good-token' } },
+        { headers: { Cookie: 'convosketchpad_session_3080=good-token' } },
       );
       const msg = await waitForMessage(ws);
       expect(JSON.parse(msg).event).toBe('connect.challenge');
@@ -353,7 +353,7 @@ describe('ws-proxy', () => {
 
       const ws = new WebSocket(
         `ws://127.0.0.1:${proxyPort}/ws?target=${encodeURIComponent(mockGw.url + '/ws')}`,
-        { headers: { Cookie: 'nerve_session_3080=good-token' } },
+        { headers: { Cookie: 'convosketchpad_session_3080=good-token' } },
       );
 
       await new Promise<void>((resolve) => ws.on('open', resolve));
@@ -361,7 +361,7 @@ describe('ws-proxy', () => {
         type: 'req',
         method: 'connect',
         id: 'c-token-1',
-        params: { client: { id: 'nerve-ui', mode: 'webchat' } },
+        params: { client: { id: 'convosketchpad-ui', mode: 'webchat' } },
       }));
 
       // Wait for connect response
@@ -398,7 +398,7 @@ describe('ws-proxy', () => {
 
       const ws = new WebSocket(
         `ws://127.0.0.1:${proxyPort}/ws?target=${encodeURIComponent(mockGw.url + '/ws')}`,
-        { headers: { Cookie: 'nerve_session_3080=good-token' } },
+        { headers: { Cookie: 'convosketchpad_session_3080=good-token' } },
       );
 
       await new Promise<void>((resolve) => ws.on('open', resolve));
@@ -406,7 +406,7 @@ describe('ws-proxy', () => {
         type: 'req',
         method: 'connect',
         id: 'c-token-2',
-        params: { auth: { token: '' }, client: { id: 'nerve-ui', mode: 'webchat' } },
+        params: { auth: { token: '' }, client: { id: 'convosketchpad-ui', mode: 'webchat' } },
       }));
 
       // Wait for connect response
@@ -451,7 +451,7 @@ describe('ws-proxy', () => {
         id: 'c1',
         params: {
           auth: { token: 'test-token' },
-          client: { id: 'nerve-ui', mode: 'webchat' },
+          client: { id: 'convosketchpad-ui', mode: 'webchat' },
           role: 'admin',
           scopes: ['operator.admin', 'operator.read', 'operator.write'],
         },
@@ -502,7 +502,7 @@ describe('ws-proxy', () => {
         type: 'req',
         method: 'connect',
         id: 'c2',
-        params: { auth: { token: 'test-token' }, client: { id: 'nerve-ui', mode: 'webchat' } },
+        params: { auth: { token: 'test-token' }, client: { id: 'convosketchpad-ui', mode: 'webchat' } },
       }));
 
       // Wait for the connect response
@@ -570,7 +570,7 @@ describe('ws-proxy', () => {
           type: 'req',
           method: 'connect',
           id: 'c3',
-          params: { auth: { token: 'test-token' }, client: { id: 'nerve-ui' } },
+          params: { auth: { token: 'test-token' }, client: { id: 'convosketchpad-ui' } },
         }));
 
         const { code, reason } = await waitForClose(ws, 5000);
@@ -670,7 +670,7 @@ describe('ws-proxy', () => {
         type: 'req',
         method: 'connect',
         id: 'c4',
-        params: { auth: { token: 'test-token' }, client: { id: 'nerve-ui' } },
+        params: { auth: { token: 'test-token' }, client: { id: 'convosketchpad-ui' } },
       }));
 
       // Wait for the connect response
@@ -747,7 +747,7 @@ describe('ws-proxy', () => {
           type: 'req',
           method: 'connect',
           id: 'c5',
-          params: { auth: { token: 'test-token' }, client: { id: 'nerve-ui' } },
+          params: { auth: { token: 'test-token' }, client: { id: 'convosketchpad-ui' } },
         }));
         ws.send(JSON.stringify({ type: 'req', method: 'ping', id: 'p5' }));
 
@@ -797,7 +797,7 @@ describe('ws-proxy', () => {
         type: 'req',
         method: 'connect',
         id: 'c-proxy-1',
-        params: { client: { id: 'nerve-ui' } },
+        params: { client: { id: 'convosketchpad-ui' } },
       }));
 
       // Wait for the connect request to be received by the gateway

@@ -1,14 +1,14 @@
 [
   {
     "title": "Run everything on one machine",
-    "url": "https://docs.nerve.zone/guide/deployment-local"
+    "url": "https://github.com/MrToyy/convosketchpad/blob/main/docs/DEPLOYMENT-A.md"
   },
   {
     "title": "Use a cloud Gateway with ConvoSketchpad on your laptop",
-    "url": "https://docs.nerve.zone/guide/deployment-remote-gateway"
+    "url": "https://github.com/MrToyy/convosketchpad/blob/main/docs/DEPLOYMENT-B.md"
   },
   {
     "title": "Run both ConvoSketchpad and Gateway in the cloud",
-    "url": "https://docs.nerve.zone/guide/deployment-cloud"
+    "url": "https://github.com/MrToyy/convosketchpad/blob/main/docs/DEPLOYMENT-C.md"
   }
 ]

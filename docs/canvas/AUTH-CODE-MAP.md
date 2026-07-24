@@ -9,7 +9,7 @@
 - 数据库只保存 scrypt Token hash，不保存或回显明文 Token。
 - 用户 ID 稳定；轮换 Token 或改变启用状态会递增 `token_version`，使旧 Cookie 失效。
 - 第一个受管用户原子接管 `Local User` 的已有 Canvas；后续用户互相隔离。
-- `NERVE_AUTH=false` 时使用固定 Local User；启用认证后所有 Canvas 查询按 Cookie 中的 owner 过滤。
+- `CONVOSKETCHPAD_AUTH=false` 时使用固定 Local User；启用认证后所有 Canvas 查询按 Cookie 中的 owner 过滤。
 - 产品级隔离面向少量可信用户；用户仍共享同一个 OpenClaw Gateway 能力边界。
 - 同一客户端 IP 默认 30 分钟内失败 3 次后锁定 30 分钟；记录只在内存中保存。
 - Gateway 设备身份固定请求 `operator.read` / `operator.write`；设备 Token 只保存在服务端并在转发给浏览器前脱敏。
@@ -26,7 +26,7 @@
 | 普通 HTTP API Cookie 鉴权 | [`server/middleware/auth.ts`](../../server/middleware/auth.ts) | [`server/middleware/auth.test.ts`](../../server/middleware/auth.test.ts) |
 | Cookie 签名、解析、Token hash | [`server/lib/session.ts`](../../server/lib/session.ts) | [`server/lib/config.ts`](../../server/lib/config.ts) |
 | Token 验证、Cookie 用户解析、状态/version 复查 | [`server/lib/managed-users.ts`](../../server/lib/managed-users.ts) | [`server/lib/managed-users.test.ts`](../../server/lib/managed-users.test.ts) |
-| 用户创建、随机 Token、轮换和唯一性 | [`server/lib/user-management.ts`](../../server/lib/user-management.ts) | [`bin/nerve-users.ts`](../../bin/nerve-users.ts) |
+| 用户创建、随机 Token、轮换和唯一性 | [`server/lib/user-management.ts`](../../server/lib/user-management.ts) | [`bin/convosketchpad-users.ts`](../../bin/convosketchpad-users.ts) |
 | 用户表、状态、Token version、首用户接管 | [`server/lib/canvas-db.ts`](../../server/lib/canvas-db.ts) | [`server/lib/canvas-db.test.ts`](../../server/lib/canvas-db.test.ts) |
 | 登录失败次数和 IP 锁定 | [`server/lib/login-failures.ts`](../../server/lib/login-failures.ts) | [`server/lib/login-failures.test.ts`](../../server/lib/login-failures.test.ts) |
 | Canvas owner 解析 | [`server/lib/canvas-auth.ts`](../../server/lib/canvas-auth.ts) | [`server/routes/canvas.ts`](../../server/routes/canvas.ts) |
@@ -49,7 +49,7 @@ AuthGate
 ```
 
 - 前端不生成用户、不生成 Token，也不把受管 Token 持久化到浏览器。
-- Gateway URL 的 `oc-config` 与 Nerve 用户 Token 是不同概念；官方 Gateway 流程使用服务端 Token 注入。
+- Gateway URL 的 `oc-config` 与 ConvoSketchpad 用户 Token 是不同概念；官方 Gateway 流程使用服务端 Token 注入。
 
 ## 后端认证流程
 
@@ -57,7 +57,7 @@ AuthGate
 
 ```text
 npm run users -- add Alice --token example-token
-  → bin/nerve-users.ts
+  → bin/convosketchpad-users.ts
   → user-management.ts 校验名称和 Token
   → session.ts 生成 scrypt hash
   → CanvasStore.createManagedUser
@@ -107,12 +107,12 @@ POST /api/auth/login
 主要配置位于 [`server/lib/config.ts`](../../server/lib/config.ts)：
 
 ```text
-NERVE_AUTH
-NERVE_SESSION_SECRET
-NERVE_SESSION_TTL
-NERVE_AUTH_MAX_FAILURES
-NERVE_AUTH_FAILURE_WINDOW
-NERVE_AUTH_LOCKOUT
+CONVOSKETCHPAD_AUTH
+CONVOSKETCHPAD_SESSION_SECRET
+CONVOSKETCHPAD_SESSION_TTL
+CONVOSKETCHPAD_AUTH_MAX_FAILURES
+CONVOSKETCHPAD_AUTH_FAILURE_WINDOW
+CONVOSKETCHPAD_AUTH_LOCKOUT
 TRUSTED_PROXIES
 ```
 

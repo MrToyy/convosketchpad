@@ -8,7 +8,8 @@ import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { EXIT_CODES, UpdateError } from './types.js';
 
-const STATE_DIR = join(homedir(), '.nerve', 'updater');
+const DATA_DIR = process.env.CONVOSKETCHPAD_DATA_DIR || join(homedir(), '.convosketchpad');
+const STATE_DIR = join(DATA_DIR, 'updater');
 const LOCK_FILE = join(STATE_DIR, 'update.lock');
 
 /**

@@ -1,7 +1,7 @@
 /**
- * Session management — cookie creation, signing, verification, and password hashing.
+ * Session management — cookie creation, signing, verification, and managed-token hashing.
  *
- * Uses HMAC-SHA256 for stateless signed session tokens and scrypt for password
+ * Uses HMAC-SHA256 for stateless signed session tokens and scrypt for managed-token
  * hashing. Zero external dependencies — only `node:crypto`.
  * @module
  */
@@ -13,7 +13,7 @@ export interface SessionPayload {
   exp: number;
   /** Issued-at timestamp (ms since epoch) */
   iat: number;
-  /** Stable Canvas owner id. Absent on cookies issued by older Nerve versions. */
+  /** Stable Canvas owner id. */
   sub?: string;
   /** User-facing token label for the trusted-user Canvas MVP. */
   name?: string;
@@ -67,10 +67,10 @@ export function verifySession(token: string, secret: string): SessionPayload | n
 }
 
 /**
- * Verify a password against a stored scrypt hash.
+ * Verify a managed-user token against a stored scrypt hash.
  * Hash format: salt:derivedKey (both hex-encoded)
  */
-export async function verifyPassword(password: string, hash: string): Promise<boolean> {
+export async function verifyManagedTokenHash(token: string, hash: string): Promise<boolean> {
   const [saltHex, keyHex] = hash.split(':');
   if (!saltHex || !keyHex) return false;
 
@@ -78,7 +78,7 @@ export async function verifyPassword(password: string, hash: string): Promise<bo
   const storedKey = Buffer.from(keyHex, 'hex');
 
   return new Promise((resolve, reject) => {
-    crypto.scrypt(password, salt, 64, (err, derivedKey) => {
+    crypto.scrypt(token, salt, 64, (err, derivedKey) => {
       if (err) return reject(err);
       resolve(crypto.timingSafeEqual(derivedKey, storedKey));
     });
@@ -86,13 +86,13 @@ export async function verifyPassword(password: string, hash: string): Promise<bo
 }
 
 /**
- * Hash a password using scrypt.
+ * Hash a managed-user token using scrypt.
  * Returns: salt:derivedKey (both hex-encoded)
  */
-export async function hashPassword(password: string): Promise<string> {
+export async function hashManagedToken(token: string): Promise<string> {
   const salt = crypto.randomBytes(32);
   return new Promise((resolve, reject) => {
-    crypto.scrypt(password, salt, 64, (err, derivedKey) => {
+    crypto.scrypt(token, salt, 64, (err, derivedKey) => {
       if (err) return reject(err);
       resolve(`${salt.toString('hex')}:${derivedKey.toString('hex')}`);
     });
@@ -100,7 +100,7 @@ export async function hashPassword(password: string): Promise<string> {
 }
 
 /**
- * Parse the nerve_session cookie from a raw Cookie header string.
+ * Parse the convosketchpad_session cookie from a raw Cookie header string.
  * Used for WebSocket upgrade requests (outside Hono's middleware).
  */
 export function parseSessionCookie(cookieHeader: string | undefined, cookieName: string): string | null {

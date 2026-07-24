@@ -9,11 +9,11 @@ Remote browser → HTTPS reverse proxy → ConvoSketchpad → local OpenClaw Gat
 ## Requirements
 
 - `HOST=0.0.0.0`
-- `NERVE_AUTH=true`
-- a stable random `NERVE_SESSION_SECRET`
+- `CONVOSKETCHPAD_AUTH=true`
+- a stable random `CONVOSKETCHPAD_SESSION_SECRET`
 - HTTPS through Caddy, Nginx, Traefik, Tailscale Serve, or equivalent
 - correct `TRUSTED_PROXIES` when a reverse proxy supplies client IP headers
-- the public origin in `ALLOWED_ORIGINS`, `NERVE_PUBLIC_ORIGIN`, and the Gateway's `controlUi.allowedOrigins`
+- the public origin in `ALLOWED_ORIGINS`, `CONVOSKETCHPAD_PUBLIC_ORIGIN`, and the Gateway's `controlUi.allowedOrigins`
 
 Keep the Gateway on loopback where possible:
 
@@ -27,7 +27,7 @@ GATEWAY_URL=http://127.0.0.1:18789
 cd ~/convosketchpad
 npm run setup
 npm run users -- add <name>
-sudo systemctl restart nerve.service
+sudo systemctl restart convosketchpad.service
 ```
 
 Back up `database/canvas.sqlite` and `artifacts/` together.

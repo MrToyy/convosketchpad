@@ -24,7 +24,7 @@ describe('GET /api/files', () => {
         auth: false, port: 3000, host: '127.0.0.1', sslPort: 3443,
         workspaceRoot: tmpDir,
       },
-      SESSION_COOKIE_NAME: 'nerve_session_3000',
+      SESSION_COOKIE_NAME: 'convosketchpad_session_3000',
     }));
 
     const mod = await import('./files.js');

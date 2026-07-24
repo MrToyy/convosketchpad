@@ -1,5 +1,5 @@
 /**
- * Shared types for the Nerve updater.
+ * Shared types for the ConvoSketchpad updater.
  */
 
 // ── Exit codes ───────────────────────────────────────────────────────

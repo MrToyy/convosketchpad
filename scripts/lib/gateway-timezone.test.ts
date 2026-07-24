@@ -29,7 +29,7 @@ describe('Gateway timezone setup helpers', () => {
   it('writes the configured Gateway timezone to .env', () => {
     expect(generateEnvContent({
       GATEWAY_TOKEN: 'secret',
-      NERVE_GATEWAY_TIMEZONE: 'Asia/Shanghai',
-    })).toContain('NERVE_GATEWAY_TIMEZONE=Asia/Shanghai');
+      CONVOSKETCHPAD_GATEWAY_TIMEZONE: 'Asia/Shanghai',
+    })).toContain('CONVOSKETCHPAD_GATEWAY_TIMEZONE=Asia/Shanghai');
   });
 });

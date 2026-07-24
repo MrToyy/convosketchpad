@@ -175,14 +175,14 @@ export function applyAccessPlanToConfig(config: EnvConfig, plan: AccessPlan): En
 
   if (plan.browserOrigins.length > 0) next.ALLOWED_ORIGINS = dedupe(plan.browserOrigins).join(',');
   else delete next.ALLOWED_ORIGINS;
-  if (plan.browserOrigins.length > 0) next.NERVE_PUBLIC_ORIGIN = plan.browserOrigins[0];
-  else delete next.NERVE_PUBLIC_ORIGIN;
+  if (plan.browserOrigins.length > 0) next.CONVOSKETCHPAD_PUBLIC_ORIGIN = plan.browserOrigins[0];
+  else delete next.CONVOSKETCHPAD_PUBLIC_ORIGIN;
 
   if (plan.cspConnectExtra.length > 0) next.CSP_CONNECT_EXTRA = dedupe(plan.cspConnectExtra).join(' ');
   else delete next.CSP_CONNECT_EXTRA;
 
   // WS_ALLOWED_HOSTS = plan hosts ∪ user's existing entries ∪ remote-gateway host (if any).
-  // The plan only knows about Nerve UI accessibility; the gateway host has to be
+  // The plan only knows about ConvoSketchpad accessibility; the gateway host has to be
   // grafted in here so split-host deployments (remote GATEWAY_URL) don't get rejected
   // by the WS proxy with "Target not allowed".
   const wsHosts = dedupe([

@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { CanvasStore, getCanvasStore, type CanvasUserRecord } from './canvas-db.js';
-import { hashPassword, verifyPassword } from './session.js';
+import { hashManagedToken, verifyManagedTokenHash } from './session.js';
 
 const MAX_DISPLAY_NAME_LENGTH = 120;
 const MAX_TOKEN_LENGTH = 256;
@@ -31,7 +31,7 @@ export function generateManagedToken(): string {
 
 async function assertUniqueToken(token: string, store: CanvasStore, exceptUserId?: string): Promise<void> {
   for (const account of store.listUsersWithCredentials()) {
-    if (account.id !== exceptUserId && account.tokenHash && await verifyPassword(token, account.tokenHash)) {
+    if (account.id !== exceptUserId && account.tokenHash && await verifyManagedTokenHash(token, account.tokenHash)) {
       throw new Error('token_exists');
     }
   }
@@ -45,7 +45,7 @@ export async function createManagedUser(
   const name = normalizeDisplayName(displayName);
   const token = normalizeManagedToken(requestedToken ?? generateManagedToken());
   await assertUniqueToken(token, store);
-  const tokenHash = await hashPassword(token);
+  const tokenHash = await hashManagedToken(token);
   const result = store.createManagedUser(name, tokenHash);
   return { ...result, token };
 }
@@ -60,6 +60,6 @@ export async function rotateManagedToken(
   const existing = store.getManagedUserByName(name);
   if (!existing) throw new Error('user_not_found');
   await assertUniqueToken(token, store, existing.id);
-  const tokenHash = await hashPassword(token);
+  const tokenHash = await hashManagedToken(token);
   return { user: store.rotateManagedUserToken(name, tokenHash), token };
 }

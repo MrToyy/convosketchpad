@@ -6,7 +6,7 @@ ConvoSketchpad is a privileged UI for an OpenClaw Gateway. A user who can use th
 
 ## Local default
 
-The safe default is `HOST=127.0.0.1`. Binding to `0.0.0.0` requires `NERVE_AUTH=true`, unless `NERVE_ALLOW_INSECURE=true` explicitly overrides the startup refusal. Do not use the override on an untrusted network.
+The safe default is `HOST=127.0.0.1`. Binding to `0.0.0.0` requires `CONVOSKETCHPAD_AUTH=true`, unless `CONVOSKETCHPAD_ALLOW_INSECURE=true` explicitly overrides the startup refusal. Do not use the override on an untrusted network.
 
 ## Managed users
 
@@ -17,7 +17,7 @@ The safe default is `HOST=127.0.0.1`. Binding to `0.0.0.0` requires `NERVE_AUTH=
 - HTTP requests and WebSocket activity revalidate current user status.
 - Failed logins are rate-limited and temporarily locked by client IP.
 
-Set a stable, random `NERVE_SESSION_SECRET` in production. Configure `TRUSTED_PROXIES` only for proxies you control.
+Set a stable, random `CONVOSKETCHPAD_SESSION_SECRET` in production. Configure `TRUSTED_PROXIES` only for proxies you control.
 
 ## Gateway credentials
 
@@ -27,7 +27,7 @@ ConvoSketchpad uses one persistent Ed25519 device identity and asks OpenClaw
 for exactly `operator.read` and `operator.write`. Pairing approval and pairing
 state remain owned by OpenClaw; ConvoSketchpad does not edit OpenClaw pairing
 files. The issued device token is stored server-side in
-`~/.nerve/gateway-auth.json` (or `NERVE_DATA_DIR`) with mode `0600` and is
+`~/.convosketchpad/gateway-auth.json` (or `CONVOSKETCHPAD_DATA_DIR`) with mode `0600` and is
 redacted from Gateway responses before they reach the browser.
 
 ## Canvas ownership
@@ -48,8 +48,8 @@ Changing a Canvas Agent is allowed only before the first send. The server valida
 ## Deployment checklist
 
 1. Use HTTPS for remote access.
-2. Enable managed authentication and set `NERVE_SESSION_SECRET`.
+2. Enable managed authentication and set `CONVOSKETCHPAD_SESSION_SECRET`.
 3. Limit origins, WS target hosts, and trusted proxies.
 4. Grant OpenClaw Agents only the tools and filesystem access users should have.
-5. Protect `.env`, `.nerve/`, `database/`, `artifacts/`, and the OpenClaw configuration directory.
+5. Protect `.env`, `.convosketchpad/`, `database/`, `artifacts/`, and the OpenClaw configuration directory.
 6. Back up SQLite and Artifacts together.

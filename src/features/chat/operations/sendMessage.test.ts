@@ -14,7 +14,7 @@ const payload: OutgoingUploadPayload = {
 describe('Canvas gateway send helpers', () => {
   it('sanitizes upload manifests', () => {
     const result = appendUploadManifest('hello', payload);
-    expect(result).toContain('<nerve-upload-manifest>');
+    expect(result).toContain('<convosketchpad-upload-manifest>');
     expect(result).not.toContain('data:image');
     expect(result).not.toContain('"base64":"abc"');
   });

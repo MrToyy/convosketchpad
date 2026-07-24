@@ -64,7 +64,7 @@ afterEach(async () => {
 
 describe('Canvas Artifact Store', () => {
   it('persists user attachments independently from their OpenClaw staging path', async () => {
-    const source = path.join(workspaceRoot, '.nerve', 'canvas-uploads', 'source.png');
+    const source = path.join(workspaceRoot, '.convosketchpad', 'canvas-uploads', 'source.png');
     await fs.mkdir(path.dirname(source), { recursive: true });
     await fs.writeFile(source, 'uploaded-image');
     const store = await loadStore();
@@ -75,7 +75,7 @@ describe('Canvas Artifact Store', () => {
       mimeType: 'image/png',
       sizeBytes: 14,
       uri: source,
-      workspacePath: '.nerve/canvas-uploads/source.png',
+      workspacePath: '.convosketchpad/canvas-uploads/source.png',
     }]);
 
     expect(attachment).toEqual(expect.objectContaining({

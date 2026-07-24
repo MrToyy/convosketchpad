@@ -1,5 +1,7 @@
 # ConvoSketchpad runtime and data flow
 
+This is the canonical runtime reference for the standalone ConvoSketchpad product.
+
 This document replaces the inherited Nerve multi-panel runtime description. ConvoSketchpad now keeps only the infrastructure required by its Canvas.
 
 ## Process model
@@ -59,7 +61,7 @@ ConvoSketchpad treats a Branch session key as stable but observes the OpenClaw `
 - same Session but daily/idle expiry is due: proactively inject the canonical snapshot on this send, before OpenClaw replaces the Session.
 - reset policy unavailable: conservatively use recovery materialization instead of risking a context-free send.
 
-Daily boundaries use `NERVE_GATEWAY_TIMEZONE`, which defaults to the
+Daily boundaries use `CONVOSKETCHPAD_GATEWAY_TIMEZONE`, which defaults to the
 ConvoSketchpad host timezone and must be set explicitly when a remote Gateway
 uses another timezone. After `chat.send`, acknowledgement refreshes
 `sessions.list` so a replacement Session becomes the new healthy baseline.
@@ -72,7 +74,7 @@ transcript.
 |---|---|
 | Agents, tools, execution, Sessions, transcripts | OpenClaw |
 | Device pairing approval and paired-device records | OpenClaw |
-| ConvoSketchpad device key and per-Gateway device tokens | `~/.nerve/device-identity.json`, `~/.nerve/gateway-auth.json` |
+| ConvoSketchpad device key and per-Gateway device tokens | `~/.convosketchpad/device-identity.json`, `~/.convosketchpad/gateway-auth.json` |
 | Canvas, Branch, Interaction, reservation, layout, managed users | `database/canvas.sqlite` |
 | Durable user attachments and generated Artifacts | `artifacts/` |
 | Temporary tool-readable upload staging | selected Agent workspace |

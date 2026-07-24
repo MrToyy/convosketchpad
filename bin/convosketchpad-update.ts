@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * nerve-update — one-command updater for Nerve.
+ * convosketchpad-update — one-command updater for ConvoSketchpad.
  *
  * Usage:
  *   npm run update
@@ -89,7 +89,7 @@ function parseArgs(argv: string[]): UpdateOptions {
 
 function printHelp(): void {
   process.stderr.write(`
-  Usage: nerve-update [options]
+  Usage: convosketchpad-update [options]
 
   Options:
     --version <vX.Y.Z>  Pin to a specific version
@@ -121,8 +121,7 @@ function printBanner(): void {
   const NC = '\x1b[0m';
 
   process.stderr.write(`
-  ${ORANGE}█▄░█ █▀▀ █▀█ █░█ █▀▀${NC}
-  ${ORANGE}█░▀█ ██▄ █▀▄ ▀▄▀ ██▄${NC}  ${DIM}updater${NC}
+  ${ORANGE}◆ ConvoSketchpad${NC} ${DIM}updater${NC}
 `);
 }
 

@@ -31,7 +31,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   });
   const [font, setFontState] = useState<FontName>(initialFont);
   const [fontSize, setFontSizeState] = useState(() => {
-    const parsed = Number(localStorage.getItem('nerve:font-size'));
+    const parsed = Number(localStorage.getItem('convosketchpad:font-size'));
     return FONT_SIZES.has(parsed) ? parsed : 15;
   });
 
@@ -48,7 +48,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   const setFont = useCallback((value: FontName) => { localStorage.setItem('oc-font', value); setFontState(value); }, []);
   const setFontSize = useCallback((value: number) => {
     const normalized = FONT_SIZES.has(value) ? value : 15;
-    localStorage.setItem('nerve:font-size', String(normalized));
+    localStorage.setItem('convosketchpad:font-size', String(normalized));
     setFontSizeState(normalized);
   }, []);
 

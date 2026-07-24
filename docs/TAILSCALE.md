@@ -15,7 +15,7 @@ Choose **Tailscale Serve**, enable managed authentication, and follow the genera
 
 The final HTTPS origin must agree across:
 
-- `NERVE_PUBLIC_ORIGIN`
+- `CONVOSKETCHPAD_PUBLIC_ORIGIN`
 - `ALLOWED_ORIGINS`
 - OpenClaw `gateway.controlUi.allowedOrigins`
 
@@ -31,4 +31,4 @@ curl -sS https://<node-name>.<tailnet>.ts.net/health
 
 Then verify managed login, Gateway connection, Agent discovery, and a Canvas Interaction.
 
-For direct Tailscale-IP access without Serve, bind to `0.0.0.0`, enable `NERVE_AUTH=true`, and understand that plain HTTP is not suitable outside a trusted tailnet.
+For direct Tailscale-IP access without Serve, bind to `0.0.0.0`, enable `CONVOSKETCHPAD_AUTH=true`, and understand that plain HTTP is not suitable outside a trusted tailnet.

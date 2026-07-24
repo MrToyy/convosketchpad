@@ -43,7 +43,7 @@ The updater:
 4. fetches only the selected Release tag into an internal ref;
 5. verifies that the target is the matching `convosketchpad` package;
 6. runs `npm ci` and `npm run build`;
-7. restarts the exact `nerve.service` or `com.nerve.server` service when present;
+7. restarts the exact `convosketchpad.service` or `com.mrtoyy.convosketchpad` service when present;
 8. verifies `/health` and `/api/version`.
 
 ## CLI flags
@@ -90,16 +90,16 @@ npm run update -- --no-restart
 
 ## Rollback and state
 
-Before checkout, the updater records the current commit, package version, timestamp, and `.env` hash. When `.env` exists, it is copied with mode `0600`. State remains in the compatibility directory `~/.nerve/updater/`.
+Before checkout, the updater records the current commit, package version, timestamp, and `.env` hash. When `.env` exists, it is copied with mode `0600`. State is stored under `~/.convosketchpad/updater/`.
 
 If fetching, validation, building, restarting, or health checking fails after the snapshot, the updater checks out the saved commit, runs `npm ci` and `npm run build`, and restarts the detected service.
 
 | Path | Purpose |
 |---|---|
-| `~/.nerve/updater/last-good.json` | Last-known-good snapshot |
-| `~/.nerve/updater/last-run.json` | Most recent update result |
-| `~/.nerve/updater/snapshots/<timestamp>/.env` | Protected `.env` backup |
-| `~/.nerve/updater/update.lock` | Concurrent-update lock |
+| `~/.convosketchpad/updater/last-good.json` | Last-known-good snapshot |
+| `~/.convosketchpad/updater/last-run.json` | Most recent update result |
+| `~/.convosketchpad/updater/snapshots/<timestamp>/.env` | Protected `.env` backup |
+| `~/.convosketchpad/updater/update.lock` | Concurrent-update lock |
 
 ## Release policy
 
@@ -133,9 +133,9 @@ git remote set-url origin https://github.com/MrToyy/convosketchpad.git
 The updater attempts rollback automatically. If manual recovery is required:
 
 ```bash
-cat ~/.nerve/updater/last-good.json
+cat ~/.convosketchpad/updater/last-good.json
 git checkout --force <snapshot-ref>
 npm ci
 npm run build
-sudo systemctl restart nerve.service
+sudo systemctl restart convosketchpad.service
 ```

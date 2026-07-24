@@ -103,7 +103,7 @@ describe('Canvas transcript reconciliation', () => {
     const snapshot = extractCanvasTranscript([
       {
         role: 'user',
-        content: '请编辑图片\n\n<nerve-upload-manifest>{"attachments":[{"reference":{"path":"/tmp/source.png","uri":"file:///tmp/source.png"}}]}</nerve-upload-manifest>',
+        content: '请编辑图片\n\n<convosketchpad-upload-manifest>{"attachments":[{"reference":{"path":"/tmp/source.png","uri":"file:///tmp/source.png"}}]}</convosketchpad-upload-manifest>',
         MediaPath: '/tmp/source.png',
         MediaType: 'image/png',
         timestamp: 900,

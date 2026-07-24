@@ -7,7 +7,7 @@ import { CanvasStore } from './canvas-db.js';
 const cleanups: Array<() => void> = [];
 
 function createStore(): CanvasStore {
-  const dir = mkdtempSync(path.join(tmpdir(), 'nerve-canvas-'));
+  const dir = mkdtempSync(path.join(tmpdir(), 'convosketchpad-canvas-'));
   const store = new CanvasStore(path.join(dir, 'canvas.sqlite'));
   cleanups.push(() => {
     store.close();

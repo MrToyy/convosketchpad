@@ -1,6 +1,6 @@
 # HTTP API
 
-All `/api/*` routes are subject to the common body limit, security headers, rate limiting where declared, and managed-user middleware. With `NERVE_AUTH=true`, clients authenticate using the HttpOnly session Cookie returned by login.
+All `/api/*` routes are subject to the common body limit, security headers, rate limiting where declared, and managed-user middleware. With `CONVOSKETCHPAD_AUTH=true`, clients authenticate using the HttpOnly session Cookie returned by login.
 
 ## Canvas
 

@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 
+/** ConvoSketchpad managed-user administration CLI. */
+
 import { CanvasStore } from '../server/lib/canvas-db.js';
 import { config } from '../server/lib/config.js';
 import { createManagedUser, rotateManagedToken } from '../server/lib/user-management.js';

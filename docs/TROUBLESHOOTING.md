@@ -27,7 +27,7 @@ device token has drifted, use `openclaw devices rotate/remove` and re-approve.
 Use the exact browser origin in OpenClaw
 `gateway.controlUi.allowedOrigins`. `npm run setup` changes this only through
 `openclaw config get/patch` with a dry run. For remote access, set the same
-origin in `NERVE_PUBLIC_ORIGIN` and `ALLOWED_ORIGINS`, and run the OpenClaw
+origin in `CONVOSKETCHPAD_PUBLIC_ORIGIN` and `ALLOWED_ORIGINS`, and run the OpenClaw
 config command on the Gateway host.
 
 ## Agent list cannot load or Canvas creation returns 502
@@ -60,11 +60,11 @@ Text completion and Artifact persistence are independent. A late or unreadable A
 
 ## Login is locked
 
-The default is three failures in 30 minutes followed by a 30-minute client-IP lockout. Check `NERVE_AUTH_*` values and `TRUSTED_PROXIES`. Restarting clears the in-memory failure tracker but is not a substitute for protecting the Token.
+The default is three failures in 30 minutes followed by a 30-minute client-IP lockout. Check `CONVOSKETCHPAD_AUTH_*` values and `TRUSTED_PROXIES`. Restarting clears the in-memory failure tracker but is not a substitute for protecting the Token.
 
 ## Remote startup is refused
 
-`HOST=0.0.0.0` requires `NERVE_AUTH=true`. Enable authentication and HTTPS. `NERVE_ALLOW_INSECURE=true` exists only as an explicit unsafe override.
+`HOST=0.0.0.0` requires `CONVOSKETCHPAD_AUTH=true`. Enable authentication and HTTPS. `CONVOSKETCHPAD_ALLOW_INSECURE=true` exists only as an explicit unsafe override.
 
 ## Build or tests fail
 

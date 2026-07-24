@@ -19,8 +19,8 @@ describe('device-identity', () => {
   const originalEnv = { ...process.env };
 
   beforeEach(async () => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nerve-test-identity-'));
-    process.env.NERVE_DATA_DIR = tmpDir;
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'convosketchpad-test-identity-'));
+    process.env.CONVOSKETCHPAD_DATA_DIR = tmpDir;
 
     vi.resetModules();
     const mod = await import('./device-identity.js');
@@ -90,7 +90,7 @@ describe('device-identity', () => {
       logSpy.mockRestore();
 
       vi.resetModules();
-      process.env.NERVE_DATA_DIR = tmpDir;
+      process.env.CONVOSKETCHPAD_DATA_DIR = tmpDir;
       const freshMod = await import('./device-identity.js');
 
       const logSpy2 = vi.spyOn(console, 'log').mockImplementation(() => {});
@@ -146,7 +146,7 @@ describe('device-identity', () => {
     it('produces the correct v2 format', () => {
       const payload = buildSigningPayload({
         deviceId: 'abc123',
-        clientId: 'nerve-ui',
+        clientId: 'convosketchpad-ui',
         clientMode: 'webchat',
         role: 'operator',
         scopes: ['operator.read', 'operator.write'],
@@ -156,7 +156,7 @@ describe('device-identity', () => {
       });
 
       expect(payload).toBe(
-        'v2|abc123|nerve-ui|webchat|operator|operator.read,operator.write|1700000000000|my-token|test-nonce',
+        'v2|abc123|convosketchpad-ui|webchat|operator|operator.read,operator.write|1700000000000|my-token|test-nonce',
       );
     });
 
@@ -269,7 +269,7 @@ describe('device-identity', () => {
     it('returns a properly shaped device object', () => {
       const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
       const block = createDeviceBlock({
-        clientId: 'nerve-ui',
+        clientId: 'convosketchpad-ui',
         clientMode: 'webchat',
         role: 'operator',
         scopes: ['operator.read', 'operator.write'],
@@ -293,7 +293,7 @@ describe('device-identity', () => {
       const identity = getDeviceIdentity();
 
       const params = {
-        clientId: 'nerve-ui',
+        clientId: 'convosketchpad-ui',
         clientMode: 'webchat',
         role: 'operator',
         scopes: ['operator.read', 'operator.write'],

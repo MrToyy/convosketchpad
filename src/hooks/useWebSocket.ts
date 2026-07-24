@@ -49,7 +49,7 @@ function getOrCreateInstanceId(): string {
  * with timeouts, event dispatch, and automatic reconnection with
  * exponential backoff + jitter.
  *
- * WebSocket traffic is proxied through Nerve's `/ws` endpoint so the
+ * WebSocket traffic is proxied through ConvoSketchpad's `/ws` endpoint so the
  * client works behind reverse proxies and HTTPS termination.
  */
 export function useWebSocket(): UseWebSocketReturn {
@@ -164,9 +164,9 @@ export function useWebSocket(): UseWebSocketReturn {
 
       let ws: WebSocket;
       try {
-        // Always proxy WebSocket through Nerve's /ws endpoint.
+        // Always proxy WebSocket through ConvoSketchpad's /ws endpoint.
         // This ensures the connection works regardless of how the user
-        // accesses Nerve (direct, SSH tunnel, reverse proxy, HTTPS).
+        // accesses ConvoSketchpad (direct, SSH tunnel, reverse proxy, HTTPS).
         // The server-side proxy handles Origin headers and auth.
         let wsUrl = url;
         const proxyProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';

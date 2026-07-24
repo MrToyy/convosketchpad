@@ -34,7 +34,7 @@ import {
 } from './lib/env-writer.js';
 import { generateSelfSignedCert } from './lib/cert-gen.js';
 import {
-  approvePendingNerveDevice,
+  approvePendingConvoSketchpadDevice,
   chooseSetupGatewayToken,
   detectGatewayConfig,
   detectNativeOpenClawCapabilities,
@@ -133,7 +133,7 @@ function requireNativeOpenClawCapabilities(
 }
 
 function pairingOrigin(config: EnvConfig): string {
-  return config.NERVE_PUBLIC_ORIGIN
+  return config.CONVOSKETCHPAD_PUBLIC_ORIGIN
     || config.ALLOWED_ORIGINS?.split(',').map(value => value.trim()).find(Boolean)
     || `http://127.0.0.1:${config.PORT || DEFAULTS.PORT}`;
 }
@@ -182,7 +182,7 @@ async function configureNativePairing(
     return `Approve later with: openclaw devices approve ${requestLabel}`;
   }
 
-  const approved = approvePendingNerveDevice({
+  const approved = approvePendingConvoSketchpadDevice({
     gatewayUrl: config.GATEWAY_URL,
     gatewayToken: config.GATEWAY_TOKEN,
   });
@@ -248,7 +248,7 @@ async function main(): Promise<void> {
     return;
   }
 
-  printBanner(); // no-ops when NERVE_INSTALLER is set
+  printBanner(); // no-ops when CONVOSKETCHPAD_INSTALLER is set
 
   if (requestedGatewayTimezone && !isValidIanaTimezone(requestedGatewayTimezone)) {
     fail(`Invalid --gateway-timezone value: ${requestedGatewayTimezone}`);
@@ -260,7 +260,7 @@ async function main(): Promise<void> {
   cleanupTmp(ENV_PATH);
 
   // Prerequisite checks (skip verbose output when called from installer — already checked)
-  const prereqs = checkPrerequisites({ quiet: !!process.env.NERVE_INSTALLER });
+  const prereqs = checkPrerequisites({ quiet: !!process.env.CONVOSKETCHPAD_INSTALLER });
   if (!prereqs.nodeOk) {
     console.log('');
     fail('Node.js ≥ 22 is required. Please upgrade and try again.');
@@ -291,7 +291,7 @@ async function main(): Promise<void> {
 
   // If .env exists, ask whether to update or start fresh
   // (Skip this when called from install.sh — the installer already asked)
-  if (hasExisting && existing.GATEWAY_TOKEN && !process.env.NERVE_INSTALLER) {
+  if (hasExisting && existing.GATEWAY_TOKEN && !process.env.CONVOSKETCHPAD_INSTALLER) {
     const action = await select({
     theme: promptTheme,
       message: 'What would you like to do?',
@@ -326,7 +326,7 @@ async function main(): Promise<void> {
   printSummary(config);
 
   // When invoked from install.sh, build is already done — skip misleading "next steps"
-  if (!process.env.NERVE_INSTALLER) {
+  if (!process.env.CONVOSKETCHPAD_INSTALLER) {
     printNextSteps(config);
     printDeploymentGuides();
   }
@@ -429,7 +429,7 @@ async function collectInteractive(
 
   // Test connection
   const rail = `  \x1b[2m│\x1b[0m`;
-  const testPrefix = process.env.NERVE_INSTALLER ? `${rail}  ` : '  ';
+  const testPrefix = process.env.CONVOSKETCHPAD_INSTALLER ? `${rail}  ` : '  ';
   process.stdout.write(`${testPrefix}Testing connection... `);
   const gwTest = await testGatewayConnection(config.GATEWAY_URL!, config.GATEWAY_TOKEN);
   if (gwTest.ok) {
@@ -442,17 +442,17 @@ async function collectInteractive(
   }
 
   if (requestedGatewayTimezone) {
-    config.NERVE_GATEWAY_TIMEZONE = requestedGatewayTimezone;
+    config.CONVOSKETCHPAD_GATEWAY_TIMEZONE = requestedGatewayTimezone;
   }
   if (isRemoteGatewayUrl(config.GATEWAY_URL!)) {
     console.log('');
     dim('Canvas uses the Gateway timezone to predict OpenClaw daily session resets.');
-    config.NERVE_GATEWAY_TIMEZONE = (await input({
+    config.CONVOSKETCHPAD_GATEWAY_TIMEZONE = (await input({
       theme: promptTheme,
       message: 'Gateway timezone',
       default:
         requestedGatewayTimezone ||
-        existing.NERVE_GATEWAY_TIMEZONE ||
+        existing.CONVOSKETCHPAD_GATEWAY_TIMEZONE ||
         localIanaTimezone(),
       validate: (value) =>
         isValidIanaTimezone(value)
@@ -807,8 +807,8 @@ async function collectInteractive(
   // ── 3/3: Authentication ───────────────────────────────────────────
 
   // Always generate a session secret if not already set
-  if (!config.NERVE_SESSION_SECRET) {
-    config.NERVE_SESSION_SECRET = randomBytes(32).toString('hex');
+  if (!config.CONVOSKETCHPAD_SESSION_SECRET) {
+    config.CONVOSKETCHPAD_SESSION_SECRET = randomBytes(32).toString('hex');
   }
 
   const isNetworkExposed = config.HOST === '0.0.0.0';
@@ -827,20 +827,18 @@ async function collectInteractive(
     });
 
     if (enableTokenAuth) {
-      config.NERVE_AUTH = 'true';
-      delete config.NERVE_PASSWORD_HASH;
+      config.CONVOSKETCHPAD_AUTH = 'true';
       success('Managed-user token authentication enabled.');
       dim('After setup, create the first user with: npm run users -- add <name> [--token <token>]');
     } else {
-      config.NERVE_AUTH = 'false';
-      warn('Authentication disabled. Network-exposed startup will require NERVE_ALLOW_INSECURE=true.');
+      config.CONVOSKETCHPAD_AUTH = 'false';
+      warn('Authentication disabled. Network-exposed startup will require CONVOSKETCHPAD_ALLOW_INSECURE=true.');
     }
   } else {
     // Localhost — skip auth setup, but preserve existing auth config
-    if (existing.NERVE_AUTH) config.NERVE_AUTH = existing.NERVE_AUTH;
-    if (existing.NERVE_PASSWORD_HASH) config.NERVE_PASSWORD_HASH = existing.NERVE_PASSWORD_HASH;
-    if (existing.NERVE_SESSION_SECRET) config.NERVE_SESSION_SECRET = existing.NERVE_SESSION_SECRET;
-    if (existing.NERVE_SESSION_TTL) config.NERVE_SESSION_TTL = existing.NERVE_SESSION_TTL;
+    if (existing.CONVOSKETCHPAD_AUTH) config.CONVOSKETCHPAD_AUTH = existing.CONVOSKETCHPAD_AUTH;
+    if (existing.CONVOSKETCHPAD_SESSION_SECRET) config.CONVOSKETCHPAD_SESSION_SECRET = existing.CONVOSKETCHPAD_SESSION_SECRET;
+    if (existing.CONVOSKETCHPAD_SESSION_TTL) config.CONVOSKETCHPAD_SESSION_TTL = existing.CONVOSKETCHPAD_SESSION_TTL;
   }
 
   return config;
@@ -856,10 +854,10 @@ function printSummary(config: EnvConfig): void {
   const hasCerts = existsSync(resolve(PROJECT_ROOT, 'certs', 'cert.pem'));
 
   const hostLabel = host === '127.0.0.1' ? '127.0.0.1 (local only)' : `${host} (network)`;
-  const authLabel = config.NERVE_AUTH === 'true' ? '🔒 Enabled' : 'Disabled';
-  const gatewayTimezone = config.NERVE_GATEWAY_TIMEZONE;
+  const authLabel = config.CONVOSKETCHPAD_AUTH === 'true' ? '🔒 Enabled' : 'Disabled';
+  const gatewayTimezone = config.CONVOSKETCHPAD_GATEWAY_TIMEZONE;
 
-  if (process.env.NERVE_INSTALLER) {
+  if (process.env.CONVOSKETCHPAD_INSTALLER) {
     // Rail-style summary — stays inside the installer's visual flow
     const r = `  \x1b[2m│\x1b[0m`;
     console.log('');
@@ -938,15 +936,15 @@ async function runCheck(config: EnvConfig): Promise<void> {
     errors++;
   }
 
-  if (config.NERVE_GATEWAY_TIMEZONE) {
-    if (isValidIanaTimezone(config.NERVE_GATEWAY_TIMEZONE)) {
-      success(`Gateway timezone is valid: ${config.NERVE_GATEWAY_TIMEZONE}`);
+  if (config.CONVOSKETCHPAD_GATEWAY_TIMEZONE) {
+    if (isValidIanaTimezone(config.CONVOSKETCHPAD_GATEWAY_TIMEZONE)) {
+      success(`Gateway timezone is valid: ${config.CONVOSKETCHPAD_GATEWAY_TIMEZONE}`);
     } else {
-      fail(`NERVE_GATEWAY_TIMEZONE is invalid: ${config.NERVE_GATEWAY_TIMEZONE}`);
+      fail(`CONVOSKETCHPAD_GATEWAY_TIMEZONE is invalid: ${config.CONVOSKETCHPAD_GATEWAY_TIMEZONE}`);
       errors++;
     }
   } else if (isRemoteGatewayUrl(gwUrl)) {
-    warn(`NERVE_GATEWAY_TIMEZONE is not set; using this host's timezone (${localIanaTimezone()})`);
+    warn(`CONVOSKETCHPAD_GATEWAY_TIMEZONE is not set; using this host's timezone (${localIanaTimezone()})`);
     dim('Set it to the timezone used by the remote OpenClaw Gateway.');
   }
 
@@ -968,12 +966,12 @@ async function runCheck(config: EnvConfig): Promise<void> {
   }
 
   // Auth
-  if (config.NERVE_AUTH === 'true') {
+  if (config.CONVOSKETCHPAD_AUTH === 'true') {
     success('Trusted-user token authentication is enabled');
-    if (config.NERVE_SESSION_SECRET) {
+    if (config.CONVOSKETCHPAD_SESSION_SECRET) {
       success('Session secret is set');
     } else {
-      warn('NERVE_SESSION_SECRET not set — will be auto-generated (sessions won\'t survive restarts)');
+      warn('CONVOSKETCHPAD_SESSION_SECRET not set — will be auto-generated (sessions won\'t survive restarts)');
     }
   } else if (host === '0.0.0.0') {
     warn('Authentication is DISABLED while server is network-exposed');
@@ -1037,20 +1035,20 @@ async function runDefaults(existing: EnvConfig, prereqs: PrereqResult): Promise<
 
   if (!config.GATEWAY_URL) config.GATEWAY_URL = DEFAULTS.GATEWAY_URL;
   if (requestedGatewayTimezone) {
-    config.NERVE_GATEWAY_TIMEZONE = requestedGatewayTimezone;
+    config.CONVOSKETCHPAD_GATEWAY_TIMEZONE = requestedGatewayTimezone;
   } else if (
     isRemoteGatewayUrl(config.GATEWAY_URL) &&
-    !config.NERVE_GATEWAY_TIMEZONE
+    !config.CONVOSKETCHPAD_GATEWAY_TIMEZONE
   ) {
-    config.NERVE_GATEWAY_TIMEZONE = localIanaTimezone();
-    warn(`Remote Gateway detected; using Gateway timezone ${config.NERVE_GATEWAY_TIMEZONE}`);
+    config.CONVOSKETCHPAD_GATEWAY_TIMEZONE = localIanaTimezone();
+    warn(`Remote Gateway detected; using Gateway timezone ${config.CONVOSKETCHPAD_GATEWAY_TIMEZONE}`);
     dim('Override with --gateway-timezone <IANA timezone> when the Gateway uses another timezone.');
   }
   if (
-    config.NERVE_GATEWAY_TIMEZONE &&
-    !isValidIanaTimezone(config.NERVE_GATEWAY_TIMEZONE)
+    config.CONVOSKETCHPAD_GATEWAY_TIMEZONE &&
+    !isValidIanaTimezone(config.CONVOSKETCHPAD_GATEWAY_TIMEZONE)
   ) {
-    fail(`NERVE_GATEWAY_TIMEZONE is invalid: ${config.NERVE_GATEWAY_TIMEZONE}`);
+    fail(`CONVOSKETCHPAD_GATEWAY_TIMEZONE is invalid: ${config.CONVOSKETCHPAD_GATEWAY_TIMEZONE}`);
     process.exit(1);
   }
   if (!config.PORT) config.PORT = DEFAULTS.PORT;
@@ -1094,12 +1092,12 @@ async function runDefaults(existing: EnvConfig, prereqs: PrereqResult): Promise<
   }
 
   // Auth: auto-enable when network-exposed with gateway token, generate session secret
-  if (!config.NERVE_SESSION_SECRET) {
-    config.NERVE_SESSION_SECRET = randomBytes(32).toString('hex');
+  if (!config.CONVOSKETCHPAD_SESSION_SECRET) {
+    config.CONVOSKETCHPAD_SESSION_SECRET = randomBytes(32).toString('hex');
   }
-  if (config.HOST === '0.0.0.0' && !config.NERVE_AUTH) {
+  if (config.HOST === '0.0.0.0' && !config.CONVOSKETCHPAD_AUTH) {
     if (config.GATEWAY_TOKEN) {
-      config.NERVE_AUTH = 'true';
+      config.CONVOSKETCHPAD_AUTH = 'true';
       success('Trusted-user token authentication auto-enabled');
       dim('Create the first user with: npm run users -- add <name> [--token <token>]');
     } else {
@@ -1145,7 +1143,7 @@ async function runDefaults(existing: EnvConfig, prereqs: PrereqResult): Promise<
   success('Configuration written to .env');
 
   printSummary(config);
-  if (shouldPrintDeploymentGuides({ invokedFromInstaller: process.env.NERVE_INSTALLER === '1', defaultsMode: true })) {
+  if (shouldPrintDeploymentGuides({ invokedFromInstaller: process.env.CONVOSKETCHPAD_INSTALLER === '1', defaultsMode: true })) {
     printDeploymentGuides();
   }
 

@@ -41,3 +41,4 @@ Common flags:
 ```
 
 Use `./install.sh --help` as the authoritative flag reference.
+`CONVOSKETCHPAD_INSTALL_DIR` may be used instead of `--dir`; no legacy install-directory variable is recognized.

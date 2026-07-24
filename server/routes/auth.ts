@@ -32,8 +32,7 @@ function lockoutResponse(c: Context, lockout: LoginLockout) {
 
 /**
  * POST /api/auth/login
- * Accepts { token: string }. The legacy `password` field remains accepted so
- * old clients can log in during the upgrade.
+ * Accepts { token: string }.
  * Sets HttpOnly session cookie on success.
  */
 app.post('/api/auth/login', rateLimitAuth, async (c) => {
@@ -43,8 +42,8 @@ app.post('/api/auth/login', rateLimitAuth, async (c) => {
   }
 
   try {
-    const body = await c.req.json() as { token?: string; password?: string };
-    const token = (body.token ?? body.password)?.trim();
+    const body = await c.req.json() as { token?: string };
+    const token = body.token?.trim();
 
     if (!token) {
       return c.json({ error: 'Token required' }, 400);

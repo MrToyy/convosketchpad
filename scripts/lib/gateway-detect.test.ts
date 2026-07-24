@@ -31,28 +31,28 @@ function commandResult(
 describe('OpenClaw native gateway configuration', () => {
   const originalEnv = { ...process.env };
   let tempHome = '';
-  let nerveDir = '';
+  let dataDir = '';
 
   beforeEach(() => {
     vi.restoreAllMocks();
     vi.resetModules();
     tempHome = mkdtempSync(path.join(os.tmpdir(), 'convosketchpad-gateway-'));
-    nerveDir = path.join(tempHome, '.nerve');
+    dataDir = path.join(tempHome, '.convosketchpad');
     process.env.HOME = tempHome;
-    process.env.NERVE_DATA_DIR = nerveDir;
+    process.env.CONVOSKETCHPAD_DATA_DIR = dataDir;
     delete process.env.OPENCLAW_CONFIG_PATH;
     delete process.env.OPENCLAW_BIN;
     delete process.env.OPENCLAW_GATEWAY_TOKEN;
 
     mkdirSync(path.join(tempHome, '.openclaw'), { recursive: true });
-    mkdirSync(nerveDir, { recursive: true });
+    mkdirSync(dataDir, { recursive: true });
     writeFileSync(path.join(tempHome, '.openclaw', 'openclaw.json'), JSON.stringify({
       gateway: {
         port: 18789,
         auth: { token: 'detected-token' },
       },
     }));
-    writeFileSync(path.join(nerveDir, 'device-identity.json'), JSON.stringify({
+    writeFileSync(path.join(dataDir, 'device-identity.json'), JSON.stringify({
       deviceId: 'convosketchpad-device',
       publicKeyB64url: 'convosketchpad-public-key',
       privateKeyPem: 'not-used-by-these-tests',
@@ -260,7 +260,7 @@ describe('OpenClaw native gateway configuration', () => {
       return commandResult(0);
     };
 
-    const result = mod.approvePendingNerveDevice({
+    const result = mod.approvePendingConvoSketchpadDevice({
       gatewayUrl: 'https://gateway.example.test',
       gatewayToken: 'gateway-token',
       runner,
@@ -321,7 +321,7 @@ describe('OpenClaw native gateway configuration', () => {
       return commandResult(0);
     };
 
-    const result = mod.approvePendingNerveDevice({ runner });
+    const result = mod.approvePendingConvoSketchpadDevice({ runner });
     expect(result).toMatchObject({ ok: false, approved: 0 });
     expect(result.message).toContain('Multiple');
     expect(approvals).toEqual([]);
@@ -342,7 +342,7 @@ describe('OpenClaw native gateway configuration', () => {
       throw new Error('approve must not be called');
     };
 
-    expect(mod.approvePendingNerveDevice({ runner }))
+    expect(mod.approvePendingConvoSketchpadDevice({ runner }))
       .toMatchObject({ ok: false, approved: 0 });
   });
 
@@ -360,7 +360,7 @@ describe('OpenClaw native gateway configuration', () => {
         ? commandResult(0, JSON.stringify({ pending: [] }))
         : commandResult(0)
     );
-    mod.approvePendingNerveDevice({ runner });
+    mod.approvePendingConvoSketchpadDevice({ runner });
 
     expect(readFileSync(pairedPath, 'utf8')).toBe('{"sentinel":"paired"}\n');
     expect(readFileSync(deviceAuthPath, 'utf8')).toBe('{"sentinel":"device-auth"}\n');

@@ -221,8 +221,8 @@ async function handleFailure(
       reporter.hint('Check service logs:');
       reporter.cmd(
         serviceManager.name === 'systemd'
-          ? 'journalctl -u nerve -n 50 --no-pager'
-          : 'log show --predicate \'processImagePath contains "nerve"\' --last 5m',
+          ? 'journalctl -u convosketchpad.service -n 50 --no-pager'
+          : 'log show --predicate \'processImagePath contains "convosketchpad"\' --last 5m',
       );
     }
   }
@@ -267,7 +267,8 @@ async function handleManualRollback(
 
 // ── Last run persistence ─────────────────────────────────────────────
 
-const STATE_DIR = join(homedir(), '.nerve', 'updater');
+const DATA_DIR = process.env.CONVOSKETCHPAD_DATA_DIR || join(homedir(), '.convosketchpad');
+const STATE_DIR = join(DATA_DIR, 'updater');
 
 function writeLastRun(data: Record<string, unknown>): void {
   try {
