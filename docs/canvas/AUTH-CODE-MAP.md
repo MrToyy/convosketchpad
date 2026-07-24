@@ -14,6 +14,7 @@
 - 同一客户端 IP 默认 30 分钟内失败 3 次后锁定 30 分钟；记录只在内存中保存。
 - Gateway 设备身份固定请求 `operator.read` / `operator.write`；设备 Token 只保存在服务端并在转发给浏览器前脱敏。
 - 配对审批和状态由 OpenClaw 原生 `devices list/approve` 管理，不直接改写 OpenClaw 配对文件。
+- 启用受管认证时不向用户暴露宿主机项目路径，并禁用状态栏升级检查；升级只能由宿主机管理员在终端执行。
 
 ## 按问题定位代码
 
@@ -33,6 +34,7 @@
 | Gateway 设备身份、签名和服务端 Token 存储 | [`server/lib/device-identity.ts`](../../server/lib/device-identity.ts) | [`server/lib/device-identity.test.ts`](../../server/lib/device-identity.test.ts)、[`server/lib/gateway-rpc.ts`](../../server/lib/gateway-rpc.ts) |
 | OpenClaw 原生配置与配对安装流程 | [`scripts/lib/gateway-detect.ts`](../../scripts/lib/gateway-detect.ts) | [`scripts/lib/gateway-pairing.ts`](../../scripts/lib/gateway-pairing.ts)、[`scripts/setup.ts`](../../scripts/setup.ts) |
 | 真实客户端 IP 和可信反向代理 | [`server/middleware/rate-limit.ts`](../../server/middleware/rate-limit.ts) | [`server/lib/trust-utils.ts`](../../server/lib/trust-utils.ts) |
+| 认证模式下禁用升级入口与路径返回 | [`server/routes/version-check.ts`](../../server/routes/version-check.ts) | [`src/components/UpdateBadge.tsx`](../../src/components/UpdateBadge.tsx) |
 | setup 提示和 `.env` 示例 | [`scripts/setup.ts`](../../scripts/setup.ts) | [`.env.example`](../../.env.example) |
 
 ## 前端认证流程

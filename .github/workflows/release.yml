@@ -1,0 +1,104 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Stable version to release (X.Y.Z)
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: convosketchpad-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_VERSION: ${{ inputs.version }}
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: Checkout main with tags
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Validate release version
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const version = process.env.RELEASE_VERSION;
+          if (!/^\d+\.\d+\.\d+$/.test(version)) {
+            throw new Error('version must use the X.Y.Z format');
+          }
+          if (version === '0.1.0') {
+            throw new Error('v0.1.0 is intentionally unpublished; bump the project version first');
+          }
+          const requested = version.split('.').map(Number);
+          const baseline = [0, 1, 0];
+          let comparison = 0;
+          for (let index = 0; index < requested.length; index += 1) {
+            if (requested[index] !== baseline[index]) {
+              comparison = requested[index] > baseline[index] ? 1 : -1;
+              break;
+            }
+          }
+          if (comparison <= 0) {
+            throw new Error('the first published version must be greater than 0.1.0');
+          }
+          const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+          const lock = JSON.parse(fs.readFileSync('package-lock.json', 'utf8'));
+          if (pkg.version !== version || lock.version !== version || lock.packages?.['']?.version !== version) {
+            throw new Error('workflow input, package.json, and package-lock.json versions must match');
+          }
+          NODE
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test -- --run
+
+      - name: Build
+        run: npm run build
+
+      - name: Prepare release tag
+        run: |
+          set -euo pipefail
+          tag="v${RELEASE_VERSION}"
+
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "Release $tag already exists" >&2
+            exit 1
+          fi
+
+          if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null 2>&1; then
+            git fetch --no-tags origin "refs/tags/$tag:refs/tags/$tag"
+            if [ "$(git rev-list -n 1 "$tag")" != "$(git rev-parse HEAD)" ]; then
+              echo "Tag $tag already points to another commit" >&2
+              exit 1
+            fi
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git tag -a "$tag" -m "ConvoSketchpad $tag"
+            git push origin "$tag"
+          fi
+
+      - name: Create GitHub Release
+        run: gh release create "v${RELEASE_VERSION}" --verify-tag --generate-notes --latest --title "v${RELEASE_VERSION}"

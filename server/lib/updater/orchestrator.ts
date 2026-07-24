@@ -31,9 +31,9 @@ export async function orchestrate(options: UpdateOptions, reporter: Reporter): P
   }
 
   // Calculate total stages dynamically based on which stages will actually run
-  // lock + preflight + resolve + snapshot + update + build = 6
+  // lock + preflight + resolve + snapshot + update + build = 7 stages
   // + confirm (only if not --yes) + restart + health (only if not --no-restart)
-  const totalStages = 6 + (options.yes ? 0 : 1) + (options.noRestart ? 0 : 2);
+  const totalStages = 7 + (options.yes ? 0 : 1) + (options.noRestart ? 0 : 2);
   let stageNum = 0;
   let locked = false;
   let serviceManager: ServiceManager | null = null;
@@ -65,19 +65,14 @@ export async function orchestrate(options: UpdateOptions, reporter: Reporter): P
       return EXIT_CODES.UP_TO_DATE;
     }
 
-    const sourceLabel =
-      resolved.source === 'release'
-        ? 'latest release'
-        : resolved.source === 'tag'
-          ? 'latest tag fallback'
-          : 'pinned version';
+    const sourceLabel = resolved.source === 'release' ? 'latest release' : 'pinned release';
     reporter.info(`v${resolved.current} → v${resolved.version} (${sourceLabel})`);
 
     // ── Dry-run stops here ─────────────────────────────────────────
     if (options.dryRun) {
       reporter.dry('Would snapshot current state');
       reporter.dry(`Would checkout ${resolved.tag}`);
-      reporter.dry('Would run npm install && build');
+      reporter.dry('Would run npm ci && npm run build');
       if (!options.noRestart) {
         reporter.dry('Would restart service');
         reporter.dry('Would run health checks');
@@ -109,14 +104,14 @@ export async function orchestrate(options: UpdateOptions, reporter: Reporter): P
     // ── 6. Update (git checkout) ───────────────────────────────────
     stageNum++;
     reporter.stage('Updating', stageNum, totalStages);
-    reporter.verbose(`git fetch --tags origin && git checkout ${resolved.tag}`);
+    reporter.verbose(`Fetch and validate official release ${resolved.tag}`);
     gitFetchAndCheckout(options.cwd, resolved.tag);
     reporter.ok(`Checked out ${resolved.tag}`);
 
     // ── 7. Build ───────────────────────────────────────────────────
     stageNum++;
     reporter.stage('Building', stageNum, totalStages);
-    reporter.verbose('npm install && npm run build && npm run build:server');
+    reporter.verbose('npm ci && npm run build');
     buildProject(options.cwd);
     reporter.ok('Build complete');
 
@@ -219,9 +214,8 @@ async function handleFailure(
   // Helpful hints based on failure stage
   if (stage === 'build') {
     reporter.hint('Troubleshooting:');
-    reporter.cmd('npm install');
+    reporter.cmd('npm ci');
     reporter.cmd('npm run build');
-    reporter.cmd('npm run build:server');
   } else if (stage === 'restart' || stage === 'health') {
     if (serviceManager) {
       reporter.hint('Check service logs:');

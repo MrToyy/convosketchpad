@@ -1,72 +1,102 @@
-/**
- * GET /api/version/check — Check if a newer version is available.
- *
- * Uses latest published GitHub release first, then latest semver tag fallback.
- */
+/** GET /api/version/check — resolve official ConvoSketchpad updates. */
 
 import { Hono } from 'hono';
 import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { rateLimitGeneral } from '../middleware/rate-limit.js';
-import { compareSemver, resolveLatestVersion } from '../lib/release-source.js';
+import { config } from '../lib/config.js';
+import {
+  compareSemver,
+  lookupLatestRelease,
+  type ReleaseLookupResult,
+} from '../lib/release-source.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(resolve(__dirname, '../../package.json'), 'utf-8')) as {
   version: string;
 };
 
+export type VersionCheckStatus =
+  | 'disabled'
+  | 'up-to-date'
+  | 'update-available'
+  | 'no-release'
+  | 'unavailable';
+
 interface VersionCache {
-  latest: string;
-  source: 'release' | 'tag';
+  result: ReleaseLookupResult;
   checkedAt: number;
 }
 
-const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
+const FOUND_CACHE_TTL_MS = 60 * 60 * 1000;
+const NO_RELEASE_CACHE_TTL_MS = 5 * 60 * 1000;
+const ERROR_CACHE_TTL_MS = 60 * 1000;
 let cache: VersionCache | null = null;
 const projectDir = resolve(__dirname, '../..');
 
 const app = new Hono();
 
-app.get('/api/version/check', rateLimitGeneral, async (c) => {
-  const now = Date.now();
+function cacheTtl(result: ReleaseLookupResult): number {
+  if (result.status === 'found') return FOUND_CACHE_TTL_MS;
+  if (result.status === 'no-release') return NO_RELEASE_CACHE_TTL_MS;
+  return ERROR_CACHE_TTL_MS;
+}
 
-  // Serve from cache if fresh.
-  if (cache && now - cache.checkedAt < CACHE_TTL_MS) {
-    return c.json({
-      current: pkg.version,
-      latest: cache.latest,
-      source: cache.source,
-      updateAvailable: compareSemver(cache.latest, pkg.version) > 0,
-      projectDir,
-    });
-  }
-
-  const latest = await resolveLatestVersion(projectDir);
-  if (!latest) {
-    return c.json({
+function responseFor(result: ReleaseLookupResult) {
+  if (result.status === 'no-release') {
+    return {
+      status: 'no-release' as const,
       current: pkg.version,
       latest: null,
       source: null,
       updateAvailable: false,
-      error: 'Could not fetch release or semver tags',
-      projectDir,
+    };
+  }
+
+  if (result.status === 'unavailable') {
+    return {
+      status: 'unavailable' as const,
+      current: pkg.version,
+      latest: null,
+      source: null,
+      updateAvailable: false,
+      error: result.error,
+    };
+  }
+
+  const updateAvailable = compareSemver(result.release.version, pkg.version) > 0;
+  return {
+    status: updateAvailable ? 'update-available' as const : 'up-to-date' as const,
+    current: pkg.version,
+    latest: result.release.version,
+    source: 'release' as const,
+    updateAvailable,
+    ...(updateAvailable ? { projectDir } : {}),
+  };
+}
+
+app.get('/api/version/check', rateLimitGeneral, async (c) => {
+  // Managed users are not host administrators. Keep update paths and release
+  // checks confined to local-mode installations.
+  if (config.auth) {
+    return c.json({
+      status: 'disabled' as const,
+      current: pkg.version,
+      latest: null,
+      source: null,
+      updateAvailable: false,
     });
   }
 
-  cache = {
-    latest: latest.version,
-    source: latest.source,
-    checkedAt: now,
-  };
+  const now = Date.now();
+  if (cache && now - cache.checkedAt < cacheTtl(cache.result)) {
+    return c.json(responseFor(cache.result));
+  }
 
-  return c.json({
-    current: pkg.version,
-    latest: latest.version,
-    source: latest.source,
-    updateAvailable: compareSemver(latest.version, pkg.version) > 0,
-    projectDir,
-  });
+  const result = await lookupLatestRelease();
+  cache = { result, checkedAt: now };
+  return c.json(responseFor(result));
 });
 
 export default app;

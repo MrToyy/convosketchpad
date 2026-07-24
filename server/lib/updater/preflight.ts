@@ -4,6 +4,7 @@
 
 import { execSync } from 'node:child_process';
 import { accessSync, constants } from 'node:fs';
+import { isOfficialOriginUrl, OFFICIAL_ORIGIN_URL } from '../release-source.js';
 import { EXIT_CODES, UpdateError } from './types.js';
 import type { PreflightResult } from './types.js';
 
@@ -39,12 +40,12 @@ export function runPreflight(cwd: string): PreflightResult {
     );
   }
 
-  // Verify remote origin uses HTTPS
+  // Only the official HTTPS origin may supply update code.
   try {
     const originUrl = execSync('git remote get-url origin', { cwd, stdio: 'pipe' }).toString().trim();
-    if (!originUrl.startsWith('https://')) {
+    if (!isOfficialOriginUrl(originUrl)) {
       throw new UpdateError(
-        `Origin must use HTTPS (found: ${originUrl})\n  Fix: git remote set-url origin https://github.com/<owner>/<repo>.git`,
+        `Origin must be the official ConvoSketchpad repository (found: ${originUrl})\n  Fix: git remote set-url origin ${OFFICIAL_ORIGIN_URL}`,
         'preflight',
         EXIT_CODES.PREFLIGHT,
       );
@@ -53,6 +54,28 @@ export function runPreflight(cwd: string): PreflightResult {
     if (err instanceof UpdateError) throw err;
     throw new UpdateError(
       'Could not determine git remote URL',
+      'preflight',
+      EXIT_CODES.PREFLIGHT,
+    );
+  }
+
+  // A forced release checkout cannot safely preserve working-tree changes.
+  try {
+    const status = execSync('git status --porcelain --untracked-files=normal', {
+      cwd,
+      stdio: 'pipe',
+    }).toString();
+    if (status.trim()) {
+      throw new UpdateError(
+        'Working tree is not clean. Commit, stash, or remove local changes before updating.',
+        'preflight',
+        EXIT_CODES.PREFLIGHT,
+      );
+    }
+  } catch (err) {
+    if (err instanceof UpdateError) throw err;
+    throw new UpdateError(
+      'Could not inspect git working tree status',
       'preflight',
       EXIT_CODES.PREFLIGHT,
     );
@@ -75,6 +98,7 @@ export function runPreflight(cwd: string): PreflightResult {
     npmVersion,
     isGitRepo: true,
     hasWritePermission: true,
+    isClean: true,
   };
 }
 

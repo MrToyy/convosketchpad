@@ -54,7 +54,7 @@ Users are administered locally with `npm run users -- ...`; there is no registra
 | GET | `/api/codex-limits` | Local Codex usage-limit metadata |
 | GET | `/api/claude-code-limits` | Local Claude Code usage-limit metadata |
 | GET | `/api/version` | Installed version |
-| GET | `/api/version/check` | Check for an available version |
+| GET | `/api/version/check` | Check the official stable Release in local mode; returns `disabled` under managed authentication |
 | GET | `/api/connect-defaults` | Browser Gateway connection defaults |
 | POST | `/api/gateway/restart` | Restart the local OpenClaw Gateway |
 

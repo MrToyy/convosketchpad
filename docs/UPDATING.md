@@ -1,46 +1,59 @@
 # Updating ConvoSketchpad
 
-ConvoSketchpad ships a built-in updater that pulls the latest published release from GitHub, rebuilds, restarts the service, and verifies health — all in one command.
+ConvoSketchpad includes a terminal-driven updater for published stable releases. The updater is inactive until the first official ConvoSketchpad GitHub Release is published.
 
-The updater becomes available after the first ConvoSketchpad release is published. Tags inherited from the upstream Nerve history are intentionally not republished as ConvoSketchpad releases.
+Only releases from `https://github.com/MrToyy/convosketchpad` are accepted. Local tags, tags inherited from OpenClaw Nerve, forks, branches, drafts, and prereleases are never update sources.
+
+The status-bar update entry is available only when managed authentication is disabled. On managed deployments, a host administrator must run the updater directly in the server terminal.
 
 ## Prerequisites
 
-Before using the updater, make sure this checkout has an HTTPS GitHub `origin`, for example:
+The checkout must:
+
+- use Node.js 22 or newer;
+- have `git` and `npm`;
+- have a clean working tree, including no staged, unstaged, or untracked files;
+- use the official HTTPS origin:
 
 ```bash
-git remote -v
+git remote set-url origin https://github.com/MrToyy/convosketchpad.git
 ```
 
-`origin` should point to `https://github.com/<owner>/<repo>.git`. If it does not, fix it first:
-
-```bash
-git remote set-url origin https://github.com/<owner>/<repo>.git
-```
+The updater always refuses a dirty checkout, including with `--yes`, because release checkout cannot preserve uncommitted work.
 
 ## Quick start
 
+Preview the resolved release without changing files:
+
 ```bash
-npm run update -- --yes
+npm run update -- --dry-run
 ```
 
-This will:
-1. Check prerequisites (git, Node.js, npm, and an HTTPS GitHub `origin` remote)
-2. Resolve the latest published GitHub release (fallback: latest semver tag)
-3. Snapshot the current state for rollback
-4. `git fetch --tags && git checkout <tag>`
-5. `npm install && npm run build && npm run build:server`
-6. Restart the systemd/launchd service
-7. Verify `/health` and `/api/version` match the target
+Run the update with an interactive confirmation:
+
+```bash
+npm run update
+```
+
+The updater:
+
+1. validates the tools, official origin, permissions, and clean working tree;
+2. resolves a published stable Release from the official GitHub repository;
+3. snapshots the current commit and `.env`;
+4. fetches only the selected Release tag into an internal ref;
+5. verifies that the target is the matching `convosketchpad` package;
+6. runs `npm ci` and `npm run build`;
+7. restarts the exact `nerve.service` or `com.nerve.server` service when present;
+8. verifies `/health` and `/api/version`.
 
 ## CLI flags
 
 | Flag | Description |
-|------|-------------|
-| `--version <vX.Y.Z>` | Pin to a specific version instead of latest |
-| `--yes`, `-y` | Skip the confirmation prompt |
-| `--dry-run` | Show what would happen without making changes |
-| `--verbose`, `-v` | Extra logging (git commands, service detection) |
+|---|---|
+| `--version <vX.Y.Z>` | Select an existing official stable Release |
+| `--yes`, `-y` | Skip the terminal confirmation; does not bypass safety checks |
+| `--dry-run` | Resolve and validate the target without changing the checkout |
+| `--verbose`, `-v` | Show detailed update operations |
 | `--rollback` | Restore the last-known-good snapshot |
 | `--no-restart` | Skip service restart and health checks |
 | `--help`, `-h` | Show help |
@@ -48,145 +61,81 @@ This will:
 ## Examples
 
 ```bash
-# Preview what an update would do
+# Preview first
 npm run update -- --dry-run
 
-# Update to a specific version
-npm run update -- --version v0.1.0 --yes
+# Select a published stable release
+npm run update -- --version v0.2.0
 
-# Rollback to the previous version
+# Roll back to the previous snapshot
 npm run update -- --rollback
 
-# Update without restarting (e.g. to restart manually)
-npm run update -- --yes --no-restart
+# Update and restart manually
+npm run update -- --no-restart
 ```
 
 ## Exit codes
 
 | Code | Meaning |
-|------|---------|
+|---|---|
 | 0 | Success |
 | 1 | Already up to date |
-| 10 | Preflight failure (missing git/node/npm) |
-| 20 | Version resolution failure (release/tag not found) |
-| 40 | Build failure (npm install or build step) |
+| 10 | Preflight failure |
+| 20 | Official Release resolution failure |
+| 40 | Fetch, validation, install, or build failure |
 | 50 | Service restart failure |
-| 60 | Health check failure (service unhealthy or version mismatch) |
-| 70 | Rollback failure (critical — manual intervention needed) |
-| 80 | Lock acquisition failure (another update is running) |
+| 60 | Health check failure |
+| 70 | Rollback failure |
+| 80 | Another updater process holds the lock |
 
-## How it works
+## Rollback and state
 
-### Update flow
+Before checkout, the updater records the current commit, package version, timestamp, and `.env` hash. When `.env` exists, it is copied with mode `0600`. State remains in the compatibility directory `~/.nerve/updater/`.
 
-```
-lock → preflight → resolve → confirm → snapshot → git checkout
-  → npm install + build → restart → health check → done
-```
-
-Each stage has a dedicated exit code. If any stage after snapshot fails, the updater attempts an automatic rollback.
-
-### Snapshots
-
-Before making changes, the updater saves:
-- The current git ref (commit hash)
-- The current version from `package.json`
-- A SHA-256 hash of `.env`
-- A timestamped backup of `.env`
-
-Snapshots are stored in `~/.nerve/updater/`. The `.env` file is **never overwritten** during an update — only backed up.
-
-### Rollback
-
-Rollback restores the snapshot ref, cleans `node_modules`, rebuilds, and restarts the service. It runs automatically on build/restart/health failures, or manually via `--rollback`.
-
-The rollback flow:
-1. `git checkout --force <snapshot-ref>`
-2. Remove `node_modules` (clean slate)
-3. `npm install && npm run build && npm run build:server`
-4. Restart and verify the service
-
-### Health checks
-
-After restart, the updater polls:
-- `GET /health` — must return 2xx
-- `GET /api/version` — must report the target version
-
-Retries with exponential backoff (2s, 4s, 8s) up to a 60-second deadline. If the version doesn't match, the updater assumes the old process is still serving and triggers rollback.
-
-### Locking
-
-A PID-based lock file prevents concurrent updates. The lock is acquired with `wx` (exclusive create) and released on exit. If a lock is stale (the PID no longer exists), it's automatically cleaned up.
-
-### Service detection
-
-The updater auto-detects the service manager:
-- **systemd** — `systemctl restart nerve`
-- **launchd** — `launchctl kickstart -k`
-
-If no service manager is found, the updater skips restart and prints manual start instructions.
-
-## State files
+If fetching, validation, building, restarting, or health checking fails after the snapshot, the updater checks out the saved commit, runs `npm ci` and `npm run build`, and restarts the detected service.
 
 | Path | Purpose |
-|------|---------|
+|---|---|
 | `~/.nerve/updater/last-good.json` | Last-known-good snapshot |
-| `~/.nerve/updater/last-run.json` | Result of the most recent update attempt |
-| `~/.nerve/updater/snapshots/<timestamp>/.env` | Backed-up `.env` files |
-| `~/.nerve/updater/nerve-update.lock` | PID lock file |
+| `~/.nerve/updater/last-run.json` | Most recent update result |
+| `~/.nerve/updater/snapshots/<timestamp>/.env` | Protected `.env` backup |
+| `~/.nerve/updater/update.lock` | Concurrent-update lock |
 
+## Release policy
+
+Version `0.1.0` intentionally has no GitHub Release, so the update entry remains hidden at that version. A future release must first update both `package.json` and `package-lock.json`, merge that change to `main`, and then run the manual **Release** GitHub Actions workflow with the matching `X.Y.Z` input.
+
+The workflow validates, tests, and builds the exact `main` commit before creating an annotated `vX.Y.Z` tag and a stable GitHub Release.
 
 ## Troubleshooting
 
-### "Could not fetch release or semver tags"
+### No official release has been published
 
-The updater resolves versions from GitHub Releases first. If release lookup fails (network/rate limits), it falls back to semver tags. If both sources fail, it exits with code 20.
+This is expected while the project remains at `0.1.0`. Local or inherited tags are intentionally ignored.
 
-**Fix:** Verify remote/release access and tags:
+### Working tree is not clean
+
+Inspect the checkout and commit, stash, or remove the reported changes:
+
+```bash
+git status --short
+```
+
+### Official origin required
+
 ```bash
 git remote -v
-git remote set-url origin https://github.com/<owner>/<repo>.git
-git fetch --tags origin
-curl -sSf https://api.github.com/repos/<owner>/<repo>/releases/latest | jq .tag_name
+git remote set-url origin https://github.com/MrToyy/convosketchpad.git
 ```
 
-### "Lock acquisition failure" (exit 80)
+### Build or health check failure
 
-Another update process is running, or a stale lock file exists.
+The updater attempts rollback automatically. If manual recovery is required:
 
-**Fix:** Check if an update is actually running:
 ```bash
-cat ~/.nerve/updater/nerve-update.lock   # Shows the PID
-ps -p <pid>                               # Check if it's alive
-```
-
-If the process is gone, the lock is stale — delete it:
-```bash
-rm ~/.nerve/updater/nerve-update.lock
-```
-
-### Health check fails with version mismatch
-
-The service restarted but `/api/version` reports the old version.
-
-**Causes:**
-- The old process didn't shut down cleanly (port still bound)
-- systemd started the service before the build finished
-
-**Fix:** Restart manually and check:
-```bash
-systemctl restart nerve
-curl http://127.0.0.1:3080/api/version
-```
-
-### Build failure after checkout
-
-`npm install` or `npm run build` failed on the new version.
-
-**Fix:** The updater will attempt automatic rollback. If rollback also fails (exit 70), restore manually:
-```bash
-cat ~/.nerve/updater/last-good.json           # Get the snapshot ref
-git checkout --force <ref>
-npm install && npm run build && npm run build:server
-systemctl restart nerve
+cat ~/.nerve/updater/last-good.json
+git checkout --force <snapshot-ref>
+npm ci
+npm run build
+sudo systemctl restart nerve.service
 ```

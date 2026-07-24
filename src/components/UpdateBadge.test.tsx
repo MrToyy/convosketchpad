@@ -18,6 +18,7 @@ describe('UpdateBadge', () => {
 
   beforeEach(() => {
     global.fetch = vi.fn<typeof fetch>(async () => createMockResponse({
+      status: 'update-available',
       current: '1.5.2',
       latest: '1.5.3',
       updateAvailable: true,
@@ -41,12 +42,14 @@ describe('UpdateBadge', () => {
     });
 
     expect(screen.getByText('/tmp/nerve repo')).toBeInTheDocument();
-    expect(screen.getByText("cd '/tmp/nerve repo' && npm run update -- --yes")).toBeInTheDocument();
+    expect(screen.getByText("cd '/tmp/nerve repo' && npm run update")).toBeInTheDocument();
+    expect(screen.queryByText(/npm run update -- --yes/)).not.toBeInTheDocument();
     expect(screen.getByText(/cd '\/tmp\/nerve repo' && npm run update -- --dry-run/i)).toBeInTheDocument();
   });
 
   it('does not render when the server omits the project directory', async () => {
     global.fetch = vi.fn<typeof fetch>(async () => createMockResponse({
+      status: 'update-available',
       current: '1.5.2',
       latest: '1.5.3',
       updateAvailable: true,
@@ -60,5 +63,21 @@ describe('UpdateBadge', () => {
     });
 
     expect(screen.queryByRole('button', { name: /update available: version 1.5.3/i })).not.toBeInTheDocument();
+  });
+
+  it('does not render when update checks are disabled', async () => {
+    global.fetch = vi.fn<typeof fetch>(async () => createMockResponse({
+      status: 'disabled',
+      current: '0.1.0',
+      latest: null,
+      updateAvailable: false,
+    }));
+
+    render(<UpdateBadge />);
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledTimes(1);
+    });
+    expect(screen.queryByRole('button', { name: /update available/i })).not.toBeInTheDocument();
   });
 });

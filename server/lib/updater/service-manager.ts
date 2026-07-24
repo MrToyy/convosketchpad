@@ -6,6 +6,25 @@
 import { execSync } from 'node:child_process';
 import type { ServiceManager } from './types.js';
 
+const SYSTEMD_UNIT = 'nerve.service';
+const LAUNCHD_LABEL = 'com.nerve.server';
+
+export function findSystemdUnitFromOutput(output: string): string | null {
+  for (const line of output.split('\n')) {
+    const unit = line.trim().split(/\s+/)[0];
+    if (unit === SYSTEMD_UNIT) return unit;
+  }
+  return null;
+}
+
+export function findLaunchdLabelFromOutput(output: string): string | null {
+  for (const line of output.split('\n')) {
+    const parts = line.trim().split(/\s+/);
+    if (parts[parts.length - 1] === LAUNCHD_LABEL) return LAUNCHD_LABEL;
+  }
+  return null;
+}
+
 // ── Systemd adapter ──────────────────────────────────────────────────
 
 class SystemdManager implements ServiceManager {
@@ -77,12 +96,7 @@ class SystemdManager implements ServiceManager {
         { stdio: 'pipe' },
       ).toString();
 
-      for (const line of output.split('\n')) {
-        if (/nerve/i.test(line)) {
-          const unit = line.trim().split(/\s+/)[0];
-          if (unit) return unit;
-        }
-      }
+      return findSystemdUnitFromOutput(output);
     } catch {
       // systemd not available for this scope
     }
@@ -101,15 +115,10 @@ class LaunchdManager implements ServiceManager {
 
     try {
       const output = execSync('launchctl list', { stdio: 'pipe' }).toString();
-      for (const line of output.split('\n')) {
-        if (/nerve/i.test(line)) {
-          const parts = line.trim().split(/\s+/);
-          const candidate = parts[parts.length - 1];
-          if (candidate) {
-            this.label = candidate;
-            return true;
-          }
-        }
+      const label = findLaunchdLabelFromOutput(output);
+      if (label) {
+        this.label = label;
+        return true;
       }
     } catch {
       // no launchd
@@ -137,7 +146,8 @@ class LaunchdManager implements ServiceManager {
     try {
       const output = execSync('launchctl list', { stdio: 'pipe' }).toString();
       for (const line of output.split('\n')) {
-        if (line.includes(this.label)) {
+        const parts = line.trim().split(/\s+/);
+        if (parts[parts.length - 1] === this.label) {
           const pid = line.trim().split(/\s+/)[0];
           return pid !== '-' && pid !== '' && !isNaN(Number(pid));
         }

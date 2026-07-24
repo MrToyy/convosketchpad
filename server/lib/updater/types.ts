@@ -46,7 +46,7 @@ export interface ResolvedVersion {
   version: string;
   current: string;
   isUpToDate: boolean;
-  source: 'release' | 'tag' | 'explicit';
+  source: 'release' | 'explicit';
 }
 
 // ── Preflight ────────────────────────────────────────────────────────
@@ -57,6 +57,7 @@ export interface PreflightResult {
   npmVersion: string;
   isGitRepo: boolean;
   hasWritePermission: boolean;
+  isClean: boolean;
 }
 
 // ── Health ───────────────────────────────────────────────────────────

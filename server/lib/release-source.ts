@@ -1,23 +1,26 @@
 /**
- * Shared release/version resolution helpers.
+ * Official ConvoSketchpad release resolution helpers.
  *
- * Source priority:
- *  1) Latest published GitHub release
- *  2) Latest semver tag (fallback)
+ * Only published, stable GitHub Releases from the official repository are
+ * trusted. Local and remote git tags are deliberately not update sources.
  */
 
-import { execSync } from 'node:child_process';
-import https from 'node:https';
-
-export type LatestVersionSource = 'release' | 'tag';
-
-interface GitHubRepo {
-  owner: string;
-  repo: string;
-}
+export const OFFICIAL_RELEASE_REPO = 'MrToyy/convosketchpad';
+export const OFFICIAL_ORIGIN_URL = `https://github.com/${OFFICIAL_RELEASE_REPO}.git`;
 
 const SEMVER_TAG_REGEX = /^v?(\d+\.\d+\.\d+)$/;
 const RELEASE_REQUEST_TIMEOUT_MS = 10_000;
+
+export interface PublishedRelease {
+  version: string;
+  tag: string;
+  url: string | null;
+}
+
+export type ReleaseLookupResult =
+  | { status: 'found'; release: PublishedRelease }
+  | { status: 'no-release' }
+  | { status: 'unavailable'; error: string };
 
 export function compareSemver(a: string, b: string): number {
   const pa = a.split('.').map(Number);
@@ -34,150 +37,88 @@ export function normalizeSemverTag(tag: string | null | undefined): string | nul
   return match ? match[1] : null;
 }
 
-function parseSemverTags(output: string): string[] {
-  const versions: string[] = [];
-  for (const line of output.split('\n')) {
-    const match = /^(?:refs\/tags\/)?v?(\d+\.\d+\.\d+)$/.exec(line.trim());
-    if (match && !versions.includes(match[1])) {
-      versions.push(match[1]);
-    }
-  }
-  return versions.sort(compareSemver);
+export function isOfficialOriginUrl(remoteUrl: string): boolean {
+  const normalized = remoteUrl.trim().replace(/\/+$/, '').toLowerCase();
+  return normalized === OFFICIAL_ORIGIN_URL.toLowerCase()
+    || normalized === OFFICIAL_ORIGIN_URL.replace(/\.git$/, '').toLowerCase();
 }
 
-function getOriginRemoteUrl(cwd: string): string | null {
-  try {
-    return execSync('git remote get-url origin', { cwd, stdio: 'pipe' }).toString().trim();
-  } catch {
-    return null;
-  }
-}
-
-function parseGitHubRepo(remoteUrl: string): GitHubRepo | null {
-  const patterns = [
-    /^https:\/\/github\.com\/([^/]+)\/([^/]+?)(?:\.git)?\/?$/,
-    /^git@github\.com:([^/]+)\/([^/]+?)(?:\.git)?$/,
-    /^ssh:\/\/git@github\.com\/([^/]+)\/([^/]+?)(?:\.git)?\/?$/,
-  ];
-
-  for (const pattern of patterns) {
-    const match = pattern.exec(remoteUrl);
-    if (match) {
-      return { owner: match[1], repo: match[2] };
-    }
-  }
-
-  return null;
-}
-
-function fetchSemverTagsFromCommand(cwd: string, command: string): string[] {
-  try {
-    const output = execSync(command, { cwd, stdio: 'pipe' }).toString();
-    return parseSemverTags(output);
-  } catch {
-    return [];
-  }
-}
-
-export function listAvailableSemverVersions(cwd: string): string[] {
-  const remote = fetchSemverTagsFromCommand(cwd, 'git ls-remote --tags origin');
-  if (remote.length > 0) return remote;
-  return fetchSemverTagsFromCommand(cwd, 'git tag -l');
-}
-
-export function latestSemverTagVersion(cwd: string): string | null {
-  const versions = listAvailableSemverVersions(cwd);
-  return versions.length > 0 ? versions[versions.length - 1] : null;
-}
-
-function requestJson(url: string, headers: Record<string, string>, timeoutMs: number): Promise<unknown> {
-  return new Promise((resolve, reject) => {
-    const req = https.request(
-      url,
-      {
-        method: 'GET',
-        headers,
-        timeout: timeoutMs,
-      },
-      (res) => {
-        let body = '';
-        res.setEncoding('utf8');
-
-        res.on('data', (chunk: string) => {
-          body += chunk;
-        });
-
-        res.on('end', () => {
-          const status = res.statusCode ?? 0;
-          if (status < 200 || status >= 300) {
-            reject(new Error(`HTTP ${status}`));
-            return;
-          }
-
-          try {
-            resolve(JSON.parse(body));
-          } catch {
-            reject(new Error('Invalid JSON response'));
-          }
-        });
-      },
-    );
-
-    req.on('error', reject);
-    req.on('timeout', () => {
-      req.destroy(new Error('request timeout'));
-    });
-    req.end();
-  });
-}
-
-export async function latestReleaseVersion(cwd: string): Promise<string | null> {
-  const remoteUrl = getOriginRemoteUrl(cwd);
-  if (!remoteUrl) return null;
-
-  const repo = parseGitHubRepo(remoteUrl);
-  if (!repo) return null;
-
+function releaseHeaders(): Record<string, string> {
   const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
   const headers: Record<string, string> = {
     Accept: 'application/vnd.github+json',
-    'User-Agent': 'nerve-updater',
+    'User-Agent': 'convosketchpad-updater',
+    'X-GitHub-Api-Version': '2022-11-28',
   };
 
-  if (token) {
-    headers.Authorization = `Bearer ${token}`;
-  }
-
-  try {
-    const payload = await requestJson(
-      `https://api.github.com/repos/${repo.owner}/${repo.repo}/releases/latest`,
-      headers,
-      RELEASE_REQUEST_TIMEOUT_MS,
-    );
-
-    const tagName =
-      payload && typeof payload === 'object' && 'tag_name' in payload && typeof payload.tag_name === 'string'
-        ? payload.tag_name
-        : null;
-
-    return normalizeSemverTag(tagName);
-  } catch {
-    return null;
-  }
+  if (token) headers.Authorization = `Bearer ${token}`;
+  return headers;
 }
 
-export async function resolveLatestVersion(
-  cwd: string,
-): Promise<{ version: string; source: LatestVersionSource } | null> {
-  const release = await latestReleaseVersion(cwd);
-  if (release) {
-    return { version: release, source: 'release' };
+async function requestRelease(path: string): Promise<ReleaseLookupResult> {
+  let response: Response;
+  try {
+    response = await fetch(
+      `https://api.github.com/repos/${OFFICIAL_RELEASE_REPO}${path}`,
+      {
+        headers: releaseHeaders(),
+        signal: AbortSignal.timeout(RELEASE_REQUEST_TIMEOUT_MS),
+      },
+    );
+  } catch (err) {
+    return {
+      status: 'unavailable',
+      error: err instanceof Error ? err.message : 'GitHub release request failed',
+    };
   }
 
-  const fallbackTag = latestSemverTagVersion(cwd);
-  if (fallbackTag) {
-    return { version: fallbackTag, source: 'tag' };
+  if (response.status === 404) return { status: 'no-release' };
+  if (!response.ok) {
+    return {
+      status: 'unavailable',
+      error: `GitHub release request failed with HTTP ${response.status}`,
+    };
   }
 
-  return null;
+  let payload: unknown;
+  try {
+    payload = await response.json();
+  } catch {
+    return { status: 'unavailable', error: 'GitHub returned invalid release JSON' };
+  }
+
+  if (!payload || typeof payload !== 'object') {
+    return { status: 'unavailable', error: 'GitHub returned an invalid release payload' };
+  }
+
+  const release = payload as Record<string, unknown>;
+  if (release.draft === true || release.prerelease === true) {
+    return { status: 'no-release' };
+  }
+
+  const tag = typeof release.tag_name === 'string' ? release.tag_name.trim() : '';
+  const version = normalizeSemverTag(tag);
+  if (!version || tag !== `v${version}`) {
+    return {
+      status: 'unavailable',
+      error: 'Published release tag must use the exact vX.Y.Z format',
+    };
+  }
+
+  return {
+    status: 'found',
+    release: {
+      version,
+      tag,
+      url: typeof release.html_url === 'string' ? release.html_url : null,
+    },
+  };
+}
+
+export function lookupLatestRelease(): Promise<ReleaseLookupResult> {
+  return requestRelease('/releases/latest');
+}
+
+export function lookupReleaseByVersion(version: string): Promise<ReleaseLookupResult> {
+  return requestRelease(`/releases/tags/v${version}`);
 }

@@ -9,6 +9,7 @@ import {
 } from '@/components/ui/dialog';
 
 interface VersionCheck {
+  status: 'disabled' | 'up-to-date' | 'update-available' | 'no-release' | 'unavailable';
   current: string;
   latest: string | null;
   updateAvailable: boolean;
@@ -47,12 +48,17 @@ export function UpdateBadge() {
     return () => { ac.abort(); clearInterval(iv); };
   }, []);
 
-  if (!versionInfo?.updateAvailable || !versionInfo.latest || !versionInfo.projectDir) return null;
+  if (
+    versionInfo?.status !== 'update-available'
+    || !versionInfo.updateAvailable
+    || !versionInfo.latest
+    || !versionInfo.projectDir
+  ) return null;
 
   const quotedProjectDir = shellQuote(versionInfo.projectDir);
-  const updateCommand = `cd ${quotedProjectDir} && npm run update -- --yes`;
+  const updateCommand = `cd ${quotedProjectDir} && npm run update`;
   const dryRunCommand = `cd ${quotedProjectDir} && npm run update -- --dry-run`;
-  const pinVersionCommand = `cd ${quotedProjectDir} && npm run update -- --version v${versionInfo.latest} --yes`;
+  const pinVersionCommand = `cd ${quotedProjectDir} && npm run update -- --version v${versionInfo.latest}`;
   const docsCommand = `cd ${quotedProjectDir} && cat docs/UPDATING.md`;
 
   return (
@@ -92,7 +98,8 @@ export function UpdateBadge() {
               </pre>
             </div>
             <div className="text-xs text-muted-foreground space-y-1">
-              <p>This will fetch the latest release, rebuild, restart, and verify health.</p>
+              <p>This will show the version change and ask for confirmation before updating.</p>
+              <p>After confirmation, it fetches the release, rebuilds, restarts, and verifies health.</p>
               <p>If anything fails, ConvoSketchpad automatically rolls back to your current version.</p>
             </div>
             <div>
