@@ -51,8 +51,11 @@ export function LoginPage({ onLogin, error }: LoginPageProps) {
             <h1 className="mt-3 max-w-[12ch] text-4xl font-semibold tracking-[-0.05em] text-foreground sm:text-5xl">
               Sign in to your visual Canvas
             </h1>
-            <p className="mt-4 max-w-[48ch] text-sm leading-6 text-muted-foreground sm:text-base">
-              ConvoSketchpad is a visual branching Canvas for exploring OpenClaw ideas, artifacts, and creative directions. Authenticate once, then keep every Canvas private to its owner.
+            <p className="mt-4 max-w-[48ch] text-sm font-medium leading-6 text-foreground sm:text-base">
+              {__APP_TAGLINE__}
+            </p>
+            <p className="mt-3 max-w-[48ch] text-sm leading-6 text-muted-foreground">
+              Authenticate once, then keep every Canvas private to its owner.
             </p>
 
             <div className="mt-8 grid gap-3 sm:grid-cols-3">

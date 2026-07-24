@@ -1,158 +1,78 @@
-# ConvoSketchpad Agent Install Contract
+# Install ConvoSketchpad
 
-Use this file as the operational contract when you are installing, configuring, or validating ConvoSketchpad on a machine.
+ConvoSketchpad is **A branching AI workspace for visual thinkers**. It supports macOS and Linux, requires Node.js 22.13 or newer, and connects to an OpenClaw Gateway.
 
-## Hard gate
-
-You must be able to:
-- read files
-- run shell commands
-
-Supported operating systems:
-- macOS
-- Linux
-
-Stop and say so if any of the following are true:
-- you cannot read files
-- you cannot run shell commands
-- the machine is not macOS or Linux
-- the request would require you to invent a Windows flow
-
-Do not claim success without validation.
-
-## Default behavior
-
-Unless the user clearly asks for something else, use these defaults:
-- install path: `~/convosketchpad`
-- preferred install method: this repo's `install.sh`
-- preferred initial topology: local / same machine
-- preferred access mode: localhost-only
-- preferred config path: setup wizard first
-- if the setup wizard is unavailable, skipped, or fails: fall back to explicit manual config
-- install, configure, and validate before reporting completion
-
-Set `CONVOSKETCHPAD_INSTALL_DIR` or pass `--dir <path>` to override the install path.
-
-## Existing install handling
-
-If `~/convosketchpad` already exists:
-1. inspect it first
-2. determine whether it is an existing ConvoSketchpad install
-3. prefer safe validation, restart, repair, or non-destructive reconfigure work
-4. ask before reinstalling, replacing, deleting, or hard-resetting anything
-
-## OpenClaw dependency handling
-
-ConvoSketchpad depends on an OpenClaw gateway.
-
-You must:
-1. detect whether a usable gateway already exists
-2. prefer using an existing reachable gateway
-3. explain the dependency if no usable gateway is found
-4. ask before installing OpenClaw if it is missing
-
-You may apply minimal localhost-safe OpenClaw changes automatically when needed for the default local path. Examples:
-- adding missing local control UI origins
-- approving the exact native pending device request created by ConvoSketchpad
-
-Use only supported `openclaw config` and `openclaw devices` commands. Never
-repair or synthesize OpenClaw `paired.json` or `device-auth.json` records.
-
-Ask first before any OpenClaw change that is remote, public, security-sensitive, destructive, or changes network exposure.
-
-## Prerequisite handling
-
-For supported local installs, you may automatically install missing core prerequisites required by the installer or build flow, including package-manager-installed dependencies such as:
-- Node.js 22+
-- npm
-- git
-- build tools required for native modules
-
-Ask before optional or network-affecting extras such as:
-- Tailscale setup
-- reverse proxy setup
-- public DNS, TLS, or internet exposure changes
-
-If prerequisite installation is impossible, fail clearly and say what is missing.
-
-## Consent boundaries
-
-Ask for confirmation before any of the following:
-- installing OpenClaw
-- exposing ConvoSketchpad beyond localhost
-- LAN exposure
-- public internet exposure
-- reverse proxy setup
-- Tailscale changes
-- cloud-hosted assumptions that change exposure or security posture
-- destructive reinstall, replacement, deletion, or reset actions
-- remote gateway allowlist or auth changes
-
-## Auto-allowed actions
-
-For the common local path, you may automatically:
-- inspect current install state
-- inspect local gateway state
-- detect the gateway token and gateway URL
-- run the installer
-- run the setup wizard
-- use defaults mode for local-only setup when no TTY is available
-- write minimal manual config if the wizard cannot be used
-- restart local services or processes
-- run validation and smoke checks
-
-## Common-path install flow
-
-Follow this order unless the user explicitly asks for a different topology.
-
-### 1. Inspect before changing
-
-Check:
-- whether `~/convosketchpad` already exists
-- whether `openclaw` is installed
-- whether the OpenClaw gateway is reachable
-- whether a gateway token can be detected
-
-### 2. Prefer the installer
-
-If you are inside a local checkout of this repo, prefer:
-
-```bash
-./install.sh
-```
-
-If you are operating from GitHub or a raw-doc context without a local checkout, prefer:
+## Recommended install
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/MrToyy/convosketchpad/main/install.sh | bash
 ```
 
-### 3. Prefer the setup wizard
+The default installation path is `~/convosketchpad`. Override it with `CONVOSKETCHPAD_INSTALL_DIR` or `--dir <path>`.
 
-If the installer finishes and the setup wizard is available, use it.
+The installer runs five stages:
 
-If no TTY is available and the target remains the safe local path, you may use:
+1. **Prerequisites** — checks Node.js, npm, Git, native build tools, OpenClaw, and Gateway availability.
+2. **Download** — installs or updates the selected release or branch without discarding a dirty checkout.
+3. **Install & Build** — installs npm dependencies and creates the production build.
+4. **Configure** — runs the setup wizard unless `--skip-setup` is used.
+5. **Service** — configures or restarts the supported service manager, or reports the direct start command.
+
+Run `./install.sh --help` for the authoritative flag list. Common options are:
+
+```text
+--dir <path>
+--version <vX.Y.Z>
+--branch <name>
+--repo <url>
+--skip-setup
+--dry-run
+--gateway-token <token>
+--gateway-url <url>
+--access-mode <local|network|custom|tailscale-ip|tailscale-serve>
+```
+
+## Setup wizard
+
+Run the wizard again at any time:
 
 ```bash
 cd ~/convosketchpad
+npm run setup
+```
+
+It configures:
+
+1. **Gateway Connection** — URL, Token, connectivity, remote-Gateway timezone, native control-UI origins, and native device pairing.
+2. **Access Mode** — localhost, LAN/custom, Tailscale IP, or Tailscale Serve.
+3. **Authentication** — managed-user login and session settings for non-local access.
+
+Gateway changes use supported `openclaw config` and `openclaw devices` commands. Setup never synthesizes or edits OpenClaw pairing records directly. Configuration for a remote Gateway must be applied on the Gateway host.
+
+For a non-interactive localhost setup:
+
+```bash
 npm run setup -- --defaults
 ```
 
-If the requested topology is LAN, Tailscale, remote gateway, cloud, or any other non-localhost path, do not guess. Ask first unless the user already specified that topology clearly.
+For a remote Gateway, also provide its IANA timezone so ConvoSketchpad can predict daily Session resets:
 
-### 4. Manual fallback when needed
+```bash
+npm run setup -- --defaults --gateway-timezone Asia/Shanghai
+```
 
-If the installer or wizard cannot be used, do the smallest correct manual fallback.
-
-If the repo is not present locally:
+## Manual install
 
 ```bash
 git clone https://github.com/MrToyy/convosketchpad.git ~/convosketchpad
 cd ~/convosketchpad
 npm install
+npm run setup
+npm run build
+npm start
 ```
 
-If you need explicit minimal local config, write `.env` with at least:
+Minimal localhost `.env`:
 
 ```bash
 PORT=3080
@@ -161,61 +81,45 @@ GATEWAY_URL=http://127.0.0.1:18789
 GATEWAY_TOKEN=<detected-token>
 ```
 
-Then handle runtime like this:
-
-1. if the installer already configured a service manager, use that instead of starting a duplicate foreground process
-2. on Linux, check for `systemd` service management via `convosketchpad.service`
-3. on macOS, check for `launchd` management via `~/Library/LaunchAgents/com.mrtoyy.convosketchpad.plist`
-4. if no service manager is configured, run ConvoSketchpad directly with the production entrypoint
-
-Typical commands:
+If the installer configured a service, use it instead of starting a duplicate foreground process:
 
 ```bash
-# build artifacts
-npm run build
-
-# Linux, service managed
+# Linux
 sudo systemctl restart convosketchpad.service
 
-# macOS, service managed
+# macOS
 launchctl stop com.mrtoyy.convosketchpad || true
 launchctl start com.mrtoyy.convosketchpad
-
-# no service manager present
-npm run prod
 ```
 
-## Topology branching
+## Existing installations
 
-Stay self-contained for the common path, then branch by user intent:
-- Local / same machine: [DEPLOYMENT-A.md](./DEPLOYMENT-A.md)
-- Hybrid / remote gateway + local ConvoSketchpad: [DEPLOYMENT-B.md](./DEPLOYMENT-B.md)
-- Cloud / remote ConvoSketchpad: [DEPLOYMENT-C.md](./DEPLOYMENT-C.md)
-- Tailscale retrofit: [TAILSCALE.md](./TAILSCALE.md)
+Inspect an existing installation before replacing it. Prefer a normal update, setup rerun, service restart, or targeted repair. Never delete, reset, or overwrite an existing dirty checkout without explicit approval.
 
-Choose the branch based on the user's intended topology, not on low-level subsystem details.
+ConvoSketchpad depends on a reachable OpenClaw Gateway. Reuse an existing Gateway when possible. Installing OpenClaw, changing remote Gateway settings, or increasing network exposure should be an explicit operator decision.
 
-## Done criteria
+## Deployment choice
 
-Only report success when all of the following are true:
-- ConvoSketchpad is installed at the intended path
-- ConvoSketchpad starts successfully
-- it is configured against the intended OpenClaw gateway
-- access and auth behavior match the chosen mode
-- a minimal smoke test passes
+Choose the topology that matches where the browser, ConvoSketchpad server, and Gateway will run:
 
-## Smoke test
+- [Local, same machine](DEPLOYMENT.md#local-same-machine)
+- [Local UI with a remote Gateway](DEPLOYMENT.md#local-ui-with-a-remote-gateway)
+- [Remote browser access](DEPLOYMENT.md#remote-browser-access)
+- [Tailscale](DEPLOYMENT.md#tailscale)
 
-Keep the smoke test small and explicit.
+## Managed users
 
-1. Confirm the ConvoSketchpad process or service is running.
-2. Confirm the expected ConvoSketchpad URL responds.
-   - local default: `http://127.0.0.1:3080/health`
-3. Confirm the intended OpenClaw gateway is reachable.
-4. Confirm `.env` points to that gateway.
-5. If auth is enabled or network access was requested, confirm the login surface or expected protected access behavior is present.
+For network-accessible installs, enable `CONVOSKETCHPAD_AUTH=true`, set a stable `CONVOSKETCHPAD_SESSION_SECRET`, and create the first user:
 
-Useful checks:
+```bash
+npm run users -- add <name>
+```
+
+The CLI can also list, rotate, disable, or enable users. See [Configuration](CONFIGURATION.md) and [Security](SECURITY.md).
+
+## Validation
+
+Do not treat an installation as complete until the intended process, Gateway connection, access mode, and authentication behavior all work.
 
 ```bash
 openclaw gateway status
@@ -223,15 +127,6 @@ curl -fsS http://127.0.0.1:18789/health
 curl -fsS http://127.0.0.1:3080/health
 ```
 
-Adjust host, port, and URL to match the chosen topology.
+Adjust the URLs for the selected topology, then open ConvoSketchpad, confirm Agent discovery, create a Canvas, and send a small Interaction.
 
-## Failure handling
-
-If any step fails, report:
-- the exact failed step
-- what you checked
-- what you changed
-- what worked
-- what still needs user input or approval
-
-Do not use vague completion text. Do not loop blindly.
+For failures, record the exact failing step, checks performed, changes made, and any action still requiring operator access.

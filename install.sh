@@ -18,12 +18,12 @@ RWD_PIDS=()
 
 cleanup() {
   # Kill any lingering run_with_dots background processes
-  for pid in "${RWD_PIDS[@]}"; do
-    kill -0 "$pid" 2>/dev/null && kill "$pid" 2>/dev/null || true
+  for pid in "${RWD_PIDS[@]:-}"; do
+    [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null && kill "$pid" 2>/dev/null || true
   done
   # Remove temp files and directories (stderr captures, build backups)
-  for f in "${TEMP_FILES[@]}"; do
-    rm -rf "$f" 2>/dev/null || true
+  for f in "${TEMP_FILES[@]:-}"; do
+    [[ -n "$f" ]] && rm -rf "$f" 2>/dev/null || true
   done
 }
 trap cleanup EXIT
@@ -34,6 +34,7 @@ BRANCH="main"
 BRANCH_EXPLICIT=false
 VERSION=""
 REPO="https://github.com/MrToyy/convosketchpad.git"
+PRODUCT_TAGLINE="A branching AI workspace for visual thinkers"
 NODE_MIN=22
 SKIP_SETUP=false
 DRY_RUN=false
@@ -269,6 +270,7 @@ while [[ $# -gt 0 ]]; do
     --access-mode) [[ $# -ge 2 ]] || { echo "Missing value for --access-mode"; exit 1; }; ACCESS_MODE="$2"; shift 2 ;;
     --help|-h)
       echo "ConvoSketchpad Installer"
+      echo "$PRODUCT_TAGLINE"
       echo ""
       echo "Options:"
       echo "  --dir <path>         Install directory (default: ~/convosketchpad)"
@@ -342,7 +344,7 @@ fi
 # ── Banner ────────────────────────────────────────────────────────────
 echo ""
 echo -e "  ${ORANGE}${BOLD}◆ ConvoSketchpad${NC}"
-echo -e "  ${DIM}  Branching Canvas for OpenClaw${NC}"
+echo -e "  ${DIM}  ${PRODUCT_TAGLINE}${NC}"
 echo ""
 if [[ "$DRY_RUN" == "true" ]]; then
   echo -e "  ${YELLOW}${BOLD}  ⊘  DRY RUN — nothing will be modified${NC}"
@@ -961,7 +963,7 @@ setup_systemd() {
 
   cat > "$tmp_service" <<EOF
 [Unit]
-Description=ConvoSketchpad - OpenClaw Web UI
+Description=ConvoSketchpad - ${PRODUCT_TAGLINE}
 After=network.target
 
 [Service]

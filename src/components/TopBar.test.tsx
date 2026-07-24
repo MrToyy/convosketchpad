@@ -19,11 +19,11 @@ function renderTopBar() {
 }
 
 describe('TopBar', () => {
-  it('identifies the product as a Canvas workspace', () => {
+  it('shows the canonical product tagline', () => {
     renderTopBar();
 
     expect(screen.getByText('ConvoSketchpad')).toBeInTheDocument();
-    expect(screen.getByText('Visual branching workspace for OpenClaw')).toBeInTheDocument();
+    expect(screen.getByText('A branching AI workspace for visual thinkers')).toBeInTheDocument();
     expect(screen.getByTestId('convosketchpad-logo')).toBeInTheDocument();
   });
 

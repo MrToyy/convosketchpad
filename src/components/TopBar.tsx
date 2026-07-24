@@ -21,7 +21,7 @@ export function TopBar({ onSettings, agentLogEntries, eventEntries, tokenData }:
   return <div ref={rootRef} className="relative z-40 px-2 pt-2 sm:px-4 sm:pt-3">
     <header className="shell-panel flex min-h-14 items-center gap-3 rounded-2xl px-3 py-2 sm:px-4">
       <div className="flex size-10 items-center justify-center rounded-2xl border border-primary/20 bg-background/55"><ConvoSketchpadLogo size={24} /></div>
-      <div><div className="font-semibold tracking-[0.06em] text-primary">ConvoSketchpad</div><div className="hidden text-xs text-muted-foreground sm:block">Visual branching workspace for OpenClaw</div></div>
+      <div><div className="font-semibold tracking-[0.06em] text-primary">ConvoSketchpad</div><div className="hidden text-xs text-muted-foreground sm:block">{__APP_TAGLINE__}</div></div>
       <div className="ml-auto flex gap-2">
         <button type="button" className="shell-icon-button" data-active={panel === 'log'} onClick={() => toggle('log')}><Activity size={14} /><span className="hidden sm:inline">Log</span></button>
         <button type="button" className="shell-icon-button" data-active={panel === 'events'} onClick={() => toggle('events')}><Radio size={14} /><span className="hidden sm:inline">Events</span></button>

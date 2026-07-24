@@ -1,6 +1,6 @@
 # Auth 功能与代码地图
 
-本文覆盖 Canvas MVP 使用的受管用户认证。通用安全背景见 [Security](../SECURITY.md)，环境变量和操作命令见 [Configuration](../CONFIGURATION.md)。
+本文覆盖 ConvoSketchpad 使用的受管用户认证。通用安全背景见 [Security](../SECURITY.md)，环境变量和操作命令见 [Configuration](../CONFIGURATION.md)。
 
 ## 功能边界与不变量
 

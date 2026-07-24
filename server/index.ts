@@ -21,9 +21,11 @@ import { startCanvasReconciler, stopCanvasReconciler } from './lib/canvas-reconc
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const pkgPath = path.resolve(__dirname, '..', 'package.json');
-const pkgVersion: string = JSON.parse(fs.readFileSync(pkgPath, 'utf-8')).version || '0.0.0';
+const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
+const pkgVersion: string = pkg.version || '0.0.0';
+const pkgTagline: string = pkg.description || 'A branching AI workspace for visual thinkers';
 
-printStartupBanner(pkgVersion);
+printStartupBanner(pkgVersion, pkgTagline);
 validateConfig();
 
 // ── HTTP server ──────────────────────────────────────────────────────

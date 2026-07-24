@@ -842,7 +842,7 @@ export function CanvasPanel({ onContextStatsChange }: { onContextStatsChange?: (
       {canvasListVisible && (
         <aside className="flex w-64 shrink-0 flex-col border-r border-border/75 bg-card/65 p-3">
           <div className="flex items-center justify-between gap-2 px-1 py-2">
-            <div><div className="text-xs font-semibold uppercase tracking-[0.2em] text-primary">{copy.canvasList}</div><div className="mt-1 text-[0.667rem] text-muted-foreground">{graph ? copy.agentLabel(graph.canvas.agentId) : copy.canvasWorkspace}</div></div>
+            <div><div className="text-xs font-semibold uppercase tracking-[0.2em] text-primary">{copy.canvasList}</div><div className="mt-1 text-[0.667rem] text-muted-foreground">{graph ? copy.agentLabel(graph.canvas.agentId) : __APP_TAGLINE__}</div></div>
             <div className="flex items-center gap-1">
               <Button size="icon" variant="ghost" onClick={() => setCanvasListVisible(false)} title={copy.hideCanvasList} aria-label={copy.hideCanvasList}><PanelLeftClose size={15} /></Button>
               <Button size="icon" variant="outline" onClick={() => void createCanvas()} title={copy.newCanvas}><Plus size={15} /></Button>

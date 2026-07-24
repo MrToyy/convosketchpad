@@ -36,6 +36,7 @@ describe('SettingsDrawer interface language', () => {
 
     expect(screen.getByText('设置')).toBeInTheDocument();
     expect(screen.getByText('网关状态')).toBeInTheDocument();
+    expect(screen.getByText('A branching AI workspace for visual thinkers')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '退出登录' })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('tab', { name: '外观' }));

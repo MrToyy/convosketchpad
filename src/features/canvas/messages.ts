@@ -51,7 +51,6 @@ export interface CanvasCopy {
   deleteCanvasConfirm: (name: string) => string;
   canvasList: string;
   agentLabel: (agentId: string) => string;
-  canvasWorkspace: string;
   selectAgent: string;
   retryAgentList: string;
   hideCanvasList: string;
@@ -182,7 +181,6 @@ export const canvasCopy = {
     deleteCanvasConfirm: (name) => `确定删除“${name}”及其画布数据吗？OpenClaw 原始会话记录不会被修改。`,
     canvasList: '画布列表',
     agentLabel: (agentId) => `智能体：${agentId}`,
-    canvasWorkspace: '视觉分支工作区',
     selectAgent: '选择智能体',
     retryAgentList: '重新加载智能体列表',
     hideCanvasList: '隐藏画布列表',
@@ -249,7 +247,6 @@ export const canvasCopy = {
     deleteCanvasConfirm: (name) => `Delete “${name}” and its Canvas data? The original OpenClaw session history will not be modified.`,
     canvasList: 'Canvas list',
     agentLabel: (agentId) => `Agent: ${agentId}`,
-    canvasWorkspace: 'Visual branching workspace',
     selectAgent: 'Select agent',
     retryAgentList: 'Reload agent list',
     hideCanvasList: 'Hide Canvas list',

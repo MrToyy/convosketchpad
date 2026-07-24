@@ -6,6 +6,7 @@ describe('LoginPage managed tokens', () => {
   it('does not generate or submit an empty token', () => {
     const onLogin = vi.fn(async () => undefined);
     render(<LoginPage onLogin={onLogin} error="" />);
+    expect(screen.getByText('A branching AI workspace for visual thinkers')).toBeInTheDocument();
     const button = screen.getByRole('button', { name: 'Enter ConvoSketchpad' });
     expect(button).toBeDisabled();
     fireEvent.submit(button.closest('form')!);

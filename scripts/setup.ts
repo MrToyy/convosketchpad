@@ -816,7 +816,7 @@ async function collectInteractive(
   if (isNetworkExposed) {
     section(3, TOTAL_SECTIONS, 'Authentication');
     warn('Your access mode exposes ConvoSketchpad to the network.');
-    dim('Canvas MVP uses trusted-user tokens: a simple token identifies and isolates each user.');
+    dim('ConvoSketchpad uses trusted-user tokens: a simple token identifies and isolates each user.');
     dim('This mode is intended for a small controlled environment, not hostile multi-tenant access.');
     console.log('');
 

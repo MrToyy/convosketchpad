@@ -22,8 +22,9 @@ describe('Canvas server config', () => {
   it('prints the Canvas product name and validates without throwing', () => {
     const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    printStartupBanner('1.2.3');
+    printStartupBanner('1.2.3', 'A branching AI workspace for visual thinkers');
     expect(log.mock.calls.flat().join(' ')).toContain('ConvoSketchpad v1.2.3');
+    expect(log.mock.calls.flat().join(' ')).toContain('A branching AI workspace for visual thinkers');
     expect(() => validateConfig()).not.toThrow();
     log.mockRestore();
     warn.mockRestore();

@@ -15,7 +15,7 @@ export interface SessionPayload {
   iat: number;
   /** Stable Canvas owner id. */
   sub?: string;
-  /** User-facing token label for the trusted-user Canvas MVP. */
+  /** User-facing token label for ConvoSketchpad trusted-user authentication. */
   name?: string;
   /** Managed account credential version; rotation/disable revokes older cookies. */
   ver?: number;

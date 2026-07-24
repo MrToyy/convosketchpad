@@ -23,6 +23,7 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),
+    __APP_TAGLINE__: JSON.stringify(pkg.description),
   },
   resolve: {
     alias: {

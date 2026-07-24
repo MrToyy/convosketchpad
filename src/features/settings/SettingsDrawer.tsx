@@ -36,7 +36,7 @@ export function SettingsDrawer(props: SettingsDrawerProps) {
         <button type="button" role="tab" aria-selected={category === 'appearance'} className="shell-chip flex-1 justify-center" data-active={category === 'appearance'} onClick={() => setCategory('appearance')}><Monitor size={13} />{copy.drawer.categories.appearance}</button>
       </div>
       <div className="flex-1 overflow-y-auto p-4">{category === 'appearance' ? <AppearanceSettings /> : <ConnectionSettings url={props.gatewayUrl} token={props.gatewayToken} onUrlChange={props.onUrlChange} onTokenChange={props.onTokenChange} onReconnect={props.onReconnect} connectionState={props.connectionState} onGatewayRestart={props.onGatewayRestart} gatewayRestarting={props.gatewayRestarting} />}</div>
-      <div className="border-t border-border/70 p-4">{props.onLogout && <button onClick={props.onLogout} className="cockpit-toolbar-button w-full justify-center" data-tone="danger"><LogOut size={14} />{copy.drawer.signOut}</button>}<div className="mt-3 flex justify-between text-xs text-muted-foreground"><span>ConvoSketchpad</span><span>v{__APP_VERSION__}</span></div></div>
+      <div className="border-t border-border/70 p-4">{props.onLogout && <button onClick={props.onLogout} className="cockpit-toolbar-button w-full justify-center" data-tone="danger"><LogOut size={14} />{copy.drawer.signOut}</button>}<div className="mt-3 text-xs text-muted-foreground"><div className="flex justify-between"><span>ConvoSketchpad</span><span>v{__APP_VERSION__}</span></div><div className="mt-1">{__APP_TAGLINE__}</div></div></div>
     </div>
   </>;
 }

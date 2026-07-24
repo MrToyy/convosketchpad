@@ -57,5 +57,3 @@ Users are administered locally with `npm run users -- ...`; there is no registra
 | GET | `/api/version/check` | Check the official stable Release in local mode; returns `disabled` under managed authentication |
 | GET | `/api/connect-defaults` | Browser Gateway connection defaults |
 | POST | `/api/gateway/restart` | Restart the local OpenClaw Gateway |
-
-Removed Nerve endpoints for Chat history, Sessions, Tasks, Memory, workspace files, Skills, Cron, voice, transcription, and speech are intentionally not mounted and return 404.

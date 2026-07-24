@@ -99,7 +99,3 @@ npm run users -- enable <name>
 | `TRUSTED_PROXIES` | Reverse proxies whose forwarded client headers may be trusted |
 
 ConvoSketchpad refuses `HOST=0.0.0.0` without authentication unless the insecure override is explicit. Prefer TLS and managed authentication for every non-local deployment.
-
-## Removed settings
-
-Voice, TTS/STT providers, API-key management, Memory paths, file-browser roots, and Agent display-name settings are no longer ConvoSketchpad configuration surfaces.

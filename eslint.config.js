@@ -6,34 +6,39 @@ import tseslint from 'typescript-eslint'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
-  globalIgnores(['dist', 'server-dist', '.worktrees']),
+  globalIgnores(['dist', 'server-dist', 'bin-dist', 'coverage', '.worktrees']),
   {
     files: ['**/*.{ts,tsx}'],
     extends: [
       js.configs.recommended,
       tseslint.configs.recommended,
+    ],
+    languageOptions: {
+      ecmaVersion: 2022,
+    },
+  },
+  {
+    files: ['src/**/*.{ts,tsx}'],
+    extends: [
       reactHooks.configs.flat.recommended,
       reactRefresh.configs.vite,
     ],
     languageOptions: {
-      ecmaVersion: 2020,
       globals: globals.browser,
     },
     rules: {
-      // Enforce exhaustive deps for useEffect, useCallback, useMemo
-      // This prevents stale closure bugs and ensures effects run when dependencies change
       'react-hooks/exhaustive-deps': 'warn',
     },
   },
-  // Node.js scripts (setup CLI, etc.) — use Node globals, not browser
   {
-    files: ['scripts/**/*.ts'],
+    files: [
+      'server/**/*.ts',
+      'scripts/**/*.ts',
+      'bin/**/*.ts',
+      '*.config.ts',
+    ],
     languageOptions: {
       globals: globals.node,
-    },
-    rules: {
-      'react-hooks/exhaustive-deps': 'off',
-      'react-refresh/only-export-components': 'off',
     },
   },
 ])

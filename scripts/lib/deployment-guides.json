@@ -1,14 +1,18 @@
 [
   {
     "title": "Run everything on one machine",
-    "url": "https://github.com/MrToyy/convosketchpad/blob/main/docs/DEPLOYMENT-A.md"
+    "url": "https://github.com/MrToyy/convosketchpad/blob/main/docs/DEPLOYMENT.md#local-same-machine"
   },
   {
     "title": "Use a cloud Gateway with ConvoSketchpad on your laptop",
-    "url": "https://github.com/MrToyy/convosketchpad/blob/main/docs/DEPLOYMENT-B.md"
+    "url": "https://github.com/MrToyy/convosketchpad/blob/main/docs/DEPLOYMENT.md#local-ui-with-a-remote-gateway"
   },
   {
     "title": "Run both ConvoSketchpad and Gateway in the cloud",
-    "url": "https://github.com/MrToyy/convosketchpad/blob/main/docs/DEPLOYMENT-C.md"
+    "url": "https://github.com/MrToyy/convosketchpad/blob/main/docs/DEPLOYMENT.md#remote-browser-access"
+  },
+  {
+    "title": "Access ConvoSketchpad through Tailscale",
+    "url": "https://github.com/MrToyy/convosketchpad/blob/main/docs/DEPLOYMENT.md#tailscale"
   }
 ]

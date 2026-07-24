@@ -36,16 +36,8 @@ tsconfig.server.tsbuildinfo
 server-dist/
 bin-dist/
 .convosketchpad/
-tts-config.json
-voice-phrases.json
 coverage/
-.test-tasks/
-src/test/*.js
 
-# Local review artifacts
-wave-reviews/
-
-node_modules
 database/*
 !database/.gitkeep
 artifacts/*

@@ -73,4 +73,4 @@ rewritten.
 
 ## Documentation updates
 
-Update this file when Canvas components move. Update `docs/OPENCLAW-CANVAS-MVP-DESIGN.md` when Agent, Branch, Interaction, attachment, Artifact, or recovery semantics change.
+Update this file when Canvas components move. Update `docs/ARCHITECTURE.md` when Agent, Branch, Interaction, attachment, Artifact, or recovery semantics change.
