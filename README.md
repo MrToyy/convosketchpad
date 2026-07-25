@@ -13,6 +13,12 @@
 [中文](#中文) · [English ↓](#english)
 </div>
 
+<p align="center">
+  <a href="./public/screenshot.png">
+    <img src="./public/screenshot.png" alt="ConvoSketchpad Canvas 界面 / ConvoSketchpad Canvas interface" width="1200" />
+  </a>
+</p>
+
 <a id="中文"></a>
 
 ## 中文
