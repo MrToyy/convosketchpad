@@ -179,6 +179,9 @@ ConvoSketchpad organizes AI work as a spatial, zoomable, branching Canvas. Start
 > [!IMPORTANT]
 > ConvoSketchpad is **not a standalone Agent runtime** and does not run models, tools, or Agents by itself. It requires a reachable [OpenClaw](https://github.com/openclaw/openclaw) Gateway. OpenClaw provides the Agents, tool execution, Sessions, and transcripts.
 
+> [!NOTE]
+> Most detailed project documentation is written in Chinese. English-speaking developers are encouraged to use a capable large language model to translate and explain the documents while preserving code identifiers, commands, environment variables, and OpenClaw protocol names.
+
 ### Core capabilities
 
 - Create multiple root branches on one pan-and-zoom Canvas.

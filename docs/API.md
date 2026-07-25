@@ -1,56 +1,56 @@
 # HTTP API
 
-All `/api/*` routes are subject to the common body limit, security headers, rate limiting where declared, and managed-user middleware. With `CONVOSKETCHPAD_AUTH=true`, clients authenticate using the HttpOnly session Cookie returned by login.
+所有 `/api/*` 路由都受通用请求体大小限制、安全 Header、声明的限流规则和受管用户 Middleware 约束。启用 `CONVOSKETCHPAD_AUTH=true` 后，客户端使用登录接口返回的 HttpOnly Session Cookie 认证。
 
 ## Canvas
 
-| Method | Path | Purpose |
+| 方法 | 路径 | 用途 |
 |---|---|---|
-| GET | `/api/canvas/canvases` | List the current owner's Canvases |
-| POST | `/api/canvas/canvases` | Create from `{ name }`; server selects Gateway default Agent |
-| PATCH | `/api/canvas/canvases/:id` | Update `name` and/or pre-first-send `agentId` |
-| DELETE | `/api/canvas/canvases/:id` | Delete Canvas records and durable files |
-| GET | `/api/canvas/canvases/:id/graph` | Read Canvas, Branches, Interactions, and layout |
-| PUT | `/api/canvas/canvases/:id/layout` | Save node positions and viewport |
-| POST | `/api/canvas/canvases/:id/root-branches` | Create or return the unresolved root composer |
-| POST | `/api/canvas/interactions/:id/fork` | Fork a completed historical Interaction |
-| POST | `/api/canvas/branches/:id/prepare-send` | Reserve a send using validated Canvas attachment IDs |
-| POST | `/api/canvas/send-reservations/:id/ack` | Materialize the Interaction after Gateway acceptance |
-| POST | `/api/canvas/send-reservations/:id/fail` | Mark an unacknowledged reservation failed |
-| POST | `/api/canvas/interactions/:id/complete` | Compatibility completion hint |
-| POST | `/api/canvas/interactions/:id/reconcile` | Schedule transcript/artifact reconciliation |
+| GET | `/api/canvas/canvases` | 列出当前所有者的 Canvas |
+| POST | `/api/canvas/canvases` | 根据 `{ name }` 创建 Canvas；服务端选择 Gateway 默认 Agent |
+| PATCH | `/api/canvas/canvases/:id` | 更新 `name`，或在首次发送前更新 `agentId` |
+| DELETE | `/api/canvas/canvases/:id` | 删除 Canvas 记录和持久化文件 |
+| GET | `/api/canvas/canvases/:id/graph` | 读取 Canvas、Branch、Interaction 和布局 |
+| PUT | `/api/canvas/canvases/:id/layout` | 保存节点位置和视口 |
+| POST | `/api/canvas/canvases/:id/root-branches` | 创建或返回尚未解析的主分支输入框 |
+| POST | `/api/canvas/interactions/:id/fork` | 从已完成的历史 Interaction 创建分支 |
+| POST | `/api/canvas/branches/:id/prepare-send` | 使用已校验的 Canvas 附件 ID 预留发送 |
+| POST | `/api/canvas/send-reservations/:id/ack` | Gateway 接受后物化 Interaction |
+| POST | `/api/canvas/send-reservations/:id/fail` | 将尚未确认的发送预留标记为失败 |
+| POST | `/api/canvas/interactions/:id/complete` | 兼容性完成提示 |
+| POST | `/api/canvas/interactions/:id/reconcile` | 调度对话记录和 Artifact 协调 |
 
-`prepare-send` requires `expectedAgentId`, `userInput`, optional `expectedHeadInteractionId`, and up to four attachments. Agent mismatch returns `409 agent_changed`; changing an already-used Canvas Agent returns `409 agent_locked`.
+`prepare-send` 要求提供 `expectedAgentId`、`userInput`，可以提供 `expectedHeadInteractionId`，并最多携带四个附件。Agent 不匹配时返回 `409 agent_changed`；尝试修改已经使用过的 Canvas Agent 时返回 `409 agent_locked`。
 
-## Canvas files
+## Canvas 文件
 
-| Method | Path | Purpose |
+| 方法 | 路径 | 用途 |
 |---|---|---|
-| GET | `/api/canvas/attachments/:canvasId/:attachmentId` | Read an owner-scoped durable attachment |
-| GET | `/api/canvas/artifacts/:canvasId/:interactionId/:artifactId` | Read an owner-scoped durable Artifact |
-| GET | `/api/canvas/send-reservations/:id/resources/:resourceId` | Read a canonical Fork bootstrap resource |
-| POST | `/api/canvas/canvases/:canvasId/attachments` | Persist owner-scoped multipart uploads without exposing a host path |
+| GET | `/api/canvas/attachments/:canvasId/:attachmentId` | 读取按所有者隔离的持久化附件 |
+| GET | `/api/canvas/artifacts/:canvasId/:interactionId/:artifactId` | 读取按所有者隔离的持久化 Artifact |
+| GET | `/api/canvas/send-reservations/:id/resources/:resourceId` | 读取规范 Fork 启动资源 |
+| POST | `/api/canvas/canvases/:canvasId/attachments` | 持久化按所有者隔离的 multipart 上传，不暴露宿主机路径 |
 
-## Authentication
+## 认证
 
-| Method | Path | Purpose |
+| 方法 | 路径 | 用途 |
 |---|---|---|
-| POST | `/api/auth/login` | Exchange a managed user Token for a signed Cookie |
-| POST | `/api/auth/logout` | Clear the Cookie |
-| GET | `/api/auth/status` | Return the current authentication state |
+| POST | `/api/auth/login` | 使用受管用户 Token 换取签名 Cookie |
+| POST | `/api/auth/logout` | 清除 Cookie |
+| GET | `/api/auth/status` | 返回当前认证状态 |
 
-Users are administered locally with `npm run users -- ...`; there is no registration API.
+用户只能在本机通过 `npm run users -- ...` 管理，不提供注册 API。
 
-## Runtime and telemetry
+## 运行时与遥测
 
-| Method | Path | Purpose |
+| 方法 | 路径 | 用途 |
 |---|---|---|
-| GET | `/health` | Process health |
-| GET/POST | `/api/agentlog` | Read or append the bounded Canvas activity log |
-| GET | `/api/tokens` | Gateway-native totals from `usage.cost` and an optional Provider/message breakdown from `sessions.usage` |
-| GET | `/api/provider-limits` | Provider quota windows from the Gateway-native `usage.status` method |
-| GET | `/api/server-info` | Server clock, timezone, and Gateway uptime |
-| GET | `/api/version` | Installed version |
-| GET | `/api/version/check` | Check the official stable Release in local mode; returns `disabled` under managed authentication |
-| GET | `/api/connect-defaults` | Browser Gateway connection defaults |
-| POST | `/api/gateway/restart` | Restart a loopback OpenClaw Gateway through its CLI; remote Gateways return 409 |
+| GET | `/health` | 进程健康状态 |
+| GET/POST | `/api/agentlog` | 读取或追加有长度上限的 Canvas 活动日志 |
+| GET | `/api/tokens` | 读取 `usage.cost` 提供的 Gateway 原生汇总，以及 `sessions.usage` 可选提供的 Provider/消息明细 |
+| GET | `/api/provider-limits` | 读取 Gateway 原生 `usage.status` 提供的 Provider 配额窗口 |
+| GET | `/api/server-info` | 服务端时间、时区和 Gateway 运行时间 |
+| GET | `/api/version` | 已安装版本 |
+| GET | `/api/version/check` | 本机模式下检查官方稳定 Release；启用受管认证时返回 `disabled` |
+| GET | `/api/connect-defaults` | 浏览器 Gateway 连接默认值 |
+| POST | `/api/gateway/restart` | 通过 CLI 重启回环地址的 OpenClaw Gateway；远程 Gateway 返回 409 |

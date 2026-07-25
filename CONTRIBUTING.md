@@ -1,71 +1,77 @@
-# Contributing to ConvoSketchpad
+# 参与 ConvoSketchpad 开发
 
-ConvoSketchpad is **A branching AI workspace for visual thinkers**. Contributions should strengthen the Canvas, its OpenClaw integration, or the security and operability needed to support that experience.
+ConvoSketchpad 的目标是“让想法自由分支”。贡献内容应增强 Canvas 体验、OpenClaw 集成，或支撑这些体验所需的安全性和可运维性。
 
-## Development setup
+## 开发环境
 
-Requirements:
+环境要求：
 
-- Node.js 22.13 or newer
+- Node.js 22.13 或更高版本
 - npm
-- A reachable OpenClaw Gateway
+- 可访问的 OpenClaw Gateway
 
 ```bash
 git clone https://github.com/<your-username>/convosketchpad.git
 cd convosketchpad
 npm install
 npm run setup
-```
-
-Run the frontend and backend in separate terminals:
-
-```bash
 npm run dev
-PORT=3081 npm run dev:server
 ```
 
-Open `http://localhost:3080`. Vite proxies API and WebSocket traffic to the backend on port 3081.
+`npm run dev` 会同时启动 Vite 客户端和监听模式服务端。浏览器只需打开终端中标记为 `Frontend (open in browser)` 的地址，默认是 `http://127.0.0.1:3080`。Vite 会把 `/api`、`/health` 和 `/ws` 代理到内部服务端，默认端口为 `3081`。
 
-## Project structure
+客户端变更使用 Vite HMR；服务端变更由 `tsx watch` 自动重启。可以通过 `VITE_PORT` 和 `PORT` 分别指定前端入口端口和内部服务端端口。
+
+## 项目结构
 
 ```text
 src/
-  features/canvas/       Canvas graph, interactions, layout and files
-  features/auth/         Managed login and authentication state
-  features/connect/      Gateway connection UI
-  features/settings/     Connection and appearance settings
-  features/activity/     Log, event and usage observability
-  features/chat/         Canvas-used Gateway protocol and media primitives
-  components/            Shared product shell and UI components
-  contexts/              Gateway and settings state
+  features/canvas/       Canvas 图、交互、布局和文件
+  features/auth/         受管登录和认证状态
+  features/connect/      Gateway 连接界面
+  features/settings/     连接与外观设置
+  features/activity/     日志、事件和用量信息
+  features/chat/         Canvas 使用的 Gateway 协议与媒体基础能力
+  components/            通用产品框架和 UI 组件
+  contexts/              Gateway 与设置状态
 server/
-  routes/                Canvas, auth, upload and operational HTTP routes
-  lib/                   Persistence, reconciliation, Gateway and security logic
-  middleware/            Auth, origin, rate-limit and response protections
-bin/                     Update and managed-user CLIs
-scripts/                 Setup wizard and installer helpers
-config/                  TypeScript project configurations
-docs/                    Product, operator and maintainer documentation
+  routes/                Canvas、认证、上传及运维 HTTP 路由
+  lib/                   持久化、协调、Gateway 和安全逻辑
+  middleware/            认证、Origin、限流和响应保护
+bin/                     更新及受管用户 CLI
+scripts/                 配置向导和安装器辅助模块
+config/                  TypeScript 项目配置
+docs/                    产品、运维和维护者文档
 ```
 
-Start Canvas work with [the Canvas code map](docs/canvas/CANVAS-CODE-MAP.md), authentication work with [the Auth code map](docs/canvas/AUTH-CODE-MAP.md), and Git operations with [the Git workflow](docs/canvas/GIT-WORKFLOW.md).
+开始 Canvas 工作前阅读 [Canvas 功能与代码地图](docs/canvas/CANVAS-CODE-MAP.md)，开始认证工作前阅读[认证功能与代码地图](docs/canvas/AUTH-CODE-MAP.md)，执行 Git 操作前阅读 [Git 工作流](docs/canvas/GIT-WORKFLOW.md)。
 
-## Implementation expectations
+## 实现要求
 
-- Keep feature code close to the existing subsystem and avoid parallel abstractions.
-- Treat Canvas topology, Branch heads, prepared sends, owner boundaries and durable files as data-integrity constraints.
-- Keep OpenClaw protocol names such as `chat.send` intact; these are transport contracts, not product surfaces.
-- Validate write inputs, preserve authentication and origin checks, and use existing Gateway helpers.
-- Clean up timers, listeners, sockets and observers in frontend work.
-- Update `.env.example` and `docs/CONFIGURATION.md` together when adding configuration.
-- Update the relevant code map when moving or renaming Canvas or Auth components.
-- Update `docs/PRODUCT.md` or `docs/ARCHITECTURE.md` when product or data-flow semantics change.
+- 功能代码应放在现有子系统附近，避免创建平行抽象。
+- 将 Canvas 拓扑、Branch 头节点、已预留发送、所有者边界和持久化文件视为数据完整性约束。
+- 保留 `chat.send` 等 OpenClaw 协议名称；它们属于传输契约，不是产品文案。
+- 校验写入输入，保留认证和 Origin 检查，并复用现有 Gateway 辅助模块。
+- 前端代码应正确清理计时器、监听器、Socket 和 Observer。
 
-Review in this order: correctness, security and isolation, consistency with the surrounding subsystem, tests and operability, then style.
+评审顺序为：正确性、安全与隔离、与现有子系统的一致性、测试与可运维性，最后才是代码风格。
 
-## Tests and checks
+## 文档同步
 
-Vitest uses a Node environment for `server/` and `scripts/`, and jsdom for `src/`.
+代码修改影响行为、接口、配置、架构、安全、部署、运维方式或组件地图时，必须在同一个 Pull Request 中更新对应文档：
+
+- 新增配置时同步更新 `.env.example` 和 `docs/CONFIGURATION.md`。
+- 新增或修改 HTTP 接口时更新 `docs/API.md`。
+- 移动或重命名 Canvas/Auth 组件时更新相应代码地图。
+- 改变产品、数据流、Session 或恢复语义时更新 `docs/PRODUCT.md` 或 `docs/ARCHITECTURE.md`。
+- 改变安装、部署、安全、排障或更新流程时更新对应运维文档。
+- 用户可见或 Release 相关的重要变化记录到 `CHANGELOG.md`。
+
+纯内部重构如果确实不影响文档，可以不修改文档，但 Pull Request 说明必须明确记录已经完成文档影响评估。
+
+## 测试与检查
+
+Vitest 对 `server/` 和 `scripts/` 使用 Node 环境，对 `src/` 使用 jsdom。
 
 ```bash
 npm test -- --run
@@ -73,14 +79,14 @@ npm run lint
 npm run build
 ```
 
-Add focused tests beside changed code. Do not weaken assertions merely to make a change pass.
+在改动代码附近添加针对性测试。不要为了让变更通过而削弱断言。
 
-## Git and pull requests
+## Git 与 Pull Request
 
-- Create feature branches from `main` and open pull requests into `main`.
-- `master` is the clean upstream mirror and must not contain ConvoSketchpad product commits.
-- Keep each pull request focused and include regression tests when practical.
-- Use Conventional Commits, for example:
+- 从 `main` 创建功能分支，并向 `main` 发起 Pull Request。
+- `master` 是干净的上游镜像，不得包含 ConvoSketchpad 产品定制提交。
+- 每个 Pull Request 应保持聚焦，并在可行时包含回归测试。
+- 使用 Conventional Commits，例如：
 
 ```text
 feat(canvas): add branch filter controls
@@ -88,8 +94,8 @@ fix(auth): revoke sockets after token rotation
 docs: clarify remote gateway deployment
 ```
 
-Before requesting review, confirm the full test, lint and build commands above pass.
+请求评审前，确认上面的完整测试、lint 和构建命令均已通过。
 
-## License
+## 许可证
 
-Contributions are licensed under the [MIT License](LICENSE).
+贡献内容按 [MIT License](LICENSE) 授权。

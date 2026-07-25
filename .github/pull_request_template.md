@@ -1,31 +1,32 @@
-## What
+## 改了什么
 
-<!-- Brief description of the change. What does this PR do? -->
+<!-- 简要描述本次变更及其效果。 -->
 
-## Why
+## 为什么修改
 
-<!-- What problem does this solve? Link to related issue(s): Closes #__ -->
+<!-- 解决了什么问题？可以关联 Issue，例如：Closes #__ -->
 
-## How
+## 如何实现
 
-<!-- Key implementation details, if non-obvious. Mention new files, architectural decisions, trade-offs. -->
+<!-- 说明关键实现细节，包括新增文件、架构决策或取舍；没有特别之处时可简写。 -->
 
-## Type of Change
+## 变更类型
 
-- [ ] 🐛 Bug fix (non-breaking change that fixes an issue)
-- [ ] ✨ New feature (non-breaking change that adds functionality)
-- [ ] 💥 Breaking change (fix or feature that would cause existing functionality to change)
-- [ ] 📝 Documentation update
-- [ ] 🔧 Refactor / chore (no functional change)
+- [ ] 🐛 Bug 修复（不破坏现有兼容性）
+- [ ] ✨ 新功能（不破坏现有兼容性）
+- [ ] 💥 破坏性变更
+- [ ] 📝 文档更新
+- [ ] 🔧 重构或日常维护
 
-## Checklist
+## 检查清单
 
-- [ ] `npm run lint` passes
-- [ ] `npm run build && npm run build:server` succeeds
-- [ ] `npm test -- --run` passes
-- [ ] New features include tests
-- [ ] UI changes include a screenshot or screen recording
+- [ ] `npm run lint` 已通过
+- [ ] `npm run build` 已通过
+- [ ] `npm test -- --run` 已通过
+- [ ] 已评估文档影响，并已更新所有受影响的对应文档
+- [ ] 新功能包含测试
+- [ ] UI 变更包含截图或录屏
 
-## Screenshots
+## 截图
 
-<!-- If applicable, add screenshots of the change. Delete this section if not relevant. -->
+<!-- 如适用，请添加变更截图；否则删除本节。 -->

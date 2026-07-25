@@ -1,23 +1,23 @@
 ---
-name: Feature Request
-about: Got an idea? We're listening.
+name: 功能建议
+about: 有新的想法？欢迎告诉我们。
 title: "[Feature] "
 labels: enhancement
 assignees: ""
 ---
 
-## Problem
+## 问题
 
-<!-- What use case or pain point does this address? -->
+<!-- 这个建议要解决什么使用场景或痛点？ -->
 
-## Proposed Solution
+## 建议方案
 
-<!-- How should it work? Be as specific as you like — UI mockups, API shapes, and user flows all help. -->
+<!-- 希望它如何工作？可以尽量具体，UI 草图、API 结构和用户流程都有帮助。 -->
 
-## Alternatives Considered
+## 考虑过的其他方案
 
-<!-- Any other approaches you've thought about, and why you prefer the proposed solution. -->
+<!-- 还考虑过哪些实现方式？为什么更倾向于当前方案？ -->
 
-## Additional Context
+## 补充信息
 
-<!-- Screenshots, links, related issues, or anything else that's relevant. -->
+<!-- 可以提供截图、链接、相关 Issue 或其他背景信息。 -->

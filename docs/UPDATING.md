@@ -1,142 +1,142 @@
-# Updating ConvoSketchpad
+# 更新 ConvoSketchpad
 
-ConvoSketchpad includes a terminal-driven updater for published stable releases, beginning with version `0.2.0`.
+从 `0.2.0` 开始，ConvoSketchpad 为已发布的稳定版本提供终端更新器。
 
-Only releases from `https://github.com/MrToyy/convosketchpad` are accepted. Local tags, tags inherited from OpenClaw Nerve, forks, branches, drafts, and prereleases are never update sources.
+更新器只接受 `https://github.com/MrToyy/convosketchpad` 发布的 Release。本地标签、继承自 OpenClaw Nerve 的标签、Fork、分支、Draft 和预发布版本都不能作为更新源。
 
-The status-bar update entry is available only when managed authentication is disabled. On managed deployments, a host administrator must run the updater directly in the server terminal.
+只有关闭受管认证时，状态栏才会显示更新入口。受管部署必须由宿主机管理员直接在服务端终端运行更新器。
 
-## Prerequisites
+## 前置条件
 
-The checkout must:
+工作区必须满足：
 
-- use Node.js 22 or newer;
-- have `git` and `npm`;
-- have a clean working tree, including no staged, unstaged, or untracked files;
-- use the official HTTPS origin:
+- 使用 Node.js 22 或更高版本；
+- 已安装 `git` 和 `npm`；
+- 工作区干净，不存在已暂存、未暂存或未跟踪文件；
+- `origin` 使用官方 HTTPS 地址：
 
 ```bash
 git remote set-url origin https://github.com/MrToyy/convosketchpad.git
 ```
 
-The updater always refuses a dirty checkout, including with `--yes`, because release checkout cannot preserve uncommitted work.
+即使使用 `--yes`，更新器也会拒绝脏工作区，因为切换 Release 无法安全保留未提交工作。
 
-## Quick start
+## 快速开始
 
-Preview the resolved release without changing files:
+只解析和预览目标 Release，不修改文件：
 
 ```bash
 npm run update -- --dry-run
 ```
 
-Run the update with an interactive confirmation:
+交互确认后执行更新：
 
 ```bash
 npm run update
 ```
 
-The updater:
+更新器会：
 
-1. validates the tools, official origin, permissions, and clean working tree;
-2. resolves a published stable Release from the official GitHub repository;
-3. snapshots the current commit and `.env`;
-4. fetches only the selected Release tag into an internal ref;
-5. verifies that the target is the matching `convosketchpad` package;
-6. runs `npm ci` and `npm run build`;
-7. restarts the exact `convosketchpad.service` or `com.mrtoyy.convosketchpad` service when present;
-8. verifies `/health` and `/api/version`.
+1. 校验工具、官方 Origin、权限和干净工作区；
+2. 从官方 GitHub 仓库解析已发布的稳定 Release；
+3. 快照当前 Commit 和 `.env`；
+4. 只把所选 Release 标签获取到内部 Ref；
+5. 验证目标是否为匹配的 `convosketchpad` Package；
+6. 运行 `npm ci` 和 `npm run build`；
+7. 检测到服务时，只重启准确匹配的 `convosketchpad.service` 或 `com.mrtoyy.convosketchpad`；
+8. 验证 `/health` 和 `/api/version`。
 
-## CLI flags
+## CLI 参数
 
-| Flag | Description |
+| 参数 | 说明 |
 |---|---|
-| `--version <vX.Y.Z>` | Select an existing official stable Release |
-| `--yes`, `-y` | Skip the terminal confirmation; does not bypass safety checks |
-| `--dry-run` | Resolve and validate the target without changing the checkout |
-| `--verbose`, `-v` | Show detailed update operations |
-| `--rollback` | Restore the last-known-good snapshot |
-| `--no-restart` | Skip service restart and health checks |
-| `--help`, `-h` | Show help |
+| `--version <vX.Y.Z>` | 选择已经存在的官方稳定 Release |
+| `--yes`、`-y` | 跳过终端确认，但不会绕过安全检查 |
+| `--dry-run` | 解析并校验目标，不修改工作区 |
+| `--verbose`、`-v` | 显示详细更新操作 |
+| `--rollback` | 恢复上一个确认正常的快照 |
+| `--no-restart` | 跳过服务重启和健康检查 |
+| `--help`、`-h` | 显示帮助 |
 
-## Examples
+## 示例
 
 ```bash
-# Preview first
+# 先预览
 npm run update -- --dry-run
 
-# Select a published stable release
+# 选择一个已发布的稳定版本
 npm run update -- --version v0.2.0
 
-# Roll back to the previous snapshot
+# 回滚到上一个快照
 npm run update -- --rollback
 
-# Update and restart manually
+# 更新后手动重启
 npm run update -- --no-restart
 ```
 
-## Exit codes
+## 退出码
 
-| Code | Meaning |
+| 退出码 | 含义 |
 |---|---|
-| 0 | Success |
-| 1 | Already up to date |
-| 10 | Preflight failure |
-| 20 | Official Release resolution failure |
-| 40 | Fetch, validation, install, or build failure |
-| 50 | Service restart failure |
-| 60 | Health check failure |
-| 70 | Rollback failure |
-| 80 | Another updater process holds the lock |
+| 0 | 成功 |
+| 1 | 已是最新版本 |
+| 10 | 前置检查失败 |
+| 20 | 官方 Release 解析失败 |
+| 40 | Fetch、校验、安装或构建失败 |
+| 50 | 服务重启失败 |
+| 60 | 健康检查失败 |
+| 70 | 回滚失败 |
+| 80 | 另一个更新进程持有锁 |
 
-## Rollback and state
+## 回滚与状态
 
-Before checkout, the updater records the current commit, package version, timestamp, and `.env` hash. When `.env` exists, it is copied with mode `0600`. State is stored under `~/.convosketchpad/updater/`.
+切换工作区前，更新器会记录当前 Commit、Package 版本、时间戳和 `.env` Hash。存在 `.env` 时，以 `0600` 权限复制。状态保存在 `~/.convosketchpad/updater/` 下。
 
-If fetching, validation, building, restarting, or health checking fails after the snapshot, the updater checks out the saved commit, runs `npm ci` and `npm run build`, and restarts the detected service.
+如果快照完成后 Fetch、校验、构建、重启或健康检查失败，更新器会切回已保存的 Commit，运行 `npm ci` 和 `npm run build`，并重启检测到的服务。
 
-| Path | Purpose |
+| 路径 | 用途 |
 |---|---|
-| `~/.convosketchpad/updater/last-good.json` | Last-known-good snapshot |
-| `~/.convosketchpad/updater/last-run.json` | Most recent update result |
-| `~/.convosketchpad/updater/snapshots/<timestamp>/.env` | Protected `.env` backup |
-| `~/.convosketchpad/updater/update.lock` | Concurrent-update lock |
+| `~/.convosketchpad/updater/last-good.json` | 上一个确认正常的快照 |
+| `~/.convosketchpad/updater/last-run.json` | 最近一次更新结果 |
+| `~/.convosketchpad/updater/snapshots/<timestamp>/.env` | 受保护的 `.env` 备份 |
+| `~/.convosketchpad/updater/update.lock` | 并发更新锁 |
 
-## Release policy
+## Release 策略
 
-Version `0.1.0` intentionally has no GitHub Release. To prepare a release, update `package.json` and `package-lock.json`, add a dated matching section to `CHANGELOG.md`, push the release commit to `main`, and run the manual **Release** GitHub Actions workflow with the matching `X.Y.Z` input.
+`0.1.0` 有意不提供 GitHub Release。准备新 Release 时，更新 `package.json` 和 `package-lock.json`，在 `CHANGELOG.md` 中添加日期与版本匹配的章节，将 Release Commit 推送到 `main`，然后在 GitHub Actions 中手动运行 **Release** Workflow，并输入匹配的 `X.Y.Z`。
 
-The workflow validates, tests, builds, audits, and starts the exact `main` commit on Ubuntu and macOS before creating an annotated `vX.Y.Z` tag and a Draft GitHub Release. Review the Draft notes and installation behavior, then publish it as Latest:
+Workflow 会在 Ubuntu 和 macOS 上对准确的 `main` Commit 执行校验、测试、构建、审计和启动，然后创建带注释的 `vX.Y.Z` 标签及 Draft GitHub Release。检查 Draft 说明和安装行为后，将其发布为 Latest：
 
 ```bash
 gh release edit vX.Y.Z --draft=false --latest
 ```
 
-Drafts and prereleases are never offered by the installer or updater.
+安装器和更新器绝不会提供 Draft 或预发布版本。
 
-## Troubleshooting
+## 故障排查
 
-### No stable release can be resolved
+### 无法解析稳定 Release
 
-Check the repository Releases page and GitHub API availability. The installer fails closed instead of installing an unreleased branch. Local tags, inherited tags, Drafts, and prereleases are intentionally ignored; use `--branch main` only for an explicit development installation.
+检查仓库 Releases 页面和 GitHub API 可用性。安装器会直接失败，不会安装未发布分支。本地标签、继承标签、Draft 和预发布版本都会被忽略；只有明确安装开发版时才使用 `--branch main`。
 
-### Working tree is not clean
+### 工作区不干净
 
-Inspect the checkout and commit, stash, or remove the reported changes:
+检查工作区，并提交、暂存到 Stash 或删除报告的修改：
 
 ```bash
 git status --short
 ```
 
-### Official origin required
+### 必须使用官方 Origin
 
 ```bash
 git remote -v
 git remote set-url origin https://github.com/MrToyy/convosketchpad.git
 ```
 
-### Build or health check failure
+### 构建或健康检查失败
 
-The updater attempts rollback automatically. If manual recovery is required:
+更新器会自动尝试回滚。如果必须手动恢复：
 
 ```bash
 cat ~/.convosketchpad/updater/last-good.json

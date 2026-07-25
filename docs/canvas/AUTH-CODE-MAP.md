@@ -1,6 +1,6 @@
-# Auth 功能与代码地图
+# 认证功能与代码地图
 
-本文覆盖 ConvoSketchpad 使用的受管用户认证。通用安全背景见 [Security](../SECURITY.md)，环境变量和操作命令见 [Configuration](../CONFIGURATION.md)。
+本文覆盖 ConvoSketchpad 使用的受管用户认证。通用安全背景见[安全](../SECURITY.md)，环境变量和操作命令见[配置](../CONFIGURATION.md)。
 
 ## 功能边界与不变量
 
@@ -116,7 +116,7 @@ CONVOSKETCHPAD_AUTH_LOCKOUT
 TRUSTED_PROXIES
 ```
 
-Origin、CSP、Gateway Token 注入和反向代理配置继续参考 [Configuration](../CONFIGURATION.md) 与 [Security](../SECURITY.md)。
+Origin、CSP、Gateway Token 注入和反向代理配置继续参考[配置](../CONFIGURATION.md)与[安全](../SECURITY.md)。
 
 ## 测试入口
 

@@ -1,48 +1,48 @@
 ---
-name: Bug Report
-about: Something broken? Let us know.
+name: 故障报告
+about: 遇到问题？请告诉我们。
 title: "[Bug] "
 labels: bug
 assignees: ""
 ---
 
-## Description
+## 问题描述
 
-<!-- A clear, concise description of the bug. -->
+<!-- 请简洁、准确地描述问题。 -->
 
-## Steps to Reproduce
+## 复现步骤
 
-1. Go to '...'
-2. Click on '...'
-3. See error
+1. 前往“……”
+2. 点击“……”
+3. 出现错误
 
-## Expected Behavior
+## 预期行为
 
-<!-- What should have happened? -->
+<!-- 正常情况下应该发生什么？ -->
 
-## Actual Behavior
+## 实际行为
 
-<!-- What happened instead? -->
+<!-- 实际发生了什么？ -->
 
-## Screenshots / Logs
+## 截图与日志
 
-<!-- Paste screenshots, browser console errors, or terminal output. Use <details> for long logs: -->
+<!-- 请粘贴截图、浏览器控制台错误或终端输出。较长日志请使用 <details>： -->
 
 <!--
 <details>
-<summary>Error log</summary>
+<summary>错误日志</summary>
 
 ```
-paste log here
+在此粘贴日志
 ```
 
 </details>
 -->
 
-## Environment
+## 环境
 
-- **OS:** (e.g. Ubuntu 24.04, macOS 15)
-- **Node:** (e.g. 22.x — run `node --version`)
-- **ConvoSketchpad version:** (e.g. 0.2.0 — check status bar or `package.json`)
-- **OpenClaw version:** (e.g. 2026.2.14)
-- **Browser:** (e.g. Chrome 132, Firefox 134)
+- **操作系统：**（例如 Ubuntu 24.04、macOS 15）
+- **Node.js：**（例如 22.x；运行 `node --version`）
+- **ConvoSketchpad 版本：**（例如 0.2.0；查看状态栏或 `package.json`）
+- **OpenClaw 版本：**（例如 2026.2.14）
+- **浏览器：**（例如 Chrome 132、Firefox 134）

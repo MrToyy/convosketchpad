@@ -1,36 +1,38 @@
-# Product goal
+# 产品目标
 
-**A branching AI workspace for visual thinkers**
+**让想法自由分支**
 
-ConvoSketchpad helps people explore AI-assisted work spatially instead of compressing every direction into one linear conversation. A Canvas keeps alternative ideas visible, preserves how each direction developed, and keeps the prompts, outputs, references, attachments, and generated work for that direction together.
+ConvoSketchpad 帮助用户以空间方式探索 AI 辅助工作，而不是把所有方向压缩到一条线性对话中。一个 Canvas 可以同时呈现不同思路，保留每个方向的演进过程，并把对应的提示词、输出、参考资料、附件和生成结果组织在一起。
 
-## Core experience
+## 核心体验
 
-- Start multiple independent directions on one visual Canvas.
-- Continue a promising direction without replaying its history.
-- Fork any completed historical Interaction to explore an alternative from that point.
-- Move and arrange Branches as part of the work, with layout preserved between visits.
-- Keep source attachments and generated Artifacts durable and associated with the correct Interaction.
-- Choose an OpenClaw Agent before work starts, then keep execution ownership stable for the life of the Canvas.
+- 在一个可视化 Canvas 上开始多个相互独立的方向。
+- 无需重放历史即可继续一个值得深入的方向。
+- 从任意已完成的历史 Interaction 创建分支，探索该节点的另一种可能。
+- 在工作过程中移动和排列 Branch，并在再次访问时恢复布局。
+- 持久化保存源附件和生成的 Artifact，并关联到正确的 Interaction。
+- 在工作开始前选择 OpenClaw Agent，此后在整个 Canvas 生命周期中保持执行归属稳定。
 
-## Product principles
+## 产品原则
 
-### Spatial structure is durable data
+### 空间结构是持久数据
 
-Canvas topology and layout are not temporary presentation state. They are persisted alongside immutable Interaction history so the workspace can be reconstructed reliably.
+Canvas 拓扑和布局不是临时展示状态。它们与不可变的 Interaction 历史一起持久化，确保工作区能够被可靠重建。
 
-### Branching is explicit
+### 分支操作必须明确
 
-Continue extends the current Branch. Fork creates a new direction from a completed historical Interaction. The interface and data model keep those operations distinct.
+“继续”用于延伸当前 Branch，“分支”用于从已完成的历史 Interaction 创建新方向。界面和数据模型始终明确区分这两种操作。
 
-### OpenClaw executes; ConvoSketchpad organizes
+### OpenClaw 负责执行，ConvoSketchpad 负责组织
 
-OpenClaw owns Agents, tools, Sessions, execution, events, and transcripts. ConvoSketchpad owns the visual graph, Branch relationships, send coordination, durable files, recovery metadata, and managed-user isolation.
+OpenClaw 负责 Agent、工具、Session、执行、事件和对话记录。ConvoSketchpad 负责可视化图、Branch 关系、发送协调、持久化文件、恢复元数据和受管用户隔离。
 
-### Recovery preserves history
+ConvoSketchpad 不是独立的 Agent 运行环境，必须连接到可访问的 OpenClaw Gateway。
 
-If OpenClaw replaces or removes a Session, ConvoSketchpad restores the next send from its canonical Branch snapshot without rewriting earlier Interactions or OpenClaw transcripts.
+### 恢复过程保留历史
 
-### Ownership is explicit
+如果 OpenClaw 替换或移除了某个 Session，ConvoSketchpad 会在下一次发送时使用规范 Branch 快照恢复上下文，不会重写之前的 Interaction 或 OpenClaw 对话记录。
 
-Every Canvas object and durable file belongs to one ConvoSketchpad owner. Managed users share the configured Gateway capability boundary but do not share Canvas data.
+### 所有权必须明确
+
+每个 Canvas 对象和持久化文件都属于一个 ConvoSketchpad 所有者。受管用户共享所配置 Gateway 的能力边界，但不共享 Canvas 数据。

@@ -1,25 +1,30 @@
-# Documentation
+# 文档
 
-ConvoSketchpad is **A branching AI workspace for visual thinkers**. These documents describe the current product, its OpenClaw integration, and its operational requirements.
+ConvoSketchpad 的目标是“让想法自由分支”。以下文档描述当前产品、OpenClaw 集成方式以及运行和维护要求。
 
-## Product and architecture
+## 智能体开发入口
 
-- [Product goal](PRODUCT.md)
-- [Architecture and runtime data flow](ARCHITECTURE.md)
-- [Canvas feature index](canvas/README.md)
+- [通用仓库 Agent 指南](../AGENTS.md)
+- [Claude Code 入口](../CLAUDE.md)
 
-## Install and operate
+## 产品与架构
 
-- [Installation](INSTALL.md)
-- [Deployment](DEPLOYMENT.md)
-- [Configuration](CONFIGURATION.md)
-- [Security](SECURITY.md)
-- [Troubleshooting](TROUBLESHOOTING.md)
-- [Updating](UPDATING.md)
-- [API reference](API.md)
+- [产品目标与原则](PRODUCT.md)
+- [架构与运行时数据流](ARCHITECTURE.md)
+- [Canvas 功能索引](canvas/README.md)
 
-## Maintainer references
+## 安装与运维
 
-- [Canvas code map](canvas/CANVAS-CODE-MAP.md)
-- [Auth code map](canvas/AUTH-CODE-MAP.md)
-- [Git workflow](canvas/GIT-WORKFLOW.md)
+- [安装](INSTALL.md)
+- [部署](DEPLOYMENT.md)
+- [配置](CONFIGURATION.md)
+- [安全](SECURITY.md)
+- [故障排查](TROUBLESHOOTING.md)
+- [更新](UPDATING.md)
+- [HTTP API](API.md)
+
+## 维护者参考
+
+- [Canvas 功能与代码地图](canvas/CANVAS-CODE-MAP.md)
+- [认证功能与代码地图](canvas/AUTH-CODE-MAP.md)
+- [Git 与 Upstream 同步工作流](canvas/GIT-WORKFLOW.md)

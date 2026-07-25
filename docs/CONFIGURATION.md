@@ -1,96 +1,69 @@
-# Configuration
+# 配置
 
-Run `npm run setup` for the guided path. Copy `.env.example` only when configuring manually.
+推荐运行 `npm run setup` 使用配置向导。只有手动配置时才需要复制 `.env.example`。
 
-## Core
+## 核心配置
 
-| Variable | Default | Meaning |
+| 环境变量 | 默认值 | 用途 |
 |---|---|---|
-| `GATEWAY_URL` | `http://127.0.0.1:18789` | OpenClaw Gateway HTTP origin |
-| `GATEWAY_TOKEN` | empty | Gateway Token used by server RPC and trusted WS injection |
-| `CONVOSKETCHPAD_GATEWAY_TIMEZONE` | application host timezone | IANA timezone used by the Gateway for daily Session resets; set this for a remote Gateway |
-| `PORT` | `3080` | HTTP port |
-| `HOST` | `127.0.0.1` | Bind host |
-| `SSL_PORT` | `3443` | Optional built-in TLS port when certificates exist |
-| `CONVOSKETCHPAD_PUBLIC_ORIGIN` | empty | Browser-facing origin for Gateway handshakes |
-| `OPENCLAW_CONFIG_PATH` | unset | Optional OpenClaw CLI instance selector; ConvoSketchpad passes it through but never opens the file |
+| `GATEWAY_URL` | `http://127.0.0.1:18789` | OpenClaw Gateway HTTP Origin |
+| `GATEWAY_TOKEN` | 空 | 服务端 RPC 和可信 WS 注入使用的 Gateway Token |
+| `CONVOSKETCHPAD_GATEWAY_TIMEZONE` | 应用宿主机时区 | Gateway 每日重置 Session 使用的 IANA 时区；远程 Gateway 应显式设置 |
+| `PORT` | `3080` | HTTP 端口 |
+| `HOST` | `127.0.0.1` | 监听地址 |
+| `SSL_PORT` | `3443` | 存在证书时使用的可选内置 TLS 端口 |
+| `CONVOSKETCHPAD_PUBLIC_ORIGIN` | 空 | Gateway 握手使用的浏览器访问 Origin |
+| `OPENCLAW_CONFIG_PATH` | 未设置 | 可选的 OpenClaw CLI 实例选择器；ConvoSketchpad 只会透传，不会打开该文件 |
 
-`CONVOSKETCHPAD_GATEWAY_TIMEZONE` must be an IANA name such as `Asia/Shanghai` or
-`America/New_York`. An invalid explicit value stops startup, because using the
-wrong timezone could make Canvas miss the first recovery send after OpenClaw's
-daily reset.
+`CONVOSKETCHPAD_GATEWAY_TIMEZONE` 必须是 `Asia/Shanghai`、`America/New_York` 等 IANA 时区名称。显式设置无效值时服务会停止启动，因为错误时区可能导致 Canvas 错过 OpenClaw 每日重置后的首次恢复发送。
 
-In development, `npm run dev` starts both processes and exposes a single browser
-entrypoint on `VITE_PORT` (default `3080`). The watch-mode server uses the
-configured `PORT` when it differs from the frontend port; otherwise it uses the
-next port (default `3081`). Vite proxies `/api`, `/health`, and `/ws` to it.
-Client changes use Vite HMR. Server changes restart the server process
-automatically, so in-memory state and active WebSocket connections are
-recreated.
+开发模式下，`npm run dev` 会同时启动两个进程，并在 `VITE_PORT`（默认 `3080`）提供唯一的浏览器入口。监听模式服务端在配置的 `PORT` 与前端端口不同时使用该端口；否则自动使用下一个端口，默认是 `3081`。Vite 会把 `/api`、`/health` 和 `/ws` 代理到服务端。客户端变更使用 Vite HMR；服务端变更会自动重启服务端进程，因此内存状态和活动 WebSocket 连接会重新创建。
 
-## OpenClaw-owned Gateway setup
+## OpenClaw 负责的 Gateway 配置
 
-ConvoSketchpad needs no OpenClaw tool allowlist or admin scope. For a browser
-origin outside the Gateway's loopback defaults, the only OpenClaw config value
-it changes is:
+ConvoSketchpad 不需要 OpenClaw 工具 Allowlist 或管理员权限。如果浏览器 Origin 不在 Gateway 默认回环地址范围内，ConvoSketchpad 只会修改一个 OpenClaw 配置项：
 
 ```text
 gateway.controlUi.allowedOrigins
 ```
 
-`npm run setup` reads that value with `openclaw config get`, merges the required
-origins, validates the full change with `openclaw config patch --dry-run`, and
-then applies it with `openclaw config patch`. Gateway port and token discovery
-also use `openclaw config get`. ConvoSketchpad never reads or writes
-`openclaw.json`, `devices/paired.json`, or `identity/device-auth.json`
-directly.
+`npm run setup` 使用 `openclaw config get` 读取该值，合并所需 Origin，使用 `openclaw config patch --dry-run` 校验完整变更，然后通过 `openclaw config patch` 应用。Gateway 端口和 Token 发现也通过 `openclaw config get` 完成。ConvoSketchpad 绝不会直接读写 `openclaw.json`、`devices/paired.json` 或 `identity/device-auth.json`。
 
-Device enrollment uses OpenClaw's native pending-request flow:
+设备注册使用 OpenClaw 原生待审批请求流程：
 
 ```bash
 openclaw devices list --json
 openclaw devices approve <requestId>
 ```
 
-Interactive setup shows the exact matched request and asks before approval.
-`--defaults` creates/checks the pending request but leaves approval to the
-operator. ConvoSketchpad requests only `operator.read` and `operator.write`.
+交互式配置会展示准确匹配的请求，并在审批前询问用户。`--defaults` 只创建或检查待审批请求，最终审批留给运维人员。ConvoSketchpad 只申请 `operator.read` 和 `operator.write`。
 
-For a remote Gateway, setup does not mutate a local OpenClaw config. Run the
-printed `openclaw config` and `openclaw devices` commands on the Gateway host.
+使用远程 Gateway 时，配置向导不会修改本机 OpenClaw 配置。请在 Gateway 宿主机上执行向导输出的 `openclaw config` 和 `openclaw devices` 命令。
 
-After approval, OpenClaw's returned device token is stored in
-`$CONVOSKETCHPAD_DATA_DIR/gateway-auth.json` (default `~/.convosketchpad/gateway-auth.json`) with
-mode `0600`, keyed by Gateway URL. The server removes device-token fields from
-the connect response before forwarding it to the browser.
+审批完成后，OpenClaw 返回的设备 Token 按 Gateway URL 保存到 `$CONVOSKETCHPAD_DATA_DIR/gateway-auth.json`，默认路径为 `~/.convosketchpad/gateway-auth.json`，权限模式为 `0600`。服务端把 connect 响应转发到浏览器前会移除设备 Token 字段。
 
-## ConvoSketchpad-owned storage
+## ConvoSketchpad 自有存储
 
-| Variable | Default | Meaning |
+| 环境变量 | 默认值 | 用途 |
 |---|---|---|
-| `CONVOSKETCHPAD_DATA_DIR` | `~/.convosketchpad` | Device identity, Gateway device Tokens, and updater state |
+| `CONVOSKETCHPAD_DATA_DIR` | `~/.convosketchpad` | 设备身份、Gateway 设备 Token 和更新器状态 |
 
-Canvas SQLite and durable Artifacts intentionally use project-local `database/` and `artifacts/` paths.
-Uploads are persisted there before `chat.send`; core usage totals come from
-OpenClaw `usage.cost`, and Provider quota windows come from `usage.status`.
-Provider and message details refresh opportunistically from `sessions.usage`
-and do not make the usage endpoint unavailable when that slower query fails.
-ConvoSketchpad does not inspect Codex or Claude local credentials or invoke
-their CLIs. The retired workspace/session/usage path variables are ignored with
-a startup warning.
+Canvas SQLite 和持久化 Artifact 有意保存在项目内的 `database/` 和 `artifacts/` 路径。上传内容会在 `chat.send` 前持久化到这里；核心用量汇总来自 OpenClaw `usage.cost`，Provider 配额窗口来自 `usage.status`。Provider 和消息明细通过 `sessions.usage` 尽力刷新；该较慢查询失败时不会导致用量接口整体不可用。
 
-## Managed authentication
+ConvoSketchpad 不检查 Codex 或 Claude 的本地凭据，也不会调用它们的 CLI。已经废弃的工作区、Session 和用量路径环境变量会被忽略，并在启动时输出警告。
 
-| Variable | Default | Meaning |
+## 受管认证
+
+| 环境变量 | 默认值 | 用途 |
 |---|---|---|
-| `CONVOSKETCHPAD_AUTH` | `false` | Enable managed-user login |
-| `CONVOSKETCHPAD_SESSION_SECRET` | generated for the process if missing | Cookie signing secret; set it for restart-stable sessions |
-| `CONVOSKETCHPAD_SESSION_TTL` | 30 days | Session lifetime in milliseconds |
-| `CONVOSKETCHPAD_AUTH_MAX_FAILURES` | `3` | Failed logins allowed in the rolling window |
-| `CONVOSKETCHPAD_AUTH_FAILURE_WINDOW` | 30 minutes | Failure window in milliseconds |
-| `CONVOSKETCHPAD_AUTH_LOCKOUT` | 30 minutes | Lockout duration in milliseconds |
+| `CONVOSKETCHPAD_AUTH` | `false` | 启用受管用户登录 |
+| `CONVOSKETCHPAD_SESSION_SECRET` | 进程启动时生成 | Cookie 签名密钥；生产环境应设置稳定值以确保重启后会话继续有效 |
+| `CONVOSKETCHPAD_SESSION_TTL` | 30 天 | 会话有效期，单位为毫秒 |
+| `CONVOSKETCHPAD_AUTH_MAX_FAILURES` | `3` | 滚动时间窗口内允许的登录失败次数 |
+| `CONVOSKETCHPAD_AUTH_FAILURE_WINDOW` | 30 分钟 | 统计登录失败的时间窗口，单位为毫秒 |
+| `CONVOSKETCHPAD_AUTH_LOCKOUT` | 30 分钟 | 锁定时长，单位为毫秒 |
 
-User management:
+用户管理：
 
 ```bash
 npm run users -- add <name> [--token <token>]
@@ -100,14 +73,14 @@ npm run users -- disable <name>
 npm run users -- enable <name>
 ```
 
-## Network policy
+## 网络策略
 
-| Variable | Meaning |
+| 环境变量 | 用途 |
 |---|---|
-| `CONVOSKETCHPAD_ALLOW_INSECURE=true` | Explicitly allow `0.0.0.0` without managed auth; unsafe for normal use |
-| `WS_ALLOWED_HOSTS` | Comma-separated extra Gateway target hosts |
-| `ALLOWED_ORIGINS` | Comma-separated browser origins |
-| `CSP_CONNECT_EXTRA` | Extra `connect-src` origins |
-| `TRUSTED_PROXIES` | Reverse proxies whose forwarded client headers may be trusted |
+| `CONVOSKETCHPAD_ALLOW_INSECURE=true` | 显式允许在未启用受管认证时监听 `0.0.0.0`；正常使用不安全 |
+| `WS_ALLOWED_HOSTS` | 允许的额外 Gateway 目标主机，以逗号分隔 |
+| `ALLOWED_ORIGINS` | 允许的浏览器 Origin，以逗号分隔 |
+| `CSP_CONNECT_EXTRA` | 额外的 `connect-src` Origin |
+| `TRUSTED_PROXIES` | 可以信任其转发客户端 Header 的反向代理 |
 
-ConvoSketchpad refuses `HOST=0.0.0.0` without authentication unless the insecure override is explicit. Prefer TLS and managed authentication for every non-local deployment.
+除非显式启用不安全覆盖，未启用认证时 ConvoSketchpad 会拒绝以 `HOST=0.0.0.0` 启动。所有非本机部署都应优先使用 TLS 和受管认证。

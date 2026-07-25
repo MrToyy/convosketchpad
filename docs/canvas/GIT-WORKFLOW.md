@@ -9,7 +9,7 @@
 - 合并方向固定为 `upstream/master → master → main`。
 - 不要把 `main` 合并回 `master`。
 
-## Remotes
+## 远程仓库
 
 - `upstream`：`https://github.com/daggerhashimoto/openclaw-nerve.git`，官方源仓库，只获取更新。
 - `origin`：`https://github.com/MrToyy/convosketchpad.git`，ConvoSketchpad 独立仓库，用于推送产品分支。

@@ -1,26 +1,26 @@
-# Install ConvoSketchpad
+# 安装 ConvoSketchpad
 
-ConvoSketchpad is **A branching AI workspace for visual thinkers**. It supports macOS and Linux, requires Node.js 22.13 or newer, and connects to an OpenClaw Gateway.
+ConvoSketchpad 的目标是“让想法自由分支”。它支持 macOS 和 Linux，需要 Node.js 22.13 或更高版本，并依赖可访问的 OpenClaw Gateway。
 
-## Recommended install
+## 推荐安装方式
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/MrToyy/convosketchpad/main/install.sh | bash
 ```
 
-The default installation path is `~/convosketchpad`. Override it with `CONVOSKETCHPAD_INSTALL_DIR` or `--dir <path>`.
+默认安装目录为 `~/convosketchpad`，可以通过 `CONVOSKETCHPAD_INSTALL_DIR` 或 `--dir <path>` 修改。
 
-By default, the installer resolves the latest official stable GitHub Release. It does not fall back to `main` when GitHub is unavailable. `--version` accepts only an official stable Release from `MrToyy/convosketchpad`; use `--branch main` explicitly for a development or custom-repository installation.
+安装器默认解析最新的官方稳定 GitHub Release。GitHub 不可用时不会回退到 `main`。`--version` 只接受 `MrToyy/convosketchpad` 发布的官方稳定 Release；开发版或自定义仓库安装必须显式使用 `--branch main`。
 
-The installer runs five stages:
+安装器依次执行五个阶段：
 
-1. **Prerequisites** — checks Node.js, npm, Git, OpenClaw, and Gateway availability.
-2. **Download** — verifies and installs the selected stable Release, or an explicitly requested development branch, without discarding a dirty checkout.
-3. **Install & Build** — installs npm dependencies and creates the production build.
-4. **Configure** — runs the setup wizard unless `--skip-setup` is used.
-5. **Service** — configures or restarts the supported service manager, or reports the direct start command.
+1. **前置检查**：检查 Node.js、npm、Git、OpenClaw 和 Gateway 可用性。
+2. **下载**：校验并安装所选稳定 Release，或显式指定的开发分支；不会丢弃已有脏工作区。
+3. **安装与构建**：安装 npm 依赖并生成生产构建。
+4. **配置**：除非使用 `--skip-setup`，否则运行配置向导。
+5. **服务**：配置或重启受支持的系统服务；不使用服务管理器时输出直接启动命令。
 
-Run `./install.sh --help` for the authoritative flag list. Common options are:
+使用 `./install.sh --help` 查看权威参数列表。常用参数包括：
 
 ```text
 --dir <path>
@@ -34,36 +34,36 @@ Run `./install.sh --help` for the authoritative flag list. Common options are:
 --access-mode <local|network|custom|tailscale-ip|tailscale-serve>
 ```
 
-## Setup wizard
+## 配置向导
 
-Run the wizard again at any time:
+可以随时重新运行向导：
 
 ```bash
 cd ~/convosketchpad
 npm run setup
 ```
 
-It configures:
+向导配置以下内容：
 
-1. **Gateway Connection** — URL, Token, connectivity, remote-Gateway timezone, native control-UI origins, and native device pairing.
-2. **Access Mode** — localhost, LAN/custom, Tailscale IP, or Tailscale Serve.
-3. **Authentication** — managed-user login and session settings for non-local access.
+1. **Gateway 连接**：URL、Token、连通性、远程 Gateway 时区、原生 Control UI Origin 和原生设备配对。
+2. **访问方式**：localhost、局域网/自定义、Tailscale IP 或 Tailscale Serve。
+3. **认证**：非本机访问使用的受管用户登录和会话设置。
 
-Gateway changes use supported `openclaw config` and `openclaw devices` commands. Setup never synthesizes or edits OpenClaw pairing records directly. Configuration for a remote Gateway must be applied on the Gateway host.
+Gateway 变更使用受支持的 `openclaw config` 和 `openclaw devices` 命令。配置向导不会自行生成或直接编辑 OpenClaw 配对记录。远程 Gateway 的配置必须在 Gateway 宿主机上执行。
 
-For a non-interactive localhost setup:
+非交互式本机配置：
 
 ```bash
 npm run setup -- --defaults
 ```
 
-For a remote Gateway, also provide its IANA timezone so ConvoSketchpad can predict daily Session resets:
+使用远程 Gateway 时，还应提供其 IANA 时区，使 ConvoSketchpad 能够预测每日 Session 重置：
 
 ```bash
 npm run setup -- --defaults --gateway-timezone Asia/Shanghai
 ```
 
-## Manual install
+## 手动安装
 
 ```bash
 git clone https://github.com/MrToyy/convosketchpad.git ~/convosketchpad
@@ -74,7 +74,7 @@ npm run build
 npm start
 ```
 
-Minimal localhost `.env`:
+最小本机 `.env`：
 
 ```bash
 PORT=3080
@@ -83,7 +83,7 @@ GATEWAY_URL=http://127.0.0.1:18789
 GATEWAY_TOKEN=<detected-token>
 ```
 
-If the installer configured a service, use it instead of starting a duplicate foreground process:
+如果安装器已经配置系统服务，请使用该服务，不要重复启动前台进程：
 
 ```bash
 # Linux
@@ -94,34 +94,34 @@ launchctl stop com.mrtoyy.convosketchpad || true
 launchctl start com.mrtoyy.convosketchpad
 ```
 
-## Existing installations
+## 现有安装
 
-Inspect an existing installation before replacing it. Prefer a normal update, setup rerun, service restart, or targeted repair. Never delete, reset, or overwrite an existing dirty checkout without explicit approval.
+替换现有安装前应先检查其状态。优先采用正常更新、重新运行配置向导、重启服务或定向修复。未经明确确认，绝不要删除、重置或覆盖已有脏工作区。
 
-ConvoSketchpad depends on a reachable OpenClaw Gateway. Reuse an existing Gateway when possible. Installing OpenClaw, changing remote Gateway settings, or increasing network exposure should be an explicit operator decision.
+ConvoSketchpad 依赖可访问的 OpenClaw Gateway。应尽量复用现有 Gateway。安装 OpenClaw、修改远程 Gateway 配置或扩大网络暴露范围，都必须由运维人员明确决定。
 
-## Deployment choice
+## 选择部署方式
 
-Choose the topology that matches where the browser, ConvoSketchpad server, and Gateway will run:
+根据浏览器、ConvoSketchpad 服务端和 Gateway 的运行位置选择拓扑：
 
-- [Local, same machine](DEPLOYMENT.md#local-same-machine)
-- [Local UI with a remote Gateway](DEPLOYMENT.md#local-ui-with-a-remote-gateway)
-- [Remote browser access](DEPLOYMENT.md#remote-browser-access)
+- [浏览器、服务端与 Gateway 位于同一台机器](DEPLOYMENT.md#local-same-machine)
+- [本机界面连接远程 Gateway](DEPLOYMENT.md#local-ui-with-a-remote-gateway)
+- [远程浏览器访问](DEPLOYMENT.md#remote-browser-access)
 - [Tailscale](DEPLOYMENT.md#tailscale)
 
-## Managed users
+## 受管用户
 
-For network-accessible installs, enable `CONVOSKETCHPAD_AUTH=true`, set a stable `CONVOSKETCHPAD_SESSION_SECRET`, and create the first user:
+可通过网络访问的安装应启用 `CONVOSKETCHPAD_AUTH=true`，设置稳定的 `CONVOSKETCHPAD_SESSION_SECRET`，并创建第一个用户：
 
 ```bash
 npm run users -- add <name>
 ```
 
-The CLI can also list, rotate, disable, or enable users. See [Configuration](CONFIGURATION.md) and [Security](SECURITY.md).
+CLI 还支持列出、轮换、禁用和启用用户。详见[配置](CONFIGURATION.md)与[安全](SECURITY.md)。
 
-## Validation
+## 验证
 
-Do not treat an installation as complete until the intended process, Gateway connection, access mode, and authentication behavior all work.
+只有在目标进程、Gateway 连接、访问方式和认证行为均正常后，才能认为安装完成。
 
 ```bash
 openclaw gateway status
@@ -129,6 +129,6 @@ curl -fsS http://127.0.0.1:18789/health
 curl -fsS http://127.0.0.1:3080/health
 ```
 
-Adjust the URLs for the selected topology, then open ConvoSketchpad, confirm Agent discovery, create a Canvas, and send a small Interaction.
+根据所选拓扑调整 URL，然后打开 ConvoSketchpad，确认能够发现 Agent、创建 Canvas，并发送一个简单 Interaction。
 
-For failures, record the exact failing step, checks performed, changes made, and any action still requiring operator access.
+发生故障时，记录准确的失败步骤、已执行检查、已做变更，以及仍需运维人员处理的操作。
