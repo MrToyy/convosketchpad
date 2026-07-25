@@ -21,7 +21,7 @@ Browser
                                └─ Gateway RPC reconciler → OpenClaw transcript
 ```
 
-The browser loads the React SPA from the Hono server. It connects to OpenClaw through the server WebSocket relay and uses HTTP routes for Canvas state and files. The server also maintains Gateway RPC access for Agent discovery, Session inspection, reset-policy reads, and transcript reconciliation.
+The browser loads the React SPA from the Hono server. It connects to OpenClaw through the server WebSocket relay and uses HTTP routes for Canvas state and Canvas-owned files. The server also maintains Gateway RPC access for Agent discovery, Session inspection, reset-policy reads, Artifact download, usage, and transcript reconciliation.
 
 Both Gateway paths use the same persistent ConvoSketchpad device identity and the exact `operator.read` / `operator.write` scopes. OpenClaw owns pairing approval. Device Tokens remain on the server and are removed from the Gateway hello response before it reaches the browser.
 
@@ -66,7 +66,7 @@ Canvas (one selected Agent)
 | Managed login | `src/features/auth/` |
 | Appearance and connection settings | `src/features/settings/` |
 
-The remaining `src/features/chat/` modules are Canvas runtime primitives for Gateway transport, event classification, upload descriptors, image compression, and image display.
+The remaining `src/features/chat/` modules are Canvas runtime primitives for Gateway transport, event classification, image compression, and image display.
 
 ## Backend
 
@@ -77,7 +77,7 @@ The remaining `src/features/chat/` modules are Canvas runtime primitives for Gat
 | Canvas schema and state machine | `server/lib/canvas-db.ts` |
 | Transcript and Artifact reconciliation | `server/lib/canvas-reconciler.ts` |
 | Durable files | `server/lib/canvas-artifact-store.ts` |
-| Upload staging | `server/routes/upload-reference.ts`, `server/lib/upload-reference.ts` |
+| Canvas-owned multipart upload | `server/routes/upload-reference.ts`, `server/lib/canvas-artifact-store.ts` |
 | Gateway server-side RPC | `server/lib/gateway-rpc.ts` |
 | Browser WebSocket relay | `server/lib/ws-proxy.ts` |
 | Managed users | `server/routes/auth.ts`, `server/lib/managed-users.ts` |
@@ -96,10 +96,11 @@ Every prepare request carries `expectedAgentId`; stale requests fail instead of 
 ## Send flow
 
 ```text
-stage attachments
+prepare native attachment payload and enforce Gateway `maxPayload`
+  → persist Canvas-owned attachments
   → prepare-send (owner, head, Agent and exclusivity checks)
   → inspect Session identity and effective reset policy
-  → persist durable files and reservation
+  → persist reservation
   → Gateway chat.send
   → acknowledge reservation with runId and current Session ID
   → consume agent/chat events
@@ -122,9 +123,17 @@ Daily boundaries use `CONVOSKETCHPAD_GATEWAY_TIMEZONE`. It defaults to the Convo
 
 ## Attachments, Artifacts, and reconciliation
 
-Workspace staging makes an upload readable to OpenClaw tools for the current send. Before committing the Interaction, ConvoSketchpad creates an owner-scoped durable copy. Forks therefore do not depend on the original workspace file.
+Uploads are persisted directly in the owner-scoped Canvas store, then sent
+through OpenClaw `chat.send.attachments`. ConvoSketchpad never writes the
+selected Agent workspace, and Forks reuse the Canvas-owned copy.
 
-Generated local/data resources and tool outputs are materialized into the Canvas Artifact store when possible. External HTTP(S) resources remain references. A missing Artifact degrades the file result without erasing a successful text response.
+The reconciler uses `artifacts.list/download` before compatibility parsing.
+Gateway bytes and same-Gateway URLs are materialized into the Canvas Artifact
+store; external HTTP(S) resources remain references. A relative path uses
+`agents.workspace.get` when advertised. An explicit absolute path is readable
+only when it is under a workspace returned by `agents.list` or the system temp
+directory and passes `realpath`/symlink checks. A missing Artifact degrades the
+file result without erasing a successful text response.
 
 Gateway terminal events are completion hints. The reconciler reads the authoritative transcript, persists output and Artifacts, and retries unfinished or degraded records after restart and when a Canvas loads.
 
@@ -137,7 +146,6 @@ Gateway terminal events are completion hints. The reconciler reads the authorita
 | ConvoSketchpad device key and per-Gateway device Tokens | `~/.convosketchpad/device-identity.json`, `~/.convosketchpad/gateway-auth.json` |
 | Canvas, Branch, Interaction, reservation, layout, managed users | `database/canvas.sqlite` |
 | Durable attachments and Artifacts | `artifacts/` |
-| Temporary tool-readable upload staging | Selected Agent workspace |
 | Compact activity log | `agent-log.json` |
 
 Back up and restore `database/canvas.sqlite` and `artifacts/` together.

@@ -7,8 +7,6 @@ describe('ConvoSketchpad env writer', () => {
       GATEWAY_TOKEN: 'gateway-token',
       CONVOSKETCHPAD_GATEWAY_TIMEZONE: 'Asia/Shanghai',
       CONVOSKETCHPAD_PUBLIC_ORIGIN: 'https://canvas.example.test',
-      CONVOSKETCHPAD_WORKSPACE_ROOT: '/srv/workspace',
-      CONVOSKETCHPAD_UPLOAD_STAGING_TEMP_DIR: '/srv/workspace/.temp/convosketchpad-uploads',
       CONVOSKETCHPAD_DATA_DIR: '/srv/convosketchpad',
       CONVOSKETCHPAD_AUTH: 'true',
       CONVOSKETCHPAD_SESSION_SECRET: 'session-secret',
@@ -22,8 +20,10 @@ describe('ConvoSketchpad env writer', () => {
     expect(content).toContain('# ConvoSketchpad Configuration');
     expect(content).toContain('CONVOSKETCHPAD_GATEWAY_TIMEZONE=Asia/Shanghai');
     expect(content).toContain('CONVOSKETCHPAD_PUBLIC_ORIGIN=https://canvas.example.test');
-    expect(content).toContain('CONVOSKETCHPAD_WORKSPACE_ROOT=/srv/workspace');
-    expect(content).toContain('CONVOSKETCHPAD_UPLOAD_STAGING_TEMP_DIR=/srv/workspace/.temp/convosketchpad-uploads');
+    expect(content).not.toContain('CONVOSKETCHPAD_WORKSPACE_ROOT');
+    expect(content).not.toContain('CONVOSKETCHPAD_UPLOAD_STAGING_TEMP_DIR');
+    expect(content).not.toContain('SESSIONS_DIR');
+    expect(content).not.toContain('USAGE_FILE');
     expect(content).toContain('CONVOSKETCHPAD_DATA_DIR=/srv/convosketchpad');
     expect(content).toContain('CONVOSKETCHPAD_AUTH=true');
     expect(content).toContain('CONVOSKETCHPAD_SESSION_SECRET=session-secret');

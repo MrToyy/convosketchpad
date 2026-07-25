@@ -291,6 +291,18 @@ describe('gateway-rpc (persistent WebSocket)', () => {
       const { gatewayRpcCall } = await importFreshGatewayRpc();
       await expect(gatewayRpcCall('test.method', {})).rejects.toThrow(/closed before connect completed/i);
     });
+
+    it('closes the persistent connection and rejects later calls during shutdown', async () => {
+      rpcHandler = () => ({ ok: true });
+      const freshClient = await importFreshGatewayRpc();
+      await freshClient.gatewayRpcCall('test.method', {});
+
+      freshClient.closeGatewayRpc();
+
+      await expect(freshClient.gatewayRpcCall('test.method', {}))
+        .rejects.toThrow('Gateway RPC client is shutting down');
+      await vi.waitFor(() => expect(wss.clients.size).toBe(0));
+    });
   });
 
   describe('gatewayFilesList', () => {

@@ -8,6 +8,12 @@ interface PendingReq {
   reject: (reason: unknown) => void;
 }
 
+export interface GatewayCapabilities {
+  serverVersion?: string;
+  methods: ReadonlySet<string>;
+  maxPayload?: number;
+}
+
 interface UseWebSocketReturn {
   connectionState: ConnectionState;
   connect: (url: string, token: string) => Promise<void>;
@@ -16,6 +22,7 @@ interface UseWebSocketReturn {
   onEvent: React.MutableRefObject<((msg: GatewayEvent) => void) | null>;
   connectError: string;
   reconnectAttempt: number;
+  capabilities: GatewayCapabilities;
 }
 
 const RECONNECT_BASE_DELAY = 1000;
@@ -56,6 +63,7 @@ export function useWebSocket(): UseWebSocketReturn {
   const [connectionState, setConnectionState] = useState<ConnectionState>('disconnected');
   const [connectError, setConnectError] = useState('');
   const [reconnectAttempt, setReconnectAttempt] = useState(0);
+  const [capabilities, setCapabilities] = useState<GatewayCapabilities>({ methods: new Set() });
   const wsRef = useRef<WebSocket | null>(null);
   const reqIdRef = useRef(0);
   const pendingRef = useRef<Record<string, PendingReq>>({});
@@ -75,6 +83,7 @@ export function useWebSocket(): UseWebSocketReturn {
   const doConnectRef = useRef<((url: string, token: string, isReconnect: boolean) => Promise<void>) | null>(null);
   const instanceIdRef = useRef(getOrCreateInstanceId());
   const connectionGenRef = useRef(0);
+  const maxPayloadRef = useRef<number | undefined>(undefined);
 
   const rejectPending = useCallback((reason: Error) => {
     const pending = pendingRef.current;
@@ -126,8 +135,15 @@ export function useWebSocket(): UseWebSocketReturn {
       const ws = wsRef.current;
       if (!ws || ws.readyState !== 1) return reject(new Error('Not connected'));
       const id = String(++reqIdRef.current);
+      const frame = JSON.stringify({ type: 'req', id, method, params });
+      const frameBytes = new TextEncoder().encode(frame).byteLength;
+      if (maxPayloadRef.current && frameBytes > maxPayloadRef.current) {
+        return reject(new Error(
+          `Gateway request is ${frameBytes} bytes, exceeding the advertised ${maxPayloadRef.current}-byte payload limit`,
+        ));
+      }
       pendingRef.current[id] = { resolve, reject };
-      ws.send(JSON.stringify({ type: 'req', id, method, params }));
+      ws.send(frame);
       const timeoutId = setTimeout(() => {
         if (pendingRef.current[id]) {
           delete pendingRef.current[id];
@@ -234,6 +250,25 @@ export function useWebSocket(): UseWebSocketReturn {
           const response = msg as GatewayResponse;
           if (response.id === connectReqIdRef.current) {
             if (response.ok) {
+              const hello = response.payload && typeof response.payload === 'object'
+                ? response.payload as {
+                  server?: { version?: unknown };
+                  features?: { methods?: unknown };
+                  policy?: { maxPayload?: unknown };
+                }
+                : {};
+              const methods = Array.isArray(hello.features?.methods)
+                ? hello.features.methods.filter((value): value is string => typeof value === 'string')
+                : [];
+              const maxPayload = typeof hello.policy?.maxPayload === 'number' && hello.policy.maxPayload > 0
+                ? hello.policy.maxPayload
+                : undefined;
+              maxPayloadRef.current = maxPayload;
+              setCapabilities({
+                serverVersion: typeof hello.server?.version === 'string' ? hello.server.version : undefined,
+                methods: new Set(methods),
+                maxPayload,
+              });
               // Success! Reset reconnect counter
               reconnectAttemptRef.current = 0;
               hasConnectedRef.current = true;
@@ -361,6 +396,8 @@ export function useWebSocket(): UseWebSocketReturn {
     rejectPending(new Error('Disconnected'));
     settleConnectFailure(new Error('Disconnected'));
     setConnectionState('disconnected');
+    maxPayloadRef.current = undefined;
+    setCapabilities({ methods: new Set() });
   }, [clearConnectTimeout, clearReconnectTimeout, rejectPending, settleConnectFailure]);
 
   const connect = useCallback((url: string, token: string): Promise<void> => {
@@ -373,5 +410,5 @@ export function useWebSocket(): UseWebSocketReturn {
     return doConnect(url, token, false);
   }, [doConnect, clearReconnectTimeout]);
 
-  return { connectionState, connect, disconnect, rpc, onEvent, connectError, reconnectAttempt };
+  return { connectionState, connect, disconnect, rpc, onEvent, connectError, reconnectAttempt, capabilities };
 }

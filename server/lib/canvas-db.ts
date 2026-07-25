@@ -77,9 +77,7 @@ export interface CanvasAttachment {
   name: string;
   mimeType: string;
   sizeBytes: number;
-  mode?: 'inline' | 'file_reference';
   uri?: string;
-  workspacePath?: string;
   sourceUri?: string;
   storage?: 'canvas' | 'source';
   available?: boolean;
@@ -88,6 +86,7 @@ export interface CanvasAttachment {
 
 export interface CanvasArtifact {
   id?: string;
+  gatewayArtifactId?: string;
   name: string;
   mimeType?: string;
   sizeBytes?: number;
@@ -166,12 +165,14 @@ function parseJson<T>(value: unknown, fallback: T): T {
 function contextResourceKey(uri: string): string {
   try {
     if (uri.startsWith('file://')) return `local:${path.resolve(fileURLToPath(uri))}`;
-    if (uri.startsWith('/api/files?')) {
-      const filePath = new URL(uri, 'http://canvas.local').searchParams.get('path');
-      if (filePath) return `local:${path.resolve(filePath)}`;
-    }
   } catch { /* use the URI as-is */ }
   return uri.trim();
+}
+
+function reusableContextResourceUri(uri: string): boolean {
+  return uri.startsWith('/api/canvas/')
+    || uri.startsWith('data:')
+    || /^https?:\/\//i.test(uri);
 }
 
 function mapCanvas(row: SqlRow): CanvasRecord {
@@ -673,6 +674,7 @@ export class CanvasStore {
     const resources: CanvasContextResource[] = [];
     const seenResources = new Set<string>();
     const addResource = (resource: CanvasContextResource) => {
+      if (!resource.available || !reusableContextResourceUri(resource.uri)) return;
       const key = contextResourceKey(resource.uri);
       if (!key || seenResources.has(key)) return;
       seenResources.add(key);

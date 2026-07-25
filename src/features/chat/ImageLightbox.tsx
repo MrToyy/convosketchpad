@@ -20,11 +20,7 @@ export function ImageLightbox({ src, alt = 'Image', thumbnailClassName }: ImageL
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      // Extract filename: handle /api/files?path=... and direct URLs
-      const pathParam = new URL(src, window.location.origin).searchParams.get('path');
-      const rawName = pathParam
-        ? pathParam.split('/').pop()
-        : src.split('/').pop()?.split('?')[0];
+      const rawName = src.split('/').pop()?.split('?')[0];
       const filename = rawName || `image-${Date.now()}.png`;
       a.download = filename;
       document.body.appendChild(a);

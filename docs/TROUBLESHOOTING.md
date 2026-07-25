@@ -51,12 +51,12 @@ OpenClaw replaced or removed the Session behind the stable Branch key. The next 
 - Maximum four files per send.
 - Maximum 20 MiB per file.
 - Large images are compressed for model input.
-- Workspace paths must stay inside the selected Agent workspace and may not traverse `.git`, `.env`, `node_modules`, or symlinks that escape.
-- In split-host deployments, a local staged path may not be visible to the remote Agent.
+- The complete Base64 WebSocket frame must fit the Gateway-advertised `maxPayload`; the effective total can therefore be lower than four times 20 MiB.
+- Uploads are Canvas-owned and sent through `chat.send.attachments`; they do not require a shared Agent workspace.
 
 ## Artifact is unavailable
 
-Text completion and Artifact persistence are independent. A late or unreadable Artifact is marked degraded and retried. Verify that `artifacts/` is writable and that the source media remains available during reconciliation.
+Text completion and Artifact persistence are independent. A late or unreadable Artifact is marked degraded and retried. Verify that `artifacts/` is writable and that the Gateway advertises `artifacts.list/download`. Relative legacy paths additionally require `agents.workspace.get`; absolute legacy paths must exist locally under a native reported workspace root or the system temp directory.
 
 ## Login is locked
 
@@ -76,4 +76,4 @@ npx tsc --noEmit -p config/tsconfig.server.json
 npm run build
 ```
 
-Node.js 22.13+ and native build tools are required.
+Node.js 22.13+ is required.

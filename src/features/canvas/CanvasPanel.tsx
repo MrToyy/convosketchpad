@@ -40,12 +40,16 @@ import { MarkdownRenderer } from '@/features/markdown/MarkdownRenderer';
 import { useGateway } from '@/contexts/GatewayContext';
 import { useSettings } from '@/contexts/SettingsContext';
 import { classifyStreamEvent, extractStreamDelta } from '@/features/chat/operations';
-import { appendUploadManifest, sendChatMessage } from '@/features/chat/operations/sendMessage';
+import { sendChatMessage } from '@/features/chat/operations/sendMessage';
 import { ImageLightbox } from '@/features/chat/ImageLightbox';
-import type { UploadAttachmentDescriptor } from '@/features/chat/types';
 import type { ChatEventPayload, GatewayEvent } from '@/types';
-import { canvasApi, canvasArtifactUrl, stageCanvasFiles, type StagedUpload } from './api';
-import { prepareGatewayAttachment, prepareGatewayAttachments, type GatewayAttachment } from './attachments';
+import { canvasApi, canvasArtifactUrl, persistCanvasFiles } from './api';
+import {
+  estimateChatSendFrameBytes,
+  prepareGatewayAttachment,
+  prepareGatewayAttachments,
+  type GatewayAttachment,
+} from './attachments';
 import { CanvasLocalizedError, canvasErrorMessage, getCanvasCopy, type CanvasCopy } from './messages';
 import { CanvasSendButton } from './CanvasSendButton';
 import {
@@ -337,23 +341,6 @@ function nodeBounds(node: CanvasFlowNode, rendered?: CanvasFlowNode): CanvasNode
   };
 }
 
-function buildUploadDescriptors(staged: StagedUpload[], ids: string[]): UploadAttachmentDescriptor[] {
-  return staged.map((item, index) => ({
-    id: ids[index] || crypto.randomUUID(),
-    origin: 'upload',
-    mode: 'file_reference',
-    name: item.originalName,
-    mimeType: item.mimeType,
-    sizeBytes: item.sizeBytes,
-    reference: { kind: 'local_path', path: item.absolutePath, uri: item.uri },
-    preparation: {
-      sourceMode: 'file_reference', finalMode: 'file_reference', outcome: 'file_reference_ready',
-      originalMimeType: item.mimeType, originalSizeBytes: item.sizeBytes,
-    },
-    policy: { forwardToSubagents: true },
-  }));
-}
-
 export interface CanvasContextStats {
   branchCount: number;
   sessionCount: number;
@@ -362,7 +349,7 @@ export interface CanvasContextStats {
 }
 
 export function CanvasPanel({ onContextStatsChange }: { onContextStatsChange?: (stats: CanvasContextStats) => void }) {
-  const { rpc, subscribe, connectionState } = useGateway();
+  const { rpc, subscribe, connectionState, capabilities } = useGateway();
   const { language } = useSettings();
   const copy = getCanvasCopy(language);
   const localizeError = useCallback((cause: unknown, fallback: string) => canvasErrorMessage(cause, fallback, language), [language]);
@@ -545,13 +532,24 @@ export function CanvasPanel({ onContextStatsChange }: { onContextStatsChange?: (
       const canvasAgentId = graph?.canvas.agentId;
       const canvasId = graph?.canvas.id;
       if (!canvasId || !canvasAgentId) throw new CanvasLocalizedError(copy.currentCanvasMissing);
-      const staged = draft.files.length ? await stageCanvasFiles(draft.files, canvasAgentId, canvasId) : [];
-      const attachmentIds = staged.map(() => crypto.randomUUID());
-      const attachmentMeta = staged.map((item, index) => ({
-        id: attachmentIds[index],
-        name: item.originalName, mimeType: item.mimeType, sizeBytes: item.sizeBytes,
-        mode: 'file_reference' as const, uri: item.uri, workspacePath: item.canonicalPath,
-      }));
+      if (!capabilities.methods.has('chat.send')) {
+        throw new CanvasLocalizedError('当前 OpenClaw Gateway 未声明 chat.send 能力，请升级 Gateway 后重试。');
+      }
+      const preparedDraftAttachments = await prepareGatewayAttachments(draft.files, language);
+      if (capabilities.maxPayload) {
+        const estimatedBytes = estimateChatSendFrameBytes(
+          branch.sessionKey,
+          draft.text,
+          preparedDraftAttachments,
+        );
+        if (estimatedBytes > capabilities.maxPayload) {
+          throw new CanvasLocalizedError(
+            `附件发送请求约为 ${Math.ceil(estimatedBytes / 1024 / 1024)} MiB，超过 Gateway 的 `
+            + `${Math.floor(capabilities.maxPayload / 1024 / 1024)} MiB 限制。`,
+          );
+        }
+      }
+      const attachmentMeta = draft.files.length ? await persistCanvasFiles(draft.files, canvasId) : [];
       const reservation = await canvasApi.prepareSend(branch.id, {
         expectedHeadInteractionId: branch.sessionState === 'active' ? branch.headInteractionId : null,
         expectedAgentId: canvasAgentId,
@@ -559,11 +557,7 @@ export function CanvasPanel({ onContextStatsChange }: { onContextStatsChange?: (
         attachments: attachmentMeta,
       });
       reservationId = reservation.id;
-      const descriptors = buildUploadDescriptors(staged, attachmentIds);
-      let outgoingMessage = appendUploadManifest(reservation.outgoingMessage, descriptors.length ? {
-        descriptors,
-        manifest: { enabled: true, exposeInlineBase64ToAgent: false, allowSubagentForwarding: true },
-      } : undefined);
+      let outgoingMessage = reservation.outgoingMessage;
       const bootstrapFiles: File[] = [];
       const bootstrapWarnings: string[] = [];
       for (const resource of reservation.bootstrapResources || []) {
@@ -585,7 +579,7 @@ export function CanvasPanel({ onContextStatsChange }: { onContextStatsChange?: (
           bootstrapWarnings.push(copy.resourceWarning(file.name, cause instanceof Error ? cause.message : copy.prepareAttachmentFailed));
         }
       }
-      gatewayAttachments.push(...await prepareGatewayAttachments(draft.files, language));
+      gatewayAttachments.push(...preparedDraftAttachments);
       if (bootstrapWarnings.length > 0) {
         outgoingMessage += `\n\n<canvas-context-resource-warnings>${JSON.stringify(bootstrapWarnings)}</canvas-context-resource-warnings>`;
       }
@@ -613,7 +607,7 @@ export function CanvasPanel({ onContextStatsChange }: { onContextStatsChange?: (
       updateDraft(branch.id, (current) => ({ ...current, sending: false, error: message }));
       setActivities((current) => ({ ...current, [branch.id]: 'failed' }));
     }
-  }, [copy, drafts, graph?.canvas.agentId, graph?.canvas.id, language, loadGraph, localizeError, persistLayout, rpc, updateDraft]);
+  }, [capabilities.maxPayload, capabilities.methods, copy, drafts, graph?.canvas.agentId, graph?.canvas.id, language, loadGraph, localizeError, persistLayout, rpc, updateDraft]);
 
   useEffect(() => subscribe((event: GatewayEvent) => {
     const classified = classifyStreamEvent(event);

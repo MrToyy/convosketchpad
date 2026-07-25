@@ -13,7 +13,7 @@ Run `npm run setup` for the guided path. Copy `.env.example` only when configuri
 | `HOST` | `127.0.0.1` | Bind host |
 | `SSL_PORT` | `3443` | Optional built-in TLS port when certificates exist |
 | `CONVOSKETCHPAD_PUBLIC_ORIGIN` | empty | Browser-facing origin for Gateway handshakes |
-| `OPENCLAW_CONFIG_PATH` | `~/.openclaw/openclaw.json` | Optional OpenClaw config override |
+| `OPENCLAW_CONFIG_PATH` | unset | Optional OpenClaw CLI instance selector; ConvoSketchpad passes it through but never opens the file |
 
 `CONVOSKETCHPAD_GATEWAY_TIMEZONE` must be an IANA name such as `Asia/Shanghai` or
 `America/New_York`. An invalid explicit value stops startup, because using the
@@ -32,7 +32,8 @@ gateway.controlUi.allowedOrigins
 
 `npm run setup` reads that value with `openclaw config get`, merges the required
 origins, validates the full change with `openclaw config patch --dry-run`, and
-then applies it with `openclaw config patch`. It never writes
+then applies it with `openclaw config patch`. Gateway port and token discovery
+also use `openclaw config get`. ConvoSketchpad never reads or writes
 `openclaw.json`, `devices/paired.json`, or `identity/device-auth.json`
 directly.
 
@@ -55,17 +56,20 @@ After approval, OpenClaw's returned device token is stored in
 mode `0600`, keyed by Gateway URL. The server removes device-token fields from
 the connect response before forwarding it to the browser.
 
-## Canvas storage and usage
+## ConvoSketchpad-owned storage
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `CONVOSKETCHPAD_WORKSPACE_ROOT` | `~/.openclaw/workspace` | Default Agent workspace for attachment references |
-| `CONVOSKETCHPAD_UPLOAD_STAGING_TEMP_DIR` | workspace `.temp/convosketchpad-uploads` | Optional staging directory; must remain inside the workspace |
 | `CONVOSKETCHPAD_DATA_DIR` | `~/.convosketchpad` | Device identity, Gateway device Tokens, and updater state |
-| `SESSIONS_DIR` | `~/.openclaw/agents/main/sessions` | Transcript usage-accounting source |
-| `USAGE_FILE` | `~/.openclaw/token-usage.json` | Persistent usage totals |
 
 Canvas SQLite and durable Artifacts intentionally use project-local `database/` and `artifacts/` paths.
+Uploads are persisted there before `chat.send`; core usage totals come from
+OpenClaw `usage.cost`, and Provider quota windows come from `usage.status`.
+Provider and message details refresh opportunistically from `sessions.usage`
+and do not make the usage endpoint unavailable when that slower query fails.
+ConvoSketchpad does not inspect Codex or Claude local credentials or invoke
+their CLIs. The retired workspace/session/usage path variables are ignored with
+a startup warning.
 
 ## Managed authentication
 

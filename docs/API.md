@@ -14,7 +14,7 @@ All `/api/*` routes are subject to the common body limit, security headers, rate
 | PUT | `/api/canvas/canvases/:id/layout` | Save node positions and viewport |
 | POST | `/api/canvas/canvases/:id/root-branches` | Create or return the unresolved root composer |
 | POST | `/api/canvas/interactions/:id/fork` | Fork a completed historical Interaction |
-| POST | `/api/canvas/branches/:id/prepare-send` | Reserve a send and persist attachments |
+| POST | `/api/canvas/branches/:id/prepare-send` | Reserve a send using validated Canvas attachment IDs |
 | POST | `/api/canvas/send-reservations/:id/ack` | Materialize the Interaction after Gateway acceptance |
 | POST | `/api/canvas/send-reservations/:id/fail` | Mark an unacknowledged reservation failed |
 | POST | `/api/canvas/interactions/:id/complete` | Compatibility completion hint |
@@ -29,9 +29,7 @@ All `/api/*` routes are subject to the common body limit, security headers, rate
 | GET | `/api/canvas/attachments/:canvasId/:attachmentId` | Read an owner-scoped durable attachment |
 | GET | `/api/canvas/artifacts/:canvasId/:interactionId/:artifactId` | Read an owner-scoped durable Artifact |
 | GET | `/api/canvas/send-reservations/:id/resources/:resourceId` | Read a canonical Fork bootstrap resource |
-| GET | `/api/canvas/openclaw-artifact?uri=...` | Proxy an owned OpenClaw media Artifact |
-| POST | `/api/upload-reference/resolve` | Stage owner/Agent-validated multipart Canvas uploads |
-| GET | `/api/files?path=...` | Serve an allowlisted local image path |
+| POST | `/api/canvas/canvases/:canvasId/attachments` | Persist owner-scoped multipart uploads without exposing a host path |
 
 ## Authentication
 
@@ -49,11 +47,10 @@ Users are administered locally with `npm run users -- ...`; there is no registra
 |---|---|---|
 | GET | `/health` | Process health |
 | GET/POST | `/api/agentlog` | Read or append the bounded Canvas activity log |
-| GET | `/api/tokens` | Usage totals used by the top bar |
+| GET | `/api/tokens` | Gateway-native totals from `usage.cost` and an optional Provider/message breakdown from `sessions.usage` |
+| GET | `/api/provider-limits` | Provider quota windows from the Gateway-native `usage.status` method |
 | GET | `/api/server-info` | Server clock, timezone, and Gateway uptime |
-| GET | `/api/codex-limits` | Local Codex usage-limit metadata |
-| GET | `/api/claude-code-limits` | Local Claude Code usage-limit metadata |
 | GET | `/api/version` | Installed version |
 | GET | `/api/version/check` | Check the official stable Release in local mode; returns `disabled` under managed authentication |
 | GET | `/api/connect-defaults` | Browser Gateway connection defaults |
-| POST | `/api/gateway/restart` | Restart the local OpenClaw Gateway |
+| POST | `/api/gateway/restart` | Restart a loopback OpenClaw Gateway through its CLI; remote Gateways return 409 |

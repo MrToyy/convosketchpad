@@ -156,34 +156,29 @@ run_with_dots() {
   return $RWD_EXIT
 }
 
-# Read the real gateway token. Systemd service file takes priority because
-# the gateway process uses its env var over openclaw.json (known 2026.2.19 bug).
+openclaw_config_value() {
+  local key="$1"
+  local openclaw_cmd="${OPENCLAW_BIN:-openclaw}"
+  "$openclaw_cmd" config get "$key" --json 2>/dev/null | node -e '
+    let input = "";
+    process.stdin.on("data", chunk => input += chunk);
+    process.stdin.on("end", () => {
+      try {
+        const value = JSON.parse(input);
+        if (typeof value === "string" || typeof value === "number") process.stdout.write(String(value));
+      } catch {}
+    });
+  ' 2>/dev/null
+}
+
+# Read the Gateway token through OpenClaw's native configuration interface.
+# OPENCLAW_CONFIG_PATH is inherited by the CLI when a custom instance is used.
 detect_gateway_token() {
-  local token=""
-  # 1. Check systemd service file (source of truth when present)
-  local svc_files=(
-    "${HOME}/.config/systemd/user/openclaw-gateway.service"
-    "/etc/systemd/system/openclaw-gateway.service"
-  )
-  for svc in "${svc_files[@]}"; do
-    if [[ -f "$svc" ]]; then
-      token=$(grep -oP 'OPENCLAW_GATEWAY_TOKEN=\K\S+' "$svc" 2>/dev/null || true)
-      if [[ -n "$token" ]]; then
-        echo "$token"
-        return 0
-      fi
-    fi
-  done
-  # 2. Fall back to openclaw.json
-  local config_file="${HOME}/.openclaw/openclaw.json"
-  if [[ -f "$config_file" ]]; then
-    token=$(node -e "try{const c=JSON.parse(require('fs').readFileSync('$config_file','utf8'));console.log(c.gateway?.auth?.token??'')}catch{}" 2>/dev/null || echo "")
-    if [[ -n "$token" ]]; then
-      echo "$token"
-      return 0
-    fi
+  if [[ -n "${OPENCLAW_GATEWAY_TOKEN:-}" ]]; then
+    echo "$OPENCLAW_GATEWAY_TOKEN"
+    return 0
   fi
-  echo ""
+  openclaw_config_value "gateway.auth.token"
 }
 
 normalize_version_tag() {
@@ -511,85 +506,15 @@ check_git() {
   fi
 }
 
-# ── Check: Build tools (needed for node-pty native compilation) ───────
-check_build_tools() {
-  if command -v make &>/dev/null && command -v g++ &>/dev/null; then
-    ok "Build tools available (make, g++)"
-    return 0
-  fi
-
-  warn "Build tools (make, g++) not found — required for native modules"
-
-  # Auto-install on Debian/Ubuntu
-  if command -v apt-get &>/dev/null; then
-    if [[ "$DRY_RUN" == "true" ]]; then
-      if [[ $EUID -eq 0 ]]; then
-        dry "Would install build-essential via apt"
-      else
-        dry "Would require manual install: sudo apt install build-essential"
-      fi
-      return 0
-    fi
-    if [[ $EUID -eq 0 ]]; then
-      run_with_dots "Installing build tools" bash -c "DEBIAN_FRONTEND=noninteractive apt-get update -qq &>/dev/null && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq build-essential &>/dev/null"
-      if command -v make &>/dev/null && command -v g++ &>/dev/null; then
-        ok "Build tools installed"
-        return 0
-      else
-        fail "Failed to install build-essential"
-      fi
-    else
-      warn "Build tools can be auto-installed only when running as root"
-      echo ""
-      hint "Install build tools:"
-      cmd "sudo apt install build-essential"
-      echo ""
-      exit 1
-    fi
-  fi
-
-  # Auto-install on macOS via Xcode Command Line Tools
-  if [[ "$(uname -s)" == "Darwin" ]]; then
-    if [[ "$DRY_RUN" == "true" ]]; then
-      dry "Would install Xcode Command Line Tools"
-      return 0
-    fi
-    info "Installing Xcode Command Line Tools (this may take a few minutes)..."
-    xcode-select --install 2>/dev/null || true
-    # Wait for the install to complete — xcode-select --install is async (opens GUI dialog)
-    printf "  ${RAIL}  ${CYAN}→${NC} Waiting for Xcode CLT "
-    until xcode-select -p &>/dev/null; do
-      printf "."
-      sleep 5
-    done
-    echo ""
-    if command -v make &>/dev/null; then
-      ok "Xcode Command Line Tools installed"
-      return 0
-    else
-      fail "Xcode CLT install did not provide build tools"
-    fi
-  fi
-
-  # Can't auto-install — tell the user
-  echo ""
-  echo -e "  Install build tools manually:"
-  echo -e "    ${CYAN}Debian/Ubuntu:${NC}  sudo apt install build-essential"
-  echo -e "    ${CYAN}Fedora/RHEL:${NC}    sudo dnf groupinstall 'Development Tools'"
-  echo -e "    ${CYAN}macOS:${NC}          xcode-select --install"
-  echo ""
-  exit 1
-}
-
 # ── Check: Gateway reachable ──────────────────────────────────────────
 check_gateway() {
   local gw_url="${GATEWAY_URL_OVERRIDE:-http://127.0.0.1:18789}"
 
-  # Try to read from openclaw.json when no explicit gateway URL was provided
-  local config_file="${HOME}/.openclaw/openclaw.json"
-  if [[ -z "$GATEWAY_URL_OVERRIDE" && -f "$config_file" ]]; then
+  # Ask the OpenClaw CLI for the active local Gateway port.
+  if [[ -z "$GATEWAY_URL_OVERRIDE" ]]; then
     local port
-    port=$(node -e "try{const c=JSON.parse(require('fs').readFileSync('$config_file','utf8'));console.log(c.gateway?.port??18789)}catch{console.log(18789)}" 2>/dev/null || echo "18789")
+    port=$(openclaw_config_value "gateway.port")
+    port="${port:-18789}"
     gw_url="http://127.0.0.1:${port}"
   fi
 
@@ -617,7 +542,6 @@ stage "Prerequisites"
 check_node
 check_npm
 check_git
-check_build_tools
 check_openclaw
 check_gateway
 
@@ -765,7 +689,7 @@ else
     else
       hint "Troubleshooting:"
       echo -e "  ${RAIL}  ${DIM}1. Check the full log: cat ${npm_log}${NC}"
-      echo -e "  ${RAIL}  ${DIM}2. Ensure Node ${NODE_MIN}+ and build tools are installed${NC}"
+      echo -e "  ${RAIL}  ${DIM}2. Ensure Node ${NODE_MIN}+ is installed${NC}"
       echo -e "  ${RAIL}  ${DIM}3. Try: rm -rf node_modules && npm install${NC}"
     fi
     echo ""
@@ -816,14 +740,14 @@ generate_env_from_gateway() {
   local gw_token="${GATEWAY_TOKEN:-}"
   local gw_url="${GATEWAY_URL_OVERRIDE:-}"
   local gw_port="18789"
-  local config_file="${HOME}/.openclaw/openclaw.json"
 
-  # Read token from systemd/config if no --gateway-token was passed
+  # Read token through OpenClaw if no --gateway-token was passed.
   if [[ -z "$gw_token" ]]; then
     gw_token=$(detect_gateway_token)
   fi
-  if [[ -z "$gw_url" && -f "$config_file" ]]; then
-    gw_port=$(node -e "try{const c=JSON.parse(require('fs').readFileSync('$config_file','utf8'));console.log(c.gateway?.port??18789)}catch{console.log(18789)}" 2>/dev/null || echo "18789")
+  if [[ -z "$gw_url" ]]; then
+    gw_port=$(openclaw_config_value "gateway.port")
+    gw_port="${gw_port:-18789}"
     gw_url="http://127.0.0.1:${gw_port}"
   fi
   if [[ -z "$gw_url" ]]; then

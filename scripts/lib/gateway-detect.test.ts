@@ -69,15 +69,26 @@ describe('OpenClaw native gateway configuration', () => {
     return import('./gateway-detect.js');
   }
 
-  it('detects the local Gateway without changing OpenClaw state', async () => {
+  it('detects the local Gateway through native config commands', async () => {
     const mod = await loadModule();
-    expect(mod.detectGatewayConfig()).toEqual({
+    const calls: string[] = [];
+    const runner: NativeCommandRunner = (_command, args) => {
+      calls.push(args.join(' '));
+      if (args[2] === 'gateway.auth.token') return commandResult(0, '"detected-token"');
+      if (args[2] === 'gateway.port') return commandResult(0, '18789');
+      return commandResult(1);
+    };
+    expect(mod.detectGatewayConfig(runner)).toEqual({
       token: 'detected-token',
       url: 'http://127.0.0.1:18789',
     });
+    expect(calls).toEqual([
+      'config get gateway.auth.token --json',
+      'config get gateway.port --json',
+    ]);
   });
 
-  it('honours OPENCLAW_CONFIG_PATH for read-only discovery', async () => {
+  it('leaves OPENCLAW_CONFIG_PATH to the native CLI instead of opening it', async () => {
     const customPath = path.join(tempHome, 'custom', 'openclaw.json');
     mkdirSync(path.dirname(customPath), { recursive: true });
     writeFileSync(customPath, JSON.stringify({
@@ -86,10 +97,16 @@ describe('OpenClaw native gateway configuration', () => {
     process.env.OPENCLAW_CONFIG_PATH = customPath;
 
     const mod = await loadModule();
-    expect(mod.detectGatewayConfig()).toEqual({
+    const runner: NativeCommandRunner = (_command, args) => {
+      if (args[2] === 'gateway.auth.token') return commandResult(0, '"custom-token"');
+      if (args[2] === 'gateway.port') return commandResult(0, '19999');
+      return commandResult(1);
+    };
+    expect(mod.detectGatewayConfig(runner)).toEqual({
       token: 'custom-token',
       url: 'http://127.0.0.1:19999',
     });
+    expect(readFileSync(customPath, 'utf8')).toContain('custom-token');
   });
 
   it('keeps the documented token precedence', async () => {

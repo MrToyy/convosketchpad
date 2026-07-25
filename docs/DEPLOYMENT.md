@@ -91,7 +91,11 @@ Example patch shape:
 
 Pair the ConvoSketchpad device on that host with `openclaw devices list --json` and `openclaw devices approve <requestId>`. Local setup does not write the remote host's configuration.
 
-Canvas execution, events, Branch/Fork behavior, and transcript reconciliation work through the Gateway. Attachment staging and local-path Artifacts require the selected Agent workspace to be accessible from the ConvoSketchpad host. Prefer a shared filesystem or same-host deployment when files are central to the workflow.
+Canvas execution, events, Branch/Fork behavior, uploads, native Artifact
+download, and usage work through the Gateway. A remote deployment needs no
+shared workspace for uploads. Legacy absolute-path Artifacts can only be
+recovered when the returned path exists on the ConvoSketchpad host and belongs
+to a workspace root reported by the Gateway; otherwise they degrade explicitly.
 
 Validate both health endpoints, then test Agent discovery, a text Interaction, and an attachment appropriate to the filesystem topology.
 

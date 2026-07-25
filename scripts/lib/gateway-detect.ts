@@ -2,8 +2,8 @@
  * OpenClaw discovery and native configuration helpers.
  *
  * OpenClaw owns its configuration and device-pairing state. This module only
- * reads legacy discovery inputs and invokes supported `openclaw config` /
- * `openclaw devices` commands; it never rewrites OpenClaw state files.
+ * invokes supported `openclaw config` / `openclaw devices` commands; it never
+ * opens or rewrites OpenClaw state files.
  */
 
 import { existsSync, readFileSync } from 'node:fs';
@@ -12,25 +12,11 @@ import { join } from 'node:path';
 import os from 'node:os';
 
 const HOME = process.env.HOME || os.homedir();
-const DEFAULT_OPENCLAW_CONFIG = join(HOME, '.openclaw', 'openclaw.json');
 const SAFE_DEVICE_REQUEST_ID_RE = /^[A-Za-z0-9_-]+$/;
 const REQUIRED_OPERATOR_SCOPES = ['operator.read', 'operator.write'] as const;
 
-function resolveOpenClawConfigPath(): string {
-  return process.env.OPENCLAW_CONFIG_PATH?.trim() || DEFAULT_OPENCLAW_CONFIG;
-}
-
 function resolveOpenClawBin(): string {
   return process.env.OPENCLAW_BIN?.trim() || 'openclaw';
-}
-
-interface OpenClawConfig {
-  gateway?: {
-    port?: number;
-    auth?: {
-      token?: string;
-    };
-  };
 }
 
 export interface DetectedGateway {
@@ -78,39 +64,28 @@ const runNativeCommand: NativeCommandRunner = (command, args, options = {}) => {
 /**
  * Read the active local Gateway token and URL for setup defaults.
  *
- * This remains read-only discovery. All mutations in this module go through
- * the OpenClaw CLI.
+ * `OPENCLAW_CONFIG_PATH` is inherited by the CLI, but this process never opens
+ * the referenced file itself.
  */
-export function detectGatewayConfig(): DetectedGateway {
-  const result: DetectedGateway = { token: readSystemdGatewayToken(), url: null };
-  const openclawConfigPath = resolveOpenClawConfigPath();
-  if (!existsSync(openclawConfigPath)) return result;
-
-  try {
-    const config = JSON.parse(readFileSync(openclawConfigPath, 'utf8')) as OpenClawConfig;
-    if (!result.token && config.gateway?.auth?.token) result.token = config.gateway.auth.token;
-    result.url = `http://127.0.0.1:${config.gateway?.port || 18789}`;
-  } catch {
-    // Keep any service token already discovered.
-  }
-  return result;
-}
-
-function readSystemdGatewayToken(): string | null {
-  const servicePaths = [
-    join(HOME, '.config', 'systemd', 'user', 'openclaw-gateway.service'),
-    '/etc/systemd/system/openclaw-gateway.service',
-  ];
-  for (const servicePath of servicePaths) {
-    if (!existsSync(servicePath)) continue;
-    try {
-      const match = readFileSync(servicePath, 'utf8').match(/OPENCLAW_GATEWAY_TOKEN=(\S+)/);
-      if (match?.[1]) return match[1];
-    } catch {
-      // Try the next supported service path.
-    }
-  }
-  return null;
+export function detectGatewayConfig(
+  runner: NativeCommandRunner = runNativeCommand,
+): DetectedGateway {
+  const command = resolveOpenClawBin();
+  const readValue = (key: string): unknown => {
+    const result = runner(command, ['config', 'get', key, '--json'], {
+      encoding: 'utf8',
+      timeout: 10_000,
+    });
+    if (result.status !== 0) return null;
+    try { return JSON.parse(result.stdout.trim()); } catch { return null; }
+  };
+  const tokenValue = readValue('gateway.auth.token');
+  const portValue = readValue('gateway.port');
+  const token = typeof tokenValue === 'string' && tokenValue.trim() ? tokenValue.trim() : null;
+  const port = typeof portValue === 'number' && Number.isInteger(portValue) && portValue > 0
+    ? portValue
+    : 18789;
+  return { token, url: `http://127.0.0.1:${port}` };
 }
 
 export function getEnvGatewayToken(): string | null {

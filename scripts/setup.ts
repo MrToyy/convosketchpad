@@ -416,7 +416,7 @@ async function collectInteractive(
       });
     }
   } else {
-    dim('Find your token in ~/.openclaw/openclaw.json or run: openclaw gateway status');
+    dim('Provide the Gateway token explicitly, or inspect it with: openclaw config get gateway.auth.token');
     config.GATEWAY_TOKEN = await password({
     theme: promptTheme,
       message: 'Gateway Auth Token (required)',
@@ -890,13 +890,13 @@ function printSummary(config: EnvConfig): void {
 }
 
 function printNextSteps(config: EnvConfig): void {
-  const port = config.PORT || DEFAULTS.PORT;
+  const developmentPort = config.VITE_PORT || '3080';
   console.log('');
   console.log('  \x1b[1mNext steps:\x1b[0m');
-  console.log(`    Development:   \x1b[36mnpm run dev\x1b[0m && \x1b[36mnpm run dev:server\x1b[0m`);
+  console.log(`    Development:   \x1b[36mnpm run dev\x1b[0m`);
   console.log(`    Production:    \x1b[36mnpm run prod\x1b[0m`);
   console.log('');
-  console.log(`  Open \x1b[36mhttp://localhost:${port}\x1b[0m in your browser.`);
+  console.log(`  Open \x1b[36mhttp://localhost:${developmentPort}\x1b[0m in your browser.`);
   console.log('');
 }
 

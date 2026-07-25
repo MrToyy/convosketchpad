@@ -25,10 +25,11 @@ async function setup() {
   }));
   vi.doMock('../lib/canvas-auth.js', () => ({ getCanvasIdentity: () => ({ userId: 'owner-a', name: 'Owner A' }) }));
   vi.doMock('../middleware/rate-limit.js', () => ({ rateLimitGeneral: async (_c: unknown, next: () => Promise<void>) => next() }));
-  vi.doMock('../lib/agent-workspace.js', () => ({
-    resolveAgentWorkspace: () => ({ agentId: 'main', workspaceRoot, memoryPath: path.join(workspaceRoot, 'MEMORY.md'), memoryDir: path.join(workspaceRoot, 'memory') }),
+  vi.doMock('../lib/gateway-rpc.js', () => ({
+    gatewayRpcCall: vi.fn(async () => ({ sessions: [] })),
+    gatewaySupports: () => false,
+    getGatewayHttpAuthToken: () => 'test-token',
   }));
-  vi.doMock('../lib/gateway-rpc.js', () => ({ gatewayRpcCall: vi.fn(async () => ({ sessions: [] })) }));
 
   const db = await import('../lib/canvas-db.js');
   const artifacts = await import('../lib/canvas-artifact-store.js');
@@ -54,7 +55,7 @@ async function seedPersistedArtifact(setupResult: Awaited<ReturnType<typeof setu
     status: 'completed',
     agentOutput: 'done',
     artifacts: materialized.artifacts,
-    reconciliation: { version: 4, phase: 'synced', artifactSync: 'synced' },
+    reconciliation: { version: 5, phase: 'synced', artifactSync: 'synced' },
   });
   return { canvas, interactionId: base.id, artifact: materialized.artifacts[0] };
 }
@@ -72,15 +73,17 @@ afterEach(async () => {
 });
 
 describe('Canvas Artifact routes', () => {
-  it('serves a persisted user attachment after the upload staging file disappears', async () => {
+  it('serves a Canvas-owned user attachment without an OpenClaw staging file', async () => {
     const current = await setup();
     const store = current.db.getCanvasStore();
     store.ensureUser('owner-a', 'Owner A');
     const canvas = store.createCanvas('owner-a', 'Attachments', 'main');
     const branch = store.createRootBranch('owner-a', canvas.id);
-    const source = path.join(workspaceRoot, '.convosketchpad', 'canvas-uploads', canvas.id, 'source.png');
-    await fs.mkdir(path.dirname(source), { recursive: true });
-    await fs.writeFile(source, 'durable-upload');
+    const attachment = await current.artifacts.persistCanvasAttachment('owner-a', canvas.id, {
+      name: 'source.png',
+      mimeType: 'image/png',
+      bytes: Buffer.from('durable-upload'),
+    });
 
     const prepared = await current.app.request(`/api/canvas/branches/${branch.id}/prepare-send`, {
       method: 'POST',
@@ -88,7 +91,7 @@ describe('Canvas Artifact routes', () => {
       body: JSON.stringify({
         expectedAgentId: 'main',
         userInput: 'inspect this',
-        attachments: [{ name: 'source.png', mimeType: 'image/png', sizeBytes: 14, uri: source }],
+        attachments: [attachment],
       }),
     });
     expect(prepared.status).toBe(200);
@@ -99,7 +102,6 @@ describe('Canvas Artifact routes', () => {
     }));
 
     store.acknowledgeSend('owner-a', payload.reservation.id, 'run-attachment');
-    await fs.rm(source);
     const response = await current.app.request(payload.reservation.attachments[0].uri);
     expect(response.status).toBe(200);
     expect(await response.text()).toBe('durable-upload');
@@ -122,7 +124,7 @@ describe('Canvas Artifact routes', () => {
     const seeded = await seedPersistedArtifact(current);
     const response = await current.app.request(`/api/canvas/canvases/${seeded.canvas.id}/graph`);
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual(expect.objectContaining({ reconciliationVersion: 4 }));
+    expect(await response.json()).toEqual(expect.objectContaining({ reconciliationVersion: 5 }));
   });
 
   it('treats a frontend terminal event as a hint instead of completing an empty interaction', async () => {
@@ -148,7 +150,7 @@ describe('Canvas Artifact routes', () => {
       artifacts: [],
       sessionMetadata: expect.objectContaining({
         reconciliation: expect.objectContaining({
-          version: 4,
+          version: 5,
           phase: 'terminal_hint_received',
           artifactSync: 'pending',
           terminalHintRunId: 'run-terminal',

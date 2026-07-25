@@ -1,33 +1,3 @@
-import type { OutgoingUploadPayload, UploadAttachmentDescriptor } from '@/features/chat/types';
-
-const UPLOAD_MANIFEST_OPEN = '<convosketchpad-upload-manifest>';
-const UPLOAD_MANIFEST_CLOSE = '</convosketchpad-upload-manifest>';
-
-function sanitizeUploadDescriptor(
-  descriptor: UploadAttachmentDescriptor,
-  exposeInlineBase64ToAgent: boolean,
-): UploadAttachmentDescriptor {
-  if (descriptor.mode !== 'inline' || !descriptor.inline) return descriptor;
-  return {
-    ...descriptor,
-    inline: {
-      ...descriptor.inline,
-      previewUrl: undefined,
-      base64: exposeInlineBase64ToAgent ? descriptor.inline.base64 : '',
-    },
-  };
-}
-
-export function appendUploadManifest(text: string, uploadPayload?: OutgoingUploadPayload): string {
-  if (!uploadPayload?.manifest.enabled || uploadPayload.descriptors.length === 0) return text;
-  const manifest = {
-    version: 1,
-    attachments: uploadPayload.descriptors.map((descriptor) =>
-      sanitizeUploadDescriptor(descriptor, uploadPayload.manifest.exposeInlineBase64ToAgent)),
-  };
-  return `${text}\n\n${UPLOAD_MANIFEST_OPEN}${JSON.stringify(manifest)}${UPLOAD_MANIFEST_CLOSE}`;
-}
-
 type RpcFn = (method: string, params: Record<string, unknown>) => Promise<unknown>;
 
 export type ChatSendStatus = 'started' | 'in_flight' | 'ok';
@@ -49,12 +19,11 @@ export async function sendChatMessage(params: {
   sessionKey: string;
   text: string;
   attachments?: GatewayAttachmentPayload[];
-  uploadPayload?: OutgoingUploadPayload;
   idempotencyKey: string;
 }): Promise<ChatSendAck> {
   const rpcParams: Record<string, unknown> = {
     sessionKey: params.sessionKey,
-    message: appendUploadManifest(params.text, params.uploadPayload),
+    message: params.text,
     deliver: false,
     idempotencyKey: params.idempotencyKey,
   };

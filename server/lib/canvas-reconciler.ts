@@ -1,5 +1,10 @@
 import { createHash } from 'node:crypto';
-import { cleanupOrphanCanvasArtifacts, materializeCanvasArtifacts } from './canvas-artifact-store.js';
+import {
+  CANVAS_ARTIFACT_MAX_BYTES,
+  cleanupOrphanCanvasArtifacts,
+  materializeCanvasArtifacts,
+  persistCanvasArtifactBytes,
+} from './canvas-artifact-store.js';
 import { config } from './config.js';
 import {
   getCanvasStore,
@@ -7,9 +12,13 @@ import {
   type InteractionRecord,
   type OwnedInteractionRecord,
 } from './canvas-db.js';
-import { gatewayRpcCall } from './gateway-rpc.js';
+import {
+  gatewayRpcCall,
+  gatewaySupports,
+  getGatewayHttpAuthToken,
+} from './gateway-rpc.js';
 
-export const CANVAS_RECONCILIATION_VERSION = 4;
+export const CANVAS_RECONCILIATION_VERSION = 5;
 export const CANVAS_SETTLE_MIN_MS = 4_000;
 export const CANVAS_SETTLE_MAX_MS = 15_000;
 
@@ -142,8 +151,6 @@ function inferMimeType(uri: string): string | undefined {
 }
 
 function filePathUri(filePath: string): string {
-  if (/^(?:https?:|data:|file:|\/api\/)/i.test(filePath)) return filePath;
-  if (filePath.startsWith('/')) return `/api/files?path=${encodeURIComponent(filePath)}`;
   return filePath;
 }
 
@@ -351,7 +358,183 @@ function stopMonitor(interactionId: string): void {
   monitors.delete(interactionId);
 }
 
-async function readTranscript(interaction: OwnedInteractionRecord): Promise<CanvasTranscriptSnapshot> {
+interface NativeArtifactSummary {
+  id: string;
+  title?: string;
+  mimeType?: string;
+  sizeBytes?: number;
+}
+
+function gatewayHttpBase(): URL {
+  const gatewayUrl = config.gatewayUrl
+    .replace(/^ws:/, 'http:')
+    .replace(/^wss:/, 'https:')
+    .replace(/\/ws\/?$/, '');
+  return new URL(gatewayUrl.endsWith('/') ? gatewayUrl : `${gatewayUrl}/`);
+}
+
+async function boundedResponseBytes(response: Response): Promise<Uint8Array> {
+  if (!response.body) throw new Error('Artifact response has no body');
+  const declared = Number(response.headers.get('content-length') || 0);
+  if (declared > CANVAS_ARTIFACT_MAX_BYTES) throw new Error('Artifact exceeds the 25 MiB persistence limit');
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > CANVAS_ARTIFACT_MAX_BYTES) {
+      await reader.cancel();
+      throw new Error('Artifact exceeds the 25 MiB persistence limit');
+    }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return bytes;
+}
+
+async function downloadGatewayArtifactUrl(urlValue: string): Promise<{
+  bytes?: Uint8Array;
+  mimeType?: string;
+  externalUrl?: string;
+}> {
+  const base = gatewayHttpBase();
+  const target = new URL(urlValue, base);
+  if (target.origin !== base.origin) return { externalUrl: target.toString() };
+  const token = getGatewayHttpAuthToken();
+  const response = await fetch(target, {
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    signal: AbortSignal.timeout(30_000),
+  });
+  if (!response.ok) throw new Error(`OpenClaw Artifact returned HTTP ${response.status}`);
+  return {
+    bytes: await boundedResponseBytes(response),
+    mimeType: response.headers.get('content-type') || undefined,
+  };
+}
+
+function mergeArtifacts(artifacts: CanvasArtifact[]): CanvasArtifact[] {
+  const merged = new Map<string, CanvasArtifact>();
+  for (const artifact of artifacts) {
+    const key = artifact.gatewayArtifactId
+      ? `gateway:${artifact.gatewayArtifactId}`
+      : artifact.sourceUri || artifact.uri;
+    if (!merged.has(key) || artifact.storage === 'canvas') merged.set(key, artifact);
+  }
+  return [...merged.values()];
+}
+
+async function readNativeArtifacts(interaction: OwnedInteractionRecord): Promise<{
+  artifacts: CanvasArtifact[];
+  complete: boolean;
+  warnings: string[];
+}> {
+  if (!gatewaySupports('artifacts.list') || !gatewaySupports('artifacts.download')) {
+    return {
+      artifacts: [],
+      complete: false,
+      warnings: ['OpenClaw Gateway does not advertise artifacts.list/download; Artifact sync requires a Gateway upgrade.'],
+    };
+  }
+
+  const query = interaction.runId
+    ? { runId: interaction.runId, agentId: interaction.agentId }
+    : { sessionKey: interaction.sessionKey, agentId: interaction.agentId };
+  let summaries: NativeArtifactSummary[];
+  try {
+    const listed = await gatewayRpcCall('artifacts.list', query, 30_000) as {
+      artifacts?: NativeArtifactSummary[];
+    };
+    summaries = Array.isArray(listed.artifacts)
+      ? listed.artifacts.filter((item) => typeof item?.id === 'string')
+      : [];
+  } catch (error) {
+    return {
+      artifacts: [],
+      complete: false,
+      warnings: [`OpenClaw Artifact listing failed: ${error instanceof Error ? error.message : String(error)}`],
+    };
+  }
+
+  const artifacts: CanvasArtifact[] = [];
+  const warnings: string[] = [];
+  for (const summary of summaries) {
+    const name = summary.title || summary.id;
+    const sourceKey = `openclaw-artifact:${interaction.agentId}:${summary.id}`;
+    const baseArtifact: CanvasArtifact = {
+      gatewayArtifactId: summary.id,
+      name,
+      uri: sourceKey,
+      sourceUri: sourceKey,
+      ...(summary.mimeType ? { mimeType: summary.mimeType } : {}),
+      ...(typeof summary.sizeBytes === 'number' ? { sizeBytes: summary.sizeBytes } : {}),
+    };
+    try {
+      const downloaded = await gatewayRpcCall('artifacts.download', {
+        ...query,
+        artifactId: summary.id,
+      }, 30_000) as {
+        artifact?: NativeArtifactSummary;
+        encoding?: unknown;
+        data?: unknown;
+        url?: unknown;
+      };
+      const mimeType = downloaded.artifact?.mimeType || summary.mimeType;
+      if (downloaded.encoding === 'base64' && typeof downloaded.data === 'string') {
+        artifacts.push(await persistCanvasArtifactBytes(
+          interaction,
+          baseArtifact,
+          sourceKey,
+          Buffer.from(downloaded.data, 'base64'),
+          mimeType,
+        ));
+        continue;
+      }
+      if (typeof downloaded.url === 'string') {
+        const resolved = await downloadGatewayArtifactUrl(downloaded.url);
+        if (resolved.externalUrl) {
+          artifacts.push({
+            ...baseArtifact,
+            uri: resolved.externalUrl,
+            sourceUri: resolved.externalUrl,
+            storage: 'external',
+            available: true,
+          });
+        } else if (resolved.bytes) {
+          artifacts.push(await persistCanvasArtifactBytes(
+            interaction,
+            baseArtifact,
+            sourceKey,
+            resolved.bytes,
+            mimeType || resolved.mimeType,
+          ));
+        }
+        continue;
+      }
+      throw new Error('Gateway returned an unsupported Artifact download payload');
+    } catch (error) {
+      const warning = `${name}: ${error instanceof Error ? error.message : 'Artifact download failed'}`;
+      warnings.push(warning);
+      artifacts.push({
+        ...baseArtifact,
+        storage: 'source',
+        available: false,
+        warning,
+      });
+    }
+  }
+  return { artifacts, complete: warnings.length === 0, warnings };
+}
+
+export async function reconcileTranscriptSnapshot(
+  interaction: OwnedInteractionRecord,
+): Promise<CanvasTranscriptSnapshot> {
   const response = await gatewayRpcCall('sessions.get', {
     key: interaction.sessionKey,
     limit: 500,
@@ -360,17 +543,26 @@ async function readTranscript(interaction: OwnedInteractionRecord): Promise<Canv
   const sessionId = response.sessionId || response.id;
   if (sessionId) getCanvasStore().observeBranchSession(interaction.branchId, sessionId);
   const extracted = extractCanvasTranscript(Array.isArray(response.messages) ? response.messages : [], interaction);
-  const extractedSources = new Set(extracted.artifacts.map((artifact) => artifact.sourceUri || artifact.uri));
+  const native = await readNativeArtifacts(interaction);
+  const fallbackArtifacts = extracted.artifacts.filter((artifact) => !native.artifacts.some((candidate) =>
+    candidate.name === artifact.name
+    && (!candidate.mimeType || !artifact.mimeType || candidate.mimeType === artifact.mimeType)
+    && (candidate.sizeBytes === undefined || artifact.sizeBytes === undefined || candidate.sizeBytes === artifact.sizeBytes)));
+  const extractedSources = new Set(fallbackArtifacts.map((artifact) => artifact.sourceUri || artifact.uri));
   const retainedArtifacts = interaction.artifacts.filter((artifact) =>
-    !extractedSources.has(artifact.sourceUri || artifact.uri));
-  const materialized = await materializeCanvasArtifacts(interaction, [...extracted.artifacts, ...retainedArtifacts]);
+    !extractedSources.has(artifact.sourceUri || artifact.uri)
+    && !native.artifacts.some((candidate) =>
+      candidate.gatewayArtifactId && candidate.gatewayArtifactId === artifact.gatewayArtifactId));
+  const materialized = await materializeCanvasArtifacts(interaction, [...fallbackArtifacts, ...retainedArtifacts]);
+  const artifacts = mergeArtifacts([...native.artifacts, ...materialized.artifacts]);
+  const warnings = [...native.warnings, ...materialized.warnings];
   return {
     ...extracted,
-    artifacts: materialized.artifacts,
-    artifactPersistenceComplete: materialized.complete,
-    artifactWarnings: materialized.warnings,
+    artifacts,
+    artifactPersistenceComplete: native.complete && materialized.complete,
+    artifactWarnings: warnings,
     fingerprint: createHash('sha256')
-      .update(JSON.stringify({ agentOutput: extracted.agentOutput, artifacts: materialized.artifacts }))
+      .update(JSON.stringify({ agentOutput: extracted.agentOutput, artifacts }))
       .digest('hex'),
   };
 }
@@ -424,7 +616,7 @@ async function settlementRead(interactionId: string): Promise<void> {
   let snapshot: CanvasTranscriptSnapshot | null = null;
   let readError: string | undefined;
   try {
-    snapshot = await readTranscript(interaction);
+    snapshot = await reconcileTranscriptSnapshot(interaction);
     settlement.best = snapshot;
     if (snapshot.fingerprint === settlement.previousFingerprint) settlement.stableReads += 1;
     else settlement.stableReads = 1;
@@ -524,7 +716,7 @@ async function backgroundRead(interactionId: string): Promise<void> {
   }
 
   try {
-    const snapshot = await readTranscript(interaction);
+    const snapshot = await reconcileTranscriptSnapshot(interaction);
     const unchanged = snapshot.fingerprint === settlement.previousFingerprint;
     settlement.best = snapshot;
     settlement.previousFingerprint = snapshot.fingerprint;
@@ -649,7 +841,7 @@ async function pollInteraction(interactionId: string): Promise<void> {
     }
 
     if (asNumber(reconciliation.terminalHintAt)) {
-      const snapshot = await readTranscript(interaction);
+      const snapshot = await reconcileTranscriptSnapshot(interaction);
       if (canvasTranscriptHasResponse(snapshot)) {
         beginSettlement(interaction, Date.now(), {
           failure: typeof reconciliation.failureHint === 'string' ? reconciliation.failureHint : undefined,
@@ -711,18 +903,4 @@ export function startCanvasReconciler(): void {
 
 export function stopCanvasReconciler(): void {
   for (const interactionId of [...monitors.keys()]) stopMonitor(interactionId);
-}
-
-export function canvasArtifactProxyUrl(uri: string): string {
-  if (!uri.startsWith('/api/chat/media/')) return uri;
-  return `/api/canvas/openclaw-artifact?uri=${encodeURIComponent(uri)}`;
-}
-
-export function resolveOpenClawArtifactUrl(uri: string): URL | null {
-  if (!uri.startsWith('/api/chat/media/')) return null;
-  const gatewayHttpUrl = config.gatewayUrl
-    .replace(/^ws:/, 'http:')
-    .replace(/^wss:/, 'https:')
-    .replace(/\/ws\/?$/, '');
-  return new URL(uri, gatewayHttpUrl.endsWith('/') ? gatewayHttpUrl : `${gatewayHttpUrl}/`);
 }

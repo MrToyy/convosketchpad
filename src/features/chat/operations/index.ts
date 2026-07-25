@@ -1,4 +1,4 @@
-export { appendUploadManifest, sendChatMessage } from './sendMessage';
+export { sendChatMessage } from './sendMessage';
 export type { ChatSendAck, ChatSendStatus, GatewayAttachmentPayload } from './sendMessage';
 export {
   appendActivityEntry,

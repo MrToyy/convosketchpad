@@ -22,10 +22,6 @@ export interface EnvConfig {
   CSP_CONNECT_EXTRA?: string;
   WS_ALLOWED_HOSTS?: string;
   TRUSTED_PROXIES?: string;
-  SESSIONS_DIR?: string;
-  USAGE_FILE?: string;
-  CONVOSKETCHPAD_WORKSPACE_ROOT?: string;
-  CONVOSKETCHPAD_UPLOAD_STAGING_TEMP_DIR?: string;
   CONVOSKETCHPAD_DATA_DIR?: string;
   CONVOSKETCHPAD_ALLOW_INSECURE?: string;
   // Authentication
@@ -117,10 +113,6 @@ export function generateEnvContent(config: EnvConfig): string {
   if (config.CSP_CONNECT_EXTRA) advLines.push(`CSP_CONNECT_EXTRA=${config.CSP_CONNECT_EXTRA}`);
   if (config.WS_ALLOWED_HOSTS) advLines.push(`WS_ALLOWED_HOSTS=${config.WS_ALLOWED_HOSTS}`);
   if (config.TRUSTED_PROXIES) advLines.push(`TRUSTED_PROXIES=${config.TRUSTED_PROXIES}`);
-  if (config.SESSIONS_DIR) advLines.push(`SESSIONS_DIR=${config.SESSIONS_DIR}`);
-  if (config.USAGE_FILE) advLines.push(`USAGE_FILE=${config.USAGE_FILE}`);
-  if (config.CONVOSKETCHPAD_WORKSPACE_ROOT) advLines.push(`CONVOSKETCHPAD_WORKSPACE_ROOT=${config.CONVOSKETCHPAD_WORKSPACE_ROOT}`);
-  if (config.CONVOSKETCHPAD_UPLOAD_STAGING_TEMP_DIR) advLines.push(`CONVOSKETCHPAD_UPLOAD_STAGING_TEMP_DIR=${config.CONVOSKETCHPAD_UPLOAD_STAGING_TEMP_DIR}`);
   if (config.CONVOSKETCHPAD_DATA_DIR) advLines.push(`CONVOSKETCHPAD_DATA_DIR=${config.CONVOSKETCHPAD_DATA_DIR}`);
   if (config.CONVOSKETCHPAD_ALLOW_INSECURE) advLines.push(`CONVOSKETCHPAD_ALLOW_INSECURE=${config.CONVOSKETCHPAD_ALLOW_INSECURE}`);
   if (advLines.length > 0) {

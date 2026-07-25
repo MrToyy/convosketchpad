@@ -98,27 +98,25 @@ export const canvasApi = {
 };
 
 export function canvasArtifactUrl(uri: string): string {
-  return uri.startsWith('/api/chat/media/')
-    ? `/api/canvas/openclaw-artifact?uri=${encodeURIComponent(uri)}`
-    : uri;
+  return uri;
 }
 
-export interface StagedUpload {
-  kind: 'direct_workspace_reference' | 'imported_workspace_reference';
-  canonicalPath: string;
-  absolutePath: string;
+export interface PersistedCanvasAttachment {
+  id: string;
+  name: string;
   uri: string;
   mimeType: string;
   sizeBytes: number;
-  originalName: string;
+  storage: 'canvas';
+  available: true;
 }
 
-export async function stageCanvasFiles(files: File[], agentId: string, canvasId: string): Promise<StagedUpload[]> {
+export async function persistCanvasFiles(files: File[], canvasId: string): Promise<PersistedCanvasAttachment[]> {
   const form = new FormData();
-  form.append('agentId', agentId);
-  form.append('purpose', 'canvas');
-  form.append('canvasId', canvasId);
   files.forEach((file) => form.append('files', file));
-  const result = await request<{ items: StagedUpload[] }>('/api/upload-reference/resolve', { method: 'POST', body: form });
+  const result = await request<{ items: PersistedCanvasAttachment[] }>(
+    `/api/canvas/canvases/${encodeURIComponent(canvasId)}/attachments`,
+    { method: 'POST', body: form },
+  );
   return result.items;
 }

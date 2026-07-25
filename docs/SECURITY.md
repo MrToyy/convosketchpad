@@ -32,18 +32,19 @@ redacted from Gateway responses before they reach the browser.
 
 ## Canvas ownership
 
-Every Canvas, Branch, Interaction, attachment, Artifact, and send resource is resolved through the authenticated owner. Artifact proxying additionally requires an owned Canvas Session key. Requests for another owner's resources return 404.
+Every Canvas, Branch, Interaction, attachment, Artifact, and send resource is resolved through the authenticated owner. Requests for another owner's resources return 404.
 
 Changing a Canvas Agent is allowed only before the first send. The server validates the Agent against `agents.list`, rewrites draft session keys transactionally, and requires `expectedAgentId` on prepare-send to reject stale-client races.
 
 ## File handling
 
 - Uploads are limited to four files and 20 MiB each at the Canvas layer.
-- Staged workspace paths must remain inside the selected Agent workspace.
-- Sensitive/generated path segments such as `.git`, `.env`, and `node_modules` are rejected.
-- Symlinks are resolved and checked again.
-- Canvas stores owner-scoped durable copies before an Interaction is committed.
-- SVG returned through the generic image route is forced to download.
+- Uploads go directly to owner-scoped Canvas storage and never write an OpenClaw workspace.
+- OpenClaw Artifact bytes are requested through `artifacts.download`; there is no generic host-path HTTP route.
+- Explicit absolute-path compatibility is limited to a native Agent workspace root or the system temp directory.
+- Paths are normalized, resolved with `realpath`, and rejected when a symlink escapes an allowed root.
+- Relative workspace reads require the advertised `agents.workspace.get` method.
+- Gateway credentials are sent only to same-Gateway Artifact URLs and never to external origins.
 
 ## Deployment checklist
 

@@ -226,13 +226,28 @@ describe('CanvasStore', () => {
     const firstReservation = store.prepareSend('user-a', {
       branchId: root.id,
       userInput: 'one',
-      attachments: [{ id: 'upload-1', name: 'source.png', mimeType: 'image/png', sizeBytes: 10, uri: 'file:///workspace/source.png', workspacePath: 'source.png' }],
+      attachments: [{
+        id: 'a'.repeat(40),
+        name: 'source.png',
+        mimeType: 'image/png',
+        sizeBytes: 10,
+        uri: `/api/canvas/attachments/${canvas.id}/${'a'.repeat(40)}`,
+        storage: 'canvas',
+        available: true,
+      }],
     });
     const first = store.acknowledgeSend('user-a', firstReservation.id, 'run-1');
     store.completeInteraction('user-a', first.id, {
       status: 'completed',
       agentOutput: 'answer one',
-      artifacts: [{ name: 'result.png', mimeType: 'image/png', uri: '/api/chat/media/outgoing/session/result/full' }],
+      artifacts: [{
+        id: 'b'.repeat(40),
+        name: 'result.png',
+        mimeType: 'image/png',
+        uri: `/api/canvas/artifacts/${canvas.id}/${first.id}/${'b'.repeat(40)}`,
+        storage: 'canvas',
+        available: true,
+      }],
     });
 
     expect(() => store.forkInteraction('user-a', first.id)).toThrow('cannot_fork_branch_head');

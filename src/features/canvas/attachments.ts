@@ -57,3 +57,22 @@ export async function prepareGatewayAttachments(files: File[], language: Languag
   for (const file of files) prepared.push(await prepareGatewayAttachment(file, language));
   return prepared;
 }
+
+export function estimateChatSendFrameBytes(
+  sessionKey: string,
+  message: string,
+  attachments: GatewayAttachment[],
+): number {
+  return new TextEncoder().encode(JSON.stringify({
+    type: 'req',
+    id: '00000000-0000-4000-8000-000000000000',
+    method: 'chat.send',
+    params: {
+      sessionKey,
+      message,
+      attachments,
+      deliver: false,
+      idempotencyKey: '00000000-0000-4000-8000-000000000000',
+    },
+  })).byteLength;
+}

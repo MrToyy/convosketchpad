@@ -3,8 +3,12 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { resolveAgentWorkspace } from './agent-workspace.js';
 import { config } from './config.js';
+import {
+  gatewayRpcCall,
+  gatewaySupports,
+  getGatewayHttpAuthToken,
+} from './gateway-rpc.js';
 import type { CanvasArtifact, CanvasAttachment, OwnedInteractionRecord } from './canvas-db.js';
 
 export const CANVAS_ARTIFACT_MAX_BYTES = 25 * 1024 * 1024;
@@ -51,6 +55,38 @@ function attachmentFilePath(ownerId: string, canvasId: string, attachmentId: str
   return path.join(canvasDirectory(ownerId, canvasId), 'attachments', attachmentId);
 }
 
+export async function persistCanvasAttachment(
+  ownerId: string,
+  canvasId: string,
+  input: { name: string; mimeType: string; bytes: Uint8Array },
+): Promise<CanvasAttachment> {
+  if (input.bytes.byteLength > CANVAS_ARTIFACT_MAX_BYTES) {
+    throw new Error(`${input.name}: Attachment exceeds the 25 MiB persistence limit`);
+  }
+  const id = createHash('sha256').update(input.bytes).digest('hex').slice(0, 40);
+  const target = attachmentFilePath(ownerId, canvasId, id);
+  await fs.mkdir(path.dirname(target), { recursive: true });
+  const existing = await fs.stat(target).catch(() => null);
+  if (!existing?.isFile()) {
+    const temporary = `${target}.${randomUUID()}.tmp`;
+    try {
+      await fs.writeFile(temporary, input.bytes, { flag: 'wx' });
+      await fs.rename(temporary, target);
+    } finally {
+      await fs.rm(temporary, { force: true }).catch(() => undefined);
+    }
+  }
+  return {
+    id,
+    name: input.name,
+    mimeType: input.mimeType || 'application/octet-stream',
+    sizeBytes: input.bytes.byteLength,
+    uri: canvasAttachmentUri(canvasId, id),
+    storage: 'canvas',
+    available: true,
+  };
+}
+
 function artifactSourceUri(artifact: CanvasArtifact): string {
   return artifact.sourceUri || artifact.uri;
 }
@@ -95,22 +131,50 @@ async function responseBytes(response: Response): Promise<Uint8Array> {
   return bytes;
 }
 
+async function nativeWorkspaceRoot(agentId: string): Promise<string | null> {
+  if (!gatewaySupports('agents.list')) return null;
+  const result = await gatewayRpcCall('agents.list', {}, 15_000).catch(() => null) as {
+    agents?: Array<{ id?: unknown; workspace?: unknown }>;
+  } | null;
+  const workspace = result?.agents?.find((agent) => agent.id === agentId)?.workspace;
+  return typeof workspace === 'string' && path.isAbsolute(workspace) ? path.resolve(workspace) : null;
+}
+
+function decodeWorkspaceContent(result: unknown): { bytes: Uint8Array; mimeType?: string } | null {
+  const record = result && typeof result === 'object' ? result as Record<string, unknown> : null;
+  const file = record?.file && typeof record.file === 'object'
+    ? record.file as Record<string, unknown>
+    : record;
+  if (!file) return null;
+  const content = typeof file.content === 'string'
+    ? file.content
+    : typeof file.data === 'string'
+      ? file.data
+      : null;
+  if (content === null) return null;
+  const encoding = typeof file.encoding === 'string' ? file.encoding.toLowerCase() : 'utf8';
+  const bytes = encoding === 'base64' ? Buffer.from(content, 'base64') : Buffer.from(content, 'utf8');
+  return {
+    bytes,
+    ...(typeof file.mimeType === 'string' ? { mimeType: file.mimeType } : {}),
+  };
+}
+
 async function secureLocalPath(uri: string, agentId: string): Promise<string | null> {
   let candidate: string | null = null;
   try {
     if (uri.startsWith('file://')) candidate = fileURLToPath(uri);
-    else if (uri.startsWith('/api/files?')) candidate = new URL(uri, 'http://canvas.local').searchParams.get('path');
     else if (path.isAbsolute(uri)) candidate = uri;
-    else if (!/^[a-z][a-z0-9+.-]*:/i.test(uri) && !uri.startsWith('/api/')) {
-      candidate = path.resolve(resolveAgentWorkspace(agentId).workspaceRoot, uri);
-    }
   } catch {
     return null;
   }
   if (!candidate) return null;
 
-  const workspaceRoot = path.resolve(resolveAgentWorkspace(agentId).workspaceRoot);
-  const allowedRoots = [workspaceRoot, path.resolve(os.tmpdir()), path.resolve(os.homedir(), '.openclaw')];
+  const workspaceRoot = await nativeWorkspaceRoot(agentId);
+  const allowedRoots = [
+    ...(workspaceRoot ? [workspaceRoot] : []),
+    path.resolve(os.tmpdir()),
+  ];
   const resolved = path.resolve(candidate);
   if (!allowedRoots.some((root) => isWithin(resolved, root))) return null;
   const realPath = await fs.realpath(resolved).catch(() => null);
@@ -134,8 +198,9 @@ async function loadSourceBytes(
     let sessionKey = '';
     try { sessionKey = match ? decodeURIComponent(match[1]) : ''; } catch { /* invalid encoding */ }
     if (sessionKey !== interaction.sessionKey) throw new Error('Artifact media session does not match the Interaction');
+    const token = getGatewayHttpAuthToken();
     const response = await fetch(mediaUrl, {
-      headers: config.gatewayToken ? { Authorization: `Bearer ${config.gatewayToken}` } : undefined,
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
       signal: AbortSignal.timeout(30_000),
     });
     if (!response.ok) throw new Error(`OpenClaw Artifact returned HTTP ${response.status}`);
@@ -151,6 +216,22 @@ async function loadSourceBytes(
     const bytes = Buffer.from(match[2], 'base64');
     if (bytes.byteLength > CANVAS_ARTIFACT_MAX_BYTES) throw new Error('Artifact exceeds the 25 MiB persistence limit');
     return { bytes, mimeType: artifact.mimeType || match[1] };
+  }
+
+  if (!path.isAbsolute(uri) && !uri.startsWith('file:') && !/^[a-z][a-z0-9+.-]*:/i.test(uri)) {
+    if (!gatewaySupports('agents.workspace.get')) {
+      throw new Error('Gateway does not provide agents.workspace.get for relative Artifact paths');
+    }
+    const result = await gatewayRpcCall('agents.workspace.get', {
+      agentId: interaction.agentId,
+      path: uri,
+    }, 15_000);
+    const decoded = decodeWorkspaceContent(result);
+    if (!decoded) throw new Error('Gateway returned an unsupported workspace file payload');
+    if (decoded.bytes.byteLength > CANVAS_ARTIFACT_MAX_BYTES) {
+      throw new Error('Artifact exceeds the 25 MiB persistence limit');
+    }
+    return { bytes: decoded.bytes, mimeType: artifact.mimeType || decoded.mimeType };
   }
 
   const localPath = await secureLocalPath(uri, interaction.agentId);
@@ -190,6 +271,16 @@ async function persistBytes(
     ...(mimeType ? { mimeType } : {}),
     warning: undefined,
   };
+}
+
+export async function persistCanvasArtifactBytes(
+  interaction: OwnedInteractionRecord,
+  artifact: CanvasArtifact,
+  sourceKey: string,
+  bytes: Uint8Array,
+  mimeType?: string,
+): Promise<CanvasArtifact> {
+  return persistBytes(interaction, artifact, sourceKey, bytes, mimeType);
 }
 
 async function persistedArtifactExists(interaction: OwnedInteractionRecord, artifact: CanvasArtifact): Promise<boolean> {
@@ -256,42 +347,31 @@ export async function materializeCanvasArtifacts(
   return { artifacts, complete: warnings.length === 0, warnings };
 }
 
-export async function materializeCanvasAttachments(
+export async function validateCanvasAttachments(
   ownerId: string,
   canvasId: string,
-  agentId: string,
   attachments: CanvasAttachment[],
 ): Promise<CanvasAttachment[]> {
   const persisted: CanvasAttachment[] = [];
   for (const attachment of attachments) {
-    const sourceUri = attachment.sourceUri || attachment.uri || '';
-    if (!sourceUri) throw new Error(`${attachment.name}: Attachment source URI is missing`);
-    const sourcePath = await secureLocalPath(sourceUri, agentId);
-    if (!sourcePath) throw new Error(`${attachment.name}: Attachment source is not an allowed local file`);
-    const bytes = await fs.readFile(sourcePath);
-    if (bytes.byteLength > CANVAS_ARTIFACT_MAX_BYTES) throw new Error(`${attachment.name}: Attachment exceeds the 25 MiB persistence limit`);
-    const id = createHash('sha256').update(bytes).digest('hex').slice(0, 40);
-    const target = attachmentFilePath(ownerId, canvasId, id);
-    await fs.mkdir(path.dirname(target), { recursive: true });
-    const existing = await fs.stat(target).catch(() => null);
-    if (!existing?.isFile()) {
-      const temporary = `${target}.${randomUUID()}.tmp`;
-      try {
-        await fs.writeFile(temporary, bytes, { flag: 'wx' });
-        await fs.rename(temporary, target);
-      } finally {
-        await fs.rm(temporary, { force: true }).catch(() => undefined);
-      }
+    const id = attachment.id || '';
+    if (!ARTIFACT_ID_PATTERN.test(id) || attachment.storage !== 'canvas') {
+      throw new Error(`${attachment.name}: Attachment must reference Canvas-owned storage`);
+    }
+    const bytes = await readCanvasAttachment(ownerId, canvasId, id);
+    if (!bytes) throw new Error(`${attachment.name}: Canvas attachment is unavailable`);
+    const expectedUri = canvasAttachmentUri(canvasId, id);
+    if (attachment.uri !== expectedUri || attachment.sizeBytes !== bytes.byteLength) {
+      throw new Error(`${attachment.name}: Canvas attachment metadata does not match persisted content`);
     }
     persisted.push({
-      ...attachment,
       id,
-      uri: canvasAttachmentUri(canvasId, id),
-      sourceUri,
+      name: attachment.name,
+      mimeType: attachment.mimeType || 'application/octet-stream',
+      sizeBytes: bytes.byteLength,
+      uri: expectedUri,
       storage: 'canvas',
       available: true,
-      sizeBytes: bytes.byteLength,
-      warning: undefined,
     });
   }
   return persisted;

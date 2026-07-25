@@ -33,7 +33,7 @@ function interaction(overrides: Partial<OwnedInteractionRecord> = {}): OwnedInte
   };
 }
 
-async function loadStore() {
+async function loadStore(options: { workspaceGet?: boolean } = {}) {
   vi.resetModules();
   vi.doMock('./config.js', () => ({
     config: {
@@ -42,8 +42,17 @@ async function loadStore() {
       gatewayToken: 'test-token',
     },
   }));
-  vi.doMock('./agent-workspace.js', () => ({
-    resolveAgentWorkspace: () => ({ agentId: 'main', workspaceRoot, memoryPath: path.join(workspaceRoot, 'MEMORY.md'), memoryDir: path.join(workspaceRoot, 'memory') }),
+  vi.doMock('./gateway-rpc.js', () => ({
+    gatewaySupports: (method: string) =>
+      method === 'agents.list' || (options.workspaceGet === true && method === 'agents.workspace.get'),
+    gatewayRpcCall: async (method: string) => {
+      if (method === 'agents.list') return { agents: [{ id: 'main', workspace: workspaceRoot }] };
+      if (method === 'agents.workspace.get') {
+        return { file: { content: 'cmVtb3RlLWZpbGU=', encoding: 'base64', mimeType: 'text/plain' } };
+      }
+      return {};
+    },
+    getGatewayHttpAuthToken: () => 'test-token',
   }));
   return import('./canvas-artifact-store.js');
 }
@@ -62,30 +71,24 @@ afterEach(async () => {
 });
 
 describe('Canvas Artifact Store', () => {
-  it('persists user attachments independently from their OpenClaw staging path', async () => {
-    const source = path.join(workspaceRoot, '.convosketchpad', 'canvas-uploads', 'source.png');
-    await fs.mkdir(path.dirname(source), { recursive: true });
-    await fs.writeFile(source, 'uploaded-image');
+  it('persists user attachments directly in Canvas-owned storage', async () => {
     const store = await loadStore();
 
-    const [attachment] = await store.materializeCanvasAttachments('owner-1', 'canvas-1', 'main', [{
-      id: 'staged-upload',
+    const attachment = await store.persistCanvasAttachment('owner-1', 'canvas-1', {
       name: 'source.png',
       mimeType: 'image/png',
-      sizeBytes: 14,
-      uri: source,
-      workspacePath: '.convosketchpad/canvas-uploads/source.png',
-    }]);
+      bytes: Buffer.from('uploaded-image'),
+    });
 
     expect(attachment).toEqual(expect.objectContaining({
       storage: 'canvas',
       available: true,
-      sourceUri: source,
       uri: expect.stringMatching(/^\/api\/canvas\/attachments\/canvas-1\/[a-f0-9]{40}$/),
     }));
-    await fs.rm(source);
     const bytes = await store.readCanvasAttachment('owner-1', 'canvas-1', attachment.id!);
     expect(Buffer.from(bytes!).toString()).toBe('uploaded-image');
+    await expect(store.validateCanvasAttachments('owner-1', 'canvas-1', [attachment]))
+      .resolves.toEqual([attachment]);
   });
 
   it('persists Workspace files and reuses the same stable artifact', async () => {
@@ -107,6 +110,21 @@ describe('Canvas Artifact Store', () => {
     expect(second.artifacts[0].id).toBe(first.artifacts[0].id);
     expect(second.artifacts[0].name).toBe('renamed.txt');
     expect(second.complete).toBe(true);
+  });
+
+  it('reads relative legacy paths through agents.workspace.get when advertised', async () => {
+    const store = await loadStore({ workspaceGet: true });
+    const result = await store.materializeCanvasArtifacts(
+      interaction(),
+      [{ name: 'remote.txt', mimeType: 'text/plain', uri: 'reports/remote.txt' }],
+    );
+
+    expect(result.complete).toBe(true);
+    const persisted = await store.readCanvasArtifact(
+      { ...interaction(), artifacts: result.artifacts },
+      result.artifacts[0].id!,
+    );
+    expect(Buffer.from(persisted!.bytes).toString()).toBe('remote-file');
   });
 
   it('persists OpenClaw media through the authenticated Gateway endpoint', async () => {
@@ -144,6 +162,23 @@ describe('Canvas Artifact Store', () => {
     expect(result.complete).toBe(false);
     expect(result.artifacts[0]).toEqual(expect.objectContaining({ storage: 'source', available: false }));
     expect(result.warnings[0]).toContain('missing.txt');
+  });
+
+  it('rejects a symlink that escapes a workspace returned by the Gateway', async () => {
+    const link = path.join(workspaceRoot, 'escaped.txt');
+    await fs.symlink('/etc/hosts', link);
+    const store = await loadStore();
+
+    const result = await store.materializeCanvasArtifacts(
+      interaction(),
+      [{ name: 'escaped.txt', uri: link }],
+    );
+
+    expect(result.complete).toBe(false);
+    expect(result.artifacts[0]).toEqual(expect.objectContaining({
+      storage: 'source',
+      available: false,
+    }));
   });
 
   it('refuses to persist files larger than 25 MiB', async () => {

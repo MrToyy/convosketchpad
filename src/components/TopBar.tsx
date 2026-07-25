@@ -16,7 +16,7 @@ export function TopBar({ onSettings, agentLogEntries, eventEntries, tokenData }:
     document.addEventListener('mousedown', close);
     return () => document.removeEventListener('mousedown', close);
   }, [panel]);
-  const cost = useMemo(() => tokenData ? `$${(tokenData.persistent?.totalCost ?? tokenData.totalCost ?? 0).toFixed(2)}` : null, [tokenData]);
+  const cost = useMemo(() => tokenData ? `$${(tokenData.totalCost ?? 0).toFixed(2)}` : null, [tokenData]);
   const toggle = (value: Exclude<Panel, null>) => setPanel((current) => current === value ? null : value);
   return <div ref={rootRef} className="relative z-40 px-2 pt-2 sm:px-4 sm:pt-3">
     <header className="shell-panel flex min-h-14 items-center gap-3 rounded-2xl px-3 py-2 sm:px-4">

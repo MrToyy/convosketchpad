@@ -21,12 +21,8 @@ export interface TokenData {
   totalOutput?: number;
   totalCacheRead?: number;
   totalMessages?: number;
-  persistent?: {
-    totalCost: number;
-    totalInput: number;
-    totalOutput: number;
-    lastUpdated: string;
-  };
+  totalErrors?: number;
+  breakdownAvailable?: boolean;
   updatedAt?: number;
 }
 
@@ -38,7 +34,6 @@ export interface TokenEntry {
   inputTokens?: number;
   outputTokens?: number;
   cacheReadTokens?: number;
-  errorCount?: number;
 }
 
 /** Possible roles for chat messages */

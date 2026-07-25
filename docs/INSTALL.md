@@ -14,7 +14,7 @@ By default, the installer resolves the latest official stable GitHub Release. It
 
 The installer runs five stages:
 
-1. **Prerequisites** — checks Node.js, npm, Git, native build tools, OpenClaw, and Gateway availability.
+1. **Prerequisites** — checks Node.js, npm, Git, OpenClaw, and Gateway availability.
 2. **Download** — verifies and installs the selected stable Release, or an explicitly requested development branch, without discarding a dirty checkout.
 3. **Install & Build** — installs npm dependencies and creates the production build.
 4. **Configure** — runs the setup wizard unless `--skip-setup` is used.

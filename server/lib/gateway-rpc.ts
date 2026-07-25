@@ -37,6 +37,22 @@ export interface GatewayFileWithContent extends GatewayFileEntry {
   content: string;
 }
 
+export interface GatewayCapabilities {
+  serverVersion?: string;
+  methods: ReadonlySet<string>;
+  maxPayload?: number;
+}
+
+export class GatewayCapabilityError extends Error {
+  readonly method: string;
+
+  constructor(method: string) {
+    super(`OpenClaw Gateway does not advertise required method: ${method}`);
+    this.method = method;
+    this.name = 'GatewayCapabilityError';
+  }
+}
+
 // ── Persistent connection ────────────────────────────────────────────
 
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -72,6 +88,8 @@ let connectPromise: Promise<void> | null = null;
 let connectResolve: (() => void) | null = null;
 let connectReject: ((err: Error) => void) | null = null;
 let deviceTokenRetryUsed = false;
+let capabilities: GatewayCapabilities = { methods: new Set() };
+let shuttingDown = false;
 
 function normalizeOrigin(value: string | undefined | null): string | null {
   if (!value) return null;
@@ -176,6 +194,7 @@ function rejectConnect(reason: string): void {
 
 /** Establish the persistent gateway connection. */
 function ensureConnection(): void {
+  if (shuttingDown) return;
   if (ws || connecting) return;
   if (!config.gatewayToken && !getStoredDeviceAuth(getGatewayWsUrl())) return;
 
@@ -193,6 +212,7 @@ function ensureConnection(): void {
   const socket = new WebSocket(wsUrl, {
     headers: { Origin: getGatewayRequestOrigin() },
   });
+  ws = socket;
 
   socket.on('open', () => {
     // Wait for connect.challenge
@@ -219,6 +239,17 @@ function ensureConnection(): void {
       if (msg.type === 'res' && msg.id === '__connect__') {
         connecting = false;
         if (msg.ok) {
+          const methods = Array.isArray(msg.payload?.features?.methods)
+            ? msg.payload.features.methods.filter((value: unknown): value is string => typeof value === 'string')
+            : [];
+          const maxPayload = typeof msg.payload?.policy?.maxPayload === 'number' && msg.payload.policy.maxPayload > 0
+            ? msg.payload.policy.maxPayload
+            : undefined;
+          capabilities = {
+            serverVersion: typeof msg.payload?.server?.version === 'string' ? msg.payload.server.version : undefined,
+            methods: new Set(methods),
+            maxPayload,
+          };
           const auth = msg.payload?.auth as {
             deviceToken?: string;
             role?: string;
@@ -288,11 +319,11 @@ function ensureConnection(): void {
   });
 
   socket.on('error', (err) => {
-    console.warn('[gateway-rpc] WebSocket error:', err.message);
+    if (!shuttingDown) console.warn('[gateway-rpc] WebSocket error:', err.message);
   });
 
   socket.on('close', () => {
-    if (retryAfterClearingDeviceToken) {
+    if (retryAfterClearingDeviceToken && !shuttingDown) {
       ws = null;
       connected = false;
       connecting = false;
@@ -304,6 +335,7 @@ function ensureConnection(): void {
     ws = null;
     connected = false;
     connecting = false;
+    capabilities = { methods: new Set() };
 
     if (!wasConnected && wasConnecting) {
       rejectConnect('Gateway connection closed before connect completed');
@@ -316,7 +348,7 @@ function ensureConnection(): void {
     rejectAllPending('Gateway connection closed');
 
     // Auto-reconnect after a delay (only if we had a working connection)
-    if (wasConnected && !reconnectTimer) {
+    if (wasConnected && !shuttingDown && !reconnectTimer) {
       reconnectTimer = setTimeout(() => {
         reconnectTimer = null;
         ensureConnection();
@@ -335,6 +367,8 @@ export async function gatewayRpcCall(
   params: Record<string, unknown>,
   timeoutMs = DEFAULT_TIMEOUT_MS,
 ): Promise<unknown> {
+  if (shuttingDown) throw new Error('Gateway RPC client is shutting down');
+
   // Ensure connection exists
   ensureConnection();
 
@@ -345,6 +379,14 @@ export async function gatewayRpcCall(
 
   return new Promise((resolve, reject) => {
     const reqId = randomUUID();
+    const frame = JSON.stringify({ type: 'req', id: reqId, method, params });
+    const frameBytes = Buffer.byteLength(frame);
+    if (capabilities.maxPayload && frameBytes > capabilities.maxPayload) {
+      reject(new Error(
+        `Gateway request is ${frameBytes} bytes, exceeding the advertised ${capabilities.maxPayload}-byte payload limit`,
+      ));
+      return;
+    }
 
     const timer = setTimeout(() => {
       pending.delete(reqId);
@@ -353,13 +395,58 @@ export async function gatewayRpcCall(
 
     pending.set(reqId, { resolve, reject, timer });
 
-    const sent = wsSend(JSON.stringify({ type: 'req', id: reqId, method, params }));
+    const sent = wsSend(frame);
     if (!sent) {
       pending.delete(reqId);
       clearTimeout(timer);
       reject(new Error('Gateway connection not ready'));
     }
   });
+}
+
+export function getGatewayCapabilities(): GatewayCapabilities {
+  return capabilities;
+}
+
+export function gatewaySupports(method: string): boolean {
+  return capabilities.methods.has(method);
+}
+
+export function requireGatewayMethod(method: string): void {
+  if (!gatewaySupports(method)) throw new GatewayCapabilityError(method);
+}
+
+export function getGatewayHttpAuthToken(): string {
+  return getStoredDeviceAuth(getGatewayWsUrl())?.token || config.gatewayToken;
+}
+
+/** Stop reconnects, reject pending work, and release the persistent socket. */
+export function closeGatewayRpc(): void {
+  shuttingDown = true;
+
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
+
+  rejectConnect('Gateway RPC client is shutting down');
+  rejectAllPending('Gateway RPC client is shutting down');
+  connected = false;
+  connecting = false;
+  capabilities = { methods: new Set() };
+
+  const socket = ws;
+  ws = null;
+  if (
+    socket
+    && (
+      socket.readyState === WebSocket.CONNECTING
+      || socket.readyState === WebSocket.OPEN
+      || socket.readyState === WebSocket.CLOSING
+    )
+  ) {
+    socket.terminate();
+  }
 }
 
 // ── Typed file RPC wrappers ──────────────────────────────────────────

@@ -35,7 +35,7 @@ The residual `features/chat` path contains protocol/media primitives used by Can
 | Reconciliation and Session drift | `server/lib/canvas-reconciler.ts` |
 | Effective OpenClaw reset policy and timezone boundary prediction | `server/lib/openclaw-session-policy.ts` |
 | Durable files | `server/lib/canvas-artifact-store.ts` |
-| Upload staging and workspace path safety | `server/lib/upload-reference.ts`, `server/lib/file-utils.ts`, `server/lib/agent-workspace.ts` |
+| Canvas-owned upload persistence and constrained Artifact reads | `server/routes/upload-reference.ts`, `server/lib/canvas-artifact-store.ts` |
 | Gateway server RPC, browser relay, and device-token boundary | `server/lib/gateway-rpc.ts`, `server/lib/ws-proxy.ts`, `server/lib/device-identity.ts` |
 | Route mounting | `server/app.ts` |
 
@@ -59,7 +59,8 @@ stage files
   → prepare-send
   → inspect Session identity + effective reset policy
   → use canonical recovery snapshot if the send crosses daily/idle expiry
-  → chat.send
+  → persist Canvas attachment IDs
+  → native chat.send attachments
   → ack(runId) + refresh actual Session ID
   → Gateway agent/chat events
   → reconcile transcript and Artifacts

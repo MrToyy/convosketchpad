@@ -12,6 +12,15 @@ const openclawBin = resolveOpenclawBin();
 const nodeBinDir = process.execPath.replace(/\/node$/, '');
 const GATEWAY_RESTART_TIMEOUT_MS = 15_000;
 
+export function gatewayIsLocal(gatewayUrl: string): boolean {
+  try {
+    const hostname = new URL(gatewayUrl).hostname.toLowerCase();
+    return hostname === '127.0.0.1' || hostname === 'localhost' || hostname === '::1';
+  } catch {
+    return false;
+  }
+}
+
 function inferOpenclawHome(): string {
   return openclawBin.match(/^(\/home\/[^/]+|\/Users\/[^/]+)/)?.[1]
     || process.env.HOME
@@ -40,6 +49,13 @@ function gatewayPortIsOpen(): Promise<boolean> {
 }
 
 app.post('/api/gateway/restart', rateLimitRestart, async (c) => {
+  if (!gatewayIsLocal(config.gatewayUrl)) {
+    return c.json({
+      ok: false,
+      error: 'remote_gateway_restart_unsupported',
+      output: 'Restart the OpenClaw Gateway on its host. ConvoSketchpad never runs a local CLI restart for a remote Gateway.',
+    }, 409);
+  }
   const uid = process.getuid?.() ?? 1000;
   const runtimeDir = process.env.XDG_RUNTIME_DIR || `/run/user/${uid}`;
   const env = {

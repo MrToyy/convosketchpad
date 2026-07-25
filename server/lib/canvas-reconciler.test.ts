@@ -1,10 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { InteractionRecord } from './canvas-db.js';
 import {
-  canvasArtifactProxyUrl,
   canvasTranscriptHasResponse,
   extractCanvasTranscript,
-  resolveOpenClawArtifactUrl,
   sessionReflectsInteractionRun,
 } from './canvas-reconciler.js';
 
@@ -95,7 +93,7 @@ describe('Canvas transcript reconciliation', () => {
     expect(snapshot.artifacts).toContainEqual({
       name: '报告',
       mimeType: 'application/pdf',
-      uri: '/api/files?path=%2Ftmp%2Freport.pdf',
+      uri: '/tmp/report.pdf',
     });
   });
 
@@ -133,11 +131,4 @@ describe('Canvas transcript reconciliation', () => {
     expect(sessionReflectsInteractionRun({ agentState: 'idle', busy: false, processing: false, startedAt: 9_750 }, current)).toBe(true);
   });
 
-  it('only proxies OpenClaw outgoing media paths', () => {
-    const uri = '/api/chat/media/outgoing/agent%3Amain%3Acanvas%3Abranch-1/image-1/full';
-    expect(canvasArtifactProxyUrl(uri)).toContain('/api/canvas/openclaw-artifact?uri=');
-    expect(canvasArtifactProxyUrl('https://example.com/file.png')).toBe('https://example.com/file.png');
-    expect(resolveOpenClawArtifactUrl(uri)?.pathname).toBe(uri);
-    expect(resolveOpenClawArtifactUrl('https://evil.example/file')).toBeNull();
-  });
 });

@@ -1,6 +1,6 @@
 /* eslint-disable react-refresh/only-export-components -- hooks and helpers intentionally co-located with provider */
 import { createContext, useContext, useCallback, useRef, useEffect, useState, useMemo, type ReactNode } from 'react';
-import { useWebSocket } from '@/hooks/useWebSocket';
+import { useWebSocket, type GatewayCapabilities } from '@/hooks/useWebSocket';
 import type { GatewayEvent } from '@/types';
 
 type EventHandler = (msg: GatewayEvent) => void;
@@ -12,6 +12,7 @@ interface GatewayContextValue {
   rpc: (method: string, params?: Record<string, unknown>) => Promise<unknown>;
   connectError: string;
   reconnectAttempt: number;
+  capabilities: GatewayCapabilities;
   sparkline: string;
   isVisibleRef: React.MutableRefObject<boolean>;
   /** Subscribe to all gateway events. Returns unsubscribe function. */
@@ -31,7 +32,9 @@ function saveConfig(url: string, token: string) {
 }
 
 export function GatewayProvider({ children }: { children: ReactNode }) {
-  const { connectionState, connect: wsConnect, disconnect, rpc, onEvent, connectError, reconnectAttempt } = useWebSocket();
+  const {
+    connectionState, connect: wsConnect, disconnect, rpc, onEvent, connectError, reconnectAttempt, capabilities,
+  } = useWebSocket();
   const [sparkline, setSparkline] = useState('▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁');
   const activityBuckets = useRef<number[]>(new Array(30).fill(0));
   const currentBucketEvents = useRef(0);
@@ -95,12 +98,13 @@ export function GatewayProvider({ children }: { children: ReactNode }) {
     rpc,
     connectError,
     reconnectAttempt,
+    capabilities,
     sparkline,
     isVisibleRef,
     subscribe,
   }), [
     connectionState, connect, disconnect, rpc, connectError,
-    reconnectAttempt, sparkline, subscribe,
+    reconnectAttempt, capabilities, sparkline, subscribe,
     // isVisibleRef is a stable ref — no need to track
   ]);
 

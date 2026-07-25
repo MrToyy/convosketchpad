@@ -14,6 +14,7 @@ import app from './app.js';
 import { config, validateConfig, printStartupBanner, probeGateway } from './lib/config.js';
 import { setupWebSocketProxy, closeAllWebSockets } from './lib/ws-proxy.js';
 import { startCanvasReconciler, stopCanvasReconciler } from './lib/canvas-reconciler.js';
+import { closeGatewayRpc } from './lib/gateway-rpc.js';
 import { packageMetadata } from './lib/package-metadata.js';
 
 // ── Startup banner + validation ──────────────────────────────────────
@@ -152,6 +153,7 @@ function shutdown(signal: string) {
 
   stopCanvasReconciler();
   closeAllWebSockets();
+  closeGatewayRpc();
 
   httpServer.close(() => {
     console.log('[convosketchpad] HTTP server closed');

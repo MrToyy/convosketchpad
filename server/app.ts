@@ -25,14 +25,12 @@ import healthRoutes from './routes/health.js';
 import authRoutes from './routes/auth.js';
 import agentLogRoutes from './routes/agent-log.js';
 import tokensRoutes from './routes/tokens.js';
+import providerLimitsRoutes from './routes/provider-limits.js';
 import serverInfoRoutes from './routes/server-info.js';
-import codexLimitsRoutes from './routes/codex-limits.js';
-import claudeCodeLimitsRoutes from './routes/claude-code-limits.js';
 import versionRoutes from './routes/version.js';
 import versionCheckRoutes from './routes/version-check.js';
 import gatewayRoutes from './routes/gateway.js';
 import connectDefaultsRoutes from './routes/connect-defaults.js';
-import filesRoutes from './routes/files.js';
 import uploadReferenceRoutes from './routes/upload-reference.js';
 import canvasRoutes from './routes/canvas.js';
 
@@ -67,9 +65,9 @@ app.use('*', cacheHeaders);
 // ── API routes ───────────────────────────────────────────────────────
 
 const routes = [
-  healthRoutes, authRoutes, agentLogRoutes, tokensRoutes, serverInfoRoutes,
-  codexLimitsRoutes, claudeCodeLimitsRoutes, versionRoutes, versionCheckRoutes,
-  gatewayRoutes, connectDefaultsRoutes, filesRoutes, uploadReferenceRoutes, canvasRoutes,
+  healthRoutes, authRoutes, agentLogRoutes, tokensRoutes, providerLimitsRoutes,
+  serverInfoRoutes, versionRoutes, versionCheckRoutes, gatewayRoutes,
+  connectDefaultsRoutes, uploadReferenceRoutes, canvasRoutes,
 ];
 for (const route of routes) app.route('/', route);
 

@@ -28,26 +28,23 @@ export interface CanvasBranch {
 }
 
 export interface CanvasAttachmentMeta {
-  id?: string;
+  id: string;
   name: string;
   mimeType: string;
   sizeBytes: number;
-  mode?: 'inline' | 'file_reference';
-  uri?: string;
-  workspacePath?: string;
-  sourceUri?: string;
-  storage?: 'canvas' | 'source';
-  available?: boolean;
+  uri: string;
+  storage: 'canvas';
+  available: true;
   warning?: string;
 }
 
 export interface CanvasArtifact {
   id?: string;
+  gatewayArtifactId?: string;
   name: string;
   mimeType?: string;
   sizeBytes?: number;
   uri: string;
-  sourceUri?: string;
   storage?: 'canvas' | 'external' | 'source';
   available?: boolean;
   warning?: string;

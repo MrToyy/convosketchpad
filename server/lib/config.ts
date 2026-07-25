@@ -2,7 +2,6 @@
 import 'dotenv/config';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DEFAULT_GATEWAY_URL, DEFAULT_HOST, DEFAULT_PORT, DEFAULT_SSL_PORT } from './constants.js';
@@ -20,8 +19,13 @@ function findProjectRoot(startDir: string): string | null {
 }
 
 const projectRoot = findProjectRoot(moduleDir) ?? findProjectRoot(process.cwd()) ?? path.resolve(process.cwd());
-const homeDir = process.env.HOME || os.homedir();
 const localTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+const DEPRECATED_OPENCLAW_PATH_ENV = [
+  'CONVOSKETCHPAD_WORKSPACE_ROOT',
+  'CONVOSKETCHPAD_UPLOAD_STAGING_TEMP_DIR',
+  'SESSIONS_DIR',
+  'USAGE_FILE',
+] as const;
 
 function positiveNumber(value: string | undefined, fallback: number): number {
   const parsed = Number(value);
@@ -36,10 +40,6 @@ export const config = {
   gatewayToken: process.env.GATEWAY_TOKEN || process.env.OPENCLAW_GATEWAY_TOKEN || '',
   gatewayTimezone: process.env.CONVOSKETCHPAD_GATEWAY_TIMEZONE?.trim() || localTimezone,
   publicOrigin: process.env.CONVOSKETCHPAD_PUBLIC_ORIGIN || '',
-  home: homeDir,
-  workspaceRoot: process.env.CONVOSKETCHPAD_WORKSPACE_ROOT || path.join(homeDir, '.openclaw', 'workspace'),
-  sessionsDir: process.env.SESSIONS_DIR || path.join(homeDir, '.openclaw', 'agents', 'main', 'sessions'),
-  usageFile: process.env.USAGE_FILE || path.join(homeDir, '.openclaw', 'token-usage.json'),
   agentLogPath: path.join(projectRoot, 'agent-log.json'),
   canvasDatabasePath: path.join(projectRoot, 'database', 'canvas.sqlite'),
   canvasArtifactsPath: path.join(projectRoot, 'artifacts'),
@@ -88,6 +88,11 @@ export async function probeGateway(): Promise<void> {
 }
 
 export function validateConfig(): void {
+  for (const key of DEPRECATED_OPENCLAW_PATH_ENV) {
+    if (process.env[key]) {
+      console.warn(`${key} is deprecated and ignored; ConvoSketchpad now uses OpenClaw Gateway-native APIs.`);
+    }
+  }
   try {
     new Intl.DateTimeFormat('en-US', { timeZone: config.gatewayTimezone }).format();
   } catch {
