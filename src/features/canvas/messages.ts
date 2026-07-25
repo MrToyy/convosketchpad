@@ -59,8 +59,6 @@ export interface CanvasCopy {
   renameCanvas: (name: string) => string;
   deleteCanvas: (name: string) => string;
   renameHint: string;
-  connected: string;
-  unavailable: string;
   canvasControls: string;
   zoomIn: string;
   zoomOut: string;
@@ -189,8 +187,6 @@ export const canvasCopy = {
     renameCanvas: (name) => `重命名 ${name}`,
     deleteCanvas: (name) => `删除 ${name}`,
     renameHint: '按 Enter 保存，Esc 取消',
-    connected: 'OpenClaw 已连接',
-    unavailable: 'OpenClaw 暂不可用',
     canvasControls: '画布控制',
     zoomIn: '放大',
     zoomOut: '缩小',
@@ -255,8 +251,6 @@ export const canvasCopy = {
     renameCanvas: (name) => `Rename ${name}`,
     deleteCanvas: (name) => `Delete ${name}`,
     renameHint: 'Enter to save, Esc to cancel',
-    connected: 'OpenClaw connected',
-    unavailable: 'OpenClaw unavailable',
     canvasControls: 'Canvas controls',
     zoomIn: 'Zoom in',
     zoomOut: 'Zoom out',
