@@ -6,17 +6,24 @@
  */
 import App from '@/App';
 import { GatewayProvider } from '@/contexts/GatewayContext';
-import { SettingsProvider } from '@/contexts/SettingsContext';
+import { SettingsProvider, useSettings } from '@/contexts/SettingsContext';
+import { getAppCopy } from '@/lib/app-messages';
 import { LoginPage } from './LoginPage';
 import { useAuth } from './useAuth';
 
 export function AuthGate() {
-  const { state, error, login, logout } = useAuth();
+  return <SettingsProvider><AuthGateContent /></SettingsProvider>;
+}
+
+function AuthGateContent() {
+  const { language } = useSettings();
+  const copy = getAppCopy(language);
+  const { state, error, login, logout } = useAuth(language);
 
   if (state === 'loading') {
     return (
       <div className="h-screen w-screen flex items-center justify-center bg-background">
-        <div className="text-xs text-muted-foreground font-mono animate-pulse">Loading…</div>
+        <div className="text-xs text-muted-foreground font-mono animate-pulse">{copy.auth.loading}</div>
       </div>
     );
   }
@@ -27,9 +34,7 @@ export function AuthGate() {
 
   return (
     <GatewayProvider>
-      <SettingsProvider>
-        <App onLogout={logout} />
-      </SettingsProvider>
+      <App onLogout={logout} />
     </GatewayProvider>
   );
 }

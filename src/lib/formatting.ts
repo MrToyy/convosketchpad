@@ -9,8 +9,14 @@ export function esc(s: string | null | undefined): string {
 }
 
 /** Format a timestamp as a human-readable relative time (e.g. "5m", "2h", "3d"). */
-export function timeAgo(ts: string | number | Date): string {
+export function timeAgo(ts: string | number | Date, language: Language = DEFAULT_LANGUAGE): string {
   const diff = (Date.now() - new Date(ts).getTime()) / 1000;
+  if (language === 'zh-CN') {
+    if (diff < 60) return '刚刚';
+    if (diff < 3600) return Math.floor(diff / 60) + '分钟前';
+    if (diff < 86400) return Math.floor(diff / 3600) + '小时前';
+    return Math.floor(diff / 86400) + '天前';
+  }
   if (diff < 60) return 'now';
   if (diff < 3600) return Math.floor(diff / 60) + 'm';
   if (diff < 86400) return Math.floor(diff / 3600) + 'h';
@@ -45,3 +51,4 @@ export function decodeHtmlEntities(text: string): string {
     .replace(/&gt;/g, '>')
     .replace(/&amp;/g, '&');
 }
+import { DEFAULT_LANGUAGE, type Language } from '@/lib/language';

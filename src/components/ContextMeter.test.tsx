@@ -6,7 +6,7 @@ import { ContextMeter } from './ContextMeter';
 describe('ContextMeter', () => {
   it('renders with normal usage', () => {
     render(<ContextMeter used={5000} limit={100000} />);
-    expect(screen.getByText('Context')).toBeInTheDocument();
+    expect(screen.getByText('上下文')).toBeInTheDocument();
   });
 
   it('shows token count', () => {
@@ -25,7 +25,7 @@ describe('ContextMeter', () => {
   it('renders at zero usage', () => {
     const { container } = render(<ContextMeter used={0} limit={100000} />);
     expect(container).toBeTruthy();
-    expect(screen.getByText('Context')).toBeInTheDocument();
+    expect(screen.getByText('上下文')).toBeInTheDocument();
   });
 
   it('handles full usage without crashing', () => {

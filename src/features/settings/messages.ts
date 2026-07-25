@@ -4,6 +4,7 @@ export interface SettingsCopy {
   drawer: {
     controlRoom: string;
     title: string;
+    close: string;
     categoriesAria: string;
     categories: { advanced: string; appearance: string };
     signOut: string;
@@ -49,6 +50,7 @@ export const settingsCopy = {
     drawer: {
       controlRoom: '控制中心',
       title: '设置',
+      close: '关闭设置',
       categoriesAria: '设置分类',
       categories: { advanced: '连接', appearance: '外观' },
       signOut: '退出登录',
@@ -74,7 +76,7 @@ export const settingsCopy = {
     appearance: {
       heading: '外观',
       language: '界面语言',
-      languageHint: '控制 Canvas 和设置界面的语言。',
+      languageHint: '控制整个界面的显示语言。',
       languageAria: '选择界面语言',
       theme: '主题',
       themeHint: '切换整套界面配色。',
@@ -92,6 +94,7 @@ export const settingsCopy = {
     drawer: {
       controlRoom: 'Control center',
       title: 'Settings',
+      close: 'Close settings',
       categoriesAria: 'Settings categories',
       categories: { advanced: 'Connection', appearance: 'Appearance' },
       signOut: 'Sign out',
@@ -117,7 +120,7 @@ export const settingsCopy = {
     appearance: {
       heading: 'Appearance',
       language: 'Interface language',
-      languageHint: 'Controls the language of Canvas and settings.',
+      languageHint: 'Controls the language of the entire interface.',
       languageAria: 'Select interface language',
       theme: 'Theme',
       themeHint: 'Switch the complete interface color scheme.',

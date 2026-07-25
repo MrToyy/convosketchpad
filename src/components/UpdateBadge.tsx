@@ -7,6 +7,8 @@ import {
   DialogTitle,
   DialogDescription,
 } from '@/components/ui/dialog';
+import { useSettings } from '@/contexts/SettingsContext';
+import { getAppCopy } from '@/lib/app-messages';
 
 interface VersionCheck {
   status: 'disabled' | 'up-to-date' | 'update-available' | 'no-release' | 'unavailable';
@@ -28,6 +30,8 @@ function shellQuote(value: string): string {
  * a modal with update instructions.
  */
 export function UpdateBadge() {
+  const { language } = useSettings();
+  const copy = getAppCopy(language);
   const [versionInfo, setVersionInfo] = useState<VersionCheck | null>(null);
   const [open, setOpen] = useState(false);
 
@@ -66,52 +70,51 @@ export function UpdateBadge() {
       <button
         onClick={() => setOpen(true)}
         className="inline-flex items-center gap-1 text-[0.6rem] text-primary hover:text-primary/80 transition-colors cursor-pointer ml-1.5"
-        title={`Update available: v${versionInfo.latest}`}
-        aria-label={`Update available: version ${versionInfo.latest}. Click for instructions.`}
+        title={copy.update.availableTitle(versionInfo.latest)}
+        aria-label={copy.update.availableAria(versionInfo.latest)}
       >
         <ArrowUpCircle className="w-3 h-3" />
-        <span className="uppercase tracking-wide font-bold">update</span>
+        <span className="uppercase tracking-wide font-bold">{copy.update.badge}</span>
       </button>
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Update Available</DialogTitle>
+            <DialogTitle>{copy.update.title}</DialogTitle>
             <DialogDescription>
-              ConvoSketchpad <span className="font-mono font-semibold text-foreground">v{versionInfo.latest}</span> is
-              available. You're running <span className="font-mono text-muted-foreground">v{versionInfo.current}</span>.
+              {copy.update.description(versionInfo.latest, versionInfo.current)}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 pt-2">
             <div>
-              <p className="text-xs text-muted-foreground mb-1">Project directory</p>
+              <p className="text-xs text-muted-foreground mb-1">{copy.update.projectDirectory}</p>
               <pre className="bg-secondary rounded-md px-3 py-2 text-xs font-mono text-muted-foreground select-all whitespace-pre-wrap break-all">
                 {versionInfo.projectDir}
               </pre>
             </div>
             <div>
               <p className="text-sm text-muted-foreground mb-2">
-                Copy and paste this into your OpenClaw session or terminal:
+                {copy.update.commandHint}
               </p>
               <pre className="bg-secondary rounded-md px-3 py-2 text-sm font-mono select-all whitespace-pre-wrap break-all">
                 {updateCommand}
               </pre>
             </div>
             <div className="text-xs text-muted-foreground space-y-1">
-              <p>This will show the version change and ask for confirmation before updating.</p>
-              <p>After confirmation, it fetches the release, rebuilds, restarts, and verifies health.</p>
-              <p>If anything fails, ConvoSketchpad automatically rolls back to your current version.</p>
+              <p>{copy.update.confirmHint}</p>
+              <p>{copy.update.updateHint}</p>
+              <p>{copy.update.rollbackHint}</p>
             </div>
             <div>
-              <p className="text-xs text-muted-foreground mb-1">Other options:</p>
+              <p className="text-xs text-muted-foreground mb-1">{copy.update.otherOptions}</p>
               <pre className="bg-secondary rounded-md px-3 py-2 text-xs font-mono text-muted-foreground whitespace-pre-wrap">
-{`# Preview first
+{`# ${copy.update.previewFirst}
 ${dryRunCommand}
 
-# Pin to a specific version
+# ${copy.update.pinVersion}
 ${pinVersionCommand}
 
-# See full docs
+# ${copy.update.fullDocs}
 ${docsCommand}`}
               </pre>
             </div>

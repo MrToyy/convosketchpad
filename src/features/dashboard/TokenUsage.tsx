@@ -4,17 +4,20 @@ import { AnimatedNumber } from '@/components/ui/AnimatedNumber';
 import { fmtTokens } from '@/lib/formatting';
 import { useProviderLimits } from './useProviderLimits';
 import type { ProviderLimit } from './useProviderLimits';
+import { useSettings } from '@/contexts/SettingsContext';
+import { getAppCopy, type AppCopy } from '@/lib/app-messages';
+import type { Language } from '@/lib/language';
 
 // ── Reset time formatting helpers ───────────────────────────────────
 
-function formatResetTime(tsMs: number, opts: { withDate?: boolean } = {}): string {
+function formatResetTime(tsMs: number, language: Language, opts: { withDate?: boolean } = {}): string {
   const d = new Date(tsMs);
   if (opts.withDate) {
-    return d.toLocaleString('en-GB', {
+    return d.toLocaleString(language, {
       month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false,
     });
   }
-  return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false });
+  return d.toLocaleTimeString(language, { hour: '2-digit', minute: '2-digit', hour12: false });
 }
 
 // ── Provider icons & colors ──────────────────────────────────────────
@@ -37,17 +40,18 @@ const DEFAULT_BAR_CLASS = 'bg-primary shadow-[0_0_8px_rgba(232,168,56,0.3)]';
 
 // ── Shared limit bar (presentational) ────────────────────────────────
 
-function LimitProgressBar({ label, usedPercent, barClass, resetText }: {
+function LimitProgressBar({ label, usedPercent, barClass, resetText, copy }: {
   label: string;
   usedPercent: number;
   barClass: string;
   resetText?: string;
+  copy: AppCopy;
 }) {
   return (
     <div className="flex flex-col gap-0.5 mb-1.5">
       <div className="flex items-baseline justify-between text-[0.733rem]">
         <span className="text-muted-foreground">{label}</span>
-        <span className="text-foreground font-mono font-bold">{usedPercent.toFixed(0)}% used</span>
+        <span className="text-foreground font-mono font-bold">{usedPercent.toFixed(0)}% {copy.usage.used}</span>
       </div>
       <div className="h-1.5 bg-background border border-border/60 overflow-hidden">
         <div
@@ -55,39 +59,42 @@ function LimitProgressBar({ label, usedPercent, barClass, resetText }: {
           style={{ width: `${Math.min(100, Math.max(0, usedPercent))}%` }}
         />
       </div>
-      {resetText && <div className="text-[0.733rem] text-muted-foreground/60">resets {resetText}</div>}
+      {resetText && <div className="text-[0.733rem] text-muted-foreground/60">{copy.usage.resets} {resetText}</div>}
     </div>
   );
 }
 
-function formatProviderWindowLabel(label: string): string {
+function formatProviderWindowLabel(label: string, copy: AppCopy, language: Language): string {
   const normalised = label.trim().toLowerCase();
-  if (normalised === '168h' || normalised === '7d' || normalised === 'weekly') return 'Weekly limit';
-  return normalised.endsWith('limit') ? label : `${label} limit`;
+  if (normalised === '168h' || normalised === '7d' || normalised === 'weekly') return copy.usage.weeklyLimit;
+  if (language === 'zh-CN') return copy.usage.limit(label.replace(/\s*limit$/i, ''));
+  return normalised.endsWith('limit') ? label : copy.usage.limit(label);
 }
 
-function ProviderLimitsBlock({ providers, available }: {
+function ProviderLimitsBlock({ providers, available, copy, language }: {
   providers: ProviderLimit[];
   available: boolean | null;
+  copy: AppCopy;
+  language: Language;
 }) {
   if (available === null) {
     return (
       <div className="pt-1.5 mt-1 border-t border-border/30 text-[0.733rem] text-muted-foreground/50 animate-pulse">
-        Loading Provider limits…
+        {copy.usage.loadingLimits}
       </div>
     );
   }
   if (!available) {
     return (
       <div className="pt-1.5 mt-1 border-t border-border/30 text-[0.733rem] text-muted-foreground/40">
-        Provider limits unavailable
+        {copy.usage.limitsUnavailable}
       </div>
     );
   }
   if (providers.length === 0) {
     return (
       <div className="pt-1.5 mt-1 border-t border-border/30 text-[0.733rem] text-muted-foreground/40">
-        No provider limits reported
+        {copy.usage.noLimits}
       </div>
     );
   }
@@ -96,23 +103,28 @@ function ProviderLimitsBlock({ providers, available }: {
     const icon = PROVIDER_ICONS[provider.provider] || '●';
     const barClass = PROVIDER_BAR_CLASSES[provider.provider] || DEFAULT_BAR_CLASS;
     return (
-      <div key={provider.provider} className="pt-1.5 mt-1 border-t border-border/30">
+      <div key={provider.provider} className="pt-2 mt-1 border-t border-border/40">
         <div className="text-[0.733rem] text-muted-foreground uppercase tracking-[1px] flex items-center gap-1.5 mb-1">
           <span>{icon}</span>
-          {provider.displayName} limits
+          {copy.usage.providerLimits(provider.displayName)}
           {provider.plan && (
             <span className="ml-auto normal-case tracking-normal text-muted-foreground/50">{provider.plan}</span>
           )}
         </div>
-        {provider.windows.map((window) => (
-          <LimitProgressBar
-            key={`${provider.provider}:${window.label}`}
-            label={formatProviderWindowLabel(window.label)}
-            usedPercent={window.usedPercent}
-            barClass={barClass}
-            resetText={window.resetAt ? formatResetTime(window.resetAt, { withDate: true }) : undefined}
-          />
-        ))}
+        <div className="mt-2 rounded-xl border border-border/45 bg-background/45 px-2.5 py-2">
+          {provider.windows.length > 0
+            ? provider.windows.map((window) => (
+                <LimitProgressBar
+                  key={`${provider.provider}:${window.label}`}
+                  label={formatProviderWindowLabel(window.label, copy, language)}
+                  usedPercent={window.usedPercent}
+                  barClass={barClass}
+                  resetText={window.resetAt ? formatResetTime(window.resetAt, language, { withDate: true }) : undefined}
+                  copy={copy}
+                />
+              ))
+            : <div className="text-[0.733rem] text-muted-foreground">{copy.usage.noLimitDetails}</div>}
+        </div>
       </div>
     );
   });
@@ -123,9 +135,11 @@ function ProviderLimitsBlock({ providers, available }: {
 function ProviderRow({
   entry,
   maxCost,
+  copy,
 }: {
   entry: TokenEntry;
   maxCost: number;
+  copy: AppCopy;
 }) {
   const [expanded, setExpanded] = useState(false);
   const pct = Math.max(2, (entry.cost / maxCost) * 100);
@@ -139,7 +153,7 @@ function ProviderRow({
       <button
         onClick={() => setExpanded(!expanded)}
         aria-expanded={expanded}
-        aria-label={`${entry.source} provider details`}
+        aria-label={copy.usage.providerDetails(entry.source)}
         className="flex items-center gap-2 text-[0.733rem] w-full hover:bg-muted/30 rounded px-0.5 py-0.5 transition-colors cursor-pointer group"
       >
         <span className="w-3.5 text-center shrink-0 text-xs flex items-center justify-center">{icon}</span>
@@ -173,14 +187,14 @@ function ProviderRow({
           {/* Token breakdown */}
           <div className="flex gap-3 text-[0.733rem] text-muted-foreground flex-wrap">
             <span>
-              ↑ <span className="text-foreground">{fmtTokens(entry.inputTokens || 0)}</span> in
+              ↑ <span className="text-foreground">{fmtTokens(entry.inputTokens || 0)}</span> {copy.usage.input}
             </span>
             <span>
-              ↓ <span className="text-foreground">{fmtTokens(entry.outputTokens || 0)}</span> out
+              ↓ <span className="text-foreground">{fmtTokens(entry.outputTokens || 0)}</span> {copy.usage.output}
             </span>
             {(entry.cacheReadTokens || 0) > 0 && (
               <span>
-                📦 <span className="text-foreground">{fmtTokens(entry.cacheReadTokens || 0)}</span> cached
+                📦 <span className="text-foreground">{fmtTokens(entry.cacheReadTokens || 0)}</span> {copy.usage.cached}
               </span>
             )}
           </div>
@@ -188,10 +202,10 @@ function ProviderRow({
           {/* Message stats */}
           <div className="flex gap-3 text-[0.733rem] text-muted-foreground flex-wrap">
             <span>
-              💬 <span className="text-foreground">{(entry.messageCount || 0).toLocaleString()}</span> msgs
+              💬 <span className="text-foreground">{(entry.messageCount || 0).toLocaleString()}</span> {copy.usage.messages}
             </span>
             <span>
-              avg <span className="text-foreground">${avgCost.toFixed(4)}</span>/msg
+              {copy.usage.average} <span className="text-foreground">${avgCost.toFixed(4)}</span>{copy.usage.perMessage}
             </span>
           </div>
         </div>
@@ -208,6 +222,8 @@ interface TokenUsageProps {
 
 /** Dashboard widget displaying token usage breakdown with visual bars. */
 export function TokenUsage({ data }: TokenUsageProps) {
+  const { language } = useSettings();
+  const copy = getAppCopy(language);
   const entries = useMemo(
     () =>
       (data?.entries || []).filter(
@@ -224,10 +240,10 @@ export function TokenUsage({ data }: TokenUsageProps) {
         <div className="panel-header border-l-[3px] border-l-primary">
           <span className="panel-label text-primary">
             <span className="panel-diamond">◆</span>
-            USAGE
+            {copy.usage.heading}
           </span>
         </div>
-        <div className="p-3 text-muted-foreground text-[0.667rem]">Loading…</div>
+        <div className="p-3 text-muted-foreground text-[0.667rem]">{copy.usage.loading}</div>
       </div>
     );
   }
@@ -239,7 +255,7 @@ export function TokenUsage({ data }: TokenUsageProps) {
       <div className="panel-header border-l-[3px] border-l-primary">
         <span className="panel-label text-primary">
           <span className="panel-diamond">◆</span>
-          USAGE
+          {copy.usage.heading}
         </span>
       </div>
       <div className="flex-1 overflow-y-auto">
@@ -252,7 +268,7 @@ export function TokenUsage({ data }: TokenUsageProps) {
               className="text-xl font-bold text-primary [text-shadow:0_0_8px_rgba(232,168,56,0.3)]"
               duration={800}
             />
-            <span className="text-[0.733rem] text-muted-foreground uppercase tracking-[1px]">all-time</span>
+            <span className="text-[0.733rem] text-muted-foreground uppercase tracking-[1px]">{copy.usage.allTime}</span>
           </div>
 
           {/* ── Per-provider expandable rows ───────────────────── */}
@@ -262,18 +278,21 @@ export function TokenUsage({ data }: TokenUsageProps) {
                 key={e.source}
                 entry={e}
                 maxCost={maxCost}
+                copy={copy}
               />
             ))
           ) : data.breakdownAvailable === false ? (
-            <div className="text-[0.733rem] text-muted-foreground/50 italic">Provider breakdown unavailable</div>
+            <div className="text-[0.733rem] text-muted-foreground/50 italic">{copy.usage.breakdownUnavailable}</div>
           ) : (
-            <div className="text-[0.733rem] text-muted-foreground/50 italic">No usage data</div>
+            <div className="text-[0.733rem] text-muted-foreground/50 italic">{copy.usage.noData}</div>
           )}
 
           {/* ── OpenClaw-native Provider quota windows ─────────── */}
           <ProviderLimitsBlock
             providers={providerLimits?.providers ?? []}
             available={providerLimits?.available ?? null}
+            copy={copy}
+            language={language}
           />
 
           {/* ── Aggregate token stats ──────────────────────────── */}
@@ -286,7 +305,7 @@ export function TokenUsage({ data }: TokenUsageProps) {
                 className="text-foreground"
                 duration={600}
               />{' '}
-              in
+              {copy.usage.input}
             </span>
             <span>
               ↓{' '}
@@ -296,7 +315,7 @@ export function TokenUsage({ data }: TokenUsageProps) {
                 className="text-foreground"
                 duration={600}
               />{' '}
-              out
+              {copy.usage.output}
             </span>
             {(data.totalMessages ?? 0) > 0 && (
               <span>
@@ -307,12 +326,12 @@ export function TokenUsage({ data }: TokenUsageProps) {
                   className="text-foreground"
                   duration={600}
                 />{' '}
-                msgs
+                {copy.usage.messages}
               </span>
             )}
             {(data.totalErrors ?? 0) > 0 && (
               <span className="text-red">
-                ⚠ <span className="font-bold">{data.totalErrors?.toLocaleString()}</span> errors
+                ⚠ <span className="font-bold">{data.totalErrors?.toLocaleString()}</span> {copy.usage.errors}
               </span>
             )}
           </div>

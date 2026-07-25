@@ -1,4 +1,6 @@
 import { Component, type ReactNode } from 'react';
+import { getAppCopy } from '@/lib/app-messages';
+import { getStoredLanguage } from '@/lib/language';
 
 interface PanelErrorBoundaryProps {
   children: ReactNode;
@@ -35,10 +37,11 @@ export class PanelErrorBoundary extends Component<PanelErrorBoundaryProps, Panel
 
   render() {
     if (this.state.hasError) {
+      const copy = getAppCopy(getStoredLanguage());
       return (
         <div className="flex flex-col items-center justify-center gap-2 p-4 text-center h-full min-h-[80px]">
           <p className="text-xs text-muted-foreground">
-            {this.props.name ? `${this.props.name} crashed` : 'Something went wrong'}
+            {this.props.name ? copy.errors.panelCrashed(this.props.name) : copy.errors.title}
           </p>
           <pre className="text-[0.667rem] text-destructive max-w-full overflow-hidden text-ellipsis whitespace-nowrap px-2">
             {this.state.error?.message}
@@ -47,7 +50,7 @@ export class PanelErrorBoundary extends Component<PanelErrorBoundaryProps, Panel
             onClick={this.handleRetry}
             className="px-3 py-1 text-[0.667rem] font-mono uppercase tracking-wider bg-muted text-muted-foreground hover:bg-muted/80 border border-border"
           >
-            Retry
+            {copy.common.retry}
           </button>
         </div>
       );

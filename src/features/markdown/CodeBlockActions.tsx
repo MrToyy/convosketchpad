@@ -1,6 +1,8 @@
 import React, { useState, useCallback } from 'react';
 import { Check, Copy, Download } from 'lucide-react';
 import { getExtension } from '@/lib/highlight';
+import { useSettings } from '@/contexts/SettingsContext';
+import { getAppCopy } from '@/lib/app-messages';
 
 interface CodeBlockActionsProps {
   code: string;
@@ -9,6 +11,8 @@ interface CodeBlockActionsProps {
 
 /** Copy-to-clipboard button overlay for fenced code blocks. */
 export function CodeBlockActions({ code, language }: CodeBlockActionsProps) {
+  const { language: interfaceLanguage } = useSettings();
+  const copy = getAppCopy(interfaceLanguage);
   const [copied, setCopied] = useState(false);
 
   const handleCopy = useCallback(async (e: React.MouseEvent) => {
@@ -43,8 +47,8 @@ export function CodeBlockActions({ code, language }: CodeBlockActionsProps) {
       <button
         className="code-action-btn"
         onClick={handleCopy}
-        aria-label={copied ? 'Code copied' : 'Copy code'}
-        title={copied ? 'Copied' : 'Copy to clipboard'}
+        aria-label={copied ? copy.code.copiedAria : copy.code.copyAria}
+        title={copied ? copy.code.copied : copy.code.copy}
       >
         {copied ? (
           <Check size={14} className="code-action-feedback" aria-hidden="true" />
@@ -55,8 +59,8 @@ export function CodeBlockActions({ code, language }: CodeBlockActionsProps) {
       <button
         className="code-action-btn"
         onClick={handleSave}
-        aria-label="Save to file"
-        title={`Save as code.${getExtension(language)}`}
+        aria-label={copy.code.saveAria}
+        title={copy.code.saveAs(`code.${getExtension(language)}`)}
       >
         <Download size={14} aria-hidden="true" />
       </button>

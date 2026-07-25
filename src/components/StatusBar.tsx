@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { ContextMeter } from './ContextMeter';
 import { UpdateBadge } from './UpdateBadge';
 import { useGateway } from '@/contexts/GatewayContext';
+import { useSettings } from '@/contexts/SettingsContext';
+import { getAppCopy } from '@/lib/app-messages';
 
 /** Props for {@link StatusBar}. */
 interface StatusBarProps {
@@ -19,17 +21,17 @@ interface StatusBarProps {
   contextLimit?: number;
 }
 
-function formatUptime(seconds: number): string {
+function formatUptime(seconds: number, daySuffix: string): string {
   if (seconds < 0) return '00:00:00';
   const d = Math.floor(seconds / 86400);
   const h = Math.floor((seconds % 86400) / 3600).toString().padStart(2, '0');
   const m = Math.floor((seconds % 3600) / 60).toString().padStart(2, '0');
   const s = Math.floor(seconds % 60).toString().padStart(2, '0');
-  return d > 0 ? `${d}d ${h}:${m}:${s}` : `${h}:${m}:${s}`;
+  return d > 0 ? `${d}${daySuffix} ${h}:${m}:${s}` : `${h}:${m}:${s}`;
 }
 
-function formatServerTime(date: Date): string {
-  return date.toLocaleTimeString('en-GB', { hour12: false });
+function formatServerTime(date: Date, language: string): string {
+  return date.toLocaleTimeString(language, { hour12: false });
 }
 
 /** Fetch server time and gateway uptime from /api/server-info */
@@ -51,6 +53,8 @@ async function fetchServerInfo(): Promise<{ serverTime?: number; gatewayStartedA
  */
 export function StatusBar({ connectionState, branchCount, sessionCount, sparkline, contextTokens, contextLimit }: StatusBarProps) {
   useGateway(); // Keep gateway context connected
+  const { language } = useSettings();
+  const copy = getAppCopy(language);
 
   // Server time: offset between local clock and server clock
   const [serverTimeOffset, setServerTimeOffset] = useState<number | null>(null);
@@ -97,13 +101,7 @@ export function StatusBar({ connectionState, branchCount, sessionCount, sparklin
     ? 'border-orange/30 bg-orange/10 text-orange animate-pulse-dot'
     : 'border-red/30 bg-red/10 text-red';
 
-  const statusLabel = connectionState === 'connected'
-    ? 'CONNECTED'
-    : connectionState === 'connecting'
-    ? 'CONNECTING'
-    : connectionState === 'reconnecting'
-    ? 'RECONNECTING'
-    : 'OFFLINE';
+  const statusLabel = copy.status.states[connectionState];
 
   // Server time = local time + offset
   const serverTime = serverTimeOffset !== null
@@ -133,7 +131,7 @@ export function StatusBar({ connectionState, branchCount, sessionCount, sparklin
         {/* Server time (hidden on narrow screens) */}
         <span className="hidden text-border md:inline">•</span>
         {serverTime ? (
-          <span className="hidden font-mono tabular-nums text-foreground/72 md:inline">{formatServerTime(serverTime)}</span>
+          <span className="hidden font-mono tabular-nums text-foreground/72 md:inline">{formatServerTime(serverTime, language)}</span>
         ) : (
           <span className="hidden font-mono text-muted-foreground/40 md:inline">--:--:--</span>
         )}
@@ -142,15 +140,15 @@ export function StatusBar({ connectionState, branchCount, sessionCount, sparklin
 
         {/* Selected Canvas branch/session count */}
         <span className="shrink-0 text-foreground/78 max-[378px]:text-[0.6rem]">
-          <span className="font-mono tabular-nums text-foreground">{branchCount}</span><span className="ml-1">branches</span>
+          <span className="font-mono tabular-nums text-foreground">{branchCount}</span><span className="ml-1">{copy.status.branches}</span>
           <span className="mx-1.5 text-border">·</span>
-          <span className="font-mono tabular-nums text-foreground">{sessionCount}</span><span className="ml-1">sessions</span>
+          <span className="font-mono tabular-nums text-foreground">{sessionCount}</span><span className="ml-1">{copy.status.sessions}</span>
         </span>
 
         {/* Gateway uptime (hidden on narrow/medium screens) */}
         <span className="hidden text-border lg:inline">•</span>
         <span className="hidden text-foreground/72 lg:inline">
-          Uptime <span className="font-mono tabular-nums">{gatewayUptimeSecs !== null ? formatUptime(gatewayUptimeSecs) : '--:--:--'}</span>
+          {copy.status.uptime} <span className="font-mono tabular-nums">{gatewayUptimeSecs !== null ? formatUptime(gatewayUptimeSecs, language === 'zh-CN' ? '天' : 'd') : '--:--:--'}</span>
         </span>
 
         {/* Context Meter (always visible when available) */}
@@ -158,7 +156,7 @@ export function StatusBar({ connectionState, branchCount, sessionCount, sparklin
           <>
             <span className="text-border max-[378px]:text-[0.533rem]">•</span>
             <span className="inline-flex shrink-0">
-              <ContextMeter used={contextTokens} limit={contextLimit} />
+              <ContextMeter used={contextTokens} limit={contextLimit} language={language} />
             </span>
           </>
         )}

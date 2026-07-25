@@ -4,6 +4,8 @@ import { fmtK } from '@/lib/formatting';
 import { AnimatedNumber } from '@/components/ui/AnimatedNumber';
 import { CONTEXT_WARNING_THRESHOLD, CONTEXT_CRITICAL_THRESHOLD } from '@/lib/constants';
 import { PROGRESS_BAR_TRANSITION } from '@/lib/progress-colors';
+import { getAppCopy } from '@/lib/app-messages';
+import { DEFAULT_LANGUAGE, type Language } from '@/lib/language';
 
 // Pre-defined color configs to avoid object creation during render
 const COLOR_CRITICAL = {
@@ -33,6 +35,7 @@ interface ContextMeterProps {
   used: number;
   /** Maximum context window size in tokens. */
   limit: number;
+  language?: Language;
 }
 
 /**
@@ -42,7 +45,8 @@ interface ContextMeterProps {
  * thresholds, and includes an animated token counter and glow effects.
  * Displayed in the {@link StatusBar}.
  */
-export function ContextMeter({ used, limit }: ContextMeterProps) {
+export function ContextMeter({ used, limit, language = DEFAULT_LANGUAGE }: ContextMeterProps) {
+  const copy = getAppCopy(language);
   const percent = Math.min(100, (used / limit) * 100);
   const [isGrowing, setIsGrowing] = useState(false);
   const prevPercentRef = useRef(percent);
@@ -62,11 +66,11 @@ export function ContextMeter({ used, limit }: ContextMeterProps) {
     ? `0 0 8px ${colors.growGlow}, 0 0 4px ${colors.glow}`
     : `0 0 4px ${colors.glow}`;
 
-  const tooltipText = `Context: ${fmtK(used)} / ${fmtK(limit)} tokens (${percent.toFixed(0)}%)${
+  const tooltipText = `${copy.status.contextTooltip(fmtK(used), fmtK(limit), percent.toFixed(0))}${
     isCritical
-      ? ' — CRITICAL: Consider starting a new root branch'
+      ? ` — ${copy.status.contextCritical}`
       : isWarning
-      ? ' — Warning: Approaching context limit'
+      ? ` — ${copy.status.contextWarning}`
       : ''
   }`;
 
@@ -105,7 +109,7 @@ export function ContextMeter({ used, limit }: ContextMeterProps) {
 
       {/* Label - changes based on state */}
       <span className={`font-mono text-[0.6rem] uppercase tracking-[0.2em] max-[378px]:text-[0.533rem] max-[378px]:tracking-[0.14em] ${colors.text}`}>
-        Context
+        {copy.status.context}
       </span>
     </div>
   );

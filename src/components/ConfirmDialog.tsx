@@ -1,6 +1,8 @@
 import { useEffect, useCallback, useRef } from 'react';
 import { AlertTriangle } from 'lucide-react';
 import { buttonVariants } from '@/components/ui/button';
+import { useSettings } from '@/contexts/SettingsContext';
+import { getAppCopy } from '@/lib/app-messages';
 
 /** Props for {@link ConfirmDialog}. */
 interface ConfirmDialogProps {
@@ -30,12 +32,14 @@ export function ConfirmDialog({
   open,
   title,
   message,
-  confirmLabel = 'Confirm',
-  cancelLabel = 'Cancel',
+  confirmLabel,
+  cancelLabel,
   onConfirm,
   onCancel,
   variant = 'default',
 }: ConfirmDialogProps) {
+  const { language } = useSettings();
+  const copy = getAppCopy(language);
   const dialogRef = useRef<HTMLDivElement>(null);
   const cancelButtonRef = useRef<HTMLButtonElement>(null);
 
@@ -112,14 +116,14 @@ export function ConfirmDialog({
             onClick={onCancel}
             className={buttonVariants({ variant: 'outline', size: 'sm' })}
           >
-            {cancelLabel}
+            {cancelLabel ?? copy.common.cancel}
           </button>
           <button
             type="button"
             onClick={onConfirm}
             className={buttonVariants({ variant: variant === 'danger' ? 'destructive' : 'default', size: 'sm' })}
           >
-            {confirmLabel}
+            {confirmLabel ?? copy.common.confirm}
           </button>
         </div>
       </div>

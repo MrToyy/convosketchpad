@@ -1,5 +1,7 @@
 import { useRef, useCallback, useState, useEffect } from 'react';
 import type { GatewayMessage, GatewayEvent, GatewayResponse } from '@/types';
+import { getAppCopy } from '@/lib/app-messages';
+import { DEFAULT_LANGUAGE, type Language } from '@/lib/language';
 
 type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'reconnecting';
 
@@ -59,7 +61,8 @@ function getOrCreateInstanceId(): string {
  * WebSocket traffic is proxied through ConvoSketchpad's `/ws` endpoint so the
  * client works behind reverse proxies and HTTPS termination.
  */
-export function useWebSocket(): UseWebSocketReturn {
+export function useWebSocket(language: Language = DEFAULT_LANGUAGE): UseWebSocketReturn {
+  const copy = getAppCopy(language);
   const [connectionState, setConnectionState] = useState<ConnectionState>('disconnected');
   const [connectError, setConnectError] = useState('');
   const [reconnectAttempt, setReconnectAttempt] = useState(0);
@@ -191,7 +194,7 @@ export function useWebSocket(): UseWebSocketReturn {
         ws = new WebSocket(wsUrl);
       } catch (e: unknown) {
         const errMsg = e instanceof Error ? e.message : String(e);
-        setConnectError('Invalid URL: ' + errMsg);
+        setConnectError(copy.gateway.invalidUrl(errMsg));
         setConnectionState('disconnected');
         reject(e);
         return;
@@ -202,7 +205,7 @@ export function useWebSocket(): UseWebSocketReturn {
         if (gen !== connectionGenRef.current) return;
         const err = new Error('Connection timed out');
         if (!isReconnect) {
-          setConnectError('Connection timed out — retry');
+          setConnectError(copy.gateway.timeout);
         }
         settleConnectFailure(err);
         setConnectionState(hasConnectedRef.current ? 'reconnecting' : 'disconnected');
@@ -279,9 +282,12 @@ export function useWebSocket(): UseWebSocketReturn {
             } else {
               const details = response.error?.details as { code?: string; requestId?: string } | undefined;
               const pairingHint = details?.code === 'PAIRING_REQUIRED' && details.requestId
-                ? ` Run: openclaw devices approve ${details.requestId}`
+                ? copy.gateway.pairingHint(details.requestId)
                 : '';
-              const errMsg = `Auth failed: ${response.error?.message || 'unknown'}${pairingHint}`;
+              const detail = language === 'zh-CN'
+                ? copy.gateway.unknown
+                : response.error?.message || copy.gateway.unknown;
+              const errMsg = copy.gateway.authFailed(`${detail}${pairingHint}`);
               setConnectError(errMsg);
               setConnectionState('disconnected');
               // Treat auth failures during reconnect like transient failures so the
@@ -314,7 +320,7 @@ export function useWebSocket(): UseWebSocketReturn {
         if (gen !== connectionGenRef.current) return;
         // Don't set error message during reconnect attempts (too noisy)
         if (!isReconnect) {
-          setConnectError('WebSocket error — check URL');
+          setConnectError(copy.gateway.websocketError);
         }
       };
 
@@ -361,7 +367,7 @@ export function useWebSocket(): UseWebSocketReturn {
         }, delay);
       };
     });
-  }, [clearConnectTimeout, rejectPending, settleConnectFailure, settleConnectSuccess]);
+  }, [clearConnectTimeout, copy.gateway, language, rejectPending, settleConnectFailure, settleConnectSuccess]);
   
   // Store doConnect in ref so it can reference itself for reconnection
   useEffect(() => {

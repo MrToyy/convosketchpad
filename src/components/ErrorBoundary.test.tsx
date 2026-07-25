@@ -16,6 +16,7 @@ describe('ErrorBoundary', () => {
   let consoleSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
+    localStorage.clear();
     consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
   });
 
@@ -39,7 +40,7 @@ describe('ErrorBoundary', () => {
       </ErrorBoundary>,
     );
 
-    expect(screen.getByText('Something went wrong')).toBeInTheDocument();
+    expect(screen.getByText('页面出现了问题')).toBeInTheDocument();
     expect(screen.getByText('test crash')).toBeInTheDocument();
   });
 
@@ -50,7 +51,7 @@ describe('ErrorBoundary', () => {
       </ErrorBoundary>,
     );
 
-    expect(screen.getByText('RELOAD')).toBeInTheDocument();
+    expect(screen.getByText('重新加载')).toBeInTheDocument();
   });
 
   it('displays the error message in the fallback', () => {

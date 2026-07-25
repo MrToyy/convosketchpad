@@ -4,6 +4,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import ConvoSketchpadLogo from '@/components/ConvoSketchpadLogo';
 import { areGatewayUrlsEquivalent } from '@/lib/gatewayUrls';
+import { useSettings } from '@/contexts/SettingsContext';
+import { getAppCopy } from '@/lib/app-messages';
 
 interface ConnectDialogProps {
   open: boolean;
@@ -25,6 +27,8 @@ export function ConnectDialog({
   officialUrl,
   serverSideAuth,
 }: ConnectDialogProps) {
+  const { language } = useSettings();
+  const copy = getAppCopy(language);
   const [url, setUrl] = useState(defaultUrl);
   const [token, setToken] = useState(defaultToken);
   const [connecting, setConnecting] = useState(false);
@@ -69,14 +73,14 @@ export function ConnectDialog({
                 <ConvoSketchpadLogo size={26} />
               </div>
               <div>
-                <div className="text-[0.667rem] font-medium uppercase tracking-[0.3em] text-primary/80">Gateway Handshake</div>
+                <div className="text-[0.667rem] font-medium uppercase tracking-[0.3em] text-primary/80">{copy.connect.eyebrow}</div>
                 <DialogTitle className="mt-1 text-lg font-semibold tracking-[-0.03em] text-foreground sm:text-xl">
-                  Connect ConvoSketchpad to your OpenClaw gateway
+                  {copy.connect.title}
                 </DialogTitle>
               </div>
             </div>
             <DialogDescription className="max-w-[42ch] text-sm leading-6 text-muted-foreground">
-              Point ConvoSketchpad at the Gateway endpoint, provide your token when needed, and bring the Canvas online.
+              {copy.connect.description}
             </DialogDescription>
           </DialogHeader>
         </div>
@@ -84,17 +88,17 @@ export function ConnectDialog({
         <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 py-4 pb-[max(1.067rem,env(safe-area-inset-bottom))] sm:gap-5 sm:px-6 sm:py-6">
           <div className="hidden gap-4 sm:grid sm:grid-cols-2">
             <div className="shell-panel rounded-2xl px-4 py-3">
-              <div className="text-[0.667rem] font-medium uppercase tracking-[0.24em] text-muted-foreground">Connection</div>
-              <div className="mt-2 text-sm font-medium text-foreground">Secure local bridge</div>
+              <div className="text-[0.667rem] font-medium uppercase tracking-[0.24em] text-muted-foreground">{copy.connect.connection}</div>
+              <div className="mt-2 text-sm font-medium text-foreground">{copy.connect.connectionTitle}</div>
               <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                ConvoSketchpad uses WebSocket events to keep Canvas branches in sync live.
+                {copy.connect.connectionDetail}
               </p>
             </div>
             <div className="shell-panel rounded-2xl px-4 py-3">
-              <div className="text-[0.667rem] font-medium uppercase tracking-[0.24em] text-muted-foreground">Credentials</div>
-              <div className="mt-2 text-sm font-medium text-foreground">Use server auth when available</div>
+              <div className="text-[0.667rem] font-medium uppercase tracking-[0.24em] text-muted-foreground">{copy.connect.credentials}</div>
+              <div className="mt-2 text-sm font-medium text-foreground">{copy.connect.credentialsTitle}</div>
               <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                The token field disappears for the official gateway URL when the server can inject credentials safely.
+                {copy.connect.credentialsDetail}
               </p>
             </div>
           </div>
@@ -102,7 +106,7 @@ export function ConnectDialog({
           <div className="grid gap-4">
             <label className="flex flex-col gap-2">
               <span className="text-[0.733rem] font-medium uppercase tracking-[0.2em] text-muted-foreground">
-                WebSocket endpoint
+                {copy.connect.endpoint}
               </span>
               <Input
                 value={url}
@@ -115,7 +119,7 @@ export function ConnectDialog({
             {(!serverSideAuth || !officialUrl || !areGatewayUrlsEquivalent(url, officialUrl)) && (
               <label className="flex flex-col gap-2">
                 <span className="text-[0.733rem] font-medium uppercase tracking-[0.2em] text-muted-foreground">
-                  Gateway token
+                  {copy.connect.token}
                 </span>
                 <Input
                   type="password"
@@ -123,7 +127,7 @@ export function ConnectDialog({
                   onChange={e => setToken(e.target.value)}
                   onKeyDown={e => e.key === 'Enter' && handleConnect()}
                   spellCheck={false}
-                  placeholder="Paste the token from your gateway config"
+                  placeholder={copy.connect.tokenPlaceholder}
                   className="font-mono text-base sm:text-[0.867rem]"
                 />
               </label>
@@ -132,7 +136,7 @@ export function ConnectDialog({
 
           <div className="mt-auto flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <p className="max-w-[34ch] text-xs leading-5 text-muted-foreground">
-              Keep ConvoSketchpad bound to localhost unless you explicitly want remote access.
+              {copy.connect.localOnly}
             </p>
             <Button
               onClick={handleConnect}
@@ -140,7 +144,7 @@ export function ConnectDialog({
               size="lg"
               className="w-full text-[0.733rem] uppercase tracking-[0.22em] sm:w-auto sm:min-w-[220px]"
             >
-              {connecting ? 'Connecting…' : 'Connect to Gateway'}
+              {connecting ? copy.connect.connecting : copy.connect.connect}
             </Button>
           </div>
 

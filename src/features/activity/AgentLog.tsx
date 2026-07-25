@@ -1,6 +1,8 @@
 import type { ReactNode } from 'react';
 import { Brain, Sparkles, Zap, CheckCircle, XCircle, Ban, Clock, Link, Lock, Unlock, Wrench } from 'lucide-react';
 import type { AgentLogEntry } from '@/types';
+import { useSettings } from '@/contexts/SettingsContext';
+import { getAppCopy } from '@/lib/app-messages';
 
 const iconMap: Record<string, ReactNode> = {
   '🧠': <Brain size={12} />,
@@ -23,18 +25,20 @@ interface AgentLogProps {
 
 /** Scrollable log of agent activity entries with optional glow effect. */
 export function AgentLog({ entries, glow }: AgentLogProps) {
+  const { language } = useSettings();
+  const copy = getAppCopy(language);
   return (
     <div className="h-full flex flex-col min-h-0">
       <div className={`panel-header border-l-[3px] border-l-green${glow ? ' tab-glow' : ''}`}>
         <span className="panel-label text-green">
           <span className="panel-diamond">◆</span>
-          AGENT LOG
+          {copy.activity.agentLog}
         </span>
       </div>
-      <div className="flex-1 overflow-y-auto" role="log" aria-label="Agent activity log">
+      <div className="flex-1 overflow-y-auto" role="log" aria-label={copy.activity.agentLogAria}>
         {entries.map((e, i) => {
           const ts = new Date(e.ts);
-          const timeStr = ts.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+          const timeStr = ts.toLocaleTimeString(language, { hour: '2-digit', minute: '2-digit', second: '2-digit' });
           return (
             <div key={`${e.ts}-${i}`} className="flex items-center gap-2 px-3 py-1.5 border-b border-border/40 text-[0.667rem]">
               <span className="text-muted-foreground shrink-0 text-[0.6rem] w-11 tabular-nums">{timeStr}</span>

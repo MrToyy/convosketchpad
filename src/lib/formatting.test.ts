@@ -51,32 +51,36 @@ describe('timeAgo', () => {
 
   it('should return "now" for timestamps less than 60s ago', () => {
     const ts = Date.now() - 30_000; // 30 seconds ago
-    expect(timeAgo(ts)).toBe('now');
+    expect(timeAgo(ts, 'en')).toBe('now');
   });
 
   it('should return minutes for timestamps less than 1 hour ago', () => {
     const ts = Date.now() - 5 * 60_000; // 5 minutes ago
-    expect(timeAgo(ts)).toBe('5m');
+    expect(timeAgo(ts, 'en')).toBe('5m');
   });
 
   it('should return hours for timestamps less than 1 day ago', () => {
     const ts = Date.now() - 3 * 3_600_000; // 3 hours ago
-    expect(timeAgo(ts)).toBe('3h');
+    expect(timeAgo(ts, 'en')).toBe('3h');
   });
 
   it('should return days for timestamps more than 1 day ago', () => {
     const ts = Date.now() - 2 * 86_400_000; // 2 days ago
-    expect(timeAgo(ts)).toBe('2d');
+    expect(timeAgo(ts, 'en')).toBe('2d');
   });
 
   it('should accept Date objects', () => {
     const ts = new Date(Date.now() - 120_000); // 2 minutes ago
-    expect(timeAgo(ts)).toBe('2m');
+    expect(timeAgo(ts, 'en')).toBe('2m');
   });
 
   it('should accept ISO date strings', () => {
     const ts = new Date(Date.now() - 7200_000).toISOString(); // 2 hours ago
-    expect(timeAgo(ts)).toBe('2h');
+    expect(timeAgo(ts, 'en')).toBe('2h');
+  });
+
+  it('uses Chinese by default', () => {
+    expect(timeAgo(Date.now() - 5 * 60_000)).toBe('5分钟前');
   });
 });
 

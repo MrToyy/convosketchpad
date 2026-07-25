@@ -8,6 +8,7 @@
 import { esc } from '@/lib/formatting';
 import { highlightCode } from '@/lib/highlight';
 import type { ContentBlock } from '@/types';
+import { DEFAULT_LANGUAGE, type Language } from '@/lib/language';
 
 // ─── Markdown cache ───
 const MD_CACHE_MAX = 200;
@@ -144,66 +145,67 @@ function withProject(desc: string, project: string | null): string {
  * Generate a short human-readable description for a tool invocation.
  * Used in the agent activity log. Returns `null` if tool name is empty.
  */
-export function describeToolUse(toolName: string, input: Record<string, unknown>): string | null {
+export function describeToolUse(toolName: string, input: Record<string, unknown>, language: Language = DEFAULT_LANGUAGE): string | null {
   if (!toolName) return null;
+  const t = (zh: string, en: string) => language === 'zh-CN' ? zh : en;
   const p = input || {};
   const tn = toolName.toLowerCase();
   switch (tn) {
     case 'exec': {
       let cmd = String(p.command || '').trim();
-      if (!cmd) return 'running command';
+      if (!cmd) return t('正在运行命令', 'running command');
       
       // Redact secrets before processing
       cmd = redactSecrets(cmd);
       const project = extractProjectName(p.workdir as string);
       
       if (cmd.includes('npm install') || cmd.includes('pip install') || cmd.includes('apt install') || cmd.includes('apt-get install'))
-        return withProject('installing: ' + cmd.replace(/.*install\s+(-\w+\s+)*/, '').split(/\s/)[0], project);
-      if (cmd.includes('bunx ')) return withProject('running: ' + (cmd.match(/bunx\s+(\S+)/)?.[1] || cmd.slice(0, 40)), project);
-      if (cmd.includes('curl')) return 'fetching URL';
-      if (cmd.includes('pkill') || cmd.includes('kill ')) return 'stopping process';
+        return withProject(t('正在安装：', 'installing: ') + cmd.replace(/.*install\s+(-\w+\s+)*/, '').split(/\s/)[0], project);
+      if (cmd.includes('bunx ')) return withProject(t('正在运行：', 'running: ') + (cmd.match(/bunx\s+(\S+)/)?.[1] || cmd.slice(0, 40)), project);
+      if (cmd.includes('curl')) return t('正在获取 URL', 'fetching URL');
+      if (cmd.includes('pkill') || cmd.includes('kill ')) return t('正在停止进程', 'stopping process');
       if (cmd.includes('git ')) return withProject('git ' + cmd.replace(/.*git\s+/, '').split(/\s/)[0], project);
-      if (cmd.startsWith('cd ') && cmd.includes('node ')) return 'restarting server';
-      if (cmd.includes('python3')) return withProject('running python script', project);
-      if (cmd.includes('npm run build')) return withProject('building', project);
-      if (cmd.includes('npm run lint')) return withProject('linting', project);
+      if (cmd.startsWith('cd ') && cmd.includes('node ')) return t('正在重启服务', 'restarting server');
+      if (cmd.includes('python3')) return withProject(t('正在运行 Python 脚本', 'running python script'), project);
+      if (cmd.includes('npm run build')) return withProject(t('正在构建', 'building'), project);
+      if (cmd.includes('npm run lint')) return withProject(t('正在检查代码', 'linting'), project);
       if (cmd.includes('npm run ')) {
         const script = cmd.match(/npm run\s+(\S+)/)?.[1] || '';
         return withProject('npm run ' + script, project);
       }
       const short = cmd.split('&&')[0].split('|')[0].trim();
-      if (/^(grep|find)\s/.test(short)) return withProject('searching files', project);
-      if (/^(cat|head|tail)\s/.test(short)) return withProject('reading file', project);
+      if (/^(grep|find)\s/.test(short)) return withProject(t('正在搜索文件', 'searching files'), project);
+      if (/^(cat|head|tail)\s/.test(short)) return withProject(t('正在读取文件', 'reading file'), project);
       if (/^(systemctl|service)\s/.test(short)) {
         const svcMatch = short.match(/(?:systemctl|service)\s+(\w+)\s+(\S+)/);
         if (svcMatch) {
           const actionMap: Record<string, string> = {
-            start: 'starting', stop: 'stopping', restart: 'restarting',
-            status: 'checking', enable: 'enabling', disable: 'disabling',
+            start: t('正在启动', 'starting'), stop: t('正在停止', 'stopping'), restart: t('正在重启', 'restarting'),
+            status: t('正在检查', 'checking'), enable: t('正在启用', 'enabling'), disable: t('正在停用', 'disabling'),
           };
           const verb = actionMap[svcMatch[1]] || svcMatch[1];
-          return `${verb} service: ${svcMatch[2]}`;
+          return language === 'zh-CN' ? `${verb}服务：${svcMatch[2]}` : `${verb} service: ${svcMatch[2]}`;
         }
       }
-      return project ? `${project}: ${short}` : 'exec: ' + short;
+      return project ? `${project}: ${short}` : t('执行：', 'exec: ') + short;
     }
-    case 'read': return 'reading ' + sanitizePath(String(p.path || p.file_path || 'file'));
-    case 'write': return 'writing ' + sanitizePath(String(p.path || p.file_path || 'file'));
-    case 'edit': return 'editing ' + sanitizePath(String(p.path || p.file_path || 'file'));
-    case 'web_search': return 'searching: ' + String(p.query || '');
-    case 'web_fetch': return 'fetching: ' + String(p.url || '').replace(/https?:\/\/(www\.)?/, '').split('/')[0];
-    case 'gateway': return 'gateway: ' + (p.action || 'action');
-    case 'browser': return 'browser: ' + (p.action || 'action');
-    case 'message': return 'sending message';
-    case 'image': return 'analyzing image';
+    case 'read': return t('正在读取 ', 'reading ') + sanitizePath(String(p.path || p.file_path || t('文件', 'file')));
+    case 'write': return t('正在写入 ', 'writing ') + sanitizePath(String(p.path || p.file_path || t('文件', 'file')));
+    case 'edit': return t('正在编辑 ', 'editing ') + sanitizePath(String(p.path || p.file_path || t('文件', 'file')));
+    case 'web_search': return t('正在搜索：', 'searching: ') + String(p.query || '');
+    case 'web_fetch': return t('正在获取：', 'fetching: ') + String(p.url || '').replace(/https?:\/\/(www\.)?/, '').split('/')[0];
+    case 'gateway': return t('网关：', 'gateway: ') + (p.action || t('操作', 'action'));
+    case 'browser': return t('浏览器：', 'browser: ') + (p.action || t('操作', 'action'));
+    case 'message': return t('正在发送消息', 'sending message');
+    case 'image': return t('正在分析图片', 'analyzing image');
     case 'process': {
       const action = String(p.action || 'poll');
-      if (action === 'poll' || action === 'log') return 'checking background task';
-      if (action === 'list') return 'listing background tasks';
-      if (action === 'kill') return 'stopping background task';
-      if (action === 'write' || action === 'send-keys' || action === 'paste') return 'sending input to background task';
-      return 'managing background task';
+      if (action === 'poll' || action === 'log') return t('正在检查后台任务', 'checking background task');
+      if (action === 'list') return t('正在列出后台任务', 'listing background tasks');
+      if (action === 'kill') return t('正在停止后台任务', 'stopping background task');
+      if (action === 'write' || action === 'send-keys' || action === 'paste') return t('正在向后台任务发送输入', 'sending input to background task');
+      return t('正在管理后台任务', 'managing background task');
     }
-    default: return 'using ' + toolName;
+    default: return t('正在使用 ', 'using ') + toolName;
   }
 }

@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type React from 'react';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { screen, fireEvent } from '@testing-library/react';
 import { ConnectDialog } from './ConnectDialog';
+import { renderWithSettings } from '@/test/render-with-settings';
 
 vi.mock('@/components/ui/dialog', () => ({
   Dialog: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
@@ -33,7 +34,7 @@ describe('ConnectDialog', () => {
   });
 
   it('shows token field when serverSideAuth is disabled', () => {
-    render(
+    renderWithSettings(
       <ConnectDialog
         open
         onConnect={vi.fn(async () => {})}
@@ -45,11 +46,11 @@ describe('ConnectDialog', () => {
       />,
     );
 
-    expect(screen.getByLabelText('Gateway token')).toBeTruthy();
+    expect(screen.getByLabelText('网关令牌')).toBeTruthy();
   });
 
   it('hides token field when serverSideAuth is active and url is the default', () => {
-    render(
+    renderWithSettings(
       <ConnectDialog
         open
         onConnect={vi.fn(async () => {})}
@@ -61,11 +62,11 @@ describe('ConnectDialog', () => {
       />,
     );
 
-    expect(screen.queryByLabelText('Gateway token')).toBeFalsy();
+    expect(screen.queryByLabelText('网关令牌')).toBeFalsy();
   });
 
   it('hides token field when url is a loopback alias of the official gateway', () => {
-    render(
+    renderWithSettings(
       <ConnectDialog
         open
         onConnect={vi.fn(async () => {})}
@@ -77,11 +78,11 @@ describe('ConnectDialog', () => {
       />,
     );
 
-    expect(screen.queryByLabelText('Gateway token')).toBeFalsy();
+    expect(screen.queryByLabelText('网关令牌')).toBeFalsy();
   });
 
   it('shows token field when serverSideAuth is active but user changes url away from default', () => {
-    render(
+    renderWithSettings(
       <ConnectDialog
         open
         onConnect={vi.fn(async () => {})}
@@ -93,15 +94,15 @@ describe('ConnectDialog', () => {
       />,
     );
 
-    const urlInput = screen.getByLabelText('WebSocket endpoint');
+    const urlInput = screen.getByLabelText('WebSocket 地址');
     fireEvent.change(urlInput, { target: { value: 'ws://example.com:1234/ws' } });
 
-    expect(screen.getByLabelText('Gateway token')).toBeTruthy();
+    expect(screen.getByLabelText('网关令牌')).toBeTruthy();
   });
 
   it('forces empty token when serverSideAuth is active for default host', async () => {
     const onConnect = vi.fn();
-    render(
+    renderWithSettings(
       <ConnectDialog
         open
         onConnect={onConnect}
@@ -113,7 +114,7 @@ describe('ConnectDialog', () => {
       />,
     );
 
-    const connectButton = screen.getByText('Connect to Gateway');
+    const connectButton = screen.getByText('连接网关');
     fireEvent.click(connectButton);
 
     expect(onConnect).toHaveBeenCalledWith('ws://localhost:1234/ws', '');
@@ -121,7 +122,7 @@ describe('ConnectDialog', () => {
 
   it('canonicalizes loopback aliases to the official gateway url on connect', async () => {
     const onConnect = vi.fn();
-    render(
+    renderWithSettings(
       <ConnectDialog
         open
         onConnect={onConnect}
@@ -133,14 +134,14 @@ describe('ConnectDialog', () => {
       />,
     );
 
-    fireEvent.click(screen.getByText('Connect to Gateway'));
+    fireEvent.click(screen.getByText('连接网关'));
 
     expect(onConnect).toHaveBeenCalledWith('ws://127.0.0.1:1234/ws', '');
   });
 
   it('keeps token entry visible for saved custom urls when official url differs', async () => {
     const onConnect = vi.fn();
-    render(
+    renderWithSettings(
       <ConnectDialog
         open
         onConnect={onConnect}
@@ -152,9 +153,9 @@ describe('ConnectDialog', () => {
       />,
     );
 
-    expect(screen.getByLabelText('Gateway token')).toBeTruthy();
+    expect(screen.getByLabelText('网关令牌')).toBeTruthy();
 
-    fireEvent.click(screen.getByText('Connect to Gateway'));
+    fireEvent.click(screen.getByText('连接网关'));
 
     expect(onConnect).toHaveBeenCalledWith('ws://custom.example/ws', 'custom-token');
   });

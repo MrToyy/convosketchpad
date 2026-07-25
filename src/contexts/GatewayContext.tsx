@@ -1,6 +1,7 @@
 /* eslint-disable react-refresh/only-export-components -- hooks and helpers intentionally co-located with provider */
 import { createContext, useContext, useCallback, useRef, useEffect, useState, useMemo, type ReactNode } from 'react';
 import { useWebSocket, type GatewayCapabilities } from '@/hooks/useWebSocket';
+import { useSettings } from '@/contexts/SettingsContext';
 import type { GatewayEvent } from '@/types';
 
 type EventHandler = (msg: GatewayEvent) => void;
@@ -32,9 +33,10 @@ function saveConfig(url: string, token: string) {
 }
 
 export function GatewayProvider({ children }: { children: ReactNode }) {
+  const { language } = useSettings();
   const {
     connectionState, connect: wsConnect, disconnect, rpc, onEvent, connectError, reconnectAttempt, capabilities,
-  } = useWebSocket();
+  } = useWebSocket(language);
   const [sparkline, setSparkline] = useState('▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁');
   const activityBuckets = useRef<number[]>(new Array(30).fill(0));
   const currentBucketEvents = useRef(0);

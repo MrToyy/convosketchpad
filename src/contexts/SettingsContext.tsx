@@ -38,6 +38,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   useEffect(() => applyTheme(theme), [theme]);
   useEffect(() => applyFont(font), [font]);
   useEffect(() => document.documentElement.style.setProperty('--font-size-base', `${fontSize}px`), [fontSize]);
+  useEffect(() => { document.documentElement.lang = language; }, [language]);
 
   const setLanguage = useCallback((value: Language) => {
     const normalized = normalizeLanguage(value);

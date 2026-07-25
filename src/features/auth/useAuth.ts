@@ -6,6 +6,8 @@
  */
 
 import { useState, useCallback, useSyncExternalStore } from 'react';
+import { getAppCopy } from '@/lib/app-messages';
+import { DEFAULT_LANGUAGE, type Language } from '@/lib/language';
 
 export type AuthState = 'loading' | 'authenticated' | 'login';
 
@@ -25,9 +27,10 @@ fetch('/api/auth/status')
   .then(data => setAuthSnapshot(!data.authEnabled || data.authenticated ? 'authenticated' : 'login'))
   .catch(() => setAuthSnapshot('authenticated'));
 
-export function useAuth() {
+export function useAuth(language: Language = DEFAULT_LANGUAGE) {
   const state = useSyncExternalStore(subscribe, getSnapshot);
   const [error, setError] = useState('');
+  const copy = getAppCopy(language);
 
   const login = useCallback(async (token: string) => {
     setError('');
@@ -42,12 +45,12 @@ export function useAuth() {
       if (data.ok) {
         setAuthSnapshot('authenticated');
       } else {
-        setError(data.error || 'Login failed');
+        setError(copy.auth.loginFailed);
       }
     } catch {
-      setError('Unable to connect to server');
+      setError(copy.auth.serverUnavailable);
     }
-  }, []);
+  }, [copy.auth.loginFailed, copy.auth.serverUnavailable]);
 
   const logout = useCallback(async () => {
     try {

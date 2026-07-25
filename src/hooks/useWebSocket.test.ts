@@ -91,7 +91,7 @@ describe('useWebSocket', () => {
 
   describe('Connection States', () => {
     it('should start in disconnected state', () => {
-      const { result } = renderHook(() => useWebSocket());
+      const { result } = renderHook(() => useWebSocket('en'));
       expect(result.current.connectionState).toBe('disconnected');
     });
 
@@ -229,7 +229,7 @@ describe('useWebSocket', () => {
     });
 
     it('times out the initial connect attempt instead of hanging forever', async () => {
-      const { result } = renderHook(() => useWebSocket());
+      const { result } = renderHook(() => useWebSocket('en'));
 
       let connectError: Error | null = null;
       act(() => {

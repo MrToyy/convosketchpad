@@ -83,7 +83,7 @@ describe('useAuth', () => {
       await result.current.login('wrong');
     });
 
-    expect(result.current.error).toContain('Invalid token');
+    expect(result.current.error).toBe('登录失败');
     expect(result.current.state).toBe('login');
   });
 

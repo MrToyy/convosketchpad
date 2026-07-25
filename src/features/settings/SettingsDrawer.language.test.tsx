@@ -36,7 +36,7 @@ describe('SettingsDrawer interface language', () => {
 
     expect(screen.getByText('设置')).toBeInTheDocument();
     expect(screen.getByText('网关状态')).toBeInTheDocument();
-    expect(screen.getByText('A branching AI workspace for visual thinkers')).toBeInTheDocument();
+    expect(screen.getByText('让想法自由分支')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '退出登录' })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('tab', { name: '外观' }));
@@ -44,6 +44,7 @@ describe('SettingsDrawer interface language', () => {
     fireEvent.pointerDown(screen.getByRole('option', { name: 'English' }));
 
     expect(screen.getByText('Settings')).toBeInTheDocument();
+    expect(screen.getByText('A branching AI workspace for visual thinkers')).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: 'Connection' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Sign out' })).toBeInTheDocument();
     expect(localStorage.getItem(LANGUAGE_STORAGE_KEY)).toBe('en');

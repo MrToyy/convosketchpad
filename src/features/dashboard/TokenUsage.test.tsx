@@ -1,7 +1,8 @@
 import '@testing-library/jest-dom';
-import { render, screen } from '@testing-library/react';
+import { screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { TokenUsage } from './TokenUsage';
+import { renderWithSettings } from '@/test/render-with-settings';
 
 function createMockResponse(payload: unknown, status = 200) {
   return new Response(JSON.stringify(payload), {
@@ -33,14 +34,14 @@ describe('TokenUsage OpenClaw Provider limits', () => {
       }],
     }));
 
-    render(<TokenUsage data={{ totalCost: 0, breakdownAvailable: false }} />);
+    renderWithSettings(<TokenUsage data={{ totalCost: 0, breakdownAvailable: false }} />);
 
-    expect(screen.getByText('Loading Provider limits…')).toBeInTheDocument();
-    expect(await screen.findByText('OpenAI limits')).toBeInTheDocument();
-    expect(screen.getByText('Weekly limit')).toBeInTheDocument();
-    expect(screen.getByText('47% used')).toBeInTheDocument();
+    expect(screen.getByText('正在加载 Provider 限额…')).toBeInTheDocument();
+    expect(await screen.findByText('OpenAI 限额')).toBeInTheDocument();
+    expect(screen.getByText('周限额')).toBeInTheDocument();
+    expect(screen.getByText('47% 已用')).toBeInTheDocument();
     expect(screen.queryByText('5h limit')).not.toBeInTheDocument();
-    expect(global.fetch).toHaveBeenCalledWith('/api/provider-limits');
+    expect(global.fetch).toHaveBeenCalledWith('/api/provider-limits', { cache: 'no-store' });
   });
 
   it('shows when the Gateway does not expose Provider quotas', async () => {
@@ -49,9 +50,9 @@ describe('TokenUsage OpenClaw Provider limits', () => {
       providers: [],
     }));
 
-    render(<TokenUsage data={{ totalCost: 0, breakdownAvailable: false }} />);
+    renderWithSettings(<TokenUsage data={{ totalCost: 0, breakdownAvailable: false }} />);
 
-    expect(await screen.findByText('Provider limits unavailable')).toBeInTheDocument();
+    expect(await screen.findByText('无法获取 Provider 限额')).toBeInTheDocument();
   });
 
   it('shows when OpenClaw reports no configured Provider limits', async () => {
@@ -60,8 +61,25 @@ describe('TokenUsage OpenClaw Provider limits', () => {
       providers: [],
     }));
 
-    render(<TokenUsage data={{ totalCost: 0, breakdownAvailable: false }} />);
+    renderWithSettings(<TokenUsage data={{ totalCost: 0, breakdownAvailable: false }} />);
 
-    expect(await screen.findByText('No provider limits reported')).toBeInTheDocument();
+    expect(await screen.findByText('Provider 未返回限额')).toBeInTheDocument();
+  });
+
+  it('does not render a blank Provider card when a Provider has no windows', async () => {
+    global.fetch = vi.fn<typeof fetch>(async () => createMockResponse({
+      available: true,
+      providers: [{
+        provider: 'openai',
+        displayName: 'OpenAI',
+        plan: 'pro',
+        windows: [],
+      }],
+    }));
+
+    renderWithSettings(<TokenUsage data={{ totalCost: 0, breakdownAvailable: false }} />);
+
+    expect(await screen.findByText('OpenAI 限额')).toBeInTheDocument();
+    expect(screen.getByText('暂无可显示的限额明细')).toBeInTheDocument();
   });
 });

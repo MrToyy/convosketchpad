@@ -8,6 +8,8 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { useSettings } from '@/contexts/SettingsContext';
+import { getAppCopy } from '@/lib/app-messages';
 import ConvoSketchpadLogo from '../../components/ConvoSketchpadLogo';
 
 interface LoginPageProps {
@@ -16,6 +18,8 @@ interface LoginPageProps {
 }
 
 export function LoginPage({ onLogin, error }: LoginPageProps) {
+  const { language } = useSettings();
+  const copy = getAppCopy(language);
   const [token, setToken] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -45,50 +49,47 @@ export function LoginPage({ onLogin, error }: LoginPageProps) {
             <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-primary/20 bg-background/60">
               <ConvoSketchpadLogo size={30} />
             </div>
-            <div className="mt-6 text-[0.667rem] font-medium uppercase tracking-[0.32em] text-primary/80">
-              Private Cockpit Access
-            </div>
-            <h1 className="mt-3 max-w-[12ch] text-4xl font-semibold tracking-[-0.05em] text-foreground sm:text-5xl">
-              Sign in to your visual Canvas
+            <h1 className="mt-6 max-w-[12ch] text-4xl font-semibold tracking-[-0.05em] text-foreground sm:text-5xl">
+              {copy.auth.title}
             </h1>
             <p className="mt-4 max-w-[48ch] text-sm font-medium leading-6 text-foreground sm:text-base">
-              {__APP_TAGLINE__}
+              {copy.tagline}
             </p>
             <p className="mt-3 max-w-[48ch] text-sm leading-6 text-muted-foreground">
-              Authenticate once, then keep every Canvas private to its owner.
+              {copy.auth.privacy}
             </p>
 
             <div className="mt-8 grid gap-3 sm:grid-cols-3">
               <div className="shell-panel rounded-2xl px-4 py-3">
-                <div className="text-[0.667rem] font-medium uppercase tracking-[0.22em] text-muted-foreground">Branches</div>
-                <div className="mt-2 text-sm font-medium text-foreground">Explore and compare</div>
+                <div className="text-[0.667rem] font-medium uppercase tracking-[0.22em] text-muted-foreground">{copy.auth.branches}</div>
+                <div className="mt-2 text-sm font-medium text-foreground">{copy.auth.branchesDetail}</div>
               </div>
               <div className="shell-panel rounded-2xl px-4 py-3">
-                <div className="text-[0.667rem] font-medium uppercase tracking-[0.22em] text-muted-foreground">Artifacts</div>
-                <div className="mt-2 text-sm font-medium text-foreground">Keep creative outputs in context</div>
+                <div className="text-[0.667rem] font-medium uppercase tracking-[0.22em] text-muted-foreground">{copy.auth.artifacts}</div>
+                <div className="mt-2 text-sm font-medium text-foreground">{copy.auth.artifactsDetail}</div>
               </div>
               <div className="shell-panel rounded-2xl px-4 py-3">
-                <div className="text-[0.667rem] font-medium uppercase tracking-[0.22em] text-muted-foreground">Telemetry</div>
-                <div className="mt-2 text-sm font-medium text-foreground">Costs, events, and uptime</div>
+                <div className="text-[0.667rem] font-medium uppercase tracking-[0.22em] text-muted-foreground">{copy.auth.telemetry}</div>
+                <div className="mt-2 text-sm font-medium text-foreground">{copy.auth.telemetryDetail}</div>
               </div>
             </div>
           </div>
 
           <div className="px-6 py-8 sm:px-8">
             <div className="text-[0.667rem] font-medium uppercase tracking-[0.3em] text-primary/80">
-              Authentication Required
+              {copy.auth.required}
             </div>
             <h2 className="mt-3 text-2xl font-semibold tracking-[-0.04em] text-foreground">
-              Unlock ConvoSketchpad
+              {copy.auth.unlock}
             </h2>
             <p className="mt-3 text-sm leading-6 text-muted-foreground">
-              Enter the trusted-user token provided by the server administrator.
+              {copy.auth.instructions}
             </p>
 
             <form onSubmit={handleSubmit} className="mt-8 space-y-4">
               <div>
                 <label htmlFor="convosketchpad-token" className="mb-2 block text-[0.733rem] font-medium uppercase tracking-[0.2em] text-muted-foreground">
-                  User Token
+                  {copy.auth.userToken}
                 </label>
                 <Input
                   ref={inputRef}
@@ -96,7 +97,7 @@ export function LoginPage({ onLogin, error }: LoginPageProps) {
                   type="text"
                   value={token}
                   onChange={(e) => setToken(e.target.value)}
-                  placeholder="For example: example-token"
+                  placeholder={copy.auth.tokenPlaceholder}
                   autoComplete="username"
                   disabled={submitting}
                 />
@@ -114,12 +115,12 @@ export function LoginPage({ onLogin, error }: LoginPageProps) {
                 size="lg"
                 className="w-full text-[0.733rem] uppercase tracking-[0.22em]"
               >
-                {submitting ? 'Signing In…' : 'Enter ConvoSketchpad'}
+                {submitting ? copy.auth.signingIn : copy.auth.enter}
               </Button>
             </form>
 
             <div className="mt-6 text-xs leading-5 text-muted-foreground">
-              User tokens are created by the server administrator. Contact your administrator if you do not have one.
+              {copy.auth.tokenHelp}
             </div>
           </div>
         </div>

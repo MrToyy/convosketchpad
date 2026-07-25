@@ -1,8 +1,9 @@
 import '@testing-library/jest-dom';
-import { render, screen, waitFor } from '@testing-library/react';
+import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { UpdateBadge } from './UpdateBadge';
+import { renderWithSettings } from '@/test/render-with-settings';
 
 function createMockResponse(payload: unknown, status = 200) {
   return new Response(JSON.stringify(payload), {
@@ -33,12 +34,12 @@ describe('UpdateBadge', () => {
 
   it('shows a copy-paste update command with the project directory', async () => {
     const user = userEvent.setup();
-    render(<UpdateBadge />);
+    renderWithSettings(<UpdateBadge />);
 
-    await user.click(await screen.findByRole('button', { name: /update available: version 1.5.3/i }));
+    await user.click(await screen.findByRole('button', { name: /可更新至版本 1.5.3/ }));
 
     await waitFor(() => {
-      expect(screen.getByText('Project directory')).toBeInTheDocument();
+      expect(screen.getByText('项目目录')).toBeInTheDocument();
     });
 
     expect(screen.getByText('/tmp/convosketchpad repo')).toBeInTheDocument();
@@ -56,13 +57,13 @@ describe('UpdateBadge', () => {
       projectDir: '',
     }));
 
-    render(<UpdateBadge />);
+    renderWithSettings(<UpdateBadge />);
 
     await waitFor(() => {
       expect(global.fetch).toHaveBeenCalledTimes(1);
     });
 
-    expect(screen.queryByRole('button', { name: /update available: version 1.5.3/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /可更新至版本 1.5.3/ })).not.toBeInTheDocument();
   });
 
   it('does not render when update checks are disabled', async () => {
@@ -73,11 +74,11 @@ describe('UpdateBadge', () => {
       updateAvailable: false,
     }));
 
-    render(<UpdateBadge />);
+    renderWithSettings(<UpdateBadge />);
 
     await waitFor(() => {
       expect(global.fetch).toHaveBeenCalledTimes(1);
     });
-    expect(screen.queryByRole('button', { name: /update available/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /可更新/ })).not.toBeInTheDocument();
   });
 });

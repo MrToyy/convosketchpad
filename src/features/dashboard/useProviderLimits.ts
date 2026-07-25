@@ -28,7 +28,7 @@ export function useProviderLimits(): ProviderLimitsResponse | null {
 
     async function refresh() {
       try {
-        const response = await fetch('/api/provider-limits');
+        const response = await fetch('/api/provider-limits', { cache: 'no-store' });
         if (!response.ok) throw new Error('Provider limits request failed');
         const json = await response.json() as ProviderLimitsResponse;
         if (!cancelled) setLimits(json);
