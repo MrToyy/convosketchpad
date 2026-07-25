@@ -5,9 +5,21 @@
 ## 分支职责
 
 - `master` 是 `upstream/master` 的干净镜像，只用于同步官方 Nerve；不要在此开发 ConvoSketchpad 或创建项目定制提交。
-- `main` 是 ConvoSketchpad 的默认分支，用于长期维护 Canvas、受管用户认证和产品品牌。
+- `main` 是 ConvoSketchpad 的默认分支，用于长期维护 Canvas、受管用户认证和产品品牌；该分支受 GitHub Ruleset 保护，只接受 Pull Request 合并。
 - 合并方向固定为 `upstream/master → master → main`。
 - 不要把 `main` 合并回 `master`。
+
+## `main` 分支保护
+
+GitHub Ruleset `Protect main` 对 `main` 强制执行以下规则：
+
+- 所有改动必须先推送到非目标分支，再通过 Pull Request 合并。
+- Pull Request 不要求审批，适配单维护者工作流，但所有 Review 对话必须解决。
+- GitHub Actions 的 `build` 检查必须通过。
+- 禁止删除 `main` 或向其 Force Push。
+- 不配置绕过账号，管理员也遵循相同规则。
+
+不要临时停用或绕过 Ruleset 来完成日常开发、Release 或 Upstream 同步。
 
 ## 远程仓库
 
@@ -37,12 +49,17 @@ git switch master
 git merge --ff-only upstream/master
 git push origin master
 git switch main
+git pull --ff-only origin main
+git switch -c sync/upstream-YYYY-MM-DD
 git merge master
+git push -u origin sync/upstream-YYYY-MM-DD
+gh pr create --base main --head sync/upstream-YYYY-MM-DD
 ```
 
 - `master` 无法 fast-forward 时停止操作并调查分叉原因，不要通过 rebase 或 force push 掩盖问题。
-- 合并冲突只在 `main` 解决。
+- 合并冲突只在本次 `sync/upstream-*` 分支解决，不要直接修改 `main`。
 - 冲突解决后运行与冲突文件相关的测试，并至少执行 `npm run lint` 和构建/类型检查。
+- 等待 `build` 检查通过、解决全部 Review 对话后，通过 Pull Request 合并到 `main`。
 
 ## 提交前检查
 
@@ -74,12 +91,20 @@ server-dist/
 bin-dist/
 ```
 
-## 推送开发分支
+## 推送开发分支与创建 Pull Request
+
+从最新的 `main` 创建有含义的功能、修复或文档分支：
+
+```bash
+git switch main
+git pull --ff-only origin main
+git switch -c <type>/<short-description>
+```
 
 首次建立 tracking branch：
 
 ```bash
-git push -u origin main
+git push -u origin <type>/<short-description>
 ```
 
 后续推送：
@@ -88,7 +113,13 @@ git push -u origin main
 git push
 ```
 
-未经用户明确要求，不要 force push `master` 或 `main`。
+然后向 `main` 创建 Pull Request：
+
+```bash
+gh pr create --base main
+```
+
+等待 `build` 检查通过并解决全部 Review 对话后再合并。禁止直接向 `main` 推送、删除 `main` 或 Force Push `main`；Ruleset 不提供管理员绕过。未经用户明确要求，也不要 Force Push `master`。
 
 ## Canvas 变更的验证建议
 

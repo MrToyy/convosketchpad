@@ -103,7 +103,7 @@ npm run update -- --no-restart
 
 ## Release 策略
 
-`0.1.0` 有意不提供 GitHub Release。准备新 Release 时，更新 `package.json` 和 `package-lock.json`，在 `CHANGELOG.md` 中添加日期与版本匹配的章节，将 Release Commit 推送到 `main`，然后在 GitHub Actions 中手动运行 **Release** Workflow，并输入匹配的 `X.Y.Z`。
+`0.1.0` 有意不提供 GitHub Release。准备新 Release 时，从最新的 `main` 创建 Release 分支，更新 `package.json` 和 `package-lock.json`，并在 `CHANGELOG.md` 中添加日期与版本匹配的章节。提交并推送 Release 分支，通过 Pull Request 和必需的 `build` 检查合并到受保护的 `main`，然后在 GitHub Actions 中手动运行 **Release** Workflow，并输入匹配的 `X.Y.Z`。
 
 Workflow 会在 Ubuntu 和 macOS 上对准确的 `main` Commit 执行校验、测试、构建、审计和启动，然后创建带注释的 `vX.Y.Z` 标签及 Draft GitHub Release。检查 Draft 说明和安装行为后，将其发布为 Latest：
 
