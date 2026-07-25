@@ -23,7 +23,8 @@
   ],
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "node scripts/dev.mjs",
+    "dev:client": "vite",
     "dev:server": "tsx watch server/index.ts",
     "clean": "node -e \"for (const path of ['dist','server-dist','bin-dist']) require('fs').rmSync(path,{recursive:true,force:true})\"",
     "build": "npm run clean && tsc -b && vite build && npm run build:server",

@@ -20,6 +20,7 @@ const port = parseInt(process.env.VITE_PORT || '3080', 10)
 const apiTarget = `http://localhost:${process.env.PORT || '3081'}`
 
 export default defineConfig({
+  clearScreen: false,
   plugins: [react(), tailwindcss()],
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),
@@ -32,10 +33,12 @@ export default defineConfig({
   },
   server: {
     port,
+    strictPort: true,
     host: process.env.VITE_HOST || '127.0.0.1',
     https: httpsConfig,
     proxy: {
       '/api': apiTarget,
+      '/health': apiTarget,
       '/ws': {
         target: apiTarget,
         ws: true,

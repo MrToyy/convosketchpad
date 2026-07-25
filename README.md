@@ -51,8 +51,11 @@ Development:
 
 ```bash
 npm run dev
-PORT=3081 npm run dev:server
 ```
+
+This starts the Vite client and watch-mode server together. Open the Vite URL
+(default `http://127.0.0.1:3080`); API, health, and WebSocket traffic is proxied
+to the internal server on port `3081`.
 
 Node.js 22.13+ and a reachable OpenClaw Gateway are required.
 

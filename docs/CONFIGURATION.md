@@ -20,6 +20,14 @@ Run `npm run setup` for the guided path. Copy `.env.example` only when configuri
 wrong timezone could make Canvas miss the first recovery send after OpenClaw's
 daily reset.
 
+In development, `npm run dev` starts both processes and exposes a single browser
+entrypoint on `VITE_PORT` (default `3080`). The watch-mode server uses the
+configured `PORT` when it differs from the frontend port; otherwise it uses the
+next port (default `3081`). Vite proxies `/api`, `/health`, and `/ws` to it.
+Client changes use Vite HMR. Server changes restart the server process
+automatically, so in-memory state and active WebSocket connections are
+recreated.
+
 ## OpenClaw-owned Gateway setup
 
 ConvoSketchpad needs no OpenClaw tool allowlist or admin scope. For a browser
