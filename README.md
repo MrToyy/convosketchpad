@@ -5,7 +5,9 @@
 
 **让想法自由分支**
 
-**A branching AI workspace for visual thinkers**
+**面向创作者的 OpenClaw 分支工作台**
+
+**A branching OpenClaw workspace for creators**
 
 [![GitHub stars](https://img.shields.io/github/stars/MrToyy/convosketchpad?style=for-the-badge&logo=github&label=Star%20ConvoSketchpad&color=0f172a)](https://github.com/MrToyy/convosketchpad)
 [![MIT License](https://img.shields.io/badge/license-MIT-blue?style=for-the-badge)](LICENSE)
@@ -23,17 +25,30 @@
 
 ## 中文
 
-ConvoSketchpad 把 AI 工作过程组织成可缩放、可分支的空间画布。你可以从多个方向开始对话、继续当前分支，或从任意已完成的交互创建新分支，并把提示词、回复、附件和生成的产物保留在同一条上下文链路中。
+ConvoSketchpad 是面向内容创作者和知识工作者的 OpenClaw 可视化分支工作台。它把 AI 工作过程组织成可缩放的空间画布，让不同思路各自延伸，同时保持任务主线清晰。
 
 > [!IMPORTANT]
 > ConvoSketchpad **不是独立的 Agent 运行环境**，也不负责运行模型、工具或 Agent。使用它必须连接到可访问的 [OpenClaw](https://github.com/openclaw/openclaw) Gateway；Agent、工具调用、Session 和对话记录均由 OpenClaw 提供。
+
+### 为什么做 ConvoSketchpad
+
+OpenClaw 的单个 Session 以线性消息流推进。在同一条聊天中穿插创意试验、图片生成、临时调研或补充提问时，这些过程都会进入后续上下文，逐渐稀释主线目标；如果另开 Session，又需要重新组织分叉点之前的背景。
+
+ConvoSketchpad 用可视化分支解决这个问题：你可以从任意已完成的交互创建新方向，带着当时的上下文独立试验，再继续真正值得推进的路径。提示词、回复、附件和生成结果都保留在各自的上下文链路中，探索过程不会挤乱主线。
+
+### 适合谁
+
+- **自媒体与内容创作者（优先推荐）**：围绕选题、叙事、文案和视觉风格并行尝试多个方向，在不同分支生成和比较图片，同时继续使用 OpenClaw 中已经配置的 Agent、插件、技能与工具。
+- **研究、产品及其他知识工作者**：让主线专注于目标任务，把临时调研、验证和补充询问放到侧支；得到答案后，再将筛选、整理过的结论带回主线，避免过程信息持续占用核心上下文。
 
 ### 核心能力
 
 - 在一个可平移、缩放的 Canvas 中创建多个根分支。
 - 以仅追加方式组织交互，明确区分“继续”和“分支”。
+- 从任意已完成的交互携带当时上下文创建试验分支。
 - 每个 Canvas 绑定一个 OpenClaw Agent；首次发送开始后即锁定。
 - 新 Canvas 自动使用 Gateway 的默认 Agent。
+- 继续使用 OpenClaw 已配置的 Agent、插件、技能与工具，无需维护第二套运行环境。
 - 持久化保存用户附件和生成的 Artifact，并按用户隔离。
 - 当 OpenClaw 替换或移除分支 Session 时，通过规范快照恢复上下文。
 - 支持可选的受管用户登录、会话撤销、限流和 Canvas 隔离。
@@ -180,7 +195,7 @@ ConvoSketchpad 源自 [OpenClaw Nerve](https://github.com/daggerhashimoto/opencl
 
 ## English
 
-ConvoSketchpad organizes AI work as a spatial, zoomable, branching Canvas. Start in multiple directions, continue the current branch, or fork any completed Interaction while keeping prompts, responses, attachments, and generated Artifacts in the same context chain.
+ConvoSketchpad is a visual, branching OpenClaw workspace for content creators and knowledge workers. It organizes AI work on a zoomable spatial Canvas, so different ideas can develop independently while the primary task stays focused.
 
 > [!IMPORTANT]
 > ConvoSketchpad is **not a standalone Agent runtime** and does not run models, tools, or Agents by itself. It requires a reachable [OpenClaw](https://github.com/openclaw/openclaw) Gateway. OpenClaw provides the Agents, tool execution, Sessions, and transcripts.
@@ -188,12 +203,25 @@ ConvoSketchpad organizes AI work as a spatial, zoomable, branching Canvas. Start
 > [!NOTE]
 > Most detailed project documentation is written in Chinese. English-speaking developers are encouraged to use a capable large language model to translate and explain the documents while preserving code identifiers, commands, environment variables, and OpenClaw protocol names.
 
+### Why ConvoSketchpad exists
+
+An OpenClaw Session advances as a linear message stream. When creative experiments, image generation, quick research, and side questions all happen in one chat, they become part of the context for everything that follows and gradually dilute the primary objective. Starting a separate Session avoids that mixture, but requires reconstructing the context that existed at the fork point.
+
+ConvoSketchpad turns that trade-off into a visual branching workflow. Fork any completed Interaction with its context, explore independently, and continue only the paths worth pursuing. Prompts, responses, attachments, and generated results remain organized in their respective context chains instead of crowding the main line.
+
+### Who it is for
+
+- **Social media and content creators (recommended first)**: explore topics, narratives, copy, and visual styles in parallel; generate and compare images across branches; and keep using the Agents, plugins, skills, and tools already configured in OpenClaw.
+- **Researchers, product teams, and other knowledge workers**: keep the primary branch centered on the target task, move temporary research, validation, and side questions into branches, then summarize selected findings back into the main line.
+
 ### Core capabilities
 
 - Create multiple root branches on one pan-and-zoom Canvas.
 - Organize append-only Interactions with explicit Continue and Fork semantics.
+- Fork any completed Interaction with its context for independent experiments.
 - Bind one OpenClaw Agent to each Canvas and lock it when the first send begins.
 - Use the Gateway's default Agent automatically for new Canvases.
+- Keep using the Agents, plugins, skills, and tools configured in OpenClaw without maintaining a second runtime.
 - Keep durable, owner-scoped copies of user attachments and generated Artifacts.
 - Recover context from canonical snapshots when OpenClaw replaces or removes a Branch Session.
 - Optionally enable managed-user login, session revocation, rate limiting, and Canvas isolation.
