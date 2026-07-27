@@ -11,6 +11,7 @@
  */
 
 import type { MiddlewareHandler } from 'hono';
+import { isSecureRequest } from './rate-limit.js';
 
 /**
  * Content Security Policy
@@ -19,13 +20,10 @@ import type { MiddlewareHandler } from 'hono';
  * - script-src 'self': Only allow scripts from same origin
  * - style-src: Allow self, inline styles (needed for some UI libraries), and Google Fonts
  * - font-src: Allow self and Google Fonts CDN
- * - connect-src: Allow self and WebSocket connections to localhost
+ * - connect-src: Browser traffic is same-origin HTTP/SSE only
  * - img-src: Allow self, data URIs, and blob URLs (for generated images)
  * - frame-ancestors 'none': Prevent framing (like X-Frame-Options: DENY)
  */
-// Build connect-src dynamically: always include localhost, plus any extra CSP sources
-const baseConnectSrc = "'self' ws://localhost:* wss://localhost:* http://localhost:* https://localhost:* ws://127.0.0.1:* wss://127.0.0.1:* http://127.0.0.1:* https://127.0.0.1:*";
-
 /**
  * Build CSP directives string lazily — env vars may not be loaded at import time
  * (dotenv/config runs in config.ts which may be imported after this module).
@@ -35,25 +33,12 @@ let _cspDirectives: string | null = null;
 function getCspDirectives(): string {
   if (_cspDirectives) return _cspDirectives;
 
-  // CSP_CONNECT_EXTRA env var: space-separated additional connect-src entries
-  // e.g. "wss://your-server.example.com:3443 https://your-server.example.com:3443"
-  // Sanitize: strip semicolons and CR/LF to prevent directive injection
-  const extraConnectSrc = process.env.CSP_CONNECT_EXTRA
-    ?.replace(/[;\r\n]/g, '')
-    .trim()
-    .split(/\s+/)
-    .filter(token => /^(https?|wss?):\/\//.test(token))
-    .join(' ');
-  const connectSrc = extraConnectSrc
-    ? `${baseConnectSrc} ${extraConnectSrc}`
-    : baseConnectSrc;
-
   _cspDirectives = [
     "default-src 'self'",
     "script-src 'self' https://s3.tradingview.com",
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     "font-src 'self' https://fonts.gstatic.com data:",
-    `connect-src ${connectSrc}`,
+    "connect-src 'self'",
     "img-src 'self' data: blob:",
     "media-src 'self' blob:",  // Allow local attachment previews.
     "frame-src 'self' https://s3.tradingview.com https://www.tradingview.com https://www.tradingview-widget.com https://s.tradingview.com",
@@ -81,7 +66,7 @@ export const securityHeaders: MiddlewareHandler = async (c, next) => {
   c.header('X-XSS-Protection', '1; mode=block');
 
   // Enforce HTTPS (1 year, include subdomains) — production only
-  if (process.env.NODE_ENV === 'production') {
+  if (process.env.NODE_ENV === 'production' && isSecureRequest(c)) {
     c.header('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
   }
 

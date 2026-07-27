@@ -4,11 +4,16 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { config } from './config.js';
+import { applySingleChainSchemaMigration } from './canvas-migrations.js';
+import { packageMetadata } from './package-metadata.js';
 
 export type BranchKind = 'root' | 'fork';
 export type BranchSessionState = 'draft' | 'active';
 export type InteractionStatus = 'streaming' | 'completed' | 'failed';
+export type InteractionExecutionState = 'running' | 'completed' | 'failed' | 'unconfirmed';
+export type ArtifactSyncState = 'not_started' | 'observing' | 'synced' | 'degraded';
 export type SendMaterialization = 'lazy-root' | 'continue-existing' | 'checkpoint-delta' | 'canonical-replay' | 'session-recovery';
+export type SendDispatchState = 'reserved' | 'awaiting_media' | 'dispatching' | 'ambiguous' | 'acknowledged' | 'failed';
 export type BranchSessionIntegrity = 'unknown' | 'healthy' | 'drifted';
 export type CanvasUserStatus = 'active' | 'disabled' | 'unmanaged';
 
@@ -49,12 +54,17 @@ export interface BranchRecord {
 
 export interface InteractionRecord {
   id: string;
+  version: number;
   branchId: string;
   parentInteractionId: string | null;
   runId: string | null;
   userInput: string;
   agentOutput: string;
   status: InteractionStatus;
+  executionState: InteractionExecutionState;
+  artifactSyncState: ArtifactSyncState;
+  terminalAt: number | null;
+  error: string | null;
   attachments: CanvasAttachment[];
   artifacts: CanvasArtifact[];
   sessionMetadata: Record<string, unknown>;
@@ -116,10 +126,34 @@ interface CanonicalSnapshot {
 }
 
 export interface CanvasGraph {
+  cursor: number;
   canvas: CanvasRecord;
   branches: BranchRecord[];
   interactions: InteractionRecord[];
   layout: { nodes: Record<string, { x: number; y: number }>; viewport?: { x: number; y: number; zoom: number } } | null;
+  pendingSends: SendReservation[];
+}
+
+export interface CanvasSyncBatch {
+  cursor: number;
+  canvas?: CanvasRecord;
+  branches: BranchRecord[];
+  interactions: InteractionRecord[];
+  sendOperations: SendReservation[];
+  removed: {
+    branchIds: string[];
+    interactionIds: string[];
+    sendOperationIds: string[];
+  };
+}
+
+export interface StoredGatewaySignal {
+  eventKey: string;
+  runId: string | null;
+  sessionKey: string | null;
+  event: string;
+  payload: unknown;
+  createdAt: number;
 }
 
 export interface SendReservation {
@@ -134,7 +168,25 @@ export interface SendReservation {
   snapshotVersion?: number;
   bootstrapResources: Array<CanvasContextResource & { fetchUrl: string }>;
   status: 'prepared' | 'acknowledged' | 'failed';
+  dispatchState: SendDispatchState;
+  attemptCount: number;
+  lastAttemptAt: number | null;
+  nextAttemptAt: number | null;
+  error: string | null;
   interactionId: string | null;
+}
+
+export interface DispatchableSendReservation extends SendReservation {
+  ownerId: string;
+  canvasId: string;
+  agentId: string;
+}
+
+export interface CanvasAttachmentDelivery {
+  attachment: CanvasAttachment;
+  deliveryAttachmentId: string;
+  deliveryMimeType: string;
+  deliverySizeBytes: number;
 }
 
 export interface BranchSessionLifecycle {
@@ -219,12 +271,18 @@ function mapBranch(row: SqlRow): BranchRecord {
 function mapInteraction(row: SqlRow): InteractionRecord {
   return {
     id: asString(row.id),
+    version: Math.max(1, asNumber(row.version) || 1),
     branchId: asString(row.branch_id),
     parentInteractionId: asNullableString(row.parent_interaction_id),
     runId: asNullableString(row.run_id),
     userInput: asString(row.user_input),
     agentOutput: asString(row.agent_output),
     status: asString(row.status) as InteractionStatus,
+    executionState: (asString(row.execution_state)
+      || (asString(row.status) === 'completed' ? 'completed' : asString(row.status) === 'failed' ? 'failed' : 'running')) as InteractionExecutionState,
+    artifactSyncState: (asString(row.artifact_sync_state) || 'not_started') as ArtifactSyncState,
+    terminalAt: row.terminal_at == null ? null : asNumber(row.terminal_at),
+    error: asNullableString(row.error),
     attachments: parseJson<CanvasAttachment[]>(row.attachments_json, []),
     artifacts: parseJson<CanvasArtifact[]>(row.artifacts_json, []),
     sessionMetadata: parseJson<Record<string, unknown>>(row.session_metadata_json, {}),
@@ -296,12 +354,17 @@ export class CanvasStore {
       );
       CREATE TABLE IF NOT EXISTS interactions (
         id TEXT PRIMARY KEY,
+        version INTEGER NOT NULL DEFAULT 1,
         branch_id TEXT NOT NULL REFERENCES branches(id) ON DELETE CASCADE,
         parent_interaction_id TEXT,
         run_id TEXT,
         user_input TEXT NOT NULL,
         agent_output TEXT NOT NULL DEFAULT '',
         status TEXT NOT NULL CHECK(status IN ('streaming', 'completed', 'failed')),
+        execution_state TEXT NOT NULL DEFAULT 'running',
+        artifact_sync_state TEXT NOT NULL DEFAULT 'not_started',
+        terminal_at INTEGER,
+        error TEXT,
         attachments_json TEXT NOT NULL DEFAULT '[]',
         artifacts_json TEXT NOT NULL DEFAULT '[]',
         session_metadata_json TEXT NOT NULL DEFAULT '{}',
@@ -312,6 +375,19 @@ export class CanvasStore {
         canvas_id TEXT PRIMARY KEY REFERENCES canvases(id) ON DELETE CASCADE,
         layout_json TEXT NOT NULL,
         updated_at INTEGER NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS canvas_attachments (
+        canvas_id TEXT NOT NULL REFERENCES canvases(id) ON DELETE CASCADE,
+        attachment_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        mime_type TEXT NOT NULL,
+        size_bytes INTEGER NOT NULL,
+        delivery_attachment_id TEXT,
+        delivery_mime_type TEXT,
+        delivery_size_bytes INTEGER,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY(canvas_id, attachment_id)
       );
       CREATE TABLE IF NOT EXISTS send_reservations (
         id TEXT PRIMARY KEY,
@@ -329,6 +405,61 @@ export class CanvasStore {
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS send_resource_variants (
+        reservation_id TEXT NOT NULL REFERENCES send_reservations(id) ON DELETE CASCADE,
+        resource_id TEXT NOT NULL,
+        attachment_id TEXT NOT NULL,
+        mime_type TEXT NOT NULL,
+        size_bytes INTEGER NOT NULL,
+        created_at INTEGER NOT NULL,
+        PRIMARY KEY(reservation_id, resource_id)
+      );
+      CREATE TABLE IF NOT EXISTS interaction_artifacts (
+        interaction_id TEXT NOT NULL REFERENCES interactions(id) ON DELETE CASCADE,
+        id TEXT NOT NULL,
+        gateway_artifact_id TEXT,
+        name TEXT NOT NULL,
+        mime_type TEXT,
+        size_bytes INTEGER,
+        uri TEXT NOT NULL,
+        source_uri TEXT,
+        storage TEXT,
+        available INTEGER NOT NULL DEFAULT 1,
+        warning TEXT,
+        ordinal INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY(interaction_id, id)
+      );
+      CREATE TABLE IF NOT EXISTS artifact_sync_jobs (
+        interaction_id TEXT PRIMARY KEY REFERENCES interactions(id) ON DELETE CASCADE,
+        state TEXT NOT NULL,
+        attempt_count INTEGER NOT NULL DEFAULT 0,
+        next_attempt_at INTEGER,
+        last_error TEXT,
+        updated_at INTEGER NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS canvas_changes (
+        seq INTEGER PRIMARY KEY AUTOINCREMENT,
+        canvas_id TEXT NOT NULL,
+        entity_type TEXT NOT NULL,
+        entity_id TEXT NOT NULL,
+        operation TEXT NOT NULL DEFAULT 'upsert',
+        created_at INTEGER NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS gateway_signal_inbox (
+        event_key TEXT PRIMARY KEY,
+        run_id TEXT,
+        session_key TEXT,
+        event TEXT NOT NULL,
+        payload_json TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        processed_at INTEGER
+      );
+      CREATE TABLE IF NOT EXISTS schema_migrations (
+        id TEXT PRIMARY KEY,
+        applied_at INTEGER NOT NULL,
+        app_version TEXT NOT NULL
+      );
       CREATE UNIQUE INDEX IF NOT EXISTS one_draft_root_per_canvas
         ON branches(canvas_id) WHERE kind = 'root' AND session_state = 'draft';
       CREATE UNIQUE INDEX IF NOT EXISTS one_draft_fork_per_source
@@ -337,10 +468,38 @@ export class CanvasStore {
         ON send_reservations(branch_id) WHERE status = 'prepared';
       CREATE INDEX IF NOT EXISTS canvas_owner_updated ON canvases(owner_id, updated_at DESC);
       CREATE INDEX IF NOT EXISTS interaction_branch_created ON interactions(branch_id, created_at);
+      CREATE INDEX IF NOT EXISTS canvas_changes_canvas_seq ON canvas_changes(canvas_id, seq);
+      CREATE INDEX IF NOT EXISTS gateway_signal_pending_run ON gateway_signal_inbox(run_id, processed_at);
+      CREATE INDEX IF NOT EXISTS gateway_signal_pending_session ON gateway_signal_inbox(session_key, processed_at);
     `);
     const reservationColumns = this.db.prepare('PRAGMA table_info(send_reservations)').all() as SqlRow[];
-    if (!reservationColumns.some((column) => asString(column.name) === 'bootstrap_resources_json')) {
-      this.db.exec("ALTER TABLE send_reservations ADD COLUMN bootstrap_resources_json TEXT NOT NULL DEFAULT '[]'");
+    this.db.exec('BEGIN');
+    try {
+      if (!reservationColumns.some((column) => asString(column.name) === 'bootstrap_resources_json')) {
+        this.db.exec("ALTER TABLE send_reservations ADD COLUMN bootstrap_resources_json TEXT NOT NULL DEFAULT '[]'");
+      }
+      if (!reservationColumns.some((column) => asString(column.name) === 'dispatch_state')) {
+        this.db.exec("ALTER TABLE send_reservations ADD COLUMN dispatch_state TEXT NOT NULL DEFAULT 'reserved'");
+        this.db.exec(`UPDATE send_reservations
+          SET dispatch_state = CASE status
+            WHEN 'acknowledged' THEN 'acknowledged'
+            WHEN 'failed' THEN 'failed'
+            ELSE 'ambiguous'
+          END`);
+      }
+      if (!reservationColumns.some((column) => asString(column.name) === 'attempt_count')) {
+        this.db.exec('ALTER TABLE send_reservations ADD COLUMN attempt_count INTEGER NOT NULL DEFAULT 0');
+      }
+      if (!reservationColumns.some((column) => asString(column.name) === 'last_attempt_at')) {
+        this.db.exec('ALTER TABLE send_reservations ADD COLUMN last_attempt_at INTEGER');
+      }
+      if (!reservationColumns.some((column) => asString(column.name) === 'next_attempt_at')) {
+        this.db.exec('ALTER TABLE send_reservations ADD COLUMN next_attempt_at INTEGER');
+      }
+      this.db.exec('COMMIT');
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
     }
     const userColumns = this.db.prepare('PRAGMA table_info(canvas_users)').all() as SqlRow[];
     if (!userColumns.some((column) => asString(column.name) === 'token_hash')) {
@@ -368,6 +527,87 @@ export class CanvasStore {
     if (!branchColumns.some((column) => asString(column.name) === 'observed_session_started_at')) {
       this.db.exec('ALTER TABLE branches ADD COLUMN observed_session_started_at INTEGER');
     }
+    const interactionColumns = this.db.prepare('PRAGMA table_info(interactions)').all() as SqlRow[];
+    this.db.exec('BEGIN');
+    try {
+      if (!interactionColumns.some((column) => asString(column.name) === 'version')) {
+        this.db.exec('ALTER TABLE interactions ADD COLUMN version INTEGER NOT NULL DEFAULT 1');
+      }
+      if (!interactionColumns.some((column) => asString(column.name) === 'execution_state')) {
+        this.db.exec("ALTER TABLE interactions ADD COLUMN execution_state TEXT NOT NULL DEFAULT 'running'");
+      }
+      if (!interactionColumns.some((column) => asString(column.name) === 'artifact_sync_state')) {
+        this.db.exec("ALTER TABLE interactions ADD COLUMN artifact_sync_state TEXT NOT NULL DEFAULT 'not_started'");
+      }
+      if (!interactionColumns.some((column) => asString(column.name) === 'terminal_at')) {
+        this.db.exec('ALTER TABLE interactions ADD COLUMN terminal_at INTEGER');
+      }
+      if (!interactionColumns.some((column) => asString(column.name) === 'error')) {
+        this.db.exec('ALTER TABLE interactions ADD COLUMN error TEXT');
+      }
+      applySingleChainSchemaMigration(this.db, packageMetadata.version);
+      this.db.exec('COMMIT');
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
+    }
+    this.db.exec(`
+      CREATE TRIGGER IF NOT EXISTS interaction_visible_version_v1
+      AFTER UPDATE OF agent_output, status, execution_state, artifact_sync_state, terminal_at, error
+      ON interactions
+      WHEN NEW.version = OLD.version
+      BEGIN
+        UPDATE interactions SET version = OLD.version + 1 WHERE id = NEW.id;
+      END;
+      CREATE TRIGGER IF NOT EXISTS interaction_insert_change_v1
+      AFTER INSERT ON interactions
+      BEGIN
+        INSERT INTO canvas_changes(canvas_id, entity_type, entity_id, operation, created_at)
+        SELECT b.canvas_id, 'interaction', NEW.id, 'upsert', CAST(unixepoch('subsec') * 1000 AS INTEGER)
+        FROM branches b WHERE b.id = NEW.branch_id;
+      END;
+      CREATE TRIGGER IF NOT EXISTS interaction_update_change_v1
+      AFTER UPDATE OF version ON interactions
+      WHEN NEW.version != OLD.version
+      BEGIN
+        INSERT INTO canvas_changes(canvas_id, entity_type, entity_id, operation, created_at)
+        SELECT b.canvas_id, 'interaction', NEW.id, 'upsert', CAST(unixepoch('subsec') * 1000 AS INTEGER)
+        FROM branches b WHERE b.id = NEW.branch_id;
+      END;
+      CREATE TRIGGER IF NOT EXISTS branch_insert_change_v1
+      AFTER INSERT ON branches
+      BEGIN
+        INSERT INTO canvas_changes(canvas_id, entity_type, entity_id, operation, created_at)
+        VALUES (NEW.canvas_id, 'branch', NEW.id, 'upsert', CAST(unixepoch('subsec') * 1000 AS INTEGER));
+      END;
+      CREATE TRIGGER IF NOT EXISTS branch_update_change_v1
+      AFTER UPDATE OF session_state, head_interaction_id, openclaw_session_id,
+        observed_session_id, session_integrity ON branches
+      BEGIN
+        INSERT INTO canvas_changes(canvas_id, entity_type, entity_id, operation, created_at)
+        VALUES (NEW.canvas_id, 'branch', NEW.id, 'upsert', CAST(unixepoch('subsec') * 1000 AS INTEGER));
+      END;
+      CREATE TRIGGER IF NOT EXISTS send_insert_change_v1
+      AFTER INSERT ON send_reservations
+      BEGIN
+        INSERT INTO canvas_changes(canvas_id, entity_type, entity_id, operation, created_at)
+        SELECT b.canvas_id, 'send_operation', NEW.id, 'upsert', CAST(unixepoch('subsec') * 1000 AS INTEGER)
+        FROM branches b WHERE b.id = NEW.branch_id;
+      END;
+      CREATE TRIGGER IF NOT EXISTS send_update_change_v1
+      AFTER UPDATE OF status, dispatch_state, error, next_attempt_at, interaction_id ON send_reservations
+      BEGIN
+        INSERT INTO canvas_changes(canvas_id, entity_type, entity_id, operation, created_at)
+        SELECT b.canvas_id, 'send_operation', NEW.id, 'upsert', CAST(unixepoch('subsec') * 1000 AS INTEGER)
+        FROM branches b WHERE b.id = NEW.branch_id;
+      END;
+      CREATE TRIGGER IF NOT EXISTS canvas_update_change_v1
+      AFTER UPDATE OF name, agent_id ON canvases
+      BEGIN
+        INSERT INTO canvas_changes(canvas_id, entity_type, entity_id, operation, created_at)
+        VALUES (NEW.id, 'canvas', NEW.id, 'upsert', CAST(unixepoch('subsec') * 1000 AS INTEGER));
+      END;
+    `);
     this.db.exec(`
       UPDATE branches
       SET openclaw_session_started_at = COALESCE(
@@ -396,6 +636,71 @@ export class CanvasStore {
       this.db.exec('ROLLBACK');
       throw error;
     }
+  }
+
+  private listInteractionArtifacts(interactionId: string): CanvasArtifact[] {
+    const rows = this.db.prepare(`SELECT * FROM interaction_artifacts
+      WHERE interaction_id = ? ORDER BY ordinal, id`).all(interactionId) as SqlRow[];
+    return rows.map((row) => ({
+      id: asString(row.id),
+      ...(asNullableString(row.gateway_artifact_id) ? { gatewayArtifactId: asString(row.gateway_artifact_id) } : {}),
+      name: asString(row.name),
+      ...(asNullableString(row.mime_type) ? { mimeType: asString(row.mime_type) } : {}),
+      ...(row.size_bytes == null ? {} : { sizeBytes: asNumber(row.size_bytes) }),
+      uri: asString(row.uri),
+      ...(asNullableString(row.source_uri) ? { sourceUri: asString(row.source_uri) } : {}),
+      ...(asNullableString(row.storage) ? { storage: asString(row.storage) as CanvasArtifact['storage'] } : {}),
+      available: asNumber(row.available) !== 0,
+      ...(asNullableString(row.warning) ? { warning: asString(row.warning) } : {}),
+    }));
+  }
+
+  private hydrateInteraction(record: InteractionRecord): InteractionRecord {
+    return { ...record, artifacts: this.listInteractionArtifacts(record.id) };
+  }
+
+  private hydrateOwnedInteraction(record: OwnedInteractionRecord): OwnedInteractionRecord {
+    return { ...record, artifacts: this.listInteractionArtifacts(record.id) };
+  }
+
+  private normalizeInteractionArtifacts(interactionId: string, artifacts: CanvasArtifact[]): CanvasArtifact[] {
+    return artifacts.map((artifact, index) => ({
+      id: artifact.id || `${interactionId}:artifact:${index}`,
+      ...(artifact.gatewayArtifactId ? { gatewayArtifactId: artifact.gatewayArtifactId } : {}),
+      name: artifact.name,
+      ...(artifact.mimeType ? { mimeType: artifact.mimeType } : {}),
+      ...(artifact.sizeBytes === undefined ? {} : { sizeBytes: artifact.sizeBytes }),
+      uri: artifact.uri,
+      ...(artifact.sourceUri ? { sourceUri: artifact.sourceUri } : {}),
+      ...(artifact.storage ? { storage: artifact.storage } : {}),
+      available: artifact.available !== false,
+      ...(artifact.warning ? { warning: artifact.warning } : {}),
+    }));
+  }
+
+  private replaceInteractionArtifacts(interactionId: string, artifacts: CanvasArtifact[], now: number): void {
+    this.db.prepare('DELETE FROM interaction_artifacts WHERE interaction_id = ?').run(interactionId);
+    const insert = this.db.prepare(`INSERT INTO interaction_artifacts
+      (interaction_id, id, gateway_artifact_id, name, mime_type, size_bytes, uri,
+        source_uri, storage, available, warning, ordinal, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+    this.normalizeInteractionArtifacts(interactionId, artifacts).forEach((artifact, index) => {
+      insert.run(
+        interactionId,
+        artifact.id || `${interactionId}:artifact:${index}`,
+        artifact.gatewayArtifactId || null,
+        artifact.name,
+        artifact.mimeType || null,
+        artifact.sizeBytes ?? null,
+        artifact.uri,
+        artifact.sourceUri || null,
+        artifact.storage || null,
+        artifact.available === false ? 0 : 1,
+        artifact.warning || null,
+        index,
+        now,
+      );
+    });
   }
 
   ensureUser(id: string, displayName: string): void {
@@ -629,18 +934,12 @@ export class CanvasStore {
     return this.getBranchById(branchId);
   }
 
-  ownsSessionKey(ownerId: string, sessionKey: string): boolean {
-    const row = this.db.prepare(`SELECT 1 FROM branches b JOIN canvases c ON c.id = b.canvas_id
-      WHERE b.session_key = ? AND c.owner_id = ?`).get(sessionKey, ownerId);
-    return Boolean(row);
-  }
-
   forkInteraction(ownerId: string, interactionId: string): BranchRecord {
     const sourceRow = this.db.prepare(`SELECT i.*, b.canvas_id, b.head_interaction_id, c.agent_id, c.owner_id
       FROM interactions i JOIN branches b ON b.id = i.branch_id JOIN canvases c ON c.id = b.canvas_id
       WHERE i.id = ? AND c.owner_id = ?`).get(interactionId, ownerId) as SqlRow | undefined;
     if (!sourceRow) throw new Error('not_found');
-    if (asString(sourceRow.status) !== 'completed') throw new Error('interaction_not_completed');
+    if (asString(sourceRow.execution_state) !== 'completed') throw new Error('interaction_not_completed');
     if (asNullableString(sourceRow.head_interaction_id) === interactionId) throw new Error('cannot_fork_branch_head');
 
     const existing = this.db.prepare(`SELECT * FROM branches WHERE forked_from_interaction_id = ? AND session_state = 'draft'`)
@@ -696,7 +995,7 @@ export class CanvasStore {
           ...(attachment.warning ? { warning: attachment.warning } : {}),
         });
       });
-      parseJson<CanvasArtifact[]>(row.artifacts_json, []).forEach((artifact, index) => {
+      this.listInteractionArtifacts(sourceInteractionId).forEach((artifact, index) => {
         addResource({
           id: `${sourceInteractionId}:artifact:${index}`,
           sourceInteractionId,
@@ -772,14 +1071,14 @@ export class CanvasStore {
       const id = randomUUID();
       const now = Date.now();
       this.db.prepare(`INSERT INTO send_reservations
-        (id, branch_id, expected_head_interaction_id, user_input, attachments_json, materialization, session_key, outgoing_message, bootstrap_resources_json, status, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'prepared', ?, ?)`)
+        (id, branch_id, expected_head_interaction_id, user_input, attachments_json, materialization, session_key, outgoing_message, bootstrap_resources_json, status, dispatch_state, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'prepared', 'reserved', ?, ?)`)
         .run(id, branch.id, expectedHead, input.userInput, JSON.stringify(input.attachments), materialization, branch.sessionKey, outgoingMessage, JSON.stringify(bootstrapResources), now, now);
       return this.getReservation(id)!;
     });
   }
 
-  private getReservation(id: string): SendReservation | null {
+  getReservation(id: string): SendReservation | null {
     const row = this.db.prepare('SELECT * FROM send_reservations WHERE id = ?').get(id) as SqlRow | undefined;
     if (!row) return null;
     return {
@@ -794,11 +1093,131 @@ export class CanvasStore {
       snapshotVersion: ['canonical-replay', 'session-recovery'].includes(asString(row.materialization)) ? 2 : undefined,
       bootstrapResources: parseJson<CanvasContextResource[]>(row.bootstrap_resources_json, []).map((resource) => ({
         ...resource,
-        fetchUrl: `/api/canvas/send-reservations/${encodeURIComponent(asString(row.id))}/resources/${encodeURIComponent(resource.id)}`,
+        fetchUrl: `/api/canvas/send-operations/${encodeURIComponent(asString(row.id))}/resources/${encodeURIComponent(resource.id)}`,
       })),
       status: asString(row.status) as SendReservation['status'],
+      dispatchState: (asString(row.dispatch_state) || 'reserved') as SendDispatchState,
+      attemptCount: asNumber(row.attempt_count),
+      lastAttemptAt: row.last_attempt_at == null ? null : asNumber(row.last_attempt_at),
+      nextAttemptAt: row.next_attempt_at == null ? null : asNumber(row.next_attempt_at),
+      error: asNullableString(row.error),
       interactionId: asNullableString(row.interaction_id),
     };
+  }
+
+  getOwnedReservation(ownerId: string, id: string): SendReservation | null {
+    const row = this.db.prepare(`SELECT r.id FROM send_reservations r
+      JOIN branches b ON b.id = r.branch_id
+      JOIN canvases c ON c.id = b.canvas_id
+      WHERE r.id = ? AND c.owner_id = ?`).get(id, ownerId) as SqlRow | undefined;
+    return row ? this.getReservation(id) : null;
+  }
+
+  getDispatchableReservation(id: string): DispatchableSendReservation | null {
+    const row = this.db.prepare(`SELECT r.id, c.owner_id, c.id AS canvas_id, c.agent_id
+      FROM send_reservations r
+      JOIN branches b ON b.id = r.branch_id
+      JOIN canvases c ON c.id = b.canvas_id
+      WHERE r.id = ?`).get(id) as SqlRow | undefined;
+    const reservation = row ? this.getReservation(id) : null;
+    return reservation && row ? {
+      ...reservation,
+      ownerId: asString(row.owner_id),
+      canvasId: asString(row.canvas_id),
+      agentId: asString(row.agent_id),
+    } : null;
+  }
+
+  listDispatchableReservations(now = Date.now(), limit = 100): DispatchableSendReservation[] {
+    const rows = this.db.prepare(`SELECT r.id
+      FROM send_reservations r
+      WHERE r.status = 'prepared'
+        AND r.dispatch_state IN ('reserved', 'dispatching', 'ambiguous')
+        AND (r.next_attempt_at IS NULL OR r.next_attempt_at <= ?)
+      ORDER BY COALESCE(r.next_attempt_at, r.created_at), r.created_at
+      LIMIT ?`).all(now, limit) as SqlRow[];
+    return rows.flatMap((row) => {
+      const reservation = this.getDispatchableReservation(asString(row.id));
+      return reservation ? [reservation] : [];
+    });
+  }
+
+  nextDispatchableReservationAt(now = Date.now()): number | null {
+    const row = this.db.prepare(`SELECT MIN(COALESCE(next_attempt_at, ?)) AS next_at
+      FROM send_reservations
+      WHERE status = 'prepared'
+        AND dispatch_state IN ('reserved', 'dispatching', 'ambiguous')`)
+      .get(now) as SqlRow | undefined;
+    return row?.next_at == null ? null : asNumber(row.next_at);
+  }
+
+  markReservationDispatching(id: string): SendReservation | null {
+    const now = Date.now();
+    this.db.prepare(`UPDATE send_reservations
+      SET dispatch_state = 'dispatching', attempt_count = attempt_count + 1,
+        last_attempt_at = ?, next_attempt_at = NULL, error = NULL, updated_at = ?
+      WHERE id = ? AND status = 'prepared'
+        AND dispatch_state IN ('reserved', 'dispatching', 'ambiguous')`)
+      .run(now, now, id);
+    return this.getReservation(id);
+  }
+
+  scheduleReservationRetry(id: string, state: 'reserved' | 'ambiguous', error: string, nextAttemptAt: number): SendReservation | null {
+    this.db.prepare(`UPDATE send_reservations
+      SET dispatch_state = ?, error = ?, next_attempt_at = ?, updated_at = ?
+      WHERE id = ? AND status = 'prepared'`)
+      .run(state, error, nextAttemptAt, Date.now(), id);
+    return this.getReservation(id);
+  }
+
+  markReservationAwaitingMedia(id: string): SendReservation | null {
+    this.db.prepare(`UPDATE send_reservations
+      SET dispatch_state = 'awaiting_media', next_attempt_at = NULL, updated_at = ?
+      WHERE id = ? AND status = 'prepared'`).run(Date.now(), id);
+    return this.getReservation(id);
+  }
+
+  markReservationMediaReady(id: string): SendReservation | null {
+    this.db.prepare(`UPDATE send_reservations
+      SET dispatch_state = 'reserved', next_attempt_at = NULL, error = NULL, updated_at = ?
+      WHERE id = ? AND status = 'prepared' AND dispatch_state = 'awaiting_media'`)
+      .run(Date.now(), id);
+    return this.getReservation(id);
+  }
+
+  setReservationResourceVariant(
+    ownerId: string,
+    reservationId: string,
+    resourceId: string,
+    attachment: CanvasAttachment,
+  ): boolean {
+    if (!attachment.id || !this.getOwnedReservation(ownerId, reservationId)) return false;
+    const resource = this.getOwnedReservationResource(ownerId, reservationId, resourceId);
+    if (!resource) return false;
+    this.db.prepare(`INSERT INTO send_resource_variants
+      (reservation_id, resource_id, attachment_id, mime_type, size_bytes, created_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(reservation_id, resource_id) DO UPDATE SET
+        attachment_id = excluded.attachment_id,
+        mime_type = excluded.mime_type,
+        size_bytes = excluded.size_bytes,
+        created_at = excluded.created_at`)
+      .run(reservationId, resourceId, attachment.id, attachment.mimeType, attachment.sizeBytes, Date.now());
+    this.markReservationMediaReady(reservationId);
+    return true;
+  }
+
+  getReservationResourceVariant(
+    reservationId: string,
+    resourceId: string,
+  ): { attachmentId: string; mimeType: string; sizeBytes: number } | null {
+    const row = this.db.prepare(`SELECT * FROM send_resource_variants
+      WHERE reservation_id = ? AND resource_id = ?`).get(reservationId, resourceId) as SqlRow | undefined;
+    return row ? {
+      attachmentId: asString(row.attachment_id),
+      mimeType: asString(row.mime_type),
+      sizeBytes: asNumber(row.size_bytes),
+    } : null;
   }
 
   getOwnedReservationSessionTarget(
@@ -823,7 +1242,7 @@ export class CanvasStore {
       if (!row) throw new Error('not_found');
       if (asString(row.status) === 'acknowledged') {
         const existing = this.db.prepare('SELECT * FROM interactions WHERE id = ?').get(asString(row.interaction_id)) as SqlRow;
-        return mapInteraction(existing);
+        return this.hydrateInteraction(mapInteraction(existing));
       }
       if (asString(row.status) !== 'prepared') throw new Error('reservation_not_prepared');
 
@@ -857,19 +1276,107 @@ export class CanvasStore {
           now,
           asString(row.branch_id),
         );
-      this.db.prepare(`UPDATE send_reservations SET status = 'acknowledged', run_id = ?, interaction_id = ?, updated_at = ? WHERE id = ?`)
+      this.db.prepare(`UPDATE send_reservations SET status = 'acknowledged', dispatch_state = 'acknowledged',
+        run_id = ?, interaction_id = ?, next_attempt_at = NULL, error = NULL, updated_at = ? WHERE id = ?`)
         .run(runId, id, now, reservationId);
       this.db.prepare('UPDATE canvases SET updated_at = ? WHERE id = ?').run(now, asString(row.canvas_id));
-      return mapInteraction(this.db.prepare('SELECT * FROM interactions WHERE id = ?').get(id) as SqlRow);
+      return this.hydrateInteraction(mapInteraction(this.db.prepare('SELECT * FROM interactions WHERE id = ?').get(id) as SqlRow));
     });
   }
 
   failReservation(ownerId: string, reservationId: string, error: string): boolean {
-    const result = this.db.prepare(`UPDATE send_reservations SET status = 'failed', error = ?, updated_at = ?
+    const result = this.db.prepare(`UPDATE send_reservations SET status = 'failed', dispatch_state = 'failed',
+      error = ?, next_attempt_at = NULL, updated_at = ?
       WHERE id = ? AND status = 'prepared' AND branch_id IN (
         SELECT b.id FROM branches b JOIN canvases c ON c.id = b.canvas_id WHERE c.owner_id = ?
       )`).run(error, Date.now(), reservationId, ownerId);
     return Number(result.changes) > 0;
+  }
+
+  failReservationById(reservationId: string, error: string): boolean {
+    const result = this.db.prepare(`UPDATE send_reservations SET status = 'failed', dispatch_state = 'failed',
+      error = ?, next_attempt_at = NULL, updated_at = ?
+      WHERE id = ? AND status = 'prepared'`).run(error, Date.now(), reservationId);
+    return Number(result.changes) > 0;
+  }
+
+  recordCanvasAttachment(ownerId: string, canvasId: string, attachment: CanvasAttachment): CanvasAttachment {
+    if (!attachment.id) throw new Error('attachment_id_required');
+    const canvas = this.getCanvas(ownerId, canvasId);
+    if (!canvas) throw new Error('not_found');
+    const now = Date.now();
+    this.db.prepare(`INSERT INTO canvas_attachments
+      (canvas_id, attachment_id, name, mime_type, size_bytes, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(canvas_id, attachment_id) DO UPDATE SET
+        name = excluded.name,
+        mime_type = excluded.mime_type,
+        size_bytes = excluded.size_bytes,
+        updated_at = excluded.updated_at`)
+      .run(canvasId, attachment.id, attachment.name, attachment.mimeType, attachment.sizeBytes, now, now);
+    return attachment;
+  }
+
+  getOwnedCanvasAttachments(ownerId: string, canvasId: string, attachmentIds: string[]): CanvasAttachment[] {
+    if (attachmentIds.length === 0) return [];
+    if (!this.getCanvas(ownerId, canvasId)) return [];
+    const result: CanvasAttachment[] = [];
+    const statement = this.db.prepare(`SELECT * FROM canvas_attachments
+      WHERE canvas_id = ? AND attachment_id = ?`);
+    for (const attachmentId of attachmentIds) {
+      const row = statement.get(canvasId, attachmentId) as SqlRow | undefined;
+      if (!row) continue;
+      result.push({
+        id: asString(row.attachment_id),
+        name: asString(row.name),
+        mimeType: asString(row.mime_type),
+        sizeBytes: asNumber(row.size_bytes),
+        uri: `/api/canvas/attachments/${encodeURIComponent(canvasId)}/${encodeURIComponent(attachmentId)}`,
+        storage: 'canvas',
+        available: true,
+      });
+    }
+    return result;
+  }
+
+  setCanvasAttachmentDeliveryVariant(
+    ownerId: string,
+    canvasId: string,
+    attachmentId: string,
+    delivery: CanvasAttachment,
+  ): boolean {
+    if (!delivery.id || !this.getCanvas(ownerId, canvasId)) return false;
+    const result = this.db.prepare(`UPDATE canvas_attachments
+      SET delivery_attachment_id = ?, delivery_mime_type = ?, delivery_size_bytes = ?, updated_at = ?
+      WHERE canvas_id = ? AND attachment_id = ?`)
+      .run(delivery.id, delivery.mimeType, delivery.sizeBytes, Date.now(), canvasId, attachmentId);
+    return Number(result.changes) > 0;
+  }
+
+  getCanvasAttachmentDeliveries(canvasId: string, attachmentIds: string[]): CanvasAttachmentDelivery[] {
+    const result: CanvasAttachmentDelivery[] = [];
+    const statement = this.db.prepare(`SELECT * FROM canvas_attachments
+      WHERE canvas_id = ? AND attachment_id = ?`);
+    for (const attachmentId of attachmentIds) {
+      const row = statement.get(canvasId, attachmentId) as SqlRow | undefined;
+      if (!row) continue;
+      const deliveryAttachmentId = asNullableString(row.delivery_attachment_id) || attachmentId;
+      result.push({
+        attachment: {
+          id: attachmentId,
+          name: asString(row.name),
+          mimeType: asString(row.mime_type),
+          sizeBytes: asNumber(row.size_bytes),
+          uri: `/api/canvas/attachments/${encodeURIComponent(canvasId)}/${encodeURIComponent(attachmentId)}`,
+          storage: 'canvas',
+          available: true,
+        },
+        deliveryAttachmentId,
+        deliveryMimeType: asNullableString(row.delivery_mime_type) || asString(row.mime_type),
+        deliverySizeBytes: row.delivery_size_bytes == null ? asNumber(row.size_bytes) : asNumber(row.delivery_size_bytes),
+      });
+    }
+    return result;
   }
 
   getOwnedReservationResource(ownerId: string, reservationId: string, resourceId: string): { resource: CanvasContextResource; agentId: string } | null {
@@ -882,6 +1389,8 @@ export class CanvasStore {
   }
 
   getOwnedCanvasAttachment(ownerId: string, canvasId: string, attachmentId: string): CanvasAttachment | null {
+    const registered = this.getOwnedCanvasAttachments(ownerId, canvasId, [attachmentId])[0];
+    if (registered) return registered;
     const row = this.db.prepare(`SELECT attachment.value AS attachment_json
       FROM interactions i
       JOIN branches b ON b.id = i.branch_id
@@ -892,51 +1401,54 @@ export class CanvasStore {
     return row ? parseJson<CanvasAttachment>(row.attachment_json, {} as CanvasAttachment) : null;
   }
 
-  completeInteraction(ownerId: string, interactionId: string, input: {
-    status: 'completed' | 'failed';
-    agentOutput: string;
-    artifacts: CanvasArtifact[];
-    metadata?: Record<string, unknown>;
-  }): InteractionRecord | null {
-    const now = Date.now();
-    this.db.prepare(`UPDATE interactions SET status = ?, agent_output = ?, artifacts_json = ?, session_metadata_json = ?, updated_at = ?
-      WHERE id = ? AND branch_id IN (
-        SELECT b.id FROM branches b JOIN canvases c ON c.id = b.canvas_id WHERE c.owner_id = ?
-      )`).run(input.status, input.agentOutput, JSON.stringify(input.artifacts), JSON.stringify(input.metadata || {}), now, interactionId, ownerId);
-    const row = this.db.prepare(`SELECT i.* FROM interactions i JOIN branches b ON b.id = i.branch_id JOIN canvases c ON c.id = b.canvas_id
-      WHERE i.id = ? AND c.owner_id = ?`).get(interactionId, ownerId) as SqlRow | undefined;
-    return row ? mapInteraction(row) : null;
-  }
-
   getOwnedInteraction(ownerId: string, interactionId: string): OwnedInteractionRecord | null {
     const row = this.db.prepare(`SELECT i.*, b.canvas_id, b.session_key, b.openclaw_session_id, b.observed_session_id, b.session_integrity, c.owner_id, c.agent_id
       FROM interactions i JOIN branches b ON b.id = i.branch_id JOIN canvases c ON c.id = b.canvas_id
       WHERE i.id = ? AND c.owner_id = ?`).get(interactionId, ownerId) as SqlRow | undefined;
-    return row ? mapOwnedInteraction(row) : null;
+    return row ? this.hydrateOwnedInteraction(mapOwnedInteraction(row)) : null;
   }
 
   getInteractionForReconciliation(interactionId: string): OwnedInteractionRecord | null {
     const row = this.db.prepare(`SELECT i.*, b.canvas_id, b.session_key, b.openclaw_session_id, b.observed_session_id, b.session_integrity, c.owner_id, c.agent_id
       FROM interactions i JOIN branches b ON b.id = i.branch_id JOIN canvases c ON c.id = b.canvas_id
       WHERE i.id = ?`).get(interactionId) as SqlRow | undefined;
-    return row ? mapOwnedInteraction(row) : null;
+    return row ? this.hydrateOwnedInteraction(mapOwnedInteraction(row)) : null;
   }
 
-  listReconciliationCandidates(limit = 500): OwnedInteractionRecord[] {
+  listReconciliationCandidates(limit = 500, offset = 0): OwnedInteractionRecord[] {
     const rows = this.db.prepare(`SELECT i.*, b.canvas_id, b.session_key, b.openclaw_session_id, b.observed_session_id, b.session_integrity, c.owner_id, c.agent_id
       FROM interactions i JOIN branches b ON b.id = i.branch_id JOIN canvases c ON c.id = b.canvas_id
-      WHERE i.status = 'streaming'
-         OR COALESCE(json_extract(i.session_metadata_json, '$.reconciliation.version'), 0) < 4
-         OR json_extract(i.session_metadata_json, '$.reconciliation.artifactSync') = 'pending'
-         OR json_extract(i.session_metadata_json, '$.reconciliation.artifactSync') = 'degraded'
-         OR (
-           i.status = 'completed'
-           AND trim(i.agent_output) = ''
-           AND json_array_length(i.artifacts_json) = 0
-           AND json_extract(i.session_metadata_json, '$.reconciliation.artifactSync') = 'synced'
+      WHERE i.execution_state IN ('running', 'unconfirmed')
+         OR EXISTS (
+           SELECT 1 FROM artifact_sync_jobs j
+           WHERE j.interaction_id = i.id AND j.state = 'observing'
          )
-      ORDER BY i.updated_at ASC LIMIT ?`).all(limit) as SqlRow[];
-    return rows.map(mapOwnedInteraction);
+      ORDER BY i.updated_at ASC, i.id ASC LIMIT ? OFFSET ?`).all(limit, offset) as SqlRow[];
+    return rows.map((row) => this.hydrateOwnedInteraction(mapOwnedInteraction(row)));
+  }
+
+  hasArtifactSyncJob(interactionId: string): boolean {
+    return Boolean(this.db.prepare(`SELECT 1 FROM artifact_sync_jobs
+      WHERE interaction_id = ? AND state = 'observing'`).get(interactionId));
+  }
+
+  scheduleArtifactSyncAttempt(interactionId: string, nextAttemptAt: number): void {
+    const now = Date.now();
+    this.db.prepare(`INSERT INTO artifact_sync_jobs
+      (interaction_id, state, attempt_count, next_attempt_at, last_error, updated_at)
+      VALUES (?, 'observing', 0, ?, NULL, ?)
+      ON CONFLICT(interaction_id) DO UPDATE SET
+        state = 'observing',
+        next_attempt_at = excluded.next_attempt_at,
+        updated_at = excluded.updated_at`)
+      .run(interactionId, nextAttemptAt, now);
+  }
+
+  markArtifactSyncAttempt(interactionId: string): void {
+    this.db.prepare(`UPDATE artifact_sync_jobs
+      SET attempt_count = attempt_count + 1, next_attempt_at = NULL, updated_at = ?
+      WHERE interaction_id = ?`)
+      .run(Date.now(), interactionId);
   }
 
   updateReconciliationMetadata(interactionId: string, patch: Record<string, unknown>): InteractionRecord | null {
@@ -952,7 +1464,56 @@ export class CanvasStore {
       this.db.prepare('UPDATE interactions SET session_metadata_json = ?, updated_at = ? WHERE id = ?')
         .run(JSON.stringify(nextMetadata), now, interactionId);
       const updated = this.db.prepare('SELECT * FROM interactions WHERE id = ?').get(interactionId) as SqlRow;
-      return mapInteraction(updated);
+      return this.hydrateInteraction(mapInteraction(updated));
+    });
+  }
+
+  updateInteractionCoordination(interactionId: string, input: {
+    executionState?: InteractionExecutionState;
+    artifactSyncState?: ArtifactSyncState;
+    artifactObservationPending?: boolean;
+    terminalAt?: number | null;
+    error?: string | null;
+    nextAttemptAt?: number | null;
+  }): InteractionRecord | null {
+    return this.transaction(() => {
+      const row = this.db.prepare('SELECT * FROM interactions WHERE id = ?').get(interactionId) as SqlRow | undefined;
+      if (!row) return null;
+      const executionState = input.executionState
+        || (asString(row.execution_state) as InteractionExecutionState);
+      const artifactSyncState = input.artifactSyncState
+        || (asString(row.artifact_sync_state) as ArtifactSyncState);
+      const artifactObservationPending = input.artifactObservationPending
+        ?? artifactSyncState === 'observing';
+      const terminalAt = input.terminalAt === undefined
+        ? (row.terminal_at == null ? null : asNumber(row.terminal_at))
+        : input.terminalAt;
+      const error = input.error === undefined ? asNullableString(row.error) : input.error;
+      const now = Date.now();
+      const visibleChanged = executionState !== asString(row.execution_state)
+        || artifactSyncState !== asString(row.artifact_sync_state)
+        || terminalAt !== (row.terminal_at == null ? null : asNumber(row.terminal_at))
+        || error !== asNullableString(row.error);
+      if (visibleChanged) {
+        this.db.prepare(`UPDATE interactions
+          SET execution_state = ?, artifact_sync_state = ?, terminal_at = ?, error = ?, updated_at = ?
+          WHERE id = ?`).run(executionState, artifactSyncState, terminalAt, error, now, interactionId);
+      }
+      if (artifactObservationPending) {
+        this.db.prepare(`INSERT INTO artifact_sync_jobs
+          (interaction_id, state, attempt_count, next_attempt_at, last_error, updated_at)
+          VALUES (?, 'observing', 0, ?, ?, ?)
+          ON CONFLICT(interaction_id) DO UPDATE SET
+            state = 'observing',
+            next_attempt_at = excluded.next_attempt_at,
+            last_error = excluded.last_error,
+            updated_at = excluded.updated_at`)
+          .run(interactionId, input.nextAttemptAt ?? null, error, now);
+      } else {
+        this.db.prepare('DELETE FROM artifact_sync_jobs WHERE interaction_id = ?').run(interactionId);
+      }
+      const updated = this.db.prepare('SELECT * FROM interactions WHERE id = ?').get(interactionId) as SqlRow;
+      return this.hydrateInteraction(mapInteraction(updated));
     });
   }
 
@@ -960,6 +1521,11 @@ export class CanvasStore {
     status: 'completed' | 'failed';
     agentOutput: string;
     artifacts: CanvasArtifact[];
+    artifactSyncState?: ArtifactSyncState;
+    artifactObservationPending?: boolean;
+    nextAttemptAt?: number | null;
+    terminalAt?: number;
+    error?: string | null;
     reconciliation: Record<string, unknown>;
   }): InteractionRecord | null {
     return this.transaction(() => {
@@ -970,14 +1536,179 @@ export class CanvasStore {
         ? metadata.reconciliation as Record<string, unknown>
         : {};
       const nextMetadata = { ...metadata, reconciliation: { ...previous, ...input.reconciliation } };
+      const reconciliationArtifactSync = input.reconciliation.artifactSync;
+      const artifactSyncState = input.artifactSyncState
+        || (reconciliationArtifactSync === 'synced' || reconciliationArtifactSync === 'degraded'
+          ? reconciliationArtifactSync
+          : 'observing');
+      const artifactObservationPending = input.artifactObservationPending
+        ?? artifactSyncState === 'observing';
       const now = Date.now();
-      this.db.prepare(`UPDATE interactions
-        SET status = ?, agent_output = ?, artifacts_json = ?, session_metadata_json = ?, updated_at = ?
-        WHERE id = ?`)
-        .run(input.status, input.agentOutput, JSON.stringify(input.artifacts), JSON.stringify(nextMetadata), now, interactionId);
+      const terminalAt = input.terminalAt ?? (row.terminal_at == null ? now : asNumber(row.terminal_at));
+      const nextError = input.error ?? (input.status === 'failed' ? input.agentOutput || 'OpenClaw run failed' : null);
+      const currentArtifacts = this.listInteractionArtifacts(interactionId);
+      const normalizedArtifacts = this.normalizeInteractionArtifacts(interactionId, input.artifacts);
+      const artifactsChanged = JSON.stringify(currentArtifacts) !== JSON.stringify(normalizedArtifacts);
+      const visibleChanged = input.status !== asString(row.status)
+        || input.status !== asString(row.execution_state)
+        || artifactSyncState !== asString(row.artifact_sync_state)
+        || input.agentOutput !== asString(row.agent_output)
+        || terminalAt !== (row.terminal_at == null ? null : asNumber(row.terminal_at))
+        || nextError !== asNullableString(row.error)
+        || artifactsChanged;
+      if (visibleChanged) {
+        this.db.prepare(`UPDATE interactions
+          SET status = ?, execution_state = ?, artifact_sync_state = ?, agent_output = ?,
+            terminal_at = ?, error = ?, session_metadata_json = ?, updated_at = ?
+          WHERE id = ?`)
+          .run(
+            input.status,
+            input.status,
+            artifactSyncState,
+            input.agentOutput,
+            terminalAt,
+            nextError,
+            JSON.stringify(nextMetadata),
+            now,
+            interactionId,
+          );
+        if (artifactsChanged) this.replaceInteractionArtifacts(interactionId, normalizedArtifacts, now);
+      } else {
+        this.db.prepare('UPDATE interactions SET session_metadata_json = ?, updated_at = ? WHERE id = ?')
+          .run(JSON.stringify(nextMetadata), now, interactionId);
+      }
+      if (artifactObservationPending) {
+        this.db.prepare(`INSERT INTO artifact_sync_jobs
+          (interaction_id, state, attempt_count, next_attempt_at, last_error, updated_at)
+          VALUES (?, 'observing', 0, ?, ?, ?)
+          ON CONFLICT(interaction_id) DO UPDATE SET
+            state = 'observing',
+            next_attempt_at = excluded.next_attempt_at,
+            last_error = excluded.last_error,
+            updated_at = excluded.updated_at`)
+          .run(interactionId, input.nextAttemptAt ?? null, input.error || null, now);
+      } else {
+        this.db.prepare('DELETE FROM artifact_sync_jobs WHERE interaction_id = ?').run(interactionId);
+      }
       const updated = this.db.prepare('SELECT * FROM interactions WHERE id = ?').get(interactionId) as SqlRow;
-      return mapInteraction(updated);
+      return this.hydrateInteraction(mapInteraction(updated));
     });
+  }
+
+  getCanvasCursor(canvasId: string): number {
+    const row = this.db.prepare('SELECT COALESCE(MAX(seq), 0) AS cursor FROM canvas_changes WHERE canvas_id = ?')
+      .get(canvasId) as SqlRow;
+    return asNumber(row.cursor);
+  }
+
+  getCanvasSyncBatch(ownerId: string, canvasId: string, after: number, limit = 500): CanvasSyncBatch | null {
+    const canvas = this.getCanvas(ownerId, canvasId);
+    if (!canvas) return null;
+    const changes = this.db.prepare(`SELECT seq, entity_type, entity_id, operation
+      FROM canvas_changes WHERE canvas_id = ? AND seq > ?
+      ORDER BY seq LIMIT ?`).all(canvasId, Math.max(0, after), Math.max(1, limit)) as SqlRow[];
+    const latest = new Map<string, SqlRow>();
+    for (const change of changes) {
+      latest.set(`${asString(change.entity_type)}:${asString(change.entity_id)}`, change);
+    }
+    const branches: BranchRecord[] = [];
+    const interactions: InteractionRecord[] = [];
+    const sendOperations: SendReservation[] = [];
+    const removed = {
+      branchIds: [] as string[],
+      interactionIds: [] as string[],
+      sendOperationIds: [] as string[],
+    };
+    let includeCanvas = false;
+    for (const change of latest.values()) {
+      const type = asString(change.entity_type);
+      const id = asString(change.entity_id);
+      if (type === 'canvas') {
+        includeCanvas = true;
+      } else if (type === 'branch') {
+        const row = this.db.prepare(`SELECT b.* FROM branches b
+          JOIN canvases c ON c.id = b.canvas_id
+          WHERE b.id = ? AND b.canvas_id = ? AND c.owner_id = ?`).get(id, canvasId, ownerId) as SqlRow | undefined;
+        if (row) branches.push(mapBranch(row));
+        else removed.branchIds.push(id);
+      } else if (type === 'interaction') {
+        const interaction = this.getOwnedInteraction(ownerId, id);
+        if (interaction && interaction.canvasId === canvasId) interactions.push(interaction);
+        else removed.interactionIds.push(id);
+      } else if (type === 'send_operation') {
+        const row = this.db.prepare(`SELECT r.id FROM send_reservations r
+          JOIN branches b ON b.id = r.branch_id
+          JOIN canvases c ON c.id = b.canvas_id
+          WHERE r.id = ? AND b.canvas_id = ? AND c.owner_id = ?`).get(id, canvasId, ownerId) as SqlRow | undefined;
+        const operation = row ? this.getReservation(id) : null;
+        if (operation) sendOperations.push(operation);
+        else removed.sendOperationIds.push(id);
+      }
+    }
+    return {
+      cursor: changes.length ? asNumber(changes[changes.length - 1].seq) : this.getCanvasCursor(canvasId),
+      ...(includeCanvas ? { canvas: this.getCanvas(ownerId, canvasId) || undefined } : {}),
+      branches,
+      interactions,
+      sendOperations,
+      removed,
+    };
+  }
+
+  findInteractionByGatewayCorrelation(runId: string, sessionKey: string): OwnedInteractionRecord | null {
+    if (runId) {
+      const row = this.db.prepare(`SELECT i.*, b.canvas_id, b.session_key, b.openclaw_session_id,
+          b.observed_session_id, b.session_integrity, c.owner_id, c.agent_id
+        FROM interactions i
+        JOIN branches b ON b.id = i.branch_id
+        JOIN canvases c ON c.id = b.canvas_id
+        WHERE i.run_id = ? AND i.execution_state IN ('running', 'unconfirmed')
+        ORDER BY i.created_at DESC LIMIT 1`).get(runId) as SqlRow | undefined;
+      if (row) return this.hydrateOwnedInteraction(mapOwnedInteraction(row));
+    }
+    if (!sessionKey) return null;
+    const rows = this.db.prepare(`SELECT i.*, b.canvas_id, b.session_key, b.openclaw_session_id,
+        b.observed_session_id, b.session_integrity, c.owner_id, c.agent_id
+      FROM interactions i
+      JOIN branches b ON b.id = i.branch_id
+      JOIN canvases c ON c.id = b.canvas_id
+      WHERE b.session_key = ? AND i.execution_state IN ('running', 'unconfirmed')
+      ORDER BY i.created_at DESC LIMIT 2`).all(sessionKey) as SqlRow[];
+    return rows.length === 1 ? this.hydrateOwnedInteraction(mapOwnedInteraction(rows[0])) : null;
+  }
+
+  recordGatewaySignal(input: StoredGatewaySignal): boolean {
+    const result = this.db.prepare(`INSERT OR IGNORE INTO gateway_signal_inbox
+      (event_key, run_id, session_key, event, payload_json, created_at)
+      VALUES (?, ?, ?, ?, ?, ?)`).run(
+      input.eventKey,
+      input.runId,
+      input.sessionKey,
+      input.event,
+      JSON.stringify(input.payload ?? null),
+      input.createdAt,
+    );
+    return Number(result.changes) > 0;
+  }
+
+  listPendingGatewaySignals(runId: string, sessionKey: string): StoredGatewaySignal[] {
+    const rows = this.db.prepare(`SELECT * FROM gateway_signal_inbox
+      WHERE processed_at IS NULL
+        AND ((? != '' AND run_id = ?) OR (? != '' AND session_key = ?))
+      ORDER BY created_at, event_key`).all(runId, runId, sessionKey, sessionKey) as SqlRow[];
+    return rows.map((row) => ({
+      eventKey: asString(row.event_key),
+      runId: asNullableString(row.run_id),
+      sessionKey: asNullableString(row.session_key),
+      event: asString(row.event),
+      payload: parseJson(row.payload_json, null),
+      createdAt: asNumber(row.created_at),
+    }));
+  }
+
+  markGatewaySignalProcessed(eventKey: string): void {
+    this.db.prepare('UPDATE gateway_signal_inbox SET processed_at = ? WHERE event_key = ? AND processed_at IS NULL')
+      .run(Date.now(), eventKey);
   }
 
   getGraph(ownerId: string, canvasId: string): CanvasGraph | null {
@@ -985,9 +1716,25 @@ export class CanvasStore {
     if (!canvas) return null;
     const branches = (this.db.prepare('SELECT * FROM branches WHERE canvas_id = ? ORDER BY created_at').all(canvasId) as SqlRow[]).map(mapBranch);
     const interactions = (this.db.prepare(`SELECT i.* FROM interactions i JOIN branches b ON b.id = i.branch_id
-      WHERE b.canvas_id = ? ORDER BY i.created_at`).all(canvasId) as SqlRow[]).map(mapInteraction);
+      WHERE b.canvas_id = ? ORDER BY i.created_at`).all(canvasId) as SqlRow[])
+      .map((row) => this.hydrateInteraction(mapInteraction(row)));
     const layoutRow = this.db.prepare('SELECT layout_json FROM canvas_layouts WHERE canvas_id = ?').get(canvasId) as SqlRow | undefined;
-    return { canvas, branches, interactions, layout: layoutRow ? parseJson(rowValue(layoutRow, 'layout_json'), null) : null };
+    const pendingRows = this.db.prepare(`SELECT r.id FROM send_reservations r
+      JOIN branches b ON b.id = r.branch_id
+      WHERE b.canvas_id = ? AND r.status = 'prepared'
+      ORDER BY r.created_at`).all(canvasId) as SqlRow[];
+    const pendingSends = pendingRows.flatMap((row) => {
+      const reservation = this.getReservation(asString(row.id));
+      return reservation ? [reservation] : [];
+    });
+    return {
+      cursor: this.getCanvasCursor(canvasId),
+      canvas,
+      branches,
+      interactions,
+      layout: layoutRow ? parseJson(rowValue(layoutRow, 'layout_json'), null) : null,
+      pendingSends,
+    };
   }
 
   saveLayout(ownerId: string, canvasId: string, layout: CanvasGraph['layout']): boolean {

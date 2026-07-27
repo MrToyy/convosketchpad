@@ -1,7 +1,8 @@
 export type BranchKind = 'root' | 'fork';
 export type BranchSessionState = 'draft' | 'active';
 export type InteractionStatus = 'streaming' | 'completed' | 'failed';
-export type AgentActivity = 'idle' | 'queued' | 'working' | 'settling' | 'completed' | 'failed' | 'unknown';
+export type InteractionExecutionState = 'running' | 'completed' | 'failed' | 'unconfirmed';
+export type ArtifactSyncState = 'not_started' | 'observing' | 'synced' | 'degraded';
 
 export interface CanvasSummary {
   id: string;
@@ -65,12 +66,17 @@ export interface CanvasContextResource {
 
 export interface CanvasInteraction {
   id: string;
+  version: number;
   branchId: string;
   parentInteractionId: string | null;
   runId: string | null;
   userInput: string;
   agentOutput: string;
   status: InteractionStatus;
+  executionState: InteractionExecutionState;
+  artifactSyncState: ArtifactSyncState;
+  terminalAt: number | null;
+  error: string | null;
   attachments: CanvasAttachmentMeta[];
   artifacts: CanvasArtifact[];
   sessionMetadata: Record<string, unknown>;
@@ -84,11 +90,26 @@ export interface CanvasLayout {
 }
 
 export interface CanvasGraph {
+  cursor: number;
   canvas: CanvasSummary;
-  reconciliationVersion: number;
+  hasPendingUpdates: boolean;
   branches: CanvasBranch[];
   interactions: CanvasInteraction[];
   layout: CanvasLayout | null;
+  pendingSends: SendReservation[];
+}
+
+export interface CanvasSyncBatch {
+  cursor: number;
+  canvas?: CanvasSummary;
+  branches: CanvasBranch[];
+  interactions: CanvasInteraction[];
+  sendOperations: SendReservation[];
+  removed: {
+    branchIds: string[];
+    interactionIds: string[];
+    sendOperationIds: string[];
+  };
 }
 
 export interface SendReservation {
@@ -103,6 +124,11 @@ export interface SendReservation {
   snapshotVersion?: number;
   bootstrapResources: CanvasContextResource[];
   status: 'prepared' | 'acknowledged' | 'failed';
+  dispatchState: 'reserved' | 'awaiting_media' | 'dispatching' | 'ambiguous' | 'acknowledged' | 'failed';
+  attemptCount: number;
+  lastAttemptAt: number | null;
+  nextAttemptAt: number | null;
+  error: string | null;
   interactionId: string | null;
 }
 

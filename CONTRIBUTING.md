@@ -18,9 +18,9 @@ npm run setup
 npm run dev
 ```
 
-`npm run dev` 会同时启动 Vite 客户端和监听模式服务端。浏览器只需打开终端中标记为 `Frontend (open in browser)` 的地址，默认是 `http://127.0.0.1:3080`。Vite 会把 `/api`、`/health` 和 `/ws` 代理到内部服务端，默认端口为 `3081`。
+`npm run dev` 会同时启动 Vite 客户端和监听模式服务端。浏览器只需打开终端中标记为 `Open in browser` 的地址，默认是 `http://127.0.0.1:3080`。Vite 会把 `/api` 和 `/health` 代理到自动分配的 loopback 服务端；Gateway WebSocket 只由服务端连接。
 
-客户端变更使用 Vite HMR；服务端变更由 `tsx watch` 自动重启。可以通过 `VITE_PORT` 和 `PORT` 分别指定前端入口端口和内部服务端端口。
+客户端变更使用 Vite HMR；服务端变更由 `tsx watch` 自动重启。开发和生产都通过 `HOST` / `PORT` 指定唯一的 ConvoSketchpad 浏览器入口，开发内部端口无需配置。
 
 ## 项目结构
 

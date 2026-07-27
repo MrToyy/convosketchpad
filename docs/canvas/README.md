@@ -5,7 +5,7 @@ ConvoSketchpad 提供聚焦的 Canvas 交互环境和受管用户认证。
 | 任务 | 首先阅读 |
 |---|---|
 | Canvas 界面、节点、布局、Branch/Fork、Agent 选择、附件或 Artifact | [Canvas 功能与代码地图](CANVAS-CODE-MAP.md) |
-| 登录、用户 Token、所有者隔离、Cookie 或 WebSocket 认证 | [认证功能与代码地图](AUTH-CODE-MAP.md) |
+| 登录、用户 Token、所有者隔离、Cookie 或 SSE 认证 | [认证功能与代码地图](AUTH-CODE-MAP.md) |
 | 分支、Remote、Upstream 同步、合并、提交或推送 | [Git 与 Upstream 同步工作流](GIT-WORKFLOW.md) |
 
 详细参考：

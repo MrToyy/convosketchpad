@@ -1,37 +1,24 @@
 # 部署
 
-应根据浏览器、ConvoSketchpad 服务端和 OpenClaw Gateway 的运行位置选择拓扑。条件允许时，优先从同机部署开始。
+所有拓扑都遵循同一链条：
+
+```text
+浏览器 → ConvoSketchpad HTTP/SSE → OpenClaw Gateway
+```
+
+浏览器不需要访问 Gateway 地址。只需保证 ConvoSketchpad 宿主机能访问 Gateway。
+
+ConvoSketchpad 自身只监听 HTTP。图中的 HTTPS 均由反向代理或 Tailscale Serve 终止。
 
 <a id="local-same-machine"></a>
 
-## 浏览器、服务端与 Gateway 位于同一台机器
+## 同机部署
 
 ```text
 浏览器（localhost）→ ConvoSketchpad（127.0.0.1:3080）→ Gateway（127.0.0.1:18789）
 ```
 
-这是默认拓扑，涉及的网络环节最少。
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/MrToyy/convosketchpad/main/install.sh | bash
-cd ~/convosketchpad
-npm run setup
-```
-
-推荐的配置向导选项：
-
-- 访问方式：**仅本机（localhost）**
-- 认证：仅限 localhost 访问时可不启用
-
-重启受管服务，或直接运行：
-
-```bash
-sudo systemctl restart convosketchpad.service
-# 或
-npm run prod
-```
-
-验证：
+运行 `npm run setup`，选择仅本机访问。检查：
 
 ```bash
 openclaw gateway status
@@ -39,140 +26,73 @@ curl -fsS http://127.0.0.1:18789/health
 curl -fsS http://127.0.0.1:3080/health
 ```
 
-如果 Gateway 认证或设备权限已经过期，重新运行 `npm run setup`。配置向导使用 OpenClaw 原生设备流程。需要手动审批时，检查并批准准确的请求：
-
-```bash
-openclaw devices list --json
-openclaw devices approve <requestId>
-```
-
-如果浏览器仍保存手动输入的过期 Gateway Token，请清除站点数据或删除 `localStorage.oc-config`。
+loopback Gateway 使用共享 `GATEWAY_TOKEN` 直连，不需要设备配对。旧 `gateway-auth.json` 中即使存在该地址的设备 Token，也会被忽略。
 
 <a id="local-ui-with-a-remote-gateway"></a>
 
 ## 本机界面连接远程 Gateway
 
 ```text
-浏览器（localhost）→ 本机 ConvoSketchpad → 私有网络 → 远程 OpenClaw Gateway
+浏览器 → 本机 ConvoSketchpad → 私有网络 → 远程 Gateway
 ```
 
-使用 Tailscale、WireGuard 或 SSH 隧道，避免把 Gateway 端口直接暴露到公网。
-
-在本机 ConvoSketchpad 宿主机上配置：
+建议通过 Tailscale、WireGuard 或 SSH 隧道连接 Gateway。配置：
 
 ```bash
 GATEWAY_URL=https://gateway.example.internal
 GATEWAY_TOKEN=<token>
 CONVOSKETCHPAD_GATEWAY_TIMEZONE=Asia/Shanghai
-WS_ALLOWED_HOSTS=gateway.example.internal
 ```
 
-将 `CONVOSKETCHPAD_GATEWAY_TIMEZONE` 设置为 Gateway 宿主机时区。Canvas 会结合该时区和 OpenClaw 实际生效的每日、空闲重置策略，在重置后的首次发送中恢复上下文。
-
-在 Gateway 宿主机上检查并合并浏览器访问 ConvoSketchpad 使用的 Origin：
-
-```bash
-openclaw config get gateway.controlUi.allowedOrigins --json
-openclaw config patch --file ./convosketchpad-origin.patch.json5 --dry-run
-openclaw config patch --file ./convosketchpad-origin.patch.json5
-```
-
-补丁示例：
-
-```json5
-{
-  gateway: {
-    controlUi: {
-      allowedOrigins: [
-        "http://localhost:3080",
-        "http://127.0.0.1:3080",
-        // 保留现有条目。
-      ],
-    },
-  },
-}
-```
-
-在该宿主机上使用 `openclaw devices list --json` 和 `openclaw devices approve <requestId>` 配对 ConvoSketchpad 设备。本机配置向导不会写入远程宿主机配置。
-
-Canvas 执行、事件、Branch/Fork 行为、上传、原生 Artifact 下载和用量查询都通过 Gateway 完成。远程部署的上传不需要共享工作区。只有当旧版绝对路径 Artifact 在 ConvoSketchpad 宿主机上真实存在，并属于 Gateway 报告的工作区根目录时，才可能恢复；其他情况会明确降级。
-
-验证两个健康检查端点，然后测试 Agent 发现、文本 Interaction，以及适合当前文件系统拓扑的附件。
+不需要 `WS_ALLOWED_HOSTS`，也不需要把浏览器 Origin 加入 OpenClaw `gateway.controlUi.allowedOrigins`。setup 会发起 ConvoSketchpad backend 设备请求；在 Gateway 宿主机审批，并在 repair 后确认最终 Token 只有 read/write。共享 `GATEWAY_TOKEN` 仍需保留，用于 Gateway HTTP 接口和配对 bootstrap。
 
 <a id="remote-browser-access"></a>
 
 ## 远程浏览器访问
 
-推荐拓扑：
-
 ```text
-远程浏览器 → HTTPS 反向代理 → ConvoSketchpad → 本机 OpenClaw Gateway
+远程浏览器 → HTTPS 反向代理 → ConvoSketchpad → Gateway
 ```
 
-必需配置：
+最低配置：
 
 ```bash
 HOST=0.0.0.0
 CONVOSKETCHPAD_AUTH=true
 CONVOSKETCHPAD_SESSION_SECRET=<stable-random-secret>
+ALLOWED_ORIGINS=https://canvas.example.com
 GATEWAY_URL=http://127.0.0.1:18789
 ```
 
-还需要配置：
+通过 Caddy、Nginx、Traefik 或 Tailscale Serve 提供 HTTPS；反向代理到 `http://127.0.0.1:3080` 或私网 HTTP 地址。只有在确实可信时才把与 ConvoSketchpad 直接建立 TCP 连接的代理 IP 配入 `TRUSTED_PROXIES`。`ALLOWED_ORIGINS` 必须是浏览器地址栏中的精确 Origin，只控制 ConvoSketchpad API/SSE。
 
-- 通过 Caddy、Nginx、Traefik、Tailscale Serve 或同类组件提供 HTTPS。
-- 对会提供客户端 IP Header 的代理设置 `TRUSTED_PROXIES`。
-- 将最终 Origin 同时写入 `ALLOWED_ORIGINS`、`CONVOSKETCHPAD_PUBLIC_ORIGIN` 和 OpenClaw `gateway.controlUi.allowedOrigins`。
-
-创建受管用户并重启：
-
-```bash
-cd ~/convosketchpad
-npm run setup
-npm run users -- add <name>
-sudo systemctl restart convosketchpad.service
-```
-
-必须一起备份 `database/canvas.sqlite` 和 `artifacts/`。
-
-验证回环地址和公开地址的健康检查，然后依次检查登录、Agent 发现、Canvas 创建、文本和附件发送、Fork 以及 Artifact 下载。
+可信代理传入 `X-Forwarded-Proto: https` 时，登录 Cookie 会设置 `Secure`，生产环境响应会设置 HSTS。未列入 `TRUSTED_PROXIES` 的客户端无法用该 Header 伪造安全连接。
 
 <a id="tailscale"></a>
 
 ## Tailscale
 
-Tailscale 可以在不开放公网端口的情况下提供远程访问。优先使用 Tailscale Serve，使 ConvoSketchpad 保持监听回环地址，并让浏览器通过 HTTPS 访问。
+优先使用 Tailscale Serve，让 ConvoSketchpad 保持监听回环地址：
 
 ```bash
-cd ~/convosketchpad
-npm run setup
+tailscale serve --bg http://127.0.0.1:3080
 ```
 
-选择 **Tailscale Serve**，启用受管认证，并执行向导生成的 `tailscale serve` 命令。
+向导只采用 Serve 状态中确实代理到当前 ConvoSketchpad HTTP 端口的 HTTPS Origin，并写入 `ALLOWED_ORIGINS`。无需修改 Gateway Control UI Origin。
 
-以下配置中的最终 HTTPS Origin 必须一致：
+## 验证与备份
 
-- `CONVOSKETCHPAD_PUBLIC_ORIGIN`
-- `ALLOWED_ORIGINS`
-- OpenClaw `gateway.controlUi.allowedOrigins`
+依次验证登录、Agent 发现、Canvas 创建、文本发送、附件、Fork 和 Artifact 下载。刷新正在排队或 `ambiguous` 的发送时，Graph 应保持对应 Branch 锁定。
 
-修改 Origin 后重启 ConvoSketchpad 和 Gateway。
+必须一起备份：
 
-```bash
-tailscale status
-tailscale serve status
-curl -fsS https://<node-name>.<tailnet>.ts.net/health
-```
-
-如果直接使用 Tailscale IP 访问，请监听 `0.0.0.0`、启用 `CONVOSKETCHPAD_AUTH=true`，并把明文 HTTP 限制在可信 tailnet 内。
+- `database/canvas.sqlite`
+- `artifacts/`
 
 ## 安全基线
 
-- 不需要远程浏览器访问时，保持 `HOST=127.0.0.1`。
+- 不需要远程访问时保持 `HOST=127.0.0.1`。
 - 监听 `0.0.0.0` 前启用受管认证。
-- 在可信本机以外访问时使用 HTTPS。
-- 让 OpenClaw Gateway 仅监听回环地址或通过私有网络访问。
-- 保持 ConvoSketchpad 与 OpenClaw 的公开 Origin 配置一致。
-- 严格限制可信代理范围。
-
-完整安全模型见[安全](SECURITY.md)，连接和 Session 恢复问题见[故障排查](TROUBLESHOOTING.md)。
+- 在本机以外访问时使用 HTTPS。
+- Gateway 只暴露给 ConvoSketchpad 宿主机或私有网络。
+- 严格限制 `ALLOWED_ORIGINS` 和 `TRUSTED_PROXIES`。

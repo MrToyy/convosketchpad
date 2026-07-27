@@ -8,8 +8,6 @@ import { getAppCopy } from '@/lib/app-messages';
 
 interface SettingsDrawerProps {
   open: boolean; onClose: () => void;
-  gatewayUrl: string; gatewayToken: string;
-  onUrlChange: (value: string) => void; onTokenChange: (value: string) => void;
   onReconnect: () => void;
   connectionState: 'disconnected' | 'connecting' | 'connected' | 'reconnecting';
   onLogout?: () => void; onGatewayRestart?: () => void; gatewayRestarting?: boolean;
@@ -37,7 +35,7 @@ export function SettingsDrawer(props: SettingsDrawerProps) {
         <button type="button" role="tab" aria-selected={category === 'connection'} className="shell-chip flex-1 justify-center" data-active={category === 'connection'} onClick={() => setCategory('connection')}><Shield size={13} />{copy.drawer.categories.advanced}</button>
         <button type="button" role="tab" aria-selected={category === 'appearance'} className="shell-chip flex-1 justify-center" data-active={category === 'appearance'} onClick={() => setCategory('appearance')}><Monitor size={13} />{copy.drawer.categories.appearance}</button>
       </div>
-      <div className="flex-1 overflow-y-auto p-4">{category === 'appearance' ? <AppearanceSettings /> : <ConnectionSettings url={props.gatewayUrl} token={props.gatewayToken} onUrlChange={props.onUrlChange} onTokenChange={props.onTokenChange} onReconnect={props.onReconnect} connectionState={props.connectionState} onGatewayRestart={props.onGatewayRestart} gatewayRestarting={props.gatewayRestarting} />}</div>
+      <div className="flex-1 overflow-y-auto p-4">{category === 'appearance' ? <AppearanceSettings /> : <ConnectionSettings onReconnect={props.onReconnect} connectionState={props.connectionState} onGatewayRestart={props.onGatewayRestart} gatewayRestarting={props.gatewayRestarting} />}</div>
       <div className="border-t border-border/70 p-4">{props.onLogout && <button onClick={props.onLogout} className="cockpit-toolbar-button w-full justify-center" data-tone="danger"><LogOut size={14} />{copy.drawer.signOut}</button>}<div className="mt-3 text-xs text-muted-foreground"><div className="flex justify-between"><span>ConvoSketchpad</span><span>v{__APP_VERSION__}</span></div><div className="mt-1">{appCopy.tagline}</div></div></div>
     </div>
   </>;

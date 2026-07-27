@@ -12,17 +12,17 @@ export interface AccessPlan {
   profile: InstallerAccessProfile;
   bindHost: string;
   browserOrigins: string[];
-  gatewayAllowedOrigins: string[];
-  cspConnectExtra: string[];
-  wsAllowedHosts: string[];
+  trustedProxies: string[];
+  remoteAccess: boolean;
   followUpSteps: string[];
 }
 
 export interface BuildAccessPlanInput {
   profile: InstallerAccessProfile;
   port: string;
-  sslPort?: string;
   remoteHost?: string | null;
+  browserOrigins?: string[];
+  trustedProxies?: string[];
   tailscale?: TailscaleState;
 }
 
@@ -30,7 +30,7 @@ function dedupe(values: Array<string | null | undefined>): string[] {
   return [...new Set(values.map(value => value?.trim()).filter((value): value is string => Boolean(value)))];
 }
 
-function isLoopback(host: string | null | undefined): boolean {
+export function isLoopbackHost(host: string | null | undefined): boolean {
   if (!host) return true;
   // Node's URL.hostname returns bracketed IPv6 literals (e.g. "[::1]"); strip
   // the brackets before comparing. Also accept any 127.0.0.0/8 IPv4 loopback
@@ -45,39 +45,8 @@ function isLoopback(host: string | null | undefined): boolean {
     || /^127(?:\.\d{1,3}){3}$/.test(normalized);
 }
 
-/**
- * Extract the gateway host from a configured GATEWAY_URL when it points at a
- * non-loopback target. Returned host should be added to WS_ALLOWED_HOSTS so the
- * WS proxy will forward to remote gateways (the default allowlist is just
- * localhost / 127.0.0.1 / ::1).
- */
-function extractRemoteGatewayHost(gatewayUrl: string | null | undefined): string | null {
-  if (!gatewayUrl) return null;
-  try {
-    const host = new URL(gatewayUrl).hostname;
-    return isLoopback(host) ? null : host;
-  } catch {
-    return null;
-  }
-}
-
-/** Parse a comma-separated env value, trimming and dropping empties. */
-function splitCsv(value: string | null | undefined): string[] {
-  return value?.split(',').map(s => s.trim()).filter(Boolean) ?? [];
-}
-
 function httpOrigin(host: string, port: string): string {
   return `http://${host}:${port}`;
-}
-
-function httpsOrigin(host: string, port: string): string {
-  return `https://${host}:${port}`;
-}
-
-function websocketOrigin(origin: string): string {
-  if (origin.startsWith('https://')) return origin.replace(/^https:\/\//, 'wss://');
-  if (origin.startsWith('http://')) return origin.replace(/^http:\/\//, 'ws://');
-  return origin;
 }
 
 function emptyPlan(profile: InstallerAccessProfile, bindHost: string): AccessPlan {
@@ -85,11 +54,41 @@ function emptyPlan(profile: InstallerAccessProfile, bindHost: string): AccessPla
     profile,
     bindHost,
     browserOrigins: [],
-    gatewayAllowedOrigins: [],
-    cspConnectExtra: [],
-    wsAllowedHosts: [],
+    trustedProxies: [],
+    remoteAccess: !isLoopbackHost(bindHost),
     followUpSteps: [],
   };
+}
+
+export function normalizeBrowserOrigin(value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed || trimmed === 'null') return null;
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
+    if (!parsed.hostname || parsed.hostname.includes('*')) return null;
+    if (parsed.username || parsed.password || parsed.search || parsed.hash) return null;
+    if (parsed.pathname !== '/' && parsed.pathname !== '') return null;
+    return parsed.origin;
+  } catch {
+    return null;
+  }
+}
+
+export function parseBrowserOrigins(value: string): string[] | null {
+  const items = value.split(',').map(item => item.trim()).filter(Boolean);
+  if (items.length === 0) return null;
+  const normalized = items.map(normalizeBrowserOrigin);
+  if (normalized.some(item => item === null)) return null;
+  return dedupe(normalized);
+}
+
+export function isLoopbackBrowserOrigin(origin: string): boolean {
+  try {
+    return isLoopbackHost(new URL(origin).hostname);
+  } catch {
+    return false;
+  }
 }
 
 export function buildAccessPlan(input: BuildAccessPlanInput): AccessPlan {
@@ -109,49 +108,49 @@ export function buildAccessPlan(input: BuildAccessPlanInput): AccessPlan {
       }
       const origin = httpOrigin(host, port);
       plan.browserOrigins = [origin];
-      plan.gatewayAllowedOrigins = [origin];
-      plan.cspConnectExtra = [origin, websocketOrigin(origin)];
-      plan.wsAllowedHosts = isLoopback(host) ? [] : [host];
+      plan.remoteAccess = true;
       return plan;
     }
 
     case 'custom': {
       const host = input.remoteHost?.trim() || '127.0.0.1';
       const plan = emptyPlan('custom', host);
-      if (!isLoopback(host)) {
-        const origin = httpOrigin(host, port);
-        plan.browserOrigins = [origin];
-        plan.gatewayAllowedOrigins = [origin];
-        plan.cspConnectExtra = [origin, websocketOrigin(origin)];
-        plan.wsAllowedHosts = [host];
-        if (input.sslPort) {
-          const secureOrigin = httpsOrigin(host, input.sslPort);
-          plan.browserOrigins = dedupe([...plan.browserOrigins, secureOrigin]);
-          plan.gatewayAllowedOrigins = dedupe([...plan.gatewayAllowedOrigins, secureOrigin]);
-          plan.cspConnectExtra = dedupe([...plan.cspConnectExtra, secureOrigin, websocketOrigin(secureOrigin)]);
-        }
-      }
+      plan.browserOrigins = dedupe(input.browserOrigins || []);
+      plan.trustedProxies = dedupe(input.trustedProxies || []);
+      plan.remoteAccess = !isLoopbackHost(host)
+        || plan.browserOrigins.some(origin => !isLoopbackBrowserOrigin(origin));
       return plan;
     }
 
     case 'tailscale-ip': {
-      const plan = emptyPlan('tailscale-ip', '0.0.0.0');
       const ip = tailscale?.ipv4;
       if (!ip) {
+        const plan = emptyPlan('tailscale-ip', '127.0.0.1');
         plan.followUpSteps.push('Connect Tailscale and obtain a tailnet IPv4 address, then re-run setup.');
         return plan;
       }
+      const plan = emptyPlan('tailscale-ip', ip);
       const origin = httpOrigin(ip, port);
       plan.browserOrigins = [origin];
-      plan.gatewayAllowedOrigins = [origin];
-      plan.cspConnectExtra = [origin, websocketOrigin(origin)];
-      plan.wsAllowedHosts = [ip];
+      plan.remoteAccess = true;
       return plan;
     }
 
     case 'tailscale-serve': {
       const plan = emptyPlan('tailscale-serve', '127.0.0.1');
-      const origin = tailscale?.serveOrigins?.[0] || null;
+      const origins = tailscale?.serveRoutes
+        ?.filter(route => route.proxyTargets.some(target => {
+          try {
+            const parsed = new URL(target);
+            return parsed.protocol === 'http:'
+              && isLoopbackHost(parsed.hostname)
+              && (parsed.port || '80') === port;
+          } catch {
+            return false;
+          }
+        }))
+        .map(route => route.origin) || [];
+      const origin = origins[0] || null;
       if (!origin) {
         plan.followUpSteps = dedupe([
           `Run: tailscale serve --bg http://127.0.0.1:${port}`,
@@ -159,9 +158,8 @@ export function buildAccessPlan(input: BuildAccessPlanInput): AccessPlan {
         ]);
         return plan;
       }
-      plan.browserOrigins = [origin];
-      plan.gatewayAllowedOrigins = [origin];
-      plan.cspConnectExtra = [origin, websocketOrigin(origin)];
+      plan.browserOrigins = dedupe(origins);
+      plan.remoteAccess = true;
       return plan;
     }
   }
@@ -175,23 +173,7 @@ export function applyAccessPlanToConfig(config: EnvConfig, plan: AccessPlan): En
 
   if (plan.browserOrigins.length > 0) next.ALLOWED_ORIGINS = dedupe(plan.browserOrigins).join(',');
   else delete next.ALLOWED_ORIGINS;
-  if (plan.browserOrigins.length > 0) next.CONVOSKETCHPAD_PUBLIC_ORIGIN = plan.browserOrigins[0];
-  else delete next.CONVOSKETCHPAD_PUBLIC_ORIGIN;
-
-  if (plan.cspConnectExtra.length > 0) next.CSP_CONNECT_EXTRA = dedupe(plan.cspConnectExtra).join(' ');
-  else delete next.CSP_CONNECT_EXTRA;
-
-  // WS_ALLOWED_HOSTS = plan hosts ∪ user's existing entries ∪ remote-gateway host (if any).
-  // The plan only knows about ConvoSketchpad accessibility; the gateway host has to be
-  // grafted in here so split-host deployments (remote GATEWAY_URL) don't get rejected
-  // by the WS proxy with "Target not allowed".
-  const wsHosts = dedupe([
-    ...plan.wsAllowedHosts,
-    ...splitCsv(config.WS_ALLOWED_HOSTS),
-    extractRemoteGatewayHost(config.GATEWAY_URL),
-  ]);
-  if (wsHosts.length > 0) next.WS_ALLOWED_HOSTS = wsHosts.join(',');
-  else delete next.WS_ALLOWED_HOSTS;
-
+  if (plan.trustedProxies.length > 0) next.TRUSTED_PROXIES = dedupe(plan.trustedProxies).join(',');
+  else delete next.TRUSTED_PROXIES;
   return next;
 }

@@ -83,7 +83,6 @@ describe('native Gateway pairing probe', () => {
     const result = await requestGatewayPairing({
       gatewayUrl: `http://127.0.0.1:${port}`,
       gatewayToken: 'shared-gateway-token',
-      origin: 'https://canvas.example.test',
     });
 
     expect(result).toEqual({
@@ -92,7 +91,7 @@ describe('native Gateway pairing probe', () => {
       requestId: 'native-request-1',
       message: 'OpenClaw pairing approval required: native-request-1',
     });
-    expect(receivedOrigin).toBe('https://canvas.example.test');
+    expect(receivedOrigin).toBeUndefined();
     expect(receivedPath).toBe('/ws');
     expect(connectParams).toMatchObject({
       minProtocol: 4,
@@ -101,16 +100,16 @@ describe('native Gateway pairing probe', () => {
       scopes: ['operator.read', 'operator.write'],
       auth: { token: 'shared-gateway-token' },
       client: {
-        id: 'openclaw-control-ui',
+        id: 'gateway-client',
         displayName: 'ConvoSketchpad',
         version: '0.2.0',
-        mode: 'webchat',
+        mode: 'backend',
       },
       device: { id: 'convosketchpad-device' },
     });
     expect(createDeviceBlockMock).toHaveBeenCalledWith({
-      clientId: 'openclaw-control-ui',
-      clientMode: 'webchat',
+      clientId: 'gateway-client',
+      clientMode: 'backend',
       role: 'operator',
       scopes: ['operator.read', 'operator.write'],
       token: 'shared-gateway-token',
@@ -145,7 +144,6 @@ describe('native Gateway pairing probe', () => {
     const result = await requestGatewayPairing({
       gatewayUrl: `http://127.0.0.1:${port}`,
       gatewayToken: 'shared-gateway-token',
-      origin: 'http://127.0.0.1:3080',
     });
 
     expect(result).toMatchObject({ ok: true, status: 'connected' });
@@ -178,7 +176,6 @@ describe('native Gateway pairing probe', () => {
     const result = await requestGatewayPairing({
       gatewayUrl: `http://127.0.0.1:${port}`,
       gatewayToken: 'shared-gateway-token',
-      origin: 'https://wrong.example.test',
     });
 
     expect(result).toEqual({

@@ -2,29 +2,17 @@ import '@xyflow/react/dist/style.css';
 import {
   Background,
   Controls,
-  Handle,
   MiniMap,
-  Position,
   ReactFlow,
   applyNodeChanges,
   type Edge,
-  type Node,
   type NodeChange,
-  type NodeProps,
   type Viewport,
   type XYPosition,
 } from '@xyflow/react';
-import dagre from '@dagrejs/dagre';
 import {
   AlertCircle,
   Bot,
-  Download,
-  File,
-  FileCode2,
-  FileText,
-  Image as ImageIcon,
-  Loader2,
-  Paperclip,
   PanelLeftClose,
   PanelLeftOpen,
   Pencil,
@@ -36,45 +24,43 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { MarkdownRenderer } from '@/features/markdown/MarkdownRenderer';
-import { useGateway } from '@/contexts/GatewayContext';
+import { useRuntime } from '@/contexts/RuntimeContext';
 import { useSettings } from '@/contexts/SettingsContext';
-import { classifyStreamEvent, extractStreamDelta } from '@/features/chat/operations';
-import { sendChatMessage } from '@/features/chat/operations/sendMessage';
-import { ImageLightbox } from '@/features/chat/ImageLightbox';
-import type { ChatEventPayload, GatewayEvent } from '@/types';
-import { canvasApi, canvasArtifactUrl, persistCanvasFiles } from './api';
+import { useCanvasSync } from '@/hooks/useCanvasSync';
+import { canvasApi, persistCanvasFiles, persistDeliveryVariant } from './api';
 import {
-  estimateChatSendFrameBytes,
-  prepareGatewayAttachment,
-  prepareGatewayAttachments,
-  type GatewayAttachment,
+  prepareDeliveryAttachment,
+  prepareDeliveryAttachments,
 } from './attachments';
+import {
+  createGraphRefreshController,
+  graphNeedsFallbackPolling,
+} from './graph-refresh';
+import { applyCanvasSyncBatch } from './sync';
 import { CanvasLocalizedError, canvasErrorMessage, getCanvasCopy, type CanvasCopy } from './messages';
-import { CanvasSendButton } from './CanvasSendButton';
+import {
+  autoLayoutCanvasNodes,
+  canvasNodeBounds,
+  canvasNodeTypes,
+  type CanvasFlowNode,
+} from './CanvasNodes';
+import { EMPTY_CANVAS_DRAFT, MAX_CANVAS_ATTACHMENTS } from './constants';
 import {
   COMPOSER_NODE_WIDTH,
   DEFAULT_NODE_HEIGHT,
-  INTERACTION_NODE_WIDTH,
-  NODE_HORIZONTAL_GAP,
-  NODE_VERTICAL_GAP,
   composerNodeId,
   mergeVisibleNodePositions,
   placeNodeToRight,
   placeRootNode,
-  type CanvasNodeBounds,
 } from './layout';
 import type {
-  AgentActivity,
   CanvasBranch,
   CanvasDraft,
   CanvasGraph,
   CanvasInteraction,
   CanvasSummary,
+  CanvasSyncBatch,
 } from './types';
-
-const MAX_ATTACHMENTS = 4;
-const EMPTY_DRAFT: CanvasDraft = { text: '', files: [], previews: {}, sending: false, error: null };
 
 function nextCanvasName(canvases: CanvasSummary[], copy: CanvasCopy): string {
   const names = new Set(canvases.map((canvas) => canvas.name));
@@ -83,262 +69,10 @@ function nextCanvasName(canvases: CanvasSummary[], copy: CanvasCopy): string {
   return copy.defaultCanvasName(index);
 }
 
-interface InteractionNodeData extends Record<string, unknown> {
-  interaction: CanvasInteraction;
-  activity: AgentActivity;
-  composerOpen: boolean;
-  canAdd: boolean;
-  onAdd: (interaction: CanvasInteraction) => void;
-}
-
 interface GatewayAgentOption {
   id: string;
   name?: string;
   identity?: { name?: string; emoji?: string };
-}
-
-interface ComposerNodeData extends Record<string, unknown> {
-  branch: CanvasBranch;
-  draft: CanvasDraft;
-  label: string;
-  onTextChange: (value: string) => void;
-  onFiles: (files: File[]) => void;
-  onRemoveFile: (index: number) => void;
-  onSend: () => void;
-  onClose?: () => void;
-}
-
-type InteractionFlowNode = Node<InteractionNodeData, 'interaction'>;
-type ComposerFlowNode = Node<ComposerNodeData, 'composer'>;
-type CanvasFlowNode = InteractionFlowNode | ComposerFlowNode;
-
-function formatBytes(size: number): string {
-  if (size < 1024) return `${size} B`;
-  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
-  return `${(size / 1024 / 1024).toFixed(1)} MB`;
-}
-
-function artifactIcon(mimeType = '') {
-  if (mimeType.startsWith('image/')) return ImageIcon;
-  if (mimeType.startsWith('text/') || mimeType.includes('json') || mimeType.includes('javascript')) return FileCode2;
-  if (mimeType.includes('pdf') || mimeType.includes('document')) return FileText;
-  return File;
-}
-
-function interactionStatusLabel(interaction: CanvasInteraction, activity: AgentActivity, copy: CanvasCopy): string {
-  if (activity === 'queued') return copy.status.queued;
-  if (activity === 'working') return copy.status.working;
-  if (activity === 'settling') return copy.status.settling;
-  if (interaction.status === 'streaming') return copy.status.streaming;
-  if (interaction.status === 'completed') return copy.status.completed;
-  return copy.status.failed;
-}
-
-function reconciliationMetadata(interaction: CanvasInteraction): { phase?: string; artifactSync?: string; version?: number } {
-  const value = interaction.sessionMetadata.reconciliation;
-  return value && typeof value === 'object' ? value as { phase?: string; artifactSync?: string; version?: number } : {};
-}
-
-function needsReconciliation(interaction: CanvasInteraction, currentVersion: number): boolean {
-  const reconciliation = reconciliationMetadata(interaction);
-  return interaction.status === 'streaming' || reconciliation.artifactSync === 'pending' || reconciliation.version !== currentVersion;
-}
-
-function reconciledActivity(interaction: CanvasInteraction): AgentActivity {
-  const phase = reconciliationMetadata(interaction).phase;
-  if (phase === 'settling') return 'settling';
-  if (phase === 'monitoring') return 'working';
-  return interaction.status === 'streaming' ? 'unknown' : 'idle';
-}
-
-function InteractionNode({ data }: NodeProps<InteractionFlowNode>) {
-  const { language } = useSettings();
-  const copy = getCanvasCopy(language);
-  const { interaction, activity, composerOpen, canAdd, onAdd } = data;
-  const bootstrapWarnings = Array.isArray(interaction.sessionMetadata.bootstrapWarnings)
-    ? interaction.sessionMetadata.bootstrapWarnings.filter((item): item is string => typeof item === 'string')
-    : [];
-  return (
-    <article className="w-[380px] rounded-3xl border border-border/80 bg-card/96 p-4 shadow-2xl backdrop-blur">
-      <Handle type="target" position={Position.Left} className="!bg-primary" />
-      <header className="canvas-node-drag-handle flex cursor-grab items-center justify-between gap-3 active:cursor-grabbing">
-        <div className="flex min-w-0 items-center gap-2">
-          <span className={`size-2 rounded-full ${activity === 'working' || activity === 'queued' || activity === 'settling' ? 'animate-pulse bg-primary' : interaction.status === 'failed' ? 'bg-destructive' : 'bg-green'}`} />
-          <span translate="no" className="notranslate truncate text-[0.667rem] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
-            {interactionStatusLabel(interaction, activity, copy)}
-          </span>
-        </div>
-        <time className="text-[0.667rem] text-muted-foreground">{new Date(interaction.createdAt).toLocaleTimeString(language)}</time>
-      </header>
-
-      <details className="nodrag mt-3 cursor-text select-text rounded-2xl border border-border/60 bg-background/45 px-3 py-2">
-        <summary className="cursor-pointer text-xs font-medium text-muted-foreground">{copy.userInput}</summary>
-        <p className="mt-2 whitespace-pre-wrap text-sm text-foreground">{interaction.userInput || copy.attachmentsOnly}</p>
-        {interaction.attachments.length > 0 && (
-          <div className="mt-2 flex flex-wrap gap-2">
-            {interaction.attachments.map((item, index) => (
-              <span key={`${item.name}-${index}`} className="rounded-lg bg-secondary px-2 py-1 text-[0.667rem] text-muted-foreground">
-                {item.name}
-              </span>
-            ))}
-          </div>
-        )}
-      </details>
-
-      <div className="nodrag nowheel mt-3 max-h-[360px] cursor-text select-text overflow-auto text-sm">
-        {interaction.status === 'streaming' && !interaction.agentOutput ? (
-          <div translate="no" className="notranslate flex items-center gap-2 py-4 text-muted-foreground"><Loader2 size={15} className="animate-spin" /> {activity === 'settling' ? copy.waitingForCompleteReply : copy.waitingForResponse}</div>
-        ) : interaction.agentOutput ? (
-          <MarkdownRenderer content={interaction.agentOutput} />
-        ) : (
-          <p translate="no" className="notranslate py-3 text-muted-foreground">{copy.noResponse}</p>
-        )}
-      </div>
-
-      {bootstrapWarnings.length > 0 && (
-        <div translate="no" className="notranslate nodrag mt-3 rounded-2xl border border-amber-500/35 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
-          <div className="flex items-center gap-2 font-medium"><AlertCircle size={14} />{copy.partialHistoryResources}</div>
-          <ul className="mt-1 list-disc space-y-1 pl-5">
-            {bootstrapWarnings.map((warning, index) => <li key={`${warning}-${index}`}>{warning}</li>)}
-          </ul>
-        </div>
-      )}
-
-      {interaction.artifacts.length > 0 && (
-        <div className="nodrag mt-4 grid cursor-text select-text gap-2">
-          {interaction.artifacts.map((artifact, index) => {
-            const Icon = artifactIcon(artifact.mimeType);
-            const isImage = artifact.mimeType?.startsWith('image/');
-            const available = artifact.available !== false;
-            return (
-              <div key={`${artifact.uri}-${index}`} className="overflow-hidden rounded-2xl border border-border/60 bg-background/45">
-                {isImage && available && (
-                  <ImageLightbox
-                    src={canvasArtifactUrl(artifact.uri)}
-                    alt={artifact.name}
-                    thumbnailClassName="max-h-56 w-full cursor-zoom-in bg-black/10 object-contain"
-                  />
-                )}
-                {available ? (
-                  <a href={canvasArtifactUrl(artifact.uri)} target="_blank" rel="noreferrer" download className="flex items-center gap-2 px-3 py-2 text-xs text-foreground hover:bg-secondary/70">
-                    <Icon size={14} /><span className="min-w-0 flex-1 truncate">{artifact.name}</span><Download size={13} />
-                  </a>
-                ) : (
-                  <div className="flex items-start gap-2 px-3 py-2 text-xs text-amber-300">
-                    <AlertCircle size={14} className="mt-0.5 shrink-0" />
-                    <span className="min-w-0"><span className="block truncate">{artifact.name}</span><span className="text-amber-300/80">{artifact.warning || copy.artifactUnavailable}</span></span>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {!composerOpen && canAdd && (
-        <button
-          type="button"
-          onClick={() => onAdd(interaction)}
-          title={copy.forkFromInteraction}
-          className="nodrag absolute -right-4 top-1/2 flex size-8 -translate-y-1/2 items-center justify-center rounded-full border border-primary/40 bg-background text-primary shadow-lg hover:bg-primary hover:text-primary-foreground"
-        >
-          <Plus size={15} />
-        </button>
-      )}
-      <Handle type="source" position={Position.Right} className="!bg-primary" />
-    </article>
-  );
-}
-
-function ComposerNode({ data }: NodeProps<ComposerFlowNode>) {
-  const { language } = useSettings();
-  const copy = getCanvasCopy(language);
-  const inputRef = useRef<HTMLInputElement>(null);
-  return (
-    <section className="w-[360px] rounded-3xl border border-primary/35 bg-card/98 p-4 shadow-2xl">
-      <Handle type="target" position={Position.Left} className="!bg-primary" />
-      <header className="canvas-node-drag-handle mb-3 flex cursor-grab items-center justify-between active:cursor-grabbing">
-        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-primary">
-          <Sparkles size={14} /> {data.label}
-        </div>
-        {data.onClose && !data.draft.sending && (
-          <button type="button" className="nodrag text-muted-foreground hover:text-foreground" onClick={data.onClose} aria-label={copy.closeComposer}><X size={15} /></button>
-        )}
-      </header>
-      <textarea
-        autoFocus
-        value={data.draft.text}
-        onChange={(event) => data.onTextChange(event.target.value)}
-        placeholder={copy.composerPlaceholder}
-        className="nodrag nowheel min-h-28 w-full resize-y rounded-2xl border border-border bg-background/65 px-3 py-3 text-sm outline-none focus:border-primary"
-        disabled={data.draft.sending}
-      />
-      {data.draft.files.length > 0 && (
-        <div className="nodrag mt-3 grid gap-2">
-          {data.draft.files.map((file, index) => (
-            <div key={`${file.name}-${file.lastModified}-${index}`} className="flex items-center gap-2 rounded-xl bg-secondary/75 px-2 py-2 text-xs">
-              {file.type.startsWith('image/') && data.draft.previews[`${file.name}-${file.lastModified}`]
-                ? <img src={data.draft.previews[`${file.name}-${file.lastModified}`]} alt="" className="size-9 rounded-lg object-cover" />
-                : <File size={15} />}
-              <span className="min-w-0 flex-1 truncate">{file.name}</span>
-              <span className="text-muted-foreground">{formatBytes(file.size)}</span>
-              <button type="button" onClick={() => data.onRemoveFile(index)} disabled={data.draft.sending}><X size={14} /></button>
-            </div>
-          ))}
-        </div>
-      )}
-      {data.draft.error && <p translate="no" className="notranslate nodrag mt-2 flex items-start gap-2 text-xs text-destructive"><AlertCircle size={14} />{data.draft.error}</p>}
-      <footer className="nodrag mt-3 flex items-center justify-between gap-2">
-        <Button type="button" variant="outline" size="sm" onClick={() => inputRef.current?.click()} disabled={data.draft.sending || data.draft.files.length >= MAX_ATTACHMENTS}>
-          <Paperclip size={14} /> {copy.addAttachment}
-        </Button>
-        <input
-          ref={inputRef}
-          type="file"
-          multiple
-          className="hidden"
-          onChange={(event) => {
-            data.onFiles(Array.from(event.target.files || []));
-            event.target.value = '';
-          }}
-        />
-        <CanvasSendButton
-          sending={data.draft.sending}
-          disabled={data.draft.sending || (!data.draft.text.trim() && data.draft.files.length === 0)}
-          onSend={data.onSend}
-        />
-      </footer>
-    </section>
-  );
-}
-
-const nodeTypes = { interaction: InteractionNode, composer: ComposerNode };
-
-function autoLayout(nodes: CanvasFlowNode[], edges: Edge[]): CanvasFlowNode[] {
-  const graph = new dagre.graphlib.Graph();
-  graph.setDefaultEdgeLabel(() => ({}));
-  graph.setGraph({ rankdir: 'LR', ranksep: NODE_HORIZONTAL_GAP, nodesep: NODE_VERTICAL_GAP, marginx: 40, marginy: 40 });
-  nodes.forEach((node) => graph.setNode(node.id, {
-    width: node.type === 'composer' ? COMPOSER_NODE_WIDTH : INTERACTION_NODE_WIDTH,
-    height: DEFAULT_NODE_HEIGHT,
-  }));
-  edges.forEach((edge) => graph.setEdge(edge.source, edge.target));
-  dagre.layout(graph);
-  return nodes.map((node) => {
-    const position = graph.node(node.id) as { x: number; y: number };
-    const width = node.type === 'composer' ? COMPOSER_NODE_WIDTH : INTERACTION_NODE_WIDTH;
-    return { ...node, position: { x: position.x - width / 2, y: position.y - DEFAULT_NODE_HEIGHT / 2 } };
-  });
-}
-
-function nodeBounds(node: CanvasFlowNode, rendered?: CanvasFlowNode): CanvasNodeBounds {
-  const fallbackWidth = node.type === 'composer' ? COMPOSER_NODE_WIDTH : INTERACTION_NODE_WIDTH;
-  return {
-    id: node.id,
-    position: node.position,
-    width: rendered?.measured?.width || node.measured?.width || fallbackWidth,
-    height: rendered?.measured?.height || node.measured?.height || DEFAULT_NODE_HEIGHT,
-  };
 }
 
 export interface CanvasContextStats {
@@ -349,7 +83,7 @@ export interface CanvasContextStats {
 }
 
 export function CanvasPanel({ onContextStatsChange }: { onContextStatsChange?: (stats: CanvasContextStats) => void }) {
-  const { rpc, subscribe, connectionState, capabilities } = useGateway();
+  const { connectionState } = useRuntime();
   const { language } = useSettings();
   const copy = getCanvasCopy(language);
   const localizeError = useCallback((cause: unknown, fallback: string) => canvasErrorMessage(cause, fallback, language), [language]);
@@ -358,7 +92,7 @@ export function CanvasPanel({ onContextStatsChange }: { onContextStatsChange?: (
   const [graph, setGraph] = useState<CanvasGraph | null>(null);
   const [nodes, setNodes] = useState<CanvasFlowNode[]>([]);
   const [drafts, setDrafts] = useState<Record<string, CanvasDraft>>({});
-  const [activities, setActivities] = useState<Record<string, AgentActivity>>({});
+  const [previews, setPreviews] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [canvasListVisible, setCanvasListVisible] = useState(true);
   const [editingCanvasId, setEditingCanvasId] = useState<string | null>(null);
@@ -367,13 +101,14 @@ export function CanvasPanel({ onContextStatsChange }: { onContextStatsChange?: (
   const [agentCatalogError, setAgentCatalogError] = useState(false);
   const [agentCatalogLoading, setAgentCatalogLoading] = useState(false);
   const [agentChanging, setAgentChanging] = useState(false);
-  const activeRuns = useRef(new Map<string, { interactionId: string; branchId: string; sessionKey: string }>());
   const saveTimer = useRef<number | null>(null);
   const nodesRef = useRef<CanvasFlowNode[]>([]);
   const positionsRef = useRef<Record<string, XYPosition>>({});
   const viewportRef = useRef<Viewport | undefined>(undefined);
   const loadedCanvasRef = useRef<string | null>(null);
   const knownLayoutNodeIdsRef = useRef(new Set<string>());
+  const selectedIdRef = useRef<string | null>(selectedId);
+  selectedIdRef.current = selectedId;
 
   const loadCanvases = useCallback(async () => {
     const list = await canvasApi.list();
@@ -381,15 +116,18 @@ export function CanvasPanel({ onContextStatsChange }: { onContextStatsChange?: (
     setSelectedId((current) => current && list.some((item) => item.id === current) ? current : list[0]?.id || null);
   }, []);
 
-  const loadGraph = useCallback(async () => {
-    if (!selectedId) { setGraph(null); return; }
-    let nextGraph = await canvasApi.graph(selectedId);
+  const loadGraphOnce = useCallback(async () => {
+    const canvasId = selectedId;
+    if (!canvasId) { setGraph(null); return; }
+    let nextGraph = await canvasApi.graph(canvasId);
     if (nextGraph.branches.length === 0 && nextGraph.interactions.length === 0) {
-      await canvasApi.createRoot(selectedId);
-      nextGraph = await canvasApi.graph(selectedId);
+      await canvasApi.createRoot(canvasId);
+      nextGraph = await canvasApi.graph(canvasId);
     }
-    if (loadedCanvasRef.current !== selectedId) {
-      loadedCanvasRef.current = selectedId;
+    if (selectedIdRef.current !== canvasId) return;
+    if (loadedCanvasRef.current !== canvasId) {
+      loadedCanvasRef.current = canvasId;
+      setPreviews({});
       positionsRef.current = { ...(nextGraph.layout?.nodes || {}) };
       viewportRef.current = nextGraph.layout?.viewport;
       nodesRef.current = [];
@@ -398,26 +136,21 @@ export function CanvasPanel({ onContextStatsChange }: { onContextStatsChange?: (
     } else {
       positionsRef.current = { ...(nextGraph.layout?.nodes || {}), ...positionsRef.current };
     }
-    setGraph((current) => {
-      if (!current || current.canvas.id !== nextGraph.canvas.id) return nextGraph;
-      const localOutput = new Map(current.interactions.map((interaction) => [interaction.id, interaction.agentOutput]));
-      return {
-        ...nextGraph,
-        interactions: nextGraph.interactions.map((interaction) => interaction.status === 'streaming' && !interaction.agentOutput && localOutput.get(interaction.id)
-          ? { ...interaction, agentOutput: localOutput.get(interaction.id)! }
-          : interaction),
-      };
-    });
-    setActivities((current) => {
-      const next = { ...current };
-      for (const interaction of nextGraph.interactions) {
-        const phase = reconciliationMetadata(interaction).phase;
-        if (interaction.status !== 'streaming') delete next[interaction.branchId];
-        else if (phase === 'settling') next[interaction.branchId] = 'settling';
-      }
-      return next;
-    });
+    setGraph(nextGraph);
   }, [selectedId]);
+
+  const handleGraphRefreshError = useCallback((cause: unknown) => {
+    setError(localizeError(cause, copy.refreshOpenClawFailed));
+  }, [copy.refreshOpenClawFailed, localizeError]);
+  const graphRefresh = useMemo(
+    () => createGraphRefreshController(loadGraphOnce, handleGraphRefreshError),
+    [handleGraphRefreshError, loadGraphOnce],
+  );
+  useEffect(() => () => graphRefresh.dispose(), [graphRefresh]);
+  const loadGraph = useCallback(() => graphRefresh.run(), [graphRefresh]);
+  const scheduleGraphRefresh = useCallback((delayMs?: number) => {
+    graphRefresh.schedule(delayMs);
+  }, [graphRefresh]);
 
   useEffect(() => { void loadCanvases().catch((cause) => setError(localizeError(cause, copy.loadCanvasListFailed))); }, [copy.loadCanvasListFailed, loadCanvases, localizeError]);
   useEffect(() => { void loadGraph().catch((cause) => setError(localizeError(cause, copy.loadCanvasFailed))); }, [copy.loadCanvasFailed, loadGraph, localizeError]);
@@ -426,63 +159,65 @@ export function CanvasPanel({ onContextStatsChange }: { onContextStatsChange?: (
     setAgentCatalogLoading(true);
     setAgentCatalogError(false);
     try {
-      const result = await rpc('agents.list', {}) as { agents?: GatewayAgentOption[] };
+      const result = await canvasApi.agents();
       setAgents(Array.isArray(result.agents) ? result.agents.filter((agent) => typeof agent.id === 'string' && agent.id) : []);
     } catch {
       setAgentCatalogError(true);
     } finally {
       setAgentCatalogLoading(false);
     }
-  }, [connectionState, rpc]);
+  }, [connectionState]);
   useEffect(() => { void loadAgents(); }, [loadAgents]);
   const refreshContextStats = useCallback(async () => {
     if (!graph || connectionState !== 'connected') {
       onContextStatsChange?.({ branchCount: graph?.branches.length || 0, sessionCount: 0 });
       return;
     }
-    const branchKeys = new Set(graph.branches.map((branch) => branch.sessionKey));
     try {
-      const response = await rpc('sessions.list', { limit: 1000 }) as { sessions?: Array<{ key?: string; sessionKey?: string; totalTokens?: number; contextTokens?: number }> };
-      const matched = (Array.isArray(response.sessions) ? response.sessions : []).filter((session) => branchKeys.has(session.sessionKey || session.key || ''));
-      const usedTokens = matched.reduce((sum, session) => sum + (typeof session.totalTokens === 'number' && session.totalTokens > 0 ? session.totalTokens : 0), 0);
-      const withCapacity = matched.filter((session) => typeof session.contextTokens === 'number' && session.contextTokens > 0);
-      const contextLimit = withCapacity.reduce((sum, session) => sum + (session.contextTokens || 0), 0);
-      onContextStatsChange?.({ branchCount: graph.branches.length, sessionCount: matched.length, ...(contextLimit > 0 ? { usedTokens, contextLimit } : {}) });
+      onContextStatsChange?.(await canvasApi.runtimeStats(graph.canvas.id));
     } catch {
       onContextStatsChange?.({ branchCount: graph.branches.length, sessionCount: 0 });
     }
-  }, [connectionState, graph, onContextStatsChange, rpc]);
+  }, [connectionState, graph, onContextStatsChange]);
   useEffect(() => {
     void refreshContextStats();
     if (connectionState !== 'connected') return;
     const timer = window.setInterval(() => void refreshContextStats(), 30_000);
     return () => window.clearInterval(timer);
   }, [refreshContextStats, connectionState]);
+  const handleCanvasSync = useCallback((batch: CanvasSyncBatch) => {
+    setGraph((current) => current && current.canvas.id === selectedIdRef.current
+      ? applyCanvasSyncBatch(current, batch)
+      : current);
+    if (batch.interactions.length > 0) {
+      setPreviews((current) => {
+        const next = { ...current };
+        for (const interaction of batch.interactions) {
+          if (interaction.executionState !== 'running' || interaction.agentOutput) delete next[interaction.id];
+        }
+        return next;
+      });
+    }
+  }, []);
+  const handleCanvasPreview = useCallback((interactionId: string, text: string) => {
+    setPreviews((current) => ({ ...current, [interactionId]: text }));
+  }, []);
+  const clearCanvasPreviews = useCallback(() => setPreviews({}), []);
+  const syncCanvasId = graph?.canvas.id === selectedId ? selectedId : null;
+  const canvasStreamState = useCanvasSync({
+    canvasId: syncCanvasId,
+    cursor: graph?.cursor || 0,
+    onSync: handleCanvasSync,
+    onPreview: handleCanvasPreview,
+    onDisconnect: clearCanvasPreviews,
+  });
   useEffect(() => {
-    if (!graph?.interactions.some((interaction) => needsReconciliation(interaction, graph.reconciliationVersion))) return;
+    if (!graphNeedsFallbackPolling(canvasStreamState, Boolean(graph?.hasPendingUpdates))) return;
     const timer = window.setInterval(() => {
-      void loadGraph().catch((cause) => setError(localizeError(cause, copy.refreshOpenClawFailed)));
-    }, 3_000);
+      if (document.visibilityState === 'visible') scheduleGraphRefresh(0);
+    }, 15_000);
     return () => window.clearInterval(timer);
-  }, [copy.refreshOpenClawFailed, graph, loadGraph, localizeError]);
-  useEffect(() => {
-    if (connectionState !== 'connected' || !graph) return;
-    for (const interaction of graph.interactions.filter((candidate) => needsReconciliation(candidate, graph.reconciliationVersion))) {
-      void canvasApi.reconcile(interaction.id).catch(() => undefined);
-    }
-  }, [connectionState, graph]);
-  useEffect(() => {
-    if (!graph) return;
-    const interactions = new Map(graph.interactions.map((interaction) => [interaction.id, interaction]));
-    for (const [runKey, active] of activeRuns.current) {
-      const interaction = interactions.get(active.interactionId);
-      if (interaction && interaction.status !== 'streaming'
-        && reconciliationMetadata(interaction).artifactSync !== 'pending') {
-        activeRuns.current.delete(runKey);
-      }
-    }
-  }, [graph]);
-
+  }, [canvasStreamState, graph?.hasPendingUpdates, scheduleGraphRefresh]);
   const persistLayout = useCallback((canvasId = selectedId) => {
     if (!canvasId) return Promise.resolve();
     const layout = { nodes: { ...positionsRef.current }, ...(viewportRef.current ? { viewport: viewportRef.current } : {}) };
@@ -490,13 +225,13 @@ export function CanvasPanel({ onContextStatsChange }: { onContextStatsChange?: (
   }, [selectedId]);
 
   const updateDraft = useCallback((branchId: string, update: (draft: CanvasDraft) => CanvasDraft) => {
-    setDrafts((current) => ({ ...current, [branchId]: update(current[branchId] || EMPTY_DRAFT) }));
+    setDrafts((current) => ({ ...current, [branchId]: update(current[branchId] || EMPTY_CANVAS_DRAFT) }));
   }, []);
 
   const handleFiles = useCallback((branchId: string, incoming: File[]) => {
     updateDraft(branchId, (draft) => {
       const accepted: File[] = [];
-      for (const file of incoming.slice(0, MAX_ATTACHMENTS - draft.files.length)) {
+      for (const file of incoming.slice(0, MAX_CANVAS_ATTACHMENTS - draft.files.length)) {
         accepted.push(file);
       }
       const previews = { ...draft.previews };
@@ -517,7 +252,7 @@ export function CanvasPanel({ onContextStatsChange }: { onContextStatsChange?: (
   }, [updateDraft]);
 
   const send = useCallback(async (branch: CanvasBranch) => {
-    const draft = drafts[branch.id] || EMPTY_DRAFT;
+    const draft = drafts[branch.id] || EMPTY_CANVAS_DRAFT;
     if (draft.sending || (!draft.text.trim() && draft.files.length === 0)) return;
     const composerSource = branch.sessionState === 'draft'
       ? branch.forkedFromInteractionId
@@ -526,131 +261,61 @@ export function CanvasPanel({ onContextStatsChange }: { onContextStatsChange?: (
     const composerPosition = positionsRef.current[composerId]
       || nodesRef.current.find((node) => node.id === composerId)?.position;
     updateDraft(branch.id, (current) => ({ ...current, sending: true, error: null }));
-    setActivities((current) => ({ ...current, [branch.id]: 'queued' }));
-    let reservationId: string | null = null;
     try {
       const canvasAgentId = graph?.canvas.agentId;
       const canvasId = graph?.canvas.id;
       if (!canvasId || !canvasAgentId) throw new CanvasLocalizedError(copy.currentCanvasMissing);
-      if (!capabilities.methods.has('chat.send')) {
-        throw new CanvasLocalizedError('当前 OpenClaw Gateway 未声明 chat.send 能力，请升级 Gateway 后重试。');
-      }
-      const preparedDraftAttachments = await prepareGatewayAttachments(draft.files, language);
-      if (capabilities.maxPayload) {
-        const estimatedBytes = estimateChatSendFrameBytes(
-          branch.sessionKey,
-          draft.text,
-          preparedDraftAttachments,
-        );
-        if (estimatedBytes > capabilities.maxPayload) {
-          throw new CanvasLocalizedError(
-            `附件发送请求约为 ${Math.ceil(estimatedBytes / 1024 / 1024)} MiB，超过 Gateway 的 `
-            + `${Math.floor(capabilities.maxPayload / 1024 / 1024)} MiB 限制。`,
-          );
-        }
-      }
+      const preparedDraftAttachments = await prepareDeliveryAttachments(draft.files, language);
       const attachmentMeta = draft.files.length ? await persistCanvasFiles(draft.files, canvasId) : [];
-      const reservation = await canvasApi.prepareSend(branch.id, {
+      await Promise.all(preparedDraftAttachments.map(async (prepared, index) => {
+        const bytes = Uint8Array.from(atob(prepared.content), (character) => character.charCodeAt(0));
+        const variant = new globalThis.File([bytes], prepared.fileName, { type: prepared.mimeType });
+        await persistDeliveryVariant(attachmentMeta[index].id, canvasId, variant);
+      }));
+      let result = await canvasApi.send(branch.id, {
         expectedHeadInteractionId: branch.sessionState === 'active' ? branch.headInteractionId : null,
         expectedAgentId: canvasAgentId,
         userInput: draft.text,
-        attachments: attachmentMeta,
+        attachmentIds: attachmentMeta.map((attachment) => attachment.id),
       });
-      reservationId = reservation.id;
-      let outgoingMessage = reservation.outgoingMessage;
-      const bootstrapFiles: File[] = [];
-      const bootstrapWarnings: string[] = [];
-      for (const resource of reservation.bootstrapResources || []) {
-        try {
-          if (!resource.fetchUrl) throw new Error(copy.secureReadUrlMissing);
+      if (result.operation?.dispatchState === 'awaiting_media') {
+        for (const resource of result.operation.bootstrapResources) {
+          if (!resource.fetchUrl) continue;
           const response = await fetch(resource.fetchUrl, { credentials: 'include' });
           if (!response.ok) throw new Error(copy.readFailedWithStatus(response.status));
           const blob = await response.blob();
-          bootstrapFiles.push(new globalThis.File([blob], resource.name, { type: resource.mimeType || blob.type || 'application/octet-stream' }));
-        } catch (cause) {
-          const reason = cause instanceof Error ? cause.message : copy.readFailed;
-          bootstrapWarnings.push(copy.resourceWarning(resource.name, reason));
+          const source = new globalThis.File(
+            [blob],
+            resource.name,
+            { type: resource.mimeType || blob.type || 'application/octet-stream' },
+          );
+          const prepared = await prepareDeliveryAttachment(source, language);
+          const bytes = Uint8Array.from(atob(prepared.content), (character) => character.charCodeAt(0));
+          await canvasApi.uploadOperationResourceVariant(
+            result.operation.id,
+            resource.id,
+            new globalThis.File([bytes], prepared.fileName, { type: prepared.mimeType }),
+          );
         }
+        result = await canvasApi.dispatch(result.operation.id);
       }
-      const gatewayAttachments: GatewayAttachment[] = [];
-      for (const file of bootstrapFiles) {
-        try { gatewayAttachments.push(await prepareGatewayAttachment(file, language)); }
-        catch (cause) {
-          bootstrapWarnings.push(copy.resourceWarning(file.name, cause instanceof Error ? cause.message : copy.prepareAttachmentFailed));
-        }
-      }
-      gatewayAttachments.push(...preparedDraftAttachments);
-      if (bootstrapWarnings.length > 0) {
-        outgoingMessage += `\n\n<canvas-context-resource-warnings>${JSON.stringify(bootstrapWarnings)}</canvas-context-resource-warnings>`;
-      }
-      const ack = await sendChatMessage({
-        rpc,
-        sessionKey: reservation.sessionKey,
-        text: outgoingMessage,
-        attachments: gatewayAttachments,
-        idempotencyKey: reservation.id,
-      });
-      const interaction = await canvasApi.acknowledge(reservation.id, ack.runId, bootstrapWarnings);
-      const runKey = ack.runId || `session:${reservation.sessionKey}`;
-      activeRuns.current.set(runKey, { interactionId: interaction.id, branchId: branch.id, sessionKey: reservation.sessionKey });
-      if (composerPosition) {
-        positionsRef.current = { ...positionsRef.current, [interaction.id]: composerPosition };
+      if (composerPosition && result.interaction) {
+        positionsRef.current = { ...positionsRef.current, [result.interaction.id]: composerPosition };
         delete positionsRef.current[composerId];
         await persistLayout();
       }
-      setActivities((current) => ({ ...current, [branch.id]: 'working' }));
-      updateDraft(branch.id, () => EMPTY_DRAFT);
-      await loadGraph();
+      updateDraft(branch.id, (current) => result.interaction ? EMPTY_CANVAS_DRAFT : { ...current, sending: true });
+      if (!result.interaction || canvasStreamState !== 'connected') await loadGraph();
     } catch (cause) {
       const message = localizeError(cause, copy.messageSendFailed);
-      if (reservationId) await canvasApi.failReservation(reservationId, message).catch(() => undefined);
       updateDraft(branch.id, (current) => ({ ...current, sending: false, error: message }));
-      setActivities((current) => ({ ...current, [branch.id]: 'failed' }));
     }
-  }, [capabilities.maxPayload, capabilities.methods, copy, drafts, graph?.canvas.agentId, graph?.canvas.id, language, loadGraph, localizeError, persistLayout, rpc, updateDraft]);
-
-  useEffect(() => subscribe((event: GatewayEvent) => {
-    const classified = classifyStreamEvent(event);
-    if (!classified) return;
-    const payload = (event.payload || {}) as ChatEventPayload;
-    const runKey = classified.runId || (payload.sessionKey ? `session:${payload.sessionKey}` : '');
-    const active = activeRuns.current.get(runKey);
-    if (!active || (payload.sessionKey && payload.sessionKey !== active.sessionKey)) return;
-
-    if (classified.type === 'chat_delta' && classified.chatPayload) {
-      const delta = extractStreamDelta(classified.chatPayload);
-      if (delta?.cleaned) {
-        setGraph((current) => current ? {
-          ...current,
-          interactions: current.interactions.map((item) => item.id === active.interactionId ? { ...item, agentOutput: delta.cleaned } : item),
-        } : current);
-      }
-      setActivities((current) => ({ ...current, [active.branchId]: 'working' }));
-      return;
-    }
-
-    if (classified.type === 'chat_final' && classified.chatPayload) {
-      setActivities((current) => ({ ...current, [active.branchId]: 'settling' }));
-      void canvasApi.reconcile(active.interactionId, { terminalHint: true, runId: classified.runId })
-        .then(loadGraph);
-      return;
-    }
-
-    if (classified.type === 'chat_error' || classified.type === 'chat_aborted') {
-      const reason = payload.errorMessage || payload.error || payload.stopReason || copy.openClawRunFailed;
-      setActivities((current) => ({ ...current, [active.branchId]: 'settling' }));
-      void canvasApi.reconcile(active.interactionId, {
-        terminalHint: true,
-        failureHint: reason,
-        runId: classified.runId,
-      }).then(loadGraph);
-    }
-  }), [copy.openClawRunFailed, loadGraph, subscribe]);
+  }, [canvasStreamState, copy, drafts, graph?.canvas.agentId, graph?.canvas.id, language, loadGraph, localizeError, persistLayout, updateDraft]);
 
   const addFromInteraction = useCallback(async (interaction: CanvasInteraction) => {
     try {
       const branch = await canvasApi.fork(interaction.id);
-      setDrafts((current) => ({ ...current, [branch.id]: current[branch.id] || EMPTY_DRAFT }));
+      setDrafts((current) => ({ ...current, [branch.id]: current[branch.id] || EMPTY_CANVAS_DRAFT }));
       await loadGraph();
     } catch (cause) { setError(localizeError(cause, copy.forkFailed)); }
   }, [copy.forkFailed, loadGraph, localizeError]);
@@ -673,30 +338,30 @@ export function CanvasPanel({ onContextStatsChange }: { onContextStatsChange?: (
       dragHandle: '.canvas-node-drag-handle',
       data: {
         interaction,
-        activity: activities[interaction.branchId]
-          || reconciledActivity(interaction),
+        preview: previews[interaction.id] || '',
         composerOpen: draftForkSources.has(interaction.id),
-        canAdd: !headIds.has(interaction.id) && interaction.status === 'completed' && !draftForkSources.has(interaction.id),
+        canAdd: !headIds.has(interaction.id) && interaction.executionState === 'completed' && !draftForkSources.has(interaction.id),
         onAdd: addFromInteraction,
       },
     }));
     const edges: Edge[] = graph.interactions.filter((interaction) => interaction.parentInteractionId).map((interaction) => ({
       id: `edge-${interaction.parentInteractionId}-${interaction.id}`,
-      source: interaction.parentInteractionId!, target: interaction.id, animated: interaction.status === 'streaming',
+      source: interaction.parentInteractionId!, target: interaction.id, animated: interaction.executionState === 'running',
     }));
     const composerNodes: CanvasFlowNode[] = [];
     for (const branch of graph.branches) {
+      const pendingSend = (graph.pendingSends || []).some((operation) => operation.branchId === branch.id);
       const isInitialDraft = branch.sessionState === 'draft';
       const head = branch.headInteractionId ? interactionById.get(branch.headInteractionId) : undefined;
-      const isContinue = branch.sessionState === 'active' && head?.status === 'completed';
+      const isContinue = branch.sessionState === 'active' && head?.executionState === 'completed';
       if (!isInitialDraft && !isContinue) continue;
       const source = isInitialDraft ? branch.forkedFromInteractionId : branch.headInteractionId;
       const nodeId = composerNodeId(branch.id, source);
       if (source) edges.push({ id: `edge-${source}-${nodeId}`, source, target: nodeId, animated: true });
       const sourceNode = source ? interactionNodes.find((node) => node.id === source) : undefined;
-      const occupied = [...interactionNodes, ...composerNodes].map((node) => nodeBounds(node, renderedById.get(node.id)));
+      const occupied = [...interactionNodes, ...composerNodes].map((node) => canvasNodeBounds(node, renderedById.get(node.id)));
       const defaultPosition = sourceNode
-        ? placeNodeToRight(nodeBounds(sourceNode, renderedById.get(sourceNode.id)), occupied, {
+        ? placeNodeToRight(canvasNodeBounds(sourceNode, renderedById.get(sourceNode.id)), occupied, {
           width: COMPOSER_NODE_WIDTH,
           height: renderedById.get(nodeId)?.measured?.height || DEFAULT_NODE_HEIGHT,
         })
@@ -708,7 +373,9 @@ export function CanvasPanel({ onContextStatsChange }: { onContextStatsChange?: (
         dragHandle: '.canvas-node-drag-handle',
         data: {
           branch,
-          draft: drafts[branch.id] || EMPTY_DRAFT,
+          draft: pendingSend
+            ? { ...(drafts[branch.id] || EMPTY_CANVAS_DRAFT), sending: true }
+            : drafts[branch.id] || EMPTY_CANVAS_DRAFT,
           label: branch.kind === 'fork' && branch.sessionState === 'draft' ? copy.createBranch : branch.sessionState === 'draft' ? copy.newSession : copy.continueBranch,
           onTextChange: (value) => updateDraft(branch.id, (draft) => ({ ...draft, text: value, error: null })),
           onFiles: (files) => handleFiles(branch.id, files),
@@ -719,8 +386,8 @@ export function CanvasPanel({ onContextStatsChange }: { onContextStatsChange?: (
     }
     const all = [...interactionNodes, ...composerNodes];
     const hasSavedLayout = Boolean(Object.keys(positionsRef.current).length || (graph.layout && Object.keys(graph.layout.nodes).length));
-    return { nodes: hasSavedLayout ? all : autoLayout(all, edges), edges };
-  }, [activities, addFromInteraction, copy, drafts, graph, handleFiles, removeFile, send, updateDraft]);
+    return { nodes: hasSavedLayout ? all : autoLayoutCanvasNodes(all, edges), edges };
+  }, [addFromInteraction, copy, drafts, graph, handleFiles, previews, removeFile, send, updateDraft]);
 
   useEffect(() => {
     setNodes((current) => {
@@ -907,7 +574,7 @@ export function CanvasPanel({ onContextStatsChange }: { onContextStatsChange?: (
               key={selectedId}
               nodes={nodes}
               edges={flow.edges}
-              nodeTypes={nodeTypes}
+              nodeTypes={canvasNodeTypes}
               onNodesChange={onNodesChange}
               onMoveEnd={onMoveEnd}
               fitView

@@ -8,7 +8,14 @@ const persistCanvasArtifactBytes = vi.fn();
 vi.mock('./gateway-rpc.js', () => ({
   gatewayRpcCall,
   gatewaySupports: (method: string) => supported.has(method),
-  getGatewayHttpAuthToken: () => 'device-token',
+  GatewayRpcError: class GatewayRpcError extends Error {
+    code?: string;
+    constructor(message: string, details?: Record<string, unknown>) {
+      super(message);
+      this.code = typeof details?.code === 'string' ? details.code : undefined;
+    }
+  },
+  getGatewaySharedHttpAuthToken: () => 'shared-token',
 }));
 vi.mock('./canvas-artifact-store.js', () => ({
   CANVAS_ARTIFACT_MAX_BYTES: 25 * 1024 * 1024,
@@ -120,5 +127,54 @@ describe('Gateway-native Canvas Artifact reconciliation', () => {
     expect(snapshot.agentOutput).toBe('done');
     expect(snapshot.artifactPersistenceComplete).toBe(false);
     expect(snapshot.artifactWarnings?.[0]).toContain('artifacts.list/download');
+  });
+
+  it('falls back to the Interaction transcript when a completed run no longer resolves to a Session', async () => {
+    supported.add('artifacts.list');
+    supported.add('artifacts.download');
+    gatewayRpcCall.mockImplementation(async (method: string) => {
+      if (method === 'sessions.get') {
+        return {
+          messages: [
+            { role: 'user', content: 'create image' },
+            {
+              role: 'assistant',
+              content: [
+                { type: 'text', text: 'done' },
+                {
+                  type: 'image',
+                  url: '/api/chat/media/outgoing/agent%3Amain%3Acanvas%3Abranch-1/image-id/full',
+                  alt: 'result.png',
+                  mimeType: 'image/png',
+                },
+              ],
+            },
+          ],
+        };
+      }
+      if (method === 'artifacts.list') {
+        const error = new Error('no session found for artifact query') as Error & { code?: string };
+        error.code = 'artifact_scope_not_found';
+        throw error;
+      }
+      return {};
+    });
+
+    const { reconcileTranscriptSnapshot } = await import('./canvas-reconciler.js');
+    const snapshot = await reconcileTranscriptSnapshot(interaction());
+
+    expect(snapshot.artifactPersistenceComplete).toBe(true);
+    expect(snapshot.artifactWarnings).toEqual([]);
+    expect(snapshot.artifacts).toEqual([
+      expect.objectContaining({
+        name: 'result.png',
+        uri: '/api/chat/media/outgoing/agent%3Amain%3Acanvas%3Abranch-1/image-id/full',
+      }),
+    ]);
+    expect(gatewayRpcCall).not.toHaveBeenCalledWith(
+      'artifacts.list',
+      expect.objectContaining({ sessionKey: expect.any(String) }),
+      expect.any(Number),
+    );
   });
 });

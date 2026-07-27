@@ -31,7 +31,7 @@ curl -fsSL https://raw.githubusercontent.com/MrToyy/convosketchpad/main/install.
 --dry-run
 --gateway-token <token>
 --gateway-url <url>
---access-mode <local|network|custom|tailscale-ip|tailscale-serve>
+--access-mode <local|network|tailscale-ip|tailscale-serve>
 ```
 
 ## 配置向导
@@ -45,11 +45,27 @@ npm run setup
 
 向导配置以下内容：
 
-1. **Gateway 连接**：URL、Token、连通性、远程 Gateway 时区、原生 Control UI Origin 和原生设备配对。
-2. **访问方式**：localhost、局域网/自定义、Tailscale IP 或 Tailscale Serve。
+1. **Gateway 连接**：URL、共享 Token、连通性、远程 Gateway 时区，以及仅远程 Gateway 所需的 backend 设备配对。
+2. **访问方式**：localhost、局域网、Tailscale IP、Tailscale Serve 或交互式 Custom。
 3. **认证**：非本机访问使用的受管用户登录和会话设置。
 
-Gateway 变更使用受支持的 `openclaw config` 和 `openclaw devices` 命令。配置向导不会自行生成或直接编辑 OpenClaw 配对记录。远程 Gateway 的配置必须在 Gateway 宿主机上执行。
+loopback Gateway 使用 OpenClaw 官方支持的共享 Token backend 直连，不发送设备身份，也不会产生配对请求。远程 Gateway 才使用 OpenClaw 原生设备配对；向导不直接编辑配对记录，也不修改 `gateway.controlUi.allowedOrigins`。
+
+- 远程 setup 发起只申请 `operator.read`、`operator.write` 的 ConvoSketchpad request；
+- 审批必须在 Gateway 宿主机完成，非交互 setup 会输出后续命令；
+- repair 若继承了更宽 scope，宿主机操作者应将最终设备 Token 降为精确 read/write。
+
+访问模式的具体行为：
+
+- **Local**：只监听回环地址，不设置远程 Origin。
+- **LAN**：监听所有接口，写入实际 LAN IP 的 HTTP Origin，并启用受管认证。
+- **Tailscale IP**：直接绑定当前 tailnet IPv4，写入对应 HTTP Origin，并启用受管认证。
+- **Tailscale Serve**：只监听回环地址，只采用确实代理到当前端口的 Serve HTTPS Origin，并启用受管认证。
+- **Custom**：逐项询问 ConvoSketchpad 入口端口、入口监听地址、Direct HTTP 或 HTTPS reverse proxy、精确浏览器 Origin 和可信代理 IP。远程访问默认启用认证；只有再次确认风险后才允许关闭。
+
+Custom 依赖交互问答，不能与 `--defaults --access-mode custom` 一起使用。
+
+生产和开发统一使用 `HOST` / `PORT` 作为浏览器入口。开发模式内部的 Hono 端口由 `npm run dev` 自动选择并绑定到 loopback，不需要配置 `VITE_HOST` 或 `VITE_PORT`。
 
 非交互式本机配置：
 
@@ -82,6 +98,8 @@ HOST=127.0.0.1
 GATEWAY_URL=http://127.0.0.1:18789
 GATEWAY_TOKEN=<detected-token>
 ```
+
+ConvoSketchpad 不提供内置 TLS。远程 HTTPS 由反向代理或 Tailscale Serve 终止，后端仍使用 HTTP。
 
 如果安装器已经配置系统服务，请使用该服务，不要重复启动前台进程：
 

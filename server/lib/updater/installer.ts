@@ -118,6 +118,22 @@ export function buildProject(cwd: string): void {
   }
 }
 
+export function migrateDatabase(cwd: string): void {
+  try {
+    execFileSync(
+      process.execPath,
+      ['bin-dist/bin/convosketchpad-migrate.js'],
+      { cwd, stdio: 'pipe', timeout: EXEC_TIMEOUT },
+    );
+  } catch (err) {
+    throw new UpdateError(
+      `Database migration failed: ${errorMessage(err)}`,
+      'migrate',
+      EXIT_CODES.MIGRATION,
+    );
+  }
+}
+
 function errorMessage(err: unknown): string {
   if (err && typeof err === 'object' && 'stderr' in err) {
     const stderr = (err as { stderr: Buffer | string }).stderr;

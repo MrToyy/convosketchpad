@@ -1,17 +1,10 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useDashboardData } from './useDashboardData';
-import type { GatewayEvent, TokenData } from '@/types';
+import type { TokenData } from '@/types';
 
-let gatewayHandler: ((event: GatewayEvent) => void) | undefined;
-const unsubscribe = vi.fn();
-const subscribeMock = vi.fn((handler: (event: GatewayEvent) => void) => {
-  gatewayHandler = handler;
-  return unsubscribe;
-});
-
-vi.mock('@/contexts/GatewayContext', () => ({
-  useGateway: () => ({ connectionState: 'connected', subscribe: subscribeMock }),
+vi.mock('@/contexts/RuntimeContext', () => ({
+  useRuntime: () => ({ connectionState: 'connected' }),
 }));
 
 function tokenResponse(totalTokens: number): Response {
@@ -20,9 +13,6 @@ function tokenResponse(totalTokens: number): Response {
 
 describe('useDashboardData', () => {
   beforeEach(() => {
-    gatewayHandler = undefined;
-    subscribeMock.mockClear();
-    unsubscribe.mockClear();
   });
 
   afterEach(() => {
@@ -39,7 +29,7 @@ describe('useDashboardData', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/tokens', expect.objectContaining({ signal: expect.any(AbortSignal) }));
   });
 
-  it('refreshes usage after a terminal Canvas chat event', async () => {
+  it('refreshes usage on the independent usage interval', async () => {
     vi.useFakeTimers();
     const fetchMock = vi.spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce(tokenResponse(1))
@@ -51,8 +41,7 @@ describe('useDashboardData', () => {
     expect(result.current.tokenData).toEqual({ totalTokens: 1 });
 
     act(() => {
-      gatewayHandler?.({ event: 'chat', payload: { state: 'final' } } as GatewayEvent);
-      vi.advanceTimersByTime(500);
+      vi.advanceTimersByTime(60_000);
     });
     await act(async () => { await Promise.resolve(); });
 

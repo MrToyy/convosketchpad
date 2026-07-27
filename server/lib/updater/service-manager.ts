@@ -62,6 +62,11 @@ class SystemdManager implements ServiceManager {
     execSync(`systemctl ${flag}restart ${this.unit}`.trim(), { stdio: 'pipe' });
   }
 
+  async stop(): Promise<void> {
+    const flag = this.isUserUnit ? '--user ' : '';
+    execSync(`systemctl ${flag}stop ${this.unit}`.trim(), { stdio: 'pipe' });
+  }
+
   async isActive(): Promise<boolean> {
     try {
       const flag = this.isUserUnit ? '--user ' : '';
@@ -140,6 +145,10 @@ class LaunchdManager implements ServiceManager {
       }
       execSync(`launchctl start ${this.label}`, { stdio: 'pipe' });
     }
+  }
+
+  async stop(): Promise<void> {
+    execSync(`launchctl stop ${this.label}`, { stdio: 'pipe' });
   }
 
   async isActive(): Promise<boolean> {

@@ -1,20 +1,18 @@
 /**
  * ConvoSketchpad server entry point.
  *
- * Starts HTTP and optional HTTPS servers (for secure-context features like
- * TLS), sets up WebSocket proxying to the OpenClaw gateway, and registers
- * graceful shutdown handlers.
+ * Starts the HTTP server behind an optional external TLS terminator, starts
+ * the backend-owned OpenClaw connection, and registers graceful shutdown
+ * handlers.
  * @module
  */
 
-import fs from 'node:fs';
-import https from 'node:https';
 import { serve } from '@hono/node-server';
 import app from './app.js';
 import { config, validateConfig, printStartupBanner, probeGateway } from './lib/config.js';
-import { setupWebSocketProxy, closeAllWebSockets } from './lib/ws-proxy.js';
 import { startCanvasReconciler, stopCanvasReconciler } from './lib/canvas-reconciler.js';
 import { closeGatewayRpc } from './lib/gateway-rpc.js';
+import { startCanvasSendCoordinator, stopCanvasSendCoordinator } from './lib/canvas-send-coordinator.js';
 import { packageMetadata } from './lib/package-metadata.js';
 
 // ── Startup banner + validation ──────────────────────────────────────
@@ -44,107 +42,10 @@ const httpServer = serve(
   throw err;
 });
 
-// Set up WS proxy on HTTP server (for remote access without SSL)
-setupWebSocketProxy(httpServer as unknown as import('node:http').Server);
-
 // Non-blocking gateway health check
 probeGateway();
 startCanvasReconciler();
-
-// ── HTTPS server (secure transport and WSS proxy) ───────────────────
-
-let sslServer: https.Server | undefined;
-
-if (fs.existsSync(config.certPath) && fs.existsSync(config.keyPath)) {
-  const sslOptions = {
-    cert: fs.readFileSync(config.certPath),
-    key: fs.readFileSync(config.keyPath),
-  };
-
-  const MAX_BODY_BYTES = config.limits.maxBodyBytes;
-
-  sslServer = https.createServer(sslOptions, async (req, res) => {
-    // Convert Node req/res to fetch Request and forward to Hono
-    const protocol = 'https';
-    const host = req.headers.host || `localhost:${config.sslPort}`;
-    const url = new URL(req.url || '/', `${protocol}://${host}`);
-
-    // Read body with size limit
-    const chunks: Buffer[] = [];
-    let totalBytes = 0;
-    for await (const chunk of req) {
-      totalBytes += (chunk as Buffer).length;
-      if (totalBytes > MAX_BODY_BYTES) {
-        res.writeHead(413, { 'Content-Type': 'text/plain' });
-        res.end('Request body too large');
-        return;
-      }
-      chunks.push(chunk as Buffer);
-    }
-    const body = chunks.length > 0 ? Buffer.concat(chunks) : undefined;
-
-    const headers = new Headers();
-    for (const [key, value] of Object.entries(req.headers)) {
-      if (value) {
-        if (Array.isArray(value)) {
-          for (const v of value) headers.append(key, v);
-        } else {
-          headers.set(key, value);
-        }
-      }
-    }
-
-    const request = new Request(url.toString(), {
-      method: req.method,
-      headers,
-      body: req.method !== 'GET' && req.method !== 'HEAD' ? body : undefined,
-      duplex: 'half',
-    });
-
-    try {
-      // Pass the Node.js IncomingMessage as env.incoming so @hono/node-server's
-      // getConnInfo() can read the real socket remote address (fixes rate limiting on HTTPS).
-      const response = await app.fetch(request, { incoming: req });
-
-      const responseHeaders = Object.fromEntries(response.headers.entries());
-      const contentType = response.headers.get('content-type') || '';
-
-      // Stream SSE responses instead of buffering (Fix #6: SSE over HTTPS)
-      if (contentType.includes('text/event-stream') && response.body) {
-        res.writeHead(response.status, responseHeaders);
-        const reader = response.body.getReader();
-        const pump = async () => {
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) { res.end(); return; }
-            if (!res.writable) { reader.cancel(); return; }
-            res.write(value);
-          }
-        };
-        pump().catch(() => res.end());
-        req.on('close', () => reader.cancel());
-        return;
-      }
-
-      // Buffer non-streaming responses normally
-      res.writeHead(response.status, responseHeaders);
-      const arrayBuf = await response.arrayBuffer();
-      res.end(Buffer.from(arrayBuf));
-    } catch (err) {
-      console.error('[https] error:', (err as Error).message);
-      if (!res.headersSent) {
-        res.writeHead(500);
-      }
-      res.end('Internal Server Error');
-    }
-  });
-
-  sslServer.listen(config.sslPort, config.host, () => {
-    console.log(`\x1b[33m[convosketchpad]\x1b[0m https://${config.host}:${config.sslPort}`);
-  });
-
-  setupWebSocketProxy(sslServer);
-}
+startCanvasSendCoordinator();
 
 // ── Graceful shutdown ────────────────────────────────────────────────
 
@@ -152,18 +53,12 @@ function shutdown(signal: string) {
   console.log(`\n[convosketchpad] ${signal} received, shutting down...`);
 
   stopCanvasReconciler();
-  closeAllWebSockets();
+  stopCanvasSendCoordinator();
   closeGatewayRpc();
 
   httpServer.close(() => {
     console.log('[convosketchpad] HTTP server closed');
   });
-
-  if (sslServer) {
-    sslServer.close(() => {
-      console.log('[convosketchpad] HTTPS server closed');
-    });
-  }
 
   // Give connections 5s to drain, then force exit
   setTimeout(() => {

@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
-import { useGateway } from '@/contexts/GatewayContext';
-import type { GatewayEvent, TokenData } from '@/types';
+import { useRuntime } from '@/contexts/RuntimeContext';
+import type { TokenData } from '@/types';
 
 export function useDashboardData(): { tokenData: TokenData | null; refreshTokens: (signal?: AbortSignal) => Promise<void> } {
-  const { connectionState, subscribe } = useGateway();
+  const { connectionState } = useRuntime();
   const [tokenData, setTokenData] = useState<TokenData | null>(null);
   const refreshTokens = useCallback(async (signal?: AbortSignal) => {
     try {
@@ -14,17 +14,10 @@ export function useDashboardData(): { tokenData: TokenData | null; refreshTokens
     }
   }, []);
   useEffect(() => {
-    if (connectionState !== 'connected') return;
-    return subscribe((event: GatewayEvent) => {
-      const payload = event.payload as Record<string, unknown> | undefined;
-      if (event.event === 'tokens.update' || event.event === 'cost.update' || (event.event === 'chat' && payload?.state === 'final')) window.setTimeout(() => void refreshTokens(), 500);
-    });
-  }, [connectionState, refreshTokens, subscribe]);
-  useEffect(() => {
     const controller = new AbortController();
     const initialTimer = window.setTimeout(() => void refreshTokens(controller.signal), 0);
     const timer = window.setInterval(() => void refreshTokens(controller.signal), 60_000);
     return () => { controller.abort(); window.clearTimeout(initialTimer); window.clearInterval(timer); };
-  }, [refreshTokens]);
+  }, [connectionState, refreshTokens]);
   return { tokenData, refreshTokens };
 }

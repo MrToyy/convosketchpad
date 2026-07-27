@@ -20,6 +20,10 @@ describe('checkPrerequisites', () => {
         ipv4: EXAMPLE_TS_IPV4,
         dnsName: EXAMPLE_TS_DNS,
         serveOrigins: [`https://${EXAMPLE_TS_DNS}`],
+        serveRoutes: [{
+          origin: `https://${EXAMPLE_TS_DNS}`,
+          proxyTargets: ['http://127.0.0.1:3080'],
+        }],
       }),
     }));
 
@@ -32,6 +36,10 @@ describe('checkPrerequisites', () => {
       ipv4: EXAMPLE_TS_IPV4,
       dnsName: EXAMPLE_TS_DNS,
       serveOrigins: [`https://${EXAMPLE_TS_DNS}`],
+      serveRoutes: [{
+        origin: `https://${EXAMPLE_TS_DNS}`,
+        proxyTargets: ['http://127.0.0.1:3080'],
+      }],
     });
   });
 });

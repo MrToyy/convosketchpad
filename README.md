@@ -49,9 +49,9 @@ Canvas
 ### 运行关系
 
 ```text
-React Canvas ── WebSocket ── OpenClaw Gateway（Agent、执行、对话记录）
-      │
-      └──────── HTTP ─────── ConvoSketchpad 服务端 ── SQLite + Artifact 存储
+React Canvas ── HTTP/SSE ── ConvoSketchpad 服务端 ── WebSocket ── OpenClaw Gateway
+                              │
+                              └──────── SQLite + Artifact 存储
 ```
 
 OpenClaw 负责 Agent 执行和 Session 对话记录；ConvoSketchpad 负责 Canvas 拓扑与布局、发送预留、恢复元数据、用户隔离，以及附件和 Artifact 的持久化副本。上传、下载和远程工作区信息通过 OpenClaw 原生能力传递，不要求 ConvoSketchpad 直接访问 OpenClaw 的本地工作区目录。
@@ -94,21 +94,20 @@ npm run setup
 npm run dev
 ```
 
-`npm run dev` 会同时启动 Vite 客户端和监听模式服务端，只需打开终端中标记为 `Frontend (open in browser)` 的地址：
+`npm run dev` 会同时启动 Vite 客户端和监听模式服务端，只需打开终端中标记为 `Open in browser` 的地址：
 
-- `VITE_PORT`：浏览器访问的前端端口，默认 `3080`。
-- `PORT`：仅供开发代理使用的内部服务端端口；默认使用前端端口的下一个端口，即 `3081`。
-- `/api`、`/health` 和 `/ws` 会由 Vite 代理到内部服务端。
+- `HOST` 和 `PORT` 在开发、生产中都表示浏览器访问的 ConvoSketchpad 入口，默认是 `127.0.0.1:3080`。
+- `/api` 和 `/health` 会由 Vite 代理到内部服务端；浏览器不连接 Gateway WebSocket。
+- 内部服务端只绑定 loopback，端口由开发脚本自动选择，无需配置。
 - React 客户端支持 HMR；服务端代码变更后由 `tsx watch` 自动重启。
-- 如果 `PORT` 与 `VITE_PORT` 相同，开发脚本会自动为服务端选择相邻端口。
 
 自定义开发地址：
 
 ```bash
-VITE_HOST=0.0.0.0 VITE_PORT=4000 PORT=4001 npm run dev
+PORT=4000 npm run dev
 ```
 
-此时浏览器入口是 `http://localhost:4000`；局域网设备使用开发机 IP 和前端端口 `4000`。端口 `4001` 是内部服务端端口，不是对外的前端入口。修改环境变量后需要重新启动开发进程。
+此时浏览器入口是 `http://127.0.0.1:4000`。需要从 LAN 或 Tailscale 访问时，请重新运行 setup 选择对应访问模式，让 `HOST`、`ALLOWED_ORIGINS` 和认证策略保持一致。修改环境变量后需要重新启动开发进程。
 
 ### 常用命令
 
@@ -131,15 +130,13 @@ VITE_HOST=0.0.0.0 VITE_PORT=4000 PORT=4001 npm run dev
 | 环境变量 | 默认值 | 用途 |
 |---|---|---|
 | `GATEWAY_URL` | `http://127.0.0.1:18789` | OpenClaw Gateway 地址 |
-| `GATEWAY_TOKEN` | 空 | 服务端 RPC 和可信 WebSocket 连接使用的 Gateway Token |
-| `HOST` | `127.0.0.1` | 生产服务监听地址 |
-| `PORT` | `3080` | 生产服务端口；开发时为内部服务端端口 |
-| `VITE_HOST` | `127.0.0.1` | 开发模式前端监听地址 |
-| `VITE_PORT` | `3080` | 开发模式浏览器入口端口 |
+| `GATEWAY_TOKEN` | 空 | 仅供服务端使用的 Gateway 共享 Token；本机 RPC、Gateway HTTP 与远程配对 bootstrap 使用 |
+| `HOST` | `127.0.0.1` | 开发与生产统一的浏览器入口监听地址 |
+| `PORT` | `3080` | 开发与生产统一的浏览器入口端口 |
 | `CONVOSKETCHPAD_AUTH` | `false` | 是否启用受管用户认证 |
 | `CONVOSKETCHPAD_DATA_DIR` | `~/.convosketchpad` | ConvoSketchpad 自有状态目录 |
 
-对外提供服务前，请启用受管用户认证和 HTTPS，并仔细配置 Origin、代理与网络访问策略。完整说明请参阅[配置文档](docs/CONFIGURATION.md)、[部署文档](docs/DEPLOYMENT.md)和[安全文档](docs/SECURITY.md)。
+对外提供服务前，请启用受管用户认证，并通过反向代理或 Tailscale Serve 提供 HTTPS；ConvoSketchpad 自身只监听 HTTP。请仔细配置精确 Origin、可信代理与网络访问策略。完整说明请参阅[配置文档](docs/CONFIGURATION.md)、[部署文档](docs/DEPLOYMENT.md)和[安全文档](docs/SECURITY.md)。
 
 ### 文档
 
@@ -209,9 +206,9 @@ Canvas
 ### Runtime relationship
 
 ```text
-React Canvas ── WebSocket ── OpenClaw Gateway (Agents, execution, transcripts)
-      │
-      └──────── HTTP ─────── ConvoSketchpad server ── SQLite + Artifact store
+React Canvas ── HTTP/SSE ── ConvoSketchpad server ── WebSocket ── OpenClaw Gateway
+                              │
+                              └──────── SQLite + Artifact store
 ```
 
 OpenClaw owns Agent execution and Session transcripts. ConvoSketchpad owns Canvas topology and layout, send reservations, recovery metadata, user isolation, and durable copies of attachments and Artifacts. Uploads, downloads, and remote workspace information use OpenClaw's native capabilities; ConvoSketchpad does not require direct access to OpenClaw's local workspace directories.
@@ -254,21 +251,20 @@ npm run setup
 npm run dev
 ```
 
-`npm run dev` starts the Vite client and watch-mode server together. Open only the URL labeled `Frontend (open in browser)` in the terminal:
+`npm run dev` starts the Vite client and watch-mode server together. Open only the URL labeled `Open in browser` in the terminal:
 
-- `VITE_PORT` is the browser-facing frontend port; its default is `3080`.
-- `PORT` is the internal server port used by the development proxy; by default it uses the next port, `3081`.
-- Vite proxies `/api`, `/health`, and `/ws` to the internal server.
+- `HOST` and `PORT` identify the browser-facing ConvoSketchpad entrypoint in both development and production; the default is `127.0.0.1:3080`.
+- Vite proxies `/api` and `/health` to the internal server; the browser never connects to the Gateway WebSocket.
+- The internal server listens on loopback at an automatically selected port and requires no user configuration.
 - The React client supports HMR; `tsx watch` restarts the server after server-side code changes.
-- If `PORT` matches `VITE_PORT`, the development script automatically selects an adjacent server port.
 
 To customize the development address:
 
 ```bash
-VITE_HOST=0.0.0.0 VITE_PORT=4000 PORT=4001 npm run dev
+PORT=4000 npm run dev
 ```
 
-The browser entrypoint is then `http://localhost:4000`; devices on the LAN use the development machine's IP address and frontend port `4000`. Port `4001` is the internal server port, not the public frontend entrypoint. Restart the development process after changing environment variables.
+The browser entrypoint is then `http://127.0.0.1:4000`. For LAN or Tailscale access, rerun setup and select the matching access mode so `HOST`, `ALLOWED_ORIGINS`, and authentication policy stay aligned. Restart the development process after changing environment variables.
 
 ### Common commands
 
@@ -291,15 +287,13 @@ Copy `.env.example` or run `npm run setup` to generate `.env`. The most commonly
 | Environment variable | Default | Purpose |
 |---|---|---|
 | `GATEWAY_URL` | `http://127.0.0.1:18789` | OpenClaw Gateway address |
-| `GATEWAY_TOKEN` | empty | Gateway Token for server RPC and trusted WebSocket connections |
-| `HOST` | `127.0.0.1` | Production server bind address |
-| `PORT` | `3080` | Production server port; internal server port during development |
-| `VITE_HOST` | `127.0.0.1` | Development frontend bind address |
-| `VITE_PORT` | `3080` | Development browser entrypoint port |
+| `GATEWAY_TOKEN` | empty | Server-only shared Gateway token for local RPC, Gateway HTTP, and remote pairing bootstrap |
+| `HOST` | `127.0.0.1` | Unified development and production browser-entry bind address |
+| `PORT` | `3080` | Unified development and production browser-entry port |
 | `CONVOSKETCHPAD_AUTH` | `false` | Enable managed-user authentication |
 | `CONVOSKETCHPAD_DATA_DIR` | `~/.convosketchpad` | ConvoSketchpad-owned state directory |
 
-Before exposing the service to a network, enable managed-user authentication and HTTPS, then configure origins, proxies, and network policy carefully. See [Configuration](docs/CONFIGURATION.md), [Deployment](docs/DEPLOYMENT.md), and [Security](docs/SECURITY.md).
+Before exposing the service to a network, enable managed-user authentication and terminate HTTPS at a reverse proxy or Tailscale Serve; ConvoSketchpad itself listens on HTTP only. Configure exact origins, trusted proxies, and network policy carefully. See [Configuration](docs/CONFIGURATION.md), [Deployment](docs/DEPLOYMENT.md), and [Security](docs/SECURITY.md).
 
 ### Documentation
 

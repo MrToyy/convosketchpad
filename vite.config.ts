@@ -2,22 +2,15 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import path from 'path'
-import { readFileSync, existsSync } from 'fs'
+import { readFileSync } from 'fs'
 
 const pkg = JSON.parse(readFileSync('./package.json', 'utf-8'))
 
-// HTTPS is enabled only if both cert files exist, unless explicitly disabled for tunneled/local dev.
-const certPath = './certs/cert.pem'
-const keyPath = './certs/key.pem'
-const certsExist = existsSync(certPath) && existsSync(keyPath)
-const httpsEnabled = process.env.VITE_DISABLE_HTTPS !== 'true' && certsExist
-const httpsConfig = httpsEnabled
-  ? { key: readFileSync(keyPath), cert: readFileSync(certPath) }
-  : undefined
-
-// Port is configurable via VITE_PORT env var (default: 3080)
-const port = parseInt(process.env.VITE_PORT || '3080', 10)
-const apiTarget = `http://localhost:${process.env.PORT || '3081'}`
+// `npm run dev` supplies these internal values. Users configure only HOST/PORT.
+const port = parseInt(process.env.CONVOSKETCHPAD_DEV_ENTRY_PORT || process.env.PORT || '3080', 10)
+const host = process.env.CONVOSKETCHPAD_DEV_ENTRY_HOST || process.env.HOST || '127.0.0.1'
+const backendPort = process.env.CONVOSKETCHPAD_DEV_BACKEND_PORT || '3081'
+const apiTarget = `http://127.0.0.1:${backendPort}`
 
 export default defineConfig({
   clearScreen: false,
@@ -34,15 +27,10 @@ export default defineConfig({
   server: {
     port,
     strictPort: true,
-    host: process.env.VITE_HOST || '127.0.0.1',
-    https: httpsConfig,
+    host,
     proxy: {
       '/api': apiTarget,
       '/health': apiTarget,
-      '/ws': {
-        target: apiTarget,
-        ws: true,
-      },
     },
   },
   build: {

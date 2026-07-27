@@ -1,151 +1,170 @@
 # 架构与运行时数据流
 
-ConvoSketchpad 提供用于组织 OpenClaw 分支交互的可视化 Canvas。配套界面覆盖连接、认证、外观、Gateway 重启，以及精简的日志、事件和用量信息。
+ConvoSketchpad 是 OpenClaw 之上的可视化 Canvas。运行时严格采用单链条：
+
+```text
+浏览器（React）
+  ⇅ 同源 HTTP / SSE
+ConvoSketchpad（Hono、SQLite、文件存储、发送协调器）
+  ⇅ 单一持久 Gateway WebSocket
+OpenClaw Gateway
+```
+
+浏览器不实现 OpenClaw 握手，不调用 Gateway RPC，不保存 Gateway URL、Gateway Token 或设备 Token。服务端是唯一的 OpenClaw 通信方。
+
+浏览器先读取带持久 `cursor` 的 Graph 快照，再连接当前 Canvas 的 SSE。持久更新以完整实体 upsert 发送；流式文本使用不持久化的 `node.preview`，断线即丢弃。Gateway 全局连接状态与 Canvas 数据同步是两条独立产品契约，浏览器不接收或解释 OpenClaw 原始事件。
 
 ## 职责边界
 
-OpenClaw 负责 Agent、工具、执行、Session、流式事件和对话记录。ConvoSketchpad 负责 Canvas、Branch 与 Interaction 的关系、布局、发送预留、Session 完整性观察、受管用户，以及持久化附件和 Artifact。
+OpenClaw 负责 Agent、工具、执行、Session、原生事件和权威对话记录。ConvoSketchpad 负责：
 
-在 Gateway 契约涉及 `chat.send`、`chat` 事件等名称时，底层代码保留 OpenClaw 原生协议名。
+- Canvas、Branch、Interaction 的拓扑与布局；
+- 发送预留、幂等派发、Branch 锁和恢复元数据；
+- Canvas 中对话内容的持久化副本；
+- 受管用户及所有者隔离；
+- 上传附件与生成 Artifact 的持久化副本。
 
-## 进程模型
+Artifact 持久化保持尽力而为：单文件上限为 25 MiB，无法读取、超过上限或不满足安全路径约束时记录降级警告，不会抹除已完成的文本输出。所有完成 Interaction 都由后端观察晚到 Artifact 至少 2 分钟；已发现 Artifact、同步失败或 Gateway Artifact 能力不完整时按 5、15、60 分钟继续退避观察。已发现 Artifact 全部持久化后，Interaction 立即显示 `synced`，后续晚到观察由 `artifact_sync_jobs` 静默继续；最终真实失败才显示 `degraded`。
 
-```text
-浏览器
-  ├─ React Flow Canvas
-  ├─ WebSocket RPC → ConvoSketchpad WS 代理 → OpenClaw Gateway
-  └─ 按所有者隔离的 HTTP API → Hono 服务端
-                                 ├─ CanvasStore（SQLite）
-                                 ├─ 附件与 Artifact 存储
-                                 ├─ 受管用户认证
-                                 └─ Gateway RPC 协调器 → OpenClaw 对话记录
-```
+Interaction 的 `executionState`（`running | completed | failed | unconfirmed`）与 `artifactSyncState`（`not_started | observing | synced | degraded`）独立。`observing` 只表示当前仍在等待首个 Artifact 或重试未完成副本；已知副本完整时，后台继续观察不会让节点保持“同步中”。执行失败只终止 Agent 执行，不会跳过同一套晚到 Artifact 观察；Artifact 降级也不会把已终止节点重新变成运行中。
 
-浏览器从 Hono 服务端加载 React SPA，通过服务端 WebSocket 中继连接 OpenClaw，并使用 HTTP 路由访问 Canvas 状态和 Canvas 自有文件。服务端还保持 Gateway RPC 访问，用于发现 Agent、检查 Session、读取重置策略、下载 Artifact、查询用量以及协调对话记录。
-
-两条 Gateway 链路使用同一个持久化 ConvoSketchpad 设备身份，并且只申请 `operator.read` 和 `operator.write` 权限。配对审批由 OpenClaw 管理。设备 Token 只保留在服务端；Gateway 的 hello 响应转发到浏览器前会移除设备 Token 字段。
-
-## 产品模型
+## 产品模型与不变量
 
 ```text
 Canvas（绑定一个 Agent）
-  ├─ 主 Branch
-  │    ├─ Interaction → Interaction → Interaction
-  │    └─ 从历史 Interaction 创建的分支 Branch
-  └─ 主 Branch
+  ├─ Branch → Interaction → Interaction
+  └─ 从历史 Interaction 创建的 Branch
 ```
 
-- Canvas 是按所有者隔离、绑定一个 OpenClaw Agent 的可视化工作区。
-- Branch 对应一个稳定的 OpenClaw Session key。
-- Interaction 表示一轮完整的用户输入和 Agent 输出。
-- 主 Branch 从无继承上下文的状态开始。
-- 分支 Branch 从截至源 Interaction 的不可变快照开始。
-- 布局独立于对话记录数据持久化。
+1. Branch 使用稳定的 OpenClaw Session key，并最多有一个头部 Interaction。
+2. 继续 Branch 时，`expectedHeadInteractionId` 必须等于数据库中的头节点。
+3. 一个 Branch 同时最多有一个 `prepared` 发送预留。
+4. `reserved`、`dispatching`、`ambiguous` 状态都保持 Branch 锁定。
+5. `ambiguous` 表示请求可能已经写入 Gateway；只能用同一预留 ID 作为幂等键重试，不能按超时解锁或取消。
+6. Gateway 明确接受发送后，服务端在事务中创建 Interaction、推进 Branch 头节点并记录 `runId`。
+7. 从用户视角看 Interaction 只追加，不改写历史。
+8. Gateway 信号优先按 `runId` 关联；Session key 只在恰好存在一个候选节点时作为恢复后备，不允许猜测节点。
 
-### Branch 不变量
+## 发送状态机
 
-1. 一个 Branch 最多只有一个头部 Interaction。
-2. 继续 Branch 时，调用方提供的预期头节点必须与已存储头节点一致。
-3. 一个 Branch 同时只能存在一个已预留发送。
-4. 可以从已完成的历史 Interaction 创建分支，但不能从当前头节点创建。
-5. 草稿状态的主 Branch 和分支输入框必须去重。
-6. 从用户视角看，Interaction 只能追加，不能改写。
-7. OpenClaw Session 在首次真实发送时才会延迟创建。
-8. Session 恢复绝不改写早期 Canvas 数据或 OpenClaw 对话记录。
+```text
+reserved
+  → dispatching
+    → acknowledged
+    → ambiguous ──同一 idempotencyKey──→ dispatching
+    → failed
+```
+
+连接尚未就绪或确认没有写出 Frame 时回到 `reserved`。Frame 已写出后超时或断线进入 `ambiguous`。明确的 Gateway 拒绝进入 `failed`。重试间隔依次为 1、3、10、30 秒，之后每 60 秒持续重试。发送协调器不做固定频率数据库扫描：新预留和 Gateway 重连会主动唤醒；已有任务只按最早的 `next_attempt_at` 设置一次计时器，空闲时不保留扫描计时器。
+
+服务启动和 Gateway 重连时都会扫描可派发预留。Graph 的 `pendingSends` 让刷新后的浏览器继续显示锁定状态。
+
+## 发送流程
+
+1. 浏览器把原始附件上传到 Canvas 文件存储；上传路由同时写入 `canvas_attachments` 登记表。
+2. 图片压缩仍在浏览器执行，但压缩结果只作为“投递副本”上传给后端；浏览器不组装 `chat.send`。
+3. 浏览器调用 `POST /api/canvas/branches/:id/send`，只提交用户文本、预期头节点、预期 Agent 和附件 ID。
+4. 服务端从数据库解析附件名称、MIME、大小和文件位置，执行所有者、Agent、Branch 与排他性检查。
+5. 服务端持久化发送预留，再由发送协调器调用原生 `chat.send`，预留 ID 同时作为 `idempotencyKey`。
+6. Gateway 接受后，服务端创建 `running` Interaction；终态 Gateway 信号先幂等写入收件箱，再由后端关联和协调。
+7. `canvas-reconciler` 读取 OpenClaw 权威对话记录，持久化最终文本和 Artifact。
+
+Fork 或 Session 恢复所需的历史资源由服务端从 Canvas 自有副本读取。资源缺失会作为启动警告记录。
+
+## Canvas 同步与后台协调
+
+`GET /api/canvas/canvases/:id/graph` 是无副作用读取，不会启动或重启后台协调。新 Interaction 由发送协调器直接登记，未完成协调由服务启动和 Gateway 重连扫描恢复。
+
+数据库事务通过 `canvas_changes` 同时记录可见实体变化。`GET /api/canvas/canvases/:id/events?after=<cursor>` 将 cursor 之后的变化按实体合并为 `CanvasSyncBatch`，发送最新完整投影而非中间事件序列。Interaction `version` 阻止旧批次覆盖新节点；内部检查时间和协调心跳不会增加版本。
+
+`node.preview` 直接从后端 Gateway 适配层发送，不写 Interaction、change 表或日志。最终对话协调完成后，完整 Interaction upsert 替换 Preview。Canvas SSE 不可用且快照仍有未终止任务时，浏览器才每 15 秒降级读取 Graph，并遵循 `Retry-After`。
+
+Gateway 终态信号保存在 `gateway_signal_inbox`；Artifact 观察状态、尝试次数和下一次执行时间保存在 `artifact_sync_jobs`。服务重启会扫描持久任务恢复协调，内存计时器只负责唤醒。Interaction 已显示 `synced` 时仍可存在静默观察任务。
+
+## Gateway 连接
+
+`server/lib/gateway-rpc.ts` 维护唯一连接，身份固定为：
+
+- `client.id = "gateway-client"`
+- `client.mode = "backend"`
+- `client.platform = "node"`
+- `role = "operator"`
+- scopes 为 `operator.read`、`operator.write`
+
+后端启动时即尝试连接 Gateway。首次连接、握手或已建立连接发生非主动中断时都进入同一个指数退避重连循环，间隔从 1 秒增长到最多 30 秒；成功握手后重置退避。浏览器仅订阅这一后端状态，不负责驱动 Gateway 重连。
+
+连接鉴权按 Gateway 地址分为两种模式：
+
+- loopback Gateway（`localhost`、`127.0.0.0/8`、`::1`）：使用共享 `GATEWAY_TOKEN`，不发送设备身份，也不触发设备配对；
+- 远程 Gateway：持久 WebSocket 使用已审批且精确为 read/write 的设备 Token；没有设备 Token 时共享 Token 只用于发起配对；
+- Gateway HTTP 路由始终使用共享 `GATEWAY_TOKEN`，设备 Token 只属于远程 WebSocket 身份。
+
+Node 客户端不发送浏览器 `Origin` Header，因此 ConvoSketchpad 不需要修改 `gateway.controlUi.allowedOrigins`。该 OpenClaw 设置仍可能被原生 Control UI 使用，安装和更新流程不会删除已有值。
+
+远程 Gateway 的 setup 创建唯一匹配 ConvoSketchpad 持久密钥的 request，审批必须在 Gateway 宿主机完成。已有本机设备凭据不会删除，但 loopback 模式不会读取或使用它们。
 
 ## 前端
 
 | 区域 | 入口 |
 |---|---|
-| 应用框架和遥测抽屉 | `src/App.tsx`、`src/components/TopBar.tsx`、`src/components/StatusBar.tsx` |
-| Canvas 图和 Interaction 生命周期 | `src/features/canvas/CanvasPanel.tsx` |
-| Canvas REST 客户端和数据契约 | `src/features/canvas/api.ts`、`src/features/canvas/types.ts` |
-| 附件准备 | `src/features/canvas/attachments.ts` |
-| OpenClaw 发送与事件基础能力 | `src/features/chat/operations/` |
-| 连接与 WebSocket | `src/contexts/GatewayContext.tsx`、`src/hooks/useWebSocket.ts` |
-| 受管登录 | `src/features/auth/` |
-| 外观和连接设置 | `src/features/settings/` |
-
-保留的 `src/features/chat/` 模块是 Canvas 运行时使用的 Gateway 传输、事件分类、图片压缩和图片显示基础能力。
+| Canvas 数据控制、发送和完整实体更新 | `src/features/canvas/CanvasPanel.tsx` |
+| Interaction/Composer 节点与节点布局适配 | `src/features/canvas/CanvasNodes.tsx`、`src/features/canvas/constants.ts` |
+| 产品 HTTP 客户端与数据契约 | `src/features/canvas/api.ts`、`src/features/canvas/types.ts` |
+| 图片压缩与附件投递副本 | `src/features/canvas/attachments.ts` |
+| Gateway 运行状态上下文 | `src/contexts/RuntimeContext.tsx`、`src/hooks/useRuntimeEvents.ts` |
+| Canvas SSE、实体合并与降级退避 | `src/hooks/useCanvasSync.ts`、`src/features/canvas/sync.ts`、`src/features/canvas/graph-refresh.ts` |
+| 登录和外观设置 | `src/features/auth/`、`src/features/settings/` |
 
 ## 服务端
 
 | 区域 | 入口 |
 |---|---|
-| 路由组装 | `server/app.ts` |
 | Canvas API | `server/routes/canvas.ts` |
-| Canvas Schema 和状态机 | `server/lib/canvas-db.ts` |
-| 对话记录与 Artifact 协调 | `server/lib/canvas-reconciler.ts` |
-| 持久化文件 | `server/lib/canvas-artifact-store.ts` |
-| Canvas 自有 multipart 上传 | `server/routes/upload-reference.ts`、`server/lib/canvas-artifact-store.ts` |
-| Gateway 服务端 RPC | `server/lib/gateway-rpc.ts` |
-| 浏览器 WebSocket 中继 | `server/lib/ws-proxy.ts` |
-| 受管用户 | `server/routes/auth.ts`、`server/lib/managed-users.ts` |
+| Gateway 运行状态 SSE | `server/routes/runtime.ts`、`server/lib/runtime-events.ts` |
+| Canvas cursor、SSE 与 Preview | `server/routes/canvas.ts`、`server/lib/canvas-sync.ts` |
+| Schema、迁移和状态机 | `server/lib/canvas-db.ts`、`server/lib/canvas-migrations.ts` |
+| 发送协调与恢复重试 | `server/lib/canvas-send-coordinator.ts`、`server/lib/canvas-send-retry.ts` |
+| Gateway 唯一连接 | `server/lib/gateway-rpc.ts` |
+| 对话与 Artifact 协调 | `server/lib/canvas-reconciler.ts`、`server/lib/canvas-artifact-watch.ts`、`server/lib/canvas-reconciliation-state.ts` |
+| 附件和 Artifact 文件存储 | `server/routes/upload-reference.ts`、`server/lib/canvas-artifact-store.ts` |
 
-## Canvas 创建与 Agent 选择
+## 数据模型与迁移
 
-1. 浏览器使用名称调用 `POST /api/canvas/canvases`。
-2. 服务端调用 `agents.list` 并保存 Gateway 返回的 `defaultId`。
-3. 空 Canvas 创建一个尚未绑定 OpenClaw Session 的草稿主 Branch。
-4. 在任何发送预留或 Interaction 出现前，用户可以选择列表中的其他 Agent。
-5. 服务端更新 Canvas，并在一个事务中把所有草稿 Branch key 重写为 `agent:<agentId>:canvas:<branchId>`。
-6. 准备首次发送后，Agent 选择即被锁定。
+现有 `interactions.attachments_json`、`artifacts_json` 和 `session_metadata_json` 保持向下回滚兼容。Interaction 增量增加 `version`、执行状态、Artifact 同步状态、终止时间和错误字段；迁移完成后，运行时 Artifact 投影只由规范化表读取。
 
-每个 prepare 请求都携带 `expectedAgentId`；过期请求会直接失败，不会把工作路由到另一个 Agent。
+新增 `canvas_attachments` 作为上传登记与投递副本索引。旧 Interaction 中可识别的 Canvas 附件在启动迁移时使用 SQLite JSON1 回填；历史 JSON 保持不可变。
 
-## 发送流程
+新增 `interaction_artifacts`、`artifact_sync_jobs`、`canvas_changes`、`gateway_signal_inbox` 和内部 `schema_migrations`。从 `0.2.0` 升级时，`0.2.0_to_0.3.0_v1` 在同一个 SQLite 事务中执行一次：
 
-```text
-准备原生附件载荷并遵守 Gateway `maxPayload`
-  → 持久化 Canvas 自有附件
-  → prepare-send（所有者、头节点、Agent 和排他性检查）
-  → 检查 Session 身份和有效重置策略
-  → 持久化发送预留
-  → Gateway chat.send
-  → 使用 runId 和当前 Session ID 确认预留
-  → 消费 agent/chat 事件
-  → 协调权威对话记录和 Artifact
-  → 持久化已完成的 Interaction
-```
+- 从 `0.2.0` 的 JSON 副本回填并合并等价 Artifact 来源，优先保留可用的 Canvas 持久化副本；
+- 完成或失败的旧节点只依据本地持久数据计算 Artifact 状态，文本完成且没有 Artifact 的节点为 `synced`，真实不可用副本才为 `degraded`；
+- 旧运行节点保守迁移为 `unconfirmed` / `observing`，并创建明确的恢复任务；
+- 回填可识别的 Canvas 附件，移除旧协调版本字段，并在事务末尾写入迁移账本。
 
-健康的 Branch 会继续使用现有 Session，不会重放历史。分支 Branch 的首次发送携带不可变的规范快照，并引用可复用的祖先资源。
+该数据迁移不连接 Gateway，也不重新读取可能已过期的 Transcript，因此结果不依赖升级时 OpenClaw 的保留窗口或在线状态。新版本服务首次打开 `0.2.0` 数据库时会自动执行；更新器也会在停服后显式运行 `npm run migrate` 并校验外键与 SQLite 完整性。迁移账本存在后不会再次扫描历史节点。此后服务启动只恢复 `running`、`unconfirmed`、`observing` 或仍有 `artifact_sync_jobs` 的明确任务，不使用全局协调版本重新打开已终止节点。
 
-## Session 完整性与恢复
+旧 `attachments_json`、`artifacts_json` 和 Session 元数据保留不改，供失败回滚到 `0.2.0` 时读取；新版本不会在后续启动中用旧 JSON 覆盖已规范化的数据。
 
-ConvoSketchpad 将 Branch Session key 视为稳定标识，同时观察实际 OpenClaw `sessionId` 和 Session 开始时间。
+`send_reservations` 增量新增：
 
-- Session 相同：正常继续。
-- Session 已替换或缺失：将 Branch 标记为漂移，并在下一次发送时加入规范快照。
-- 已到每日或空闲重置时间：在 OpenClaw 替换 Session 前主动加入快照。
-- 无法读取重置策略：保守地使用恢复物化方式。
+- `dispatch_state`
+- `attempt_count`
+- `last_attempt_at`
+- `next_attempt_at`
 
-每日边界使用 `CONVOSKETCHPAD_GATEWAY_TIMEZONE`。该值默认取 ConvoSketchpad 宿主机时区；远程 Gateway 使用其他时区时必须显式配置。
+升级前未完成的 `prepared` 预留保守迁移为 `ambiguous`，避免把可能已经发出的消息误判为可安全解锁。迁移在事务中执行。
 
-## 附件、Artifact 与协调
+## Session 与持久化
 
-上传内容直接持久化到按所有者隔离的 Canvas 存储，然后通过 OpenClaw `chat.send.attachments` 发送。ConvoSketchpad 不会写入所选 Agent 的工作区，分支会复用 Canvas 自有副本。
+ConvoSketchpad观察实际 `sessionId` 和重置策略。Session 漂移、缺失或即将重置时，下一次发送加入规范快照，但不改写历史。
 
-协调器优先使用 `artifacts.list/download`，之后才执行兼容性解析。Gateway 返回的字节和同 Gateway URL 会物化到 Canvas Artifact 存储；外部 HTTP(S) 资源仍保留为引用。相对路径仅在 Gateway 声明 `agents.workspace.get` 时读取。显式绝对路径只有在位于 `agents.list` 返回的工作区或系统临时目录之下，并通过 `realpath` 和符号链接检查时才允许读取。Artifact 缺失只会让文件结果降级，不会抹除已成功生成的文本回复。
-
-Gateway 终止事件只作为完成提示。协调器读取权威对话记录，持久化输出和 Artifact，并在服务重启后或加载 Canvas 时重试未完成或已降级的记录。
-
-## 持久化
-
-| 数据 | 所有者或位置 |
+| 数据 | 权威方或位置 |
 |---|---|
-| Agent、工具、执行、Session、对话记录 | OpenClaw |
-| 配对审批和已配对设备记录 | OpenClaw |
-| ConvoSketchpad 设备密钥和每个 Gateway 的设备 Token | `~/.convosketchpad/device-identity.json`、`~/.convosketchpad/gateway-auth.json` |
-| Canvas、Branch、Interaction、发送预留、布局、受管用户 | `database/canvas.sqlite` |
+| Agent、工具、执行、Session、原始对话记录 | OpenClaw |
+| Canvas、Branch、Interaction、发送预留、附件与 Artifact 索引、同步任务、cursor、Gateway 信号、布局、用户 | `database/canvas.sqlite` |
 | 持久化附件和 Artifact | `artifacts/` |
-| 精简活动日志 | `agent-log.json` |
+| 设备私钥和 Gateway 设备 Token | `~/.convosketchpad/` 或 `CONVOSKETCHPAD_DATA_DIR` |
 
-备份和恢复时必须同时处理 `database/canvas.sqlite` 与 `artifacts/`。
+备份时必须同时处理 `database/canvas.sqlite` 与 `artifacts/`。
 
-## 验证
-
-```bash
-npm test -- --run
-npm run lint
-npm run build
-```
+后端诊断只写结构化 stdout/stderr，由部署环境采集；诊断日志不包含用户正文或凭据，也不承担产品状态、恢复或审计职责。旧 `agent-log.json` 不再读取或写入，升级时不会自动删除。

@@ -9,18 +9,11 @@ export interface EnvConfig {
   GATEWAY_URL?: string;
   GATEWAY_TOKEN?: string;
   CONVOSKETCHPAD_GATEWAY_TIMEZONE?: string;
-  CONVOSKETCHPAD_PUBLIC_ORIGIN?: string;
   OPENCLAW_CONFIG_PATH?: string;
   OPENCLAW_BIN?: string;
   PORT?: string;
   HOST?: string;
-  SSL_PORT?: string;
-  VITE_PORT?: string;
-  VITE_HOST?: string;
-  VITE_DISABLE_HTTPS?: string;
   ALLOWED_ORIGINS?: string;
-  CSP_CONNECT_EXTRA?: string;
-  WS_ALLOWED_HOSTS?: string;
   TRUSTED_PROXIES?: string;
   CONVOSKETCHPAD_DATA_DIR?: string;
   CONVOSKETCHPAD_ALLOW_INSECURE?: string;
@@ -38,7 +31,6 @@ export const DEFAULTS: Record<string, string> = {
   GATEWAY_URL: 'http://127.0.0.1:18789',
   PORT: '3080',
   HOST: '127.0.0.1',
-  SSL_PORT: '3443',
 };
 
 /**
@@ -63,9 +55,6 @@ export function generateEnvContent(config: EnvConfig): string {
   if (config.CONVOSKETCHPAD_GATEWAY_TIMEZONE) {
     lines.push(`CONVOSKETCHPAD_GATEWAY_TIMEZONE=${config.CONVOSKETCHPAD_GATEWAY_TIMEZONE}`);
   }
-  if (config.CONVOSKETCHPAD_PUBLIC_ORIGIN) {
-    lines.push(`CONVOSKETCHPAD_PUBLIC_ORIGIN=${config.CONVOSKETCHPAD_PUBLIC_ORIGIN}`);
-  }
   if (config.OPENCLAW_CONFIG_PATH) lines.push(`OPENCLAW_CONFIG_PATH=${config.OPENCLAW_CONFIG_PATH}`);
   if (config.OPENCLAW_BIN) lines.push(`OPENCLAW_BIN=${config.OPENCLAW_BIN}`);
   lines.push('');
@@ -76,12 +65,6 @@ export function generateEnvContent(config: EnvConfig): string {
   if (config.HOST && config.HOST !== DEFAULTS.HOST) {
     serverLines.push(`HOST=${config.HOST}`);
   }
-  if (config.SSL_PORT && config.SSL_PORT !== DEFAULTS.SSL_PORT) {
-    serverLines.push(`SSL_PORT=${config.SSL_PORT}`);
-  }
-  if (config.VITE_PORT) serverLines.push(`VITE_PORT=${config.VITE_PORT}`);
-  if (config.VITE_HOST) serverLines.push(`VITE_HOST=${config.VITE_HOST}`);
-  if (config.VITE_DISABLE_HTTPS) serverLines.push(`VITE_DISABLE_HTTPS=${config.VITE_DISABLE_HTTPS}`);
   lines.push('# Server');
   lines.push(...serverLines);
   lines.push('');
@@ -110,8 +93,6 @@ export function generateEnvContent(config: EnvConfig): string {
   // Advanced
   const advLines: string[] = [];
   if (config.ALLOWED_ORIGINS) advLines.push(`ALLOWED_ORIGINS=${config.ALLOWED_ORIGINS}`);
-  if (config.CSP_CONNECT_EXTRA) advLines.push(`CSP_CONNECT_EXTRA=${config.CSP_CONNECT_EXTRA}`);
-  if (config.WS_ALLOWED_HOSTS) advLines.push(`WS_ALLOWED_HOSTS=${config.WS_ALLOWED_HOSTS}`);
   if (config.TRUSTED_PROXIES) advLines.push(`TRUSTED_PROXIES=${config.TRUSTED_PROXIES}`);
   if (config.CONVOSKETCHPAD_DATA_DIR) advLines.push(`CONVOSKETCHPAD_DATA_DIR=${config.CONVOSKETCHPAD_DATA_DIR}`);
   if (config.CONVOSKETCHPAD_ALLOW_INSECURE) advLines.push(`CONVOSKETCHPAD_ALLOW_INSECURE=${config.CONVOSKETCHPAD_ALLOW_INSECURE}`);

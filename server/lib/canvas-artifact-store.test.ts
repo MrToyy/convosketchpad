@@ -52,7 +52,7 @@ async function loadStore(options: { workspaceGet?: boolean } = {}) {
       }
       return {};
     },
-    getGatewayHttpAuthToken: () => 'test-token',
+    getGatewaySharedHttpAuthToken: () => 'test-token',
   }));
   return import('./canvas-artifact-store.js');
 }
@@ -87,8 +87,6 @@ describe('Canvas Artifact Store', () => {
     }));
     const bytes = await store.readCanvasAttachment('owner-1', 'canvas-1', attachment.id!);
     expect(Buffer.from(bytes!).toString()).toBe('uploaded-image');
-    await expect(store.validateCanvasAttachments('owner-1', 'canvas-1', [attachment]))
-      .resolves.toEqual([attachment]);
   });
 
   it('persists Workspace files and reuses the same stable artifact', async () => {

@@ -5,7 +5,7 @@ import { CanvasLocalizedError, getCanvasCopy } from './messages';
 export const CANVAS_INLINE_IMAGE_MAX_BYTES = 1_800_000;
 export const CANVAS_ATTACHMENT_MAX_BYTES = 20 * 1024 * 1024;
 
-export interface GatewayAttachment {
+export interface DeliveryAttachment {
   fileName: string;
   mimeType: string;
   content: string;
@@ -24,7 +24,7 @@ function readAsBase64(file: File, language: Language): Promise<string> {
   });
 }
 
-export async function prepareGatewayAttachment(file: File, language: Language = DEFAULT_LANGUAGE): Promise<GatewayAttachment> {
+export async function prepareDeliveryAttachment(file: File, language: Language = DEFAULT_LANGUAGE): Promise<DeliveryAttachment> {
   const copy = getCanvasCopy(language);
   const mimeType = file.type || 'application/octet-stream';
 
@@ -52,27 +52,8 @@ export async function prepareGatewayAttachment(file: File, language: Language = 
   return { fileName: file.name, mimeType: compressed.mimeType, content: compressed.base64 };
 }
 
-export async function prepareGatewayAttachments(files: File[], language: Language = DEFAULT_LANGUAGE): Promise<GatewayAttachment[]> {
-  const prepared: GatewayAttachment[] = [];
-  for (const file of files) prepared.push(await prepareGatewayAttachment(file, language));
+export async function prepareDeliveryAttachments(files: File[], language: Language = DEFAULT_LANGUAGE): Promise<DeliveryAttachment[]> {
+  const prepared: DeliveryAttachment[] = [];
+  for (const file of files) prepared.push(await prepareDeliveryAttachment(file, language));
   return prepared;
-}
-
-export function estimateChatSendFrameBytes(
-  sessionKey: string,
-  message: string,
-  attachments: GatewayAttachment[],
-): number {
-  return new TextEncoder().encode(JSON.stringify({
-    type: 'req',
-    id: '00000000-0000-4000-8000-000000000000',
-    method: 'chat.send',
-    params: {
-      sessionKey,
-      message,
-      attachments,
-      deliver: false,
-      idempotencyKey: '00000000-0000-4000-8000-000000000000',
-    },
-  })).byteLength;
 }

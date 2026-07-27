@@ -39,12 +39,20 @@ npm run update
 
 1. 校验工具、官方 Origin、权限和干净工作区；
 2. 从官方 GitHub 仓库解析已发布的稳定 Release；
-3. 快照当前 Commit 和 `.env`；
-4. 只把所选 Release 标签获取到内部 Ref；
-5. 验证目标是否为匹配的 `convosketchpad` Package；
-6. 运行 `npm ci` 和 `npm run build`；
-7. 检测到服务时，只重启准确匹配的 `convosketchpad.service` 或 `com.mrtoyy.convosketchpad`；
-8. 验证 `/health` 和 `/api/version`。
+3. 检测到受管服务时，先停止准确匹配的 `convosketchpad.service` 或 `com.mrtoyy.convosketchpad`；
+4. 快照当前 Commit、`.env` 和停服后的一致 SQLite 数据库副本；
+5. 只把所选 Release 标签获取到内部 Ref；
+6. 验证目标是否为匹配的 `convosketchpad` Package；
+7. 运行 `npm ci` 和 `npm run build`；
+8. 对已停止的受管服务运行目标版本数据库迁移，并校验 SQLite 外键与完整性；
+9. 重启检测到的服务；
+10. 验证 `/health` 和 `/api/version`。
+
+从 `0.2.0` 升级到本版本时，数据迁移标识为 `0.2.0_to_0.3.0_v1`。它只读取现有 SQLite 数据，不依赖 Gateway 在线、Session 历史或某个特定数据库实例；迁移成功后通过 `schema_migrations` 账本保证不会在后续启动中重复扫描历史节点。
+
+`0.2.0` 自带的旧更新器尚没有独立的迁移阶段。由它发起首次升级时，目标版本服务在第一次打开数据库时执行同一事务化迁移，因此无需先安装中间版本。升级到本版本以后，后续更新将使用上述停服、快照、显式迁移和完整性校验流程。
+
+如果没有检测到受支持的服务管理器，更新器不会假设手动启动的进程已经停止，也不会在线执行显式迁移。目标服务下次手动启动时会先自动迁移数据库。
 
 ## CLI 参数
 
@@ -55,7 +63,7 @@ npm run update
 | `--dry-run` | 解析并校验目标，不修改工作区 |
 | `--verbose`、`-v` | 显示详细更新操作 |
 | `--rollback` | 恢复上一个确认正常的快照 |
-| `--no-restart` | 跳过服务重启和健康检查 |
+| `--no-restart` | 跳过停服、数据库迁移、服务重启和健康检查；下次手动启动目标服务时自动迁移 |
 | `--help`、`-h` | 显示帮助 |
 
 ## 示例
@@ -83,6 +91,7 @@ npm run update -- --no-restart
 | 10 | 前置检查失败 |
 | 20 | 官方 Release 解析失败 |
 | 40 | Fetch、校验、安装或构建失败 |
+| 45 | 数据库迁移或完整性校验失败 |
 | 50 | 服务重启失败 |
 | 60 | 健康检查失败 |
 | 70 | 回滚失败 |
@@ -90,15 +99,16 @@ npm run update -- --no-restart
 
 ## 回滚与状态
 
-切换工作区前，更新器会记录当前 Commit、Package 版本、时间戳和 `.env` Hash。存在 `.env` 时，以 `0600` 权限复制。状态保存在 `~/.convosketchpad/updater/` 下。
+切换工作区前，更新器会记录当前 Commit、Package 版本、时间戳和 `.env` Hash。存在 `.env` 时，以 `0600` 权限复制。检测到受管服务时会先停服；存在 `database/canvas.sqlite` 时，再使用 SQLite `VACUUM INTO` 创建包含已提交 WAL 内容的一致副本，并以 `0600` 权限保存。状态保存在 `~/.convosketchpad/updater/` 下。
 
-如果快照完成后 Fetch、校验、构建、重启或健康检查失败，更新器会切回已保存的 Commit，运行 `npm ci` 和 `npm run build`，并重启检测到的服务。
+如果快照完成后 Fetch、校验、构建、迁移、重启或健康检查失败，更新器会先停止服务，切回已保存的 Commit，恢复数据库快照，运行 `npm ci` 和 `npm run build`，并重启检测到的服务。Artifact 文件不在数据库迁移中改写，因此更新器不会复制或删除 `artifacts/`。
 
 | 路径 | 用途 |
 |---|---|
 | `~/.convosketchpad/updater/last-good.json` | 上一个确认正常的快照 |
 | `~/.convosketchpad/updater/last-run.json` | 最近一次更新结果 |
 | `~/.convosketchpad/updater/snapshots/<timestamp>/.env` | 受保护的 `.env` 备份 |
+| `~/.convosketchpad/updater/snapshots/<timestamp>/canvas.sqlite` | 一致的更新前数据库备份 |
 | `~/.convosketchpad/updater/update.lock` | 并发更新锁 |
 
 ## Release 策略
@@ -145,3 +155,13 @@ npm ci
 npm run build
 sudo systemctl restart convosketchpad.service
 ```
+
+### 数据库迁移失败
+
+不要删除 `schema_migrations` 或直接编辑 Interaction 状态。更新器会自动恢复更新前数据库；检查准确错误后，可在目标版本已构建且服务停止时手动验证：
+
+```bash
+npm run migrate
+```
+
+成功输出应包含 `0.2.0_to_0.3.0_v1 applied`。若手动替换数据库，请同时移除同名 `-wal`、`-shm` 文件，或优先使用更新器的 `--rollback`。

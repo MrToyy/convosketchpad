@@ -23,9 +23,9 @@ Canvas 拓扑和布局不是临时展示状态。它们与不可变的 Interacti
 
 “继续”用于延伸当前 Branch，“分支”用于从已完成的历史 Interaction 创建新方向。界面和数据模型始终明确区分这两种操作。
 
-### OpenClaw 负责执行，ConvoSketchpad 负责组织
+### OpenClaw 负责执行，ConvoSketchpad 负责 Canvas 数据
 
-OpenClaw 负责 Agent、工具、Session、执行、事件和对话记录。ConvoSketchpad 负责可视化图、Branch 关系、发送协调、持久化文件、恢复元数据和受管用户隔离。
+OpenClaw 负责 Agent、工具、Session、执行、原生事件和原始对话记录。ConvoSketchpad 后端唯一负责与 OpenClaw 通信，并保存 Canvas 拓扑、对话内容副本、上传附件、尽力持久化的生成 Artifact、发送状态、恢复元数据和受管用户隔离。前端只负责呈现与提交用户指令；图片压缩结果通过产品 HTTP API交给后端。
 
 ConvoSketchpad 不是独立的 Agent 运行环境，必须连接到可访问的 OpenClaw Gateway。
 

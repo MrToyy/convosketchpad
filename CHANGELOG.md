@@ -4,6 +4,34 @@ ConvoSketchpad 的重要变更均记录在此文件中。格式遵循 [Keep a Ch
 
 ## [Unreleased]
 
+### 变更
+
+- 将运行链路统一为“浏览器 HTTP/SSE ↔ ConvoSketchpad 后端 ↔ OpenClaw Gateway”，移除浏览器 Gateway RPC、通用 WebSocket 中继和浏览器 Gateway 凭据设置。
+- 新增后端发送协调器、可恢复幂等重试和 `ambiguous` 安全状态；未知发送结果会保持 Branch 锁定。
+- 增量新增 Canvas 附件登记与发送派发字段，并提供从 `0.2.0` Schema 到单链条数据模型的事务化一次性迁移；旧 Interaction JSON 保持回滚兼容。
+- Gateway 鉴权改为双模式：loopback backend 使用共享 Token且无需设备配对，远程 Gateway 的 WebSocket 才使用 read/write 设备 Token；所有 Gateway HTTP 请求固定使用共享 Token。
+- 安装向导只为远程 `gateway-client/backend/node` 发起配对，不再修改 `gateway.controlUi.allowedOrigins`。
+- 移除 `CONVOSKETCHPAD_PUBLIC_ORIGIN`、`WS_ALLOWED_HOSTS` 和 `CSP_CONNECT_EXTRA`；`ALLOWED_ORIGINS` 只用于 ConvoSketchpad HTTP API/SSE。
+- Graph 改为无副作用快照，并新增持久 cursor、按 Canvas 的完整实体 SSE、非持久 Preview 和 `Retry-After` 降级退避，避免长响应触发 429。
+- Interaction 执行状态与 Artifact 同步状态分离；后端持久化 Gateway 终态信号和 Artifact 同步任务，服务重启后继续协调。
+- Gateway 首次连接和运行中断线统一使用 1–30 秒指数退避自恢复；发送重试改为新任务/重连主动唤醒和按 `next_attempt_at` 单次定时，不再每秒扫描 SQLite。
+- 失败 Interaction 同样保留独立的晚到 Artifact 观察，Runtime/Gateway 事件订阅会隔离并移除失效消费者，避免单个已关闭 SSE 中断后端状态发布。
+- 修复 Artifact HTTP 下载错误使用设备 Token 导致的 401；已完成 run 无法反查 Session 时安全回退到当前 Interaction transcript。
+- 修复已持久化 Artifact 仍长期显示“同步中”，将晚到 Artifact 静默观察与用户可见同步状态分离；`0.2.0_to_0.3.0_v1` 数据库迁移会一次性修复旧版误标的 `degraded` 节点、合并等价文件来源并防止旧 JSON 在重启后恢复重复记录，同时保留超出 OpenClaw Transcript 范围的既有持久化结果。
+- 更新器新增一致 SQLite 快照、停服迁移、完整性校验和数据库回滚；运行时只恢复具有明确未完成状态或持久同步任务的节点，不再通过内部协调版本扫描历史。
+- 移除面向用户的原始事件和 Agent log 面板，以及 `/api/agentlog`、`agent-log.json` 写入链；后端诊断改为结构化服务日志。
+- 清理旧 setup 自动管理员审批、Gateway workspace 文件 RPC、Agent Log Markdown 辅助、未使用 UI 组件与服务端文件工具，并将 Canvas 节点渲染和 Artifact 观察策略从大型协调模块中拆出。
+- Setup 统一 Local、LAN、Tailscale IP、Tailscale Serve 和 Custom 的精确浏览器 Origin、绑定地址、可信代理与远程认证策略。
+- 生产与开发统一使用 `HOST` / `PORT` 作为浏览器入口；开发后端端口改为自动分配的 loopback 实现细节，并废弃用户级 `VITE_HOST` / `VITE_PORT`。
+- 移除应用和 Vite 的内置 TLS；HTTPS 统一由反向代理或 Tailscale Serve 终止。
+
+### 安全
+
+- Gateway Token 和设备 Token 现在只存在于服务端；浏览器 CSP `connect-src` 限制为同源。
+- 发送接口只接受已登记且属于当前 Canvas 的附件 ID。
+- 远程 Gateway 设备 Token 保持精确 read/write；本机 loopback 不读取或使用已有设备凭据。
+- 只有可信代理确认的 HTTPS 才设置 Secure Cookie 与 HSTS；远程 Origin 未认证时默认拒绝启动。
+
 ## [0.2.0] - 2026-07-24
 
 ### 新增

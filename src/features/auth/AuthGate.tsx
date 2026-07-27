@@ -5,7 +5,7 @@
  * unauthenticated, or renders children (the full app) when authenticated.
  */
 import App from '@/App';
-import { GatewayProvider } from '@/contexts/GatewayContext';
+import { RuntimeProvider } from '@/contexts/RuntimeContext';
 import { SettingsProvider, useSettings } from '@/contexts/SettingsContext';
 import { getAppCopy } from '@/lib/app-messages';
 import { LoginPage } from './LoginPage';
@@ -33,8 +33,8 @@ function AuthGateContent() {
   }
 
   return (
-    <GatewayProvider>
+    <RuntimeProvider>
       <App onLogout={logout} />
-    </GatewayProvider>
+    </RuntimeProvider>
   );
 }

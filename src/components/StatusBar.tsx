@@ -1,20 +1,17 @@
 import { useState, useEffect, useCallback } from 'react';
 import { ContextMeter } from './ContextMeter';
 import { UpdateBadge } from './UpdateBadge';
-import { useGateway } from '@/contexts/GatewayContext';
 import { useSettings } from '@/contexts/SettingsContext';
 import { getAppCopy } from '@/lib/app-messages';
 
 /** Props for {@link StatusBar}. */
 interface StatusBarProps {
-  /** Current WebSocket connection state to the gateway. */
+  /** Current backend-managed Gateway connection state. */
   connectionState: 'disconnected' | 'connecting' | 'connected' | 'reconnecting';
   /** Number of branches in the selected Canvas. */
   branchCount: number;
   /** Number of materialized OpenClaw sessions for those branches. */
   sessionCount: number;
-  /** ASCII sparkline string rendered at the right edge of the bar. */
-  sparkline: string;
   /** Context tokens consumed in the active session (omit to hide the meter). */
   contextTokens?: number;
   /** Context window limit in tokens (omit to hide the meter). */
@@ -49,10 +46,9 @@ async function fetchServerInfo(): Promise<{ serverTime?: number; gatewayStartedA
  * Bottom status bar for the ConvoSketchpad cockpit.
  *
  * Shows connection state, server time, session count, gateway uptime,
- * an optional context-window meter, a sparkline, and the app version.
+ * an optional context-window meter, and the app version.
  */
-export function StatusBar({ connectionState, branchCount, sessionCount, sparkline, contextTokens, contextLimit }: StatusBarProps) {
-  useGateway(); // Keep gateway context connected
+export function StatusBar({ connectionState, branchCount, sessionCount, contextTokens, contextLimit }: StatusBarProps) {
   const { language } = useSettings();
   const copy = getAppCopy(language);
 
@@ -164,9 +160,6 @@ export function StatusBar({ connectionState, branchCount, sessionCount, sparklin
 
       {/* Right side telemetry (hidden on smaller screens) */}
       <div className="ml-3 hidden shrink-0 items-center gap-2 lg:flex">
-        <span className="rounded-full border border-border/70 bg-background/75 px-2.5 py-1 font-mono text-[0.667rem] tracking-[-0.08em] text-muted-foreground">
-          {sparkline}<span className="ml-1 text-primary animate-alive">_</span>
-        </span>
         <span className="text-[0.6rem] font-medium uppercase tracking-[0.18em] text-muted-foreground/55">v{__APP_VERSION__}</span>
         <UpdateBadge />
       </div>

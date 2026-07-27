@@ -6,6 +6,12 @@ export interface TailscaleState {
   ipv4: string | null;
   dnsName: string | null;
   serveOrigins: string[];
+  serveRoutes: TailscaleServeRoute[];
+}
+
+export interface TailscaleServeRoute {
+  origin: string;
+  proxyTargets: string[];
 }
 
 type ExecLike = (command: string, options?: Record<string, unknown>) => string | Buffer;
@@ -38,11 +44,11 @@ export function normalizeDnsName(value: string | null | undefined): string | nul
   return trimmed.endsWith('.') ? trimmed.slice(0, -1) : trimmed;
 }
 
-export function extractServeOrigins(json: unknown): string[] {
+export function extractServeRoutes(json: unknown): TailscaleServeRoute[] {
   if (!isRecord(json) || !isRecord(json.Web)) return [];
 
-  const origins = new Set<string>();
-  for (const rawKey of Object.keys(json.Web)) {
+  const routes = new Map<string, Set<string>>();
+  for (const [rawKey, rawConfig] of Object.entries(json.Web)) {
     const key = rawKey.trim();
     if (!key) continue;
 
@@ -52,16 +58,39 @@ export function extractServeOrigins(json: unknown): string[] {
     const host = normalizeDnsName(hostPart);
     if (!host) continue;
 
+    let origin: string;
     if (port === '80') {
-      origins.add(`http://${host}`);
+      origin = `http://${host}`;
     } else if (!port || port === '443') {
-      origins.add(`https://${host}`);
+      origin = `https://${host}`;
     } else {
-      origins.add(`https://${host}:${port}`);
+      origin = `https://${host}:${port}`;
     }
+    try {
+      origin = new URL(origin).origin;
+    } catch {
+      continue;
+    }
+
+    const targets = routes.get(origin) || new Set<string>();
+    if (isRecord(rawConfig) && isRecord(rawConfig.Handlers)) {
+      for (const handler of Object.values(rawConfig.Handlers)) {
+        if (!isRecord(handler) || typeof handler.Proxy !== 'string') continue;
+        const target = handler.Proxy.trim();
+        if (target) targets.add(target);
+      }
+    }
+    routes.set(origin, targets);
   }
 
-  return [...origins];
+  return [...routes].map(([origin, proxyTargets]) => ({
+    origin,
+    proxyTargets: [...proxyTargets],
+  }));
+}
+
+export function extractServeOrigins(json: unknown): string[] {
+  return extractServeRoutes(json).map(route => route.origin);
 }
 
 export function parseTailscaleStatus(json: unknown): Pick<TailscaleState, 'authenticated' | 'ipv4' | 'dnsName'> {
@@ -94,6 +123,7 @@ export function getTailscaleState(exec: ExecLike = execSync): TailscaleState {
       ipv4: null,
       dnsName: null,
       serveOrigins: [],
+      serveRoutes: [],
     };
   }
 
@@ -103,6 +133,7 @@ export function getTailscaleState(exec: ExecLike = execSync): TailscaleState {
     dnsName: null,
   };
   let serveOrigins: string[] = [];
+  let serveRoutes: TailscaleServeRoute[] = [];
 
   try {
     const statusJson = parseJson(toText(exec('tailscale status --json 2>/dev/null', { stdio: 'pipe', timeout: 3000 })));
@@ -113,7 +144,8 @@ export function getTailscaleState(exec: ExecLike = execSync): TailscaleState {
 
   try {
     const serveJson = parseJson(toText(exec('tailscale serve status --json 2>/dev/null', { stdio: 'pipe', timeout: 3000 })));
-    serveOrigins = extractServeOrigins(serveJson);
+    serveRoutes = extractServeRoutes(serveJson);
+    serveOrigins = serveRoutes.map(route => route.origin);
   } catch {
     // serve may be inactive or unsupported
   }
@@ -124,5 +156,6 @@ export function getTailscaleState(exec: ExecLike = execSync): TailscaleState {
     ipv4: status.ipv4,
     dnsName: status.dnsName,
     serveOrigins,
+    serveRoutes,
   };
 }

@@ -10,6 +10,7 @@ export const EXIT_CODES = {
   PREFLIGHT: 10,
   VERSION_RESOLUTION: 20,
   BUILD: 40,
+  MIGRATION: 45,
   RESTART: 50,
   HEALTH: 60,
   ROLLBACK: 70,
@@ -37,6 +38,8 @@ export interface Snapshot {
   version: string;
   timestamp: number;
   envHash: string;
+  databaseExisted?: boolean;
+  databaseBackupPath?: string;
 }
 
 // ── Version resolution ───────────────────────────────────────────────
@@ -74,6 +77,7 @@ export interface HealthResult {
 export interface ServiceManager {
   readonly name: string;
   detect(): boolean;
+  stop(): Promise<void>;
   restart(): Promise<void>;
   isActive(): Promise<boolean>;
   getLogs(lines: number): Promise<string>;
@@ -89,6 +93,7 @@ export type UpdateStage =
   | 'snapshot'
   | 'update'
   | 'build'
+  | 'migrate'
   | 'restart'
   | 'health'
   | 'commit'

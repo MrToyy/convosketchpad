@@ -12,8 +12,6 @@ function renderTopBar() {
   return renderWithSettings(
     <TopBar
       onSettings={vi.fn()}
-      agentLogEntries={[]}
-      eventEntries={[]}
       tokenData={null}
     />,
   );
@@ -31,8 +29,8 @@ describe('TopBar', () => {
   it('only exposes Canvas telemetry and settings actions', () => {
     renderTopBar();
 
-    expect(screen.getByRole('button', { name: '日志' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '事件' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '日志' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '事件' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: '用量' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '设置' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /chat|tasks|sessions|commands/i })).not.toBeInTheDocument();

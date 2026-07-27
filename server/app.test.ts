@@ -32,4 +32,19 @@ describe('removed API surfaces', () => {
       expect((await app.request(path)).status, path).toBe(404);
     }
   });
+
+  it('rejects browser API requests from unapproved origins', async () => {
+    const { default: app } = await import('./app.js');
+    const response = await app.request('/api/runtime/status', {
+      headers: { Origin: 'https://unapproved.example.test' },
+    });
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({ error: 'Origin not allowed' });
+  });
+
+  it('does not expose the removed Agent log API', async () => {
+    const { default: app } = await import('./app.js');
+    expect((await app.request('/api/agentlog')).status).toBe(404);
+    expect((await app.request('/api/agentlog', { method: 'POST' })).status).toBe(404);
+  });
 });

@@ -3,21 +3,20 @@ import type { Language } from '@/lib/language';
 export interface CanvasCopy {
   defaultCanvasName: (index: number) => string;
   status: {
-    queued: string;
-    working: string;
-    settling: string;
     streaming: string;
     completed: string;
     failed: string;
+    unconfirmed: string;
   };
   knownErrors: Record<string, string>;
   userInput: string;
   attachmentsOnly: string;
-  waitingForCompleteReply: string;
   waitingForResponse: string;
   noResponse: string;
   partialHistoryResources: string;
   artifactUnavailable: string;
+  artifactSyncing: string;
+  artifactDegraded: string;
   previewImage: (name: string) => string;
   forkFromInteraction: string;
   closeComposer: string;
@@ -137,15 +136,16 @@ const knownErrors = {
 export const canvasCopy = {
   'zh-CN': {
     defaultCanvasName: (index) => `画布 ${index}`,
-    status: { queued: '等待智能体响应', working: '智能体工作中', settling: '正在整理完整回复', streaming: '生成中', completed: '已完成', failed: '失败' },
+    status: { streaming: '生成中', completed: '已完成', failed: '失败', unconfirmed: '状态待确认' },
     knownErrors: knownErrors['zh-CN'],
     userInput: '用户输入',
     attachmentsOnly: '（仅包含附件）',
-    waitingForCompleteReply: '正在整理完整回复…',
     waitingForResponse: '正在等待 OpenClaw 响应…',
     noResponse: '暂无响应内容。',
     partialHistoryResources: '部分历史资源未能继承',
     artifactUnavailable: 'Artifact 暂不可用',
+    artifactSyncing: 'Artifact 同步中',
+    artifactDegraded: '部分 Artifact 未能同步',
     previewImage: (name) => `预览图片 ${name}`,
     forkFromInteraction: '从此交互创建新分支',
     closeComposer: '关闭输入框',
@@ -201,15 +201,16 @@ export const canvasCopy = {
   },
   en: {
     defaultCanvasName: (index) => `Canvas ${index}`,
-    status: { queued: 'Waiting for agent', working: 'Agent working', settling: 'Finalizing response', streaming: 'Generating', completed: 'Completed', failed: 'Failed' },
+    status: { streaming: 'Generating', completed: 'Completed', failed: 'Failed', unconfirmed: 'Status unconfirmed' },
     knownErrors: knownErrors.en,
     userInput: 'User input',
     attachmentsOnly: '(attachments only)',
-    waitingForCompleteReply: 'Finalizing the complete response…',
     waitingForResponse: 'Waiting for OpenClaw…',
     noResponse: 'No response content.',
     partialHistoryResources: 'Some historical resources could not be inherited',
     artifactUnavailable: 'Artifact unavailable',
+    artifactSyncing: 'Syncing Artifacts',
+    artifactDegraded: 'Some Artifacts could not be synced',
     previewImage: (name) => `Preview image ${name}`,
     forkFromInteraction: 'Create a branch from this interaction',
     closeComposer: 'Close composer',

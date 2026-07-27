@@ -4,7 +4,12 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { DEFAULT_GATEWAY_URL, DEFAULT_HOST, DEFAULT_PORT, DEFAULT_SSL_PORT } from './constants.js';
+import { DEFAULT_GATEWAY_URL, DEFAULT_HOST, DEFAULT_PORT } from './constants.js';
+import {
+  hasRemoteConfiguredOrigin,
+  isLoopbackHostname,
+  parseConfiguredOrigins,
+} from './browser-origin-policy.js';
 
 const moduleDir = path.dirname(fileURLToPath(import.meta.url));
 
@@ -20,11 +25,18 @@ function findProjectRoot(startDir: string): string | null {
 
 const projectRoot = findProjectRoot(moduleDir) ?? findProjectRoot(process.cwd()) ?? path.resolve(process.cwd());
 const localTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
-const DEPRECATED_OPENCLAW_PATH_ENV = [
+const DEPRECATED_ENV = [
   'CONVOSKETCHPAD_WORKSPACE_ROOT',
   'CONVOSKETCHPAD_UPLOAD_STAGING_TEMP_DIR',
   'SESSIONS_DIR',
   'USAGE_FILE',
+  'CONVOSKETCHPAD_PUBLIC_ORIGIN',
+  'WS_ALLOWED_HOSTS',
+  'CSP_CONNECT_EXTRA',
+  'SSL_PORT',
+  'VITE_DISABLE_HTTPS',
+  'VITE_HOST',
+  'VITE_PORT',
 ] as const;
 
 function positiveNumber(value: string | undefined, fallback: number): number {
@@ -34,22 +46,15 @@ function positiveNumber(value: string | undefined, fallback: number): number {
 
 export const config = {
   port: Number(process.env.PORT || DEFAULT_PORT),
-  sslPort: Number(process.env.SSL_PORT || DEFAULT_SSL_PORT),
   host: process.env.HOST || DEFAULT_HOST,
   gatewayUrl: process.env.GATEWAY_URL || DEFAULT_GATEWAY_URL,
   gatewayToken: process.env.GATEWAY_TOKEN || process.env.OPENCLAW_GATEWAY_TOKEN || '',
   gatewayTimezone: process.env.CONVOSKETCHPAD_GATEWAY_TIMEZONE?.trim() || localTimezone,
-  publicOrigin: process.env.CONVOSKETCHPAD_PUBLIC_ORIGIN || '',
-  agentLogPath: path.join(projectRoot, 'agent-log.json'),
   canvasDatabasePath: path.join(projectRoot, 'database', 'canvas.sqlite'),
   canvasArtifactsPath: path.join(projectRoot, 'artifacts'),
-  certPath: path.join(projectRoot, 'certs', 'cert.pem'),
-  keyPath: path.join(projectRoot, 'certs', 'key.pem'),
   limits: {
-    agentLog: 64 * 1024,
     maxBodyBytes: 85 * 1024 * 1024,
   },
-  agentLogMax: 200,
   auth: (process.env.CONVOSKETCHPAD_AUTH || 'false').toLowerCase() === 'true',
   sessionSecret: process.env.CONVOSKETCHPAD_SESSION_SECRET || '',
   sessionTtlMs: Number(process.env.CONVOSKETCHPAD_SESSION_TTL || 30 * 24 * 60 * 60 * 1000),
@@ -64,11 +69,6 @@ export function updateConfig(key: 'sessionSecret', value: string): void {
 }
 
 export const SESSION_COOKIE_NAME = `convosketchpad_session_${config.port}`;
-
-export const WS_ALLOWED_HOSTS = new Set([
-  'localhost', '127.0.0.1', '::1',
-  ...(process.env.WS_ALLOWED_HOSTS?.split(',').map((host) => host.trim()).filter(Boolean) ?? []),
-]);
 
 export function printStartupBanner(version: string, tagline: string): void {
   console.log(`\n  \x1b[33m◆ ConvoSketchpad v${version}\x1b[0m`);
@@ -88,9 +88,9 @@ export async function probeGateway(): Promise<void> {
 }
 
 export function validateConfig(): void {
-  for (const key of DEPRECATED_OPENCLAW_PATH_ENV) {
+  for (const key of DEPRECATED_ENV) {
     if (process.env[key]) {
-      console.warn(`${key} is deprecated and ignored; ConvoSketchpad now uses OpenClaw Gateway-native APIs.`);
+      console.warn(`${key} is deprecated and ignored by ConvoSketchpad runtime configuration.`);
     }
   }
   try {
@@ -108,11 +108,18 @@ export function validateConfig(): void {
     console.warn('CONVOSKETCHPAD_SESSION_SECRET is not set; generated sessions will not survive a restart.');
     updateConfig('sessionSecret', crypto.randomBytes(32).toString('hex'));
   }
-  if (config.host === '0.0.0.0' && !config.auth && process.env.CONVOSKETCHPAD_ALLOW_INSECURE !== 'true') {
-    console.error('Refusing to expose ConvoSketchpad on 0.0.0.0 without authentication.');
+  const configuredOrigins = parseConfiguredOrigins(process.env.ALLOWED_ORIGINS);
+  if (configuredOrigins.invalid.length > 0) {
+    console.error(`Invalid ALLOWED_ORIGINS value(s): ${configuredOrigins.invalid.join(', ')}`);
     process.exit(1);
   }
-  if (config.host === '0.0.0.0' && !config.auth) {
+  const remoteOriginConfigured = hasRemoteConfiguredOrigin(configuredOrigins.origins);
+  const networkExposed = !isLoopbackHostname(config.host);
+  if ((networkExposed || remoteOriginConfigured) && !config.auth && process.env.CONVOSKETCHPAD_ALLOW_INSECURE !== 'true') {
+    console.error('Refusing remote browser access without authentication.');
+    process.exit(1);
+  }
+  if ((networkExposed || remoteOriginConfigured) && !config.auth) {
     console.warn('ConvoSketchpad is network-accessible without managed authentication.');
   }
 }

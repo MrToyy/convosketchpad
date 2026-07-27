@@ -1,14 +1,8 @@
-import { useState } from 'react';
-import { RefreshCw, Eye, EyeOff, RotateCw } from 'lucide-react';
-import { DEFAULT_GATEWAY_WS } from '@/lib/constants';
+import { RefreshCw, RotateCw } from 'lucide-react';
 import { useSettings } from '@/contexts/SettingsContext';
 import { getSettingsCopy } from './messages';
 
 interface ConnectionSettingsProps {
-  url: string;
-  token: string;
-  onUrlChange: (url: string) => void;
-  onTokenChange: (token: string) => void;
   onReconnect: () => void;
   connectionState: 'disconnected' | 'connecting' | 'connected' | 'reconnecting';
   onGatewayRestart?: () => void;
@@ -24,10 +18,6 @@ const STATUS_COLORS: Record<string, string> = {
 
 /** Settings section for gateway URL, auth token, reconnection, and gateway restart. */
 export function ConnectionSettings({
-  url,
-  token,
-  onUrlChange,
-  onTokenChange,
   onReconnect,
   connectionState,
   onGatewayRestart,
@@ -35,7 +25,6 @@ export function ConnectionSettings({
 }: ConnectionSettingsProps) {
   const { language } = useSettings();
   const copy = getSettingsCopy(language).connection;
-  const [showToken, setShowToken] = useState(false);
 
   return (
     <div className="space-y-4">
@@ -66,43 +55,6 @@ export function ConnectionSettings({
         </button>
       </div>
 
-      {/* Gateway URL */}
-      <label className="cockpit-field">
-        <span className="cockpit-field-label">{copy.gatewayUrl}</span>
-        <input
-          type="text"
-          value={url}
-          onChange={e => onUrlChange(e.target.value)}
-          spellCheck={false}
-          className="cockpit-input cockpit-input-mono"
-          placeholder={DEFAULT_GATEWAY_WS}
-        />
-        <span className="cockpit-field-hint">{copy.gatewayUrlHint}</span>
-      </label>
-
-      {/* Auth Token */}
-      <label className="cockpit-field">
-        <span className="cockpit-field-label">{copy.authToken}</span>
-        <div className="relative">
-          <input
-            type={showToken ? 'text' : 'password'}
-            value={token}
-            onChange={e => onTokenChange(e.target.value)}
-            spellCheck={false}
-            className="cockpit-input cockpit-input-mono pr-12"
-            placeholder="••••••••"
-          />
-          <button
-            type="button"
-            onClick={() => setShowToken(!showToken)}
-            className="cockpit-toolbar-button absolute right-2 top-1/2 min-h-8 -translate-y-1/2 px-2.5"
-            title={showToken ? copy.hideToken : copy.showToken}
-          >
-            {showToken ? <EyeOff size={14} /> : <Eye size={14} />}
-          </button>
-        </div>
-        <span className="cockpit-field-hint">{copy.authTokenHint}</span>
-      </label>
       {/* Gateway Service */}
       {onGatewayRestart && (
         <>

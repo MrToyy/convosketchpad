@@ -11,7 +11,10 @@ describe('auth routes', () => {
     vi.restoreAllMocks();
   });
 
-  async function buildApp(configOverrides: Record<string, unknown> = {}) {
+  async function buildApp(
+    configOverrides: Record<string, unknown> = {},
+    secureRequest = false,
+  ) {
     const baseConfig = {
       auth: true,
       gatewayToken: 'test-token',
@@ -22,7 +25,6 @@ describe('auth routes', () => {
       authLockoutMs: 1800000,
       port: 3000,
       host: '127.0.0.1',
-      sslPort: 3443,
       ...configOverrides,
     };
 
@@ -33,6 +35,7 @@ describe('auth routes', () => {
     vi.doMock('../middleware/rate-limit.js', () => ({
       rateLimitAuth: vi.fn((_c: unknown, next: () => Promise<void>) => next()),
       getClientId: vi.fn(() => 'test-client'),
+      isSecureRequest: vi.fn(() => secureRequest),
     }));
     vi.doMock('../lib/managed-users.js', () => ({
       authenticateManagedToken: vi.fn(async (token: string) => token === 'example-token'
@@ -93,6 +96,17 @@ describe('auth routes', () => {
       const json = (await res.json()) as Record<string, unknown>;
       expect(json.ok).toBe(true);
       expect(res.headers.get('set-cookie')).toContain('convosketchpad_session');
+    });
+
+    it('marks the session cookie Secure when HTTPS was verified by a trusted proxy', async () => {
+      const app = await buildApp({}, true);
+      const res = await app.request('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: 'example-token' }),
+      });
+      expect(res.status).toBe(200);
+      expect(res.headers.get('set-cookie')).toContain('Secure');
     });
 
     it('rejects the removed password field', async () => {

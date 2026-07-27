@@ -15,12 +15,6 @@ export interface SettingsCopy {
     statuses: Record<'connected' | 'connecting' | 'reconnecting' | 'disconnected', string>;
     reconnect: string;
     reconnectTitle: string;
-    gatewayUrl: string;
-    gatewayUrlHint: string;
-    authToken: string;
-    showToken: string;
-    hideToken: string;
-    authTokenHint: string;
     service: string;
     restartTitle: string;
     restartHint: string;
@@ -61,12 +55,6 @@ export const settingsCopy = {
       statuses: { connected: '已连接', connecting: '正在连接…', reconnecting: '正在重新连接…', disconnected: '未连接' },
       reconnect: '重新连接',
       reconnectTitle: '重新连接网关',
-      gatewayUrl: '网关地址',
-      gatewayUrlHint: '使用本地网关，或粘贴远程中继地址。',
-      authToken: '认证令牌',
-      showToken: '显示令牌',
-      hideToken: '隐藏令牌',
-      authTokenHint: '不设防的本地开发环境可留空。',
       service: '网关服务',
       restartTitle: '重启本地网关',
       restartHint: '配对、智能体或后台进程需要完全重新加载时使用。',
@@ -105,12 +93,6 @@ export const settingsCopy = {
       statuses: { connected: 'Connected', connecting: 'Connecting…', reconnecting: 'Reconnecting…', disconnected: 'Disconnected' },
       reconnect: 'Reconnect',
       reconnectTitle: 'Reconnect gateway',
-      gatewayUrl: 'Gateway URL',
-      gatewayUrlHint: 'Use a local gateway or paste a remote relay URL.',
-      authToken: 'Authentication token',
-      showToken: 'Show token',
-      hideToken: 'Hide token',
-      authTokenHint: 'May be blank for an unsecured local development gateway.',
       service: 'Gateway service',
       restartTitle: 'Restart local gateway',
       restartHint: 'Use when pairing, agents, or background processes need a full reload.',

@@ -22,6 +22,8 @@ import { checkPrerequisites, type PrereqResult } from './lib/prereq-check.js';
 import {
   isValidUrl,
   isValidPort,
+  isValidBindHost,
+  isValidIpAddress,
   testGatewayConnection,
 } from './lib/validators.js';
 import {
@@ -32,18 +34,21 @@ import {
   DEFAULTS,
   type EnvConfig,
 } from './lib/env-writer.js';
-import { generateSelfSignedCert } from './lib/cert-gen.js';
 import {
-  approvePendingConvoSketchpadDevice,
   chooseSetupGatewayToken,
   detectGatewayConfig,
-  detectNativeOpenClawCapabilities,
-  detectNeededConfigChanges,
   getEnvGatewayToken,
-  type ConfigChange,
 } from './lib/gateway-detect.js';
 import { requestGatewayPairing } from './lib/gateway-pairing.js';
-import { applyAccessPlanToConfig, buildAccessPlan, type InstallerAccessProfile } from './lib/access-plan.js';
+import {
+  applyAccessPlanToConfig,
+  buildAccessPlan,
+  isLoopbackBrowserOrigin,
+  isLoopbackHost,
+  parseBrowserOrigins,
+  type AccessPlan,
+  type InstallerAccessProfile,
+} from './lib/access-plan.js';
 import { getTailscaleState, type TailscaleState } from './lib/tailscale.js';
 import { printDeploymentGuides, shouldPrintDeploymentGuides } from './lib/deployment-guides.js';
 import {
@@ -98,65 +103,25 @@ function detectPrimaryIpv4(): string | null {
   return null;
 }
 
-/** Check whether a host string is a loopback address (IPv4, IPv6, or localhost). */
-function isLoopback(host: string): boolean {
-  return !host || host === '127.0.0.1' || host === 'localhost' || host === '::1';
+function hostForUrl(host: string): string {
+  return host.includes(':') && !host.startsWith('[') ? `[${host}]` : host;
 }
 
 function sleep(ms: number): Promise<void> {
   return new Promise(resolveTimer => setTimeout(resolveTimer, ms));
 }
 
-/**
- * Apply validated OpenClaw-owned config changes.
- */
-async function applyConfigChanges(changes: ConfigChange[]): Promise<void> {
-  for (const change of changes) {
-    const result = change.apply();
-    if (result.ok) {
-      success(result.message);
-    } else {
-      warn(result.message);
-    }
-  }
-}
-
-function requireNativeOpenClawCapabilities(
-  required: Array<keyof ReturnType<typeof detectNativeOpenClawCapabilities>>,
-): void {
-  const capabilities = detectNativeOpenClawCapabilities();
-  const missing = required.filter(name => !capabilities[name]);
-  if (missing.length === 0) return;
-  fail(`OpenClaw is missing required native capabilities: ${missing.join(', ')}`);
-  dim('Upgrade OpenClaw, then re-run setup. ConvoSketchpad does not patch legacy pairing files.');
-  process.exit(1);
-}
-
-function pairingOrigin(config: EnvConfig): string {
-  return config.CONVOSKETCHPAD_PUBLIC_ORIGIN
-    || config.ALLOWED_ORIGINS?.split(',').map(value => value.trim()).find(Boolean)
-    || `http://127.0.0.1:${config.PORT || DEFAULTS.PORT}`;
-}
-
-function printRemoteOriginInstructions(origins: string[]): void {
-  if (origins.length === 0) return;
-  warn('The Gateway is remote, so its local OpenClaw configuration was not modified.');
-  dim('On the Gateway host, merge these exact origins into gateway.controlUi.allowedOrigins:');
-  for (const origin of origins) dim(`  • ${origin}`);
-  dim('Use: openclaw config get gateway.controlUi.allowedOrigins --json');
-  dim('Put the merged array in a config-shaped JSON5 patch, then run:');
-  dim('  openclaw config patch --file ./convosketchpad-origin.patch.json5 --dry-run');
-  dim('  openclaw config patch --file ./convosketchpad-origin.patch.json5');
-}
-
 async function configureNativePairing(
   config: EnvConfig,
-  interactive: boolean,
 ): Promise<string | null> {
+  const gatewayUrl = config.GATEWAY_URL || DEFAULTS.GATEWAY_URL;
+  if (!isRemoteGatewayUrl(gatewayUrl)) {
+    success('Local Gateway uses shared-token backend authentication; device pairing is not required.');
+    return null;
+  }
   const probe = await requestGatewayPairing({
-    gatewayUrl: config.GATEWAY_URL || DEFAULTS.GATEWAY_URL,
+    gatewayUrl,
     gatewayToken: config.GATEWAY_TOKEN || '',
-    origin: pairingOrigin(config),
   });
   if (probe.status === 'connected') {
     success(probe.message);
@@ -168,40 +133,8 @@ async function configureNativePairing(
   }
 
   const requestLabel = probe.requestId || '<requestId>';
-  if (!interactive) {
-    warn(`Native OpenClaw pairing is pending: ${requestLabel}`);
-    return `Approve the ConvoSketchpad device on the Gateway host: openclaw devices approve ${requestLabel}`;
-  }
-
-  const shouldApprove = await confirm({
-    theme: promptTheme,
-    message: `Approve ConvoSketchpad device request ${requestLabel} with read/write access?`,
-    default: true,
-  });
-  if (!shouldApprove) {
-    return `Approve later with: openclaw devices approve ${requestLabel}`;
-  }
-
-  const approved = approvePendingConvoSketchpadDevice({
-    gatewayUrl: config.GATEWAY_URL,
-    gatewayToken: config.GATEWAY_TOKEN,
-  });
-  if (!approved.ok || approved.approved !== 1) {
-    warn(approved.message);
-    return `Approve on the Gateway host with: openclaw devices approve ${requestLabel}`;
-  }
-  success(approved.message);
-
-  const verified = await requestGatewayPairing({
-    gatewayUrl: config.GATEWAY_URL || DEFAULTS.GATEWAY_URL,
-    gatewayToken: config.GATEWAY_TOKEN || '',
-    origin: pairingOrigin(config),
-  });
-  if (verified.status === 'connected') {
-    success('Native OpenClaw device pairing verified');
-    return null;
-  }
-  return `Pairing was approved but reconnect is still pending: ${verified.message}`;
+  warn(`Native OpenClaw pairing is pending: ${requestLabel}`);
+  return `On the remote Gateway host, verify and approve the ConvoSketchpad backend request: openclaw devices approve ${requestLabel}`;
 }
 
 // ── Ctrl+C handler ───────────────────────────────────────────────────
@@ -222,14 +155,14 @@ async function main(): Promise<void> {
   Options:
     --check                   Validate existing .env config and test gateway connection
     --defaults                Non-interactive setup using auto-detected values
-    --access-mode <mode>      Explicit non-interactive access mode
+    --access-mode <mode>      Non-interactive: local|network|tailscale-ip|tailscale-serve
     --gateway-timezone <tz>   Gateway IANA timezone (for example Asia/Shanghai)
     --help, -h                Show this help message
 
   Access modes:
     local             Localhost only
     network           LAN-reachable
-    custom            Manual bind and HTTPS choices
+    custom            Interactive wizard only: bind, browser Origins, and proxy trust
     tailscale-ip      Direct tailnet IP access
     tailscale-serve   Loopback + Tailscale Serve hostname
 
@@ -380,8 +313,8 @@ async function collectInteractive(
   if (defaultToken && !existing.GATEWAY_TOKEN) {
     const tokenLabel = tokenChoice.source === 'env' ? 'environment token' : 'detected token';
     const useDetected = await confirm({
-    theme: promptTheme,
-      message: `Use ${tokenLabel} (${defaultToken})?`,
+      theme: promptTheme,
+      message: `Use the ${tokenLabel}?`,
       default: true,
     });
     if (useDetected) {
@@ -399,8 +332,8 @@ async function collectInteractive(
   } else if (existing.GATEWAY_TOKEN) {
     // Existing token — offer to keep it
     const keepExisting = await confirm({
-    theme: promptTheme,
-      message: `Keep existing gateway token (${existing.GATEWAY_TOKEN})?`,
+      theme: promptTheme,
+      message: 'Keep the existing gateway token?',
       default: true,
     });
     if (keepExisting) {
@@ -480,7 +413,7 @@ async function collectInteractive(
       description: 'Private by default, ConvoSketchpad stays on 127.0.0.1 and is exposed through *.ts.net',
     },
     { name: 'From other devices on my network', value: 'network', description: 'Opens to LAN, you may need to configure your firewall' },
-    { name: 'Custom setup (I know what I\'m doing)', value: 'custom', description: 'Manual port, bind address, HTTPS, CORS configuration' },
+    { name: 'Custom setup (I know what I\'m doing)', value: 'custom', description: 'Manual ConvoSketchpad listener, browser Origins, and proxy trust' },
   ];
 
   const accessMode = await select<AccessMode>({
@@ -491,7 +424,6 @@ async function collectInteractive(
 
   let port = existing.PORT || DEFAULTS.PORT;
   config.PORT = port;
-  let sslPort: string | undefined;
   let accessPlan = buildAccessPlan({ profile: 'local', port });
   let tailscaleState: TailscaleState = prereqs.tailscale;
 
@@ -500,59 +432,6 @@ async function collectInteractive(
     for (const step of steps) {
       dim(`  • ${step}`);
     }
-  }
-
-  async function offerHttpsSetup(remoteHost: string): Promise<string | undefined> {
-    console.log('');
-    warn('HTTPS protects Canvas content and credentials on non-localhost connections.');
-    console.log('');
-
-    const enableHttps = await confirm({
-      theme: promptTheme,
-      message: 'Enable HTTPS? (recommended)',
-      default: true,
-    });
-
-    if (!enableHttps) {
-      dim('Remote traffic will remain unencrypted unless another HTTPS proxy is used.');
-      return undefined;
-    }
-
-    let certsReady = false;
-    if (prereqs.opensslOk) {
-      const certResult = generateSelfSignedCert(PROJECT_ROOT);
-      if (certResult.ok) {
-        success(certResult.message);
-        certsReady = true;
-      } else {
-        fail(certResult.message);
-      }
-    } else {
-      warn('openssl not found, cannot generate self-signed certificate');
-      dim('Install openssl and run: mkdir -p certs && openssl req -x509 -newkey rsa:2048 \\');
-      dim('  -keyout certs/key.pem -out certs/cert.pem -days 365 -nodes -subj "/CN=localhost"');
-    }
-
-    if (!certsReady) {
-      warn('HTTPS disabled because certificates could not be prepared.');
-      return undefined;
-    }
-
-    const selectedSslPort = await input({
-      theme: promptTheme,
-      message: 'SSL port',
-      default: existing.SSL_PORT || DEFAULTS.SSL_PORT,
-      validate: (val) => {
-        const n = parseInt(val, 10);
-        if (!isValidPort(n)) return 'Please enter a valid port (1–65535)';
-        if (n === parseInt(port, 10)) return 'SSL port must differ from HTTP port';
-        return true;
-      },
-    });
-
-    success(`HTTPS will be available at https://${remoteHost}:${selectedSslPort}`);
-    dim('Note: Self-signed certs will show a browser warning on first visit, click "Advanced" then "Proceed"');
-    return selectedSslPort;
   }
 
   async function ensureInteractiveTailscale(): Promise<TailscaleState> {
@@ -708,21 +587,20 @@ async function collectInteractive(
       default: detectedIp || '',
       validate: (val) => {
         if (!val.trim()) return 'IP address is required for network access';
-        if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(val.trim())) return 'Enter a valid IPv4 address';
+        if (!isValidIpAddress(val.trim()) || val.trim().includes(':')) return 'Enter a valid IPv4 address';
         return true;
       },
     });
     const ip = lanIp.trim();
-    sslPort = await offerHttpsSetup(ip);
-    accessPlan = buildAccessPlan({ profile: 'network', port, remoteHost: ip, sslPort });
+    accessPlan = buildAccessPlan({ profile: 'network', port, remoteHost: ip });
     success(`ConvoSketchpad will be available at http://${ip}:${port}`);
     dim(`Make sure your firewall allows traffic on port ${port}`);
-    dim('Need access from multiple devices? Add more origins to ALLOWED_ORIGINS in .env');
+    warn('Direct LAN access uses HTTP. Prefer Tailscale Serve or an HTTPS reverse proxy for sensitive traffic.');
 
   } else {
     port = await input({
       theme: promptTheme,
-      message: 'HTTP port',
+      message: 'ConvoSketchpad listen port (PORT)',
       default: existing.PORT || DEFAULTS.PORT,
       validate: (val) => {
         const n = parseInt(val, 10);
@@ -734,74 +612,78 @@ async function collectInteractive(
 
     const customHost = await input({
       theme: promptTheme,
-      message: 'Bind address (127.0.0.1 = local only, 0.0.0.0 = all interfaces)',
+      message: 'ConvoSketchpad listen address (HOST; 127.0.0.1 = local/proxy only, 0.0.0.0 = direct network access)',
       default: existing.HOST || DEFAULTS.HOST,
+      validate: value => isValidBindHost(value)
+        ? true
+        : 'Enter a valid IP address, localhost, or DNS hostname',
     });
+    const topology = await select<'direct' | 'proxy'>({
+      theme: promptTheme,
+      message: 'How will browsers reach ConvoSketchpad?',
+      choices: [
+        {
+          name: 'Direct HTTP connection',
+          value: 'direct',
+          description: 'Browser connects directly to this ConvoSketchpad listener',
+        },
+        {
+          name: 'HTTPS reverse proxy',
+          value: 'proxy',
+          description: 'A trusted proxy terminates HTTPS and forwards to this listener',
+        },
+      ],
+    });
+    const inferredBrowserHost = customHost === '0.0.0.0' || customHost === '::'
+      ? detectPrimaryIpv4() || '127.0.0.1'
+      : customHost;
+    const defaultOrigin = topology === 'proxy'
+      ? existing.ALLOWED_ORIGINS?.split(',')[0]?.trim() || ''
+      : `http://${hostForUrl(inferredBrowserHost)}:${port}`;
+    const browserOrigins = await input({
+      theme: promptTheme,
+      message: 'Browser origins (comma-separated, exact scheme + host + port)',
+      default: existing.ALLOWED_ORIGINS || defaultOrigin,
+      validate: value => {
+        const parsed = parseBrowserOrigins(value);
+        if (!parsed) return 'Enter one or more exact HTTP(S) origins without paths, queries, or wildcards';
+        if (topology === 'direct' && parsed.some(origin => origin.startsWith('https://'))) {
+          return 'Direct mode is HTTP-only; choose HTTPS reverse proxy for https:// Origins';
+        }
+        return true;
+      },
+    });
+    const normalizedOrigins = parseBrowserOrigins(browserOrigins)!;
 
-    if (!isLoopback(customHost)) {
-      sslPort = await offerHttpsSetup(customHost);
-    } else {
-      delete config.SSL_PORT;
+    let trustedProxies: string[] = [];
+    if (topology === 'proxy') {
+      const proxyInput = await input({
+        theme: promptTheme,
+        message: 'Additional trusted proxy IPs (comma-separated; loopback is already trusted)',
+        default: existing.TRUSTED_PROXIES || '',
+        validate: value => {
+          const items = value.split(',').map(item => item.trim()).filter(Boolean);
+          return items.every(isValidIpAddress) ? true : 'Trusted proxies must be exact IPv4 or IPv6 addresses';
+        },
+      });
+      trustedProxies = proxyInput.split(',').map(item => item.trim()).filter(Boolean);
     }
 
-    accessPlan = buildAccessPlan({ profile: 'custom', port, remoteHost: customHost, sslPort });
-    success(`ConvoSketchpad will be available at http://${customHost}:${port}`);
+    accessPlan = buildAccessPlan({
+      profile: 'custom',
+      port,
+      remoteHost: customHost.trim(),
+      browserOrigins: normalizedOrigins,
+      trustedProxies,
+    });
+    success(`Primary browser origin: ${accessPlan.browserOrigins[0]}`);
   }
 
   delete config.ALLOWED_ORIGINS;
-  delete config.CSP_CONNECT_EXTRA;
-  delete config.SSL_PORT;
-  // WS_ALLOWED_HOSTS is intentionally NOT cleared here. applyAccessPlanToConfig
-  // merges plan-derived hosts, the user's existing entries, and the remote-gateway
-  // host from GATEWAY_URL, so clearing first would drop user-added allowlist values.
+  delete config.TRUSTED_PROXIES;
   Object.assign(config, applyAccessPlanToConfig(config, accessPlan));
-  if (sslPort) config.SSL_PORT = sslPort;
 
-  // ── Gateway config updates ─────────────────────────────────────────
-
-  const gatewayIsRemote = isRemoteGatewayUrl(config.GATEWAY_URL || DEFAULTS.GATEWAY_URL);
-  requireNativeOpenClawCapabilities(
-    gatewayIsRemote
-      ? ['devicesList', 'devicesApprove']
-      : ['configPatch', 'devicesList', 'devicesApprove'],
-  );
-  const neededChanges = gatewayIsRemote
-    ? []
-    : detectNeededConfigChanges({ allowedOrigins: accessPlan.gatewayAllowedOrigins });
-  if (gatewayIsRemote) {
-    printRemoteOriginInstructions(accessPlan.gatewayAllowedOrigins);
-  }
-
-  if (neededChanges.length > 0) {
-    console.log('');
-    warn('ConvoSketchpad needs to update your OpenClaw gateway config.');
-    dim('The OpenClaw CLI will validate and apply the change.');
-    console.log('');
-    dim('The following changes are needed:');
-    neededChanges.forEach((change, i) => {
-      dim(`  ${i + 1}. ${change.description}`);
-    });
-    console.log('');
-
-    const applyChanges = await confirm({
-      theme: promptTheme,
-      message: 'Apply these changes?',
-      default: true,
-    });
-
-    if (applyChanges) {
-      await applyConfigChanges(neededChanges);
-    } else {
-      warn('Skipped gateway config changes. Some features may not work:');
-      for (const change of neededChanges) {
-        if (change.id.startsWith('allowed-origins')) {
-          dim('  • Origins: use `openclaw config get/patch` to update gateway.controlUi.allowedOrigins');
-        }
-      }
-    }
-  }
-
-  const pairingFollowUp = await configureNativePairing(config, true);
+  const pairingFollowUp = await configureNativePairing(config);
   if (pairingFollowUp) warn(pairingFollowUp);
 
   // ── 3/3: Authentication ───────────────────────────────────────────
@@ -811,7 +693,7 @@ async function collectInteractive(
     config.CONVOSKETCHPAD_SESSION_SECRET = randomBytes(32).toString('hex');
   }
 
-  const isNetworkExposed = config.HOST === '0.0.0.0';
+  const isNetworkExposed = accessPlan.remoteAccess;
 
   if (isNetworkExposed) {
     section(3, TOTAL_SECTIONS, 'Authentication');
@@ -820,21 +702,37 @@ async function collectInteractive(
     dim('This mode is intended for a small controlled environment, not hostile multi-tenant access.');
     console.log('');
 
-    const enableTokenAuth = await confirm({
-      theme: promptTheme,
-      message: 'Enable trusted-user token authentication? (recommended)',
-      default: true,
-    });
+    let enableTokenAuth = true;
+    if (accessMode === 'custom') {
+      enableTokenAuth = await confirm({
+        theme: promptTheme,
+        message: 'Enable trusted-user token authentication? (recommended)',
+        default: true,
+      });
+    }
+
+    if (!enableTokenAuth) {
+      warn('Disabling authentication exposes every Canvas and Gateway capability to anyone who can reach this Origin.');
+      const confirmInsecure = await confirm({
+        theme: promptTheme,
+        message: 'I understand the risk; allow unauthenticated remote access?',
+        default: false,
+      });
+      if (!confirmInsecure) enableTokenAuth = true;
+    }
 
     if (enableTokenAuth) {
       config.CONVOSKETCHPAD_AUTH = 'true';
+      delete config.CONVOSKETCHPAD_ALLOW_INSECURE;
       success('Managed-user token authentication enabled.');
       dim('After setup, create the first user with: npm run users -- add <name> [--token <token>]');
     } else {
       config.CONVOSKETCHPAD_AUTH = 'false';
-      warn('Authentication disabled. Network-exposed startup will require CONVOSKETCHPAD_ALLOW_INSECURE=true.');
+      config.CONVOSKETCHPAD_ALLOW_INSECURE = 'true';
+      warn('Authentication disabled with an explicit insecure override.');
     }
   } else {
+    delete config.CONVOSKETCHPAD_ALLOW_INSECURE;
     // Localhost — skip auth setup, but preserve existing auth config
     if (existing.CONVOSKETCHPAD_AUTH) config.CONVOSKETCHPAD_AUTH = existing.CONVOSKETCHPAD_AUTH;
     if (existing.CONVOSKETCHPAD_SESSION_SECRET) config.CONVOSKETCHPAD_SESSION_SECRET = existing.CONVOSKETCHPAD_SESSION_SECRET;
@@ -849,9 +747,9 @@ async function collectInteractive(
 function printSummary(config: EnvConfig): void {
   const gwUrl = config.GATEWAY_URL || DEFAULTS.GATEWAY_URL;
   const port = config.PORT || DEFAULTS.PORT;
-  const sslPort = config.SSL_PORT || DEFAULTS.SSL_PORT;
   const host = config.HOST || DEFAULTS.HOST;
-  const hasCerts = existsSync(resolve(PROJECT_ROOT, 'certs', 'cert.pem'));
+  const primaryOrigin = config.ALLOWED_ORIGINS?.split(',')[0]?.trim()
+    || `http://localhost:${port}`;
 
   const hostLabel = host === '127.0.0.1' ? '127.0.0.1 (local only)' : `${host} (network)`;
   const authLabel = config.CONVOSKETCHPAD_AUTH === 'true' ? '🔒 Enabled' : 'Disabled';
@@ -866,9 +764,7 @@ function printSummary(config: EnvConfig): void {
       console.log(`${r}  \x1b[2mGateway TZ${' '.repeat(1)}\x1b[0m${gatewayTimezone}`);
     }
     console.log(`${r}  \x1b[2mHTTP${' '.repeat(7)}\x1b[0m:${port}`);
-    if (hasCerts) {
-      console.log(`${r}  \x1b[2mHTTPS${' '.repeat(6)}\x1b[0m:${sslPort}`);
-    }
+    console.log(`${r}  \x1b[2mOrigin${' '.repeat(5)}\x1b[0m${primaryOrigin}`);
     console.log(`${r}  \x1b[2mHost${' '.repeat(7)}\x1b[0m${hostLabel}`);
     console.log(`${r}  \x1b[2mAuth${' '.repeat(7)}\x1b[0m${authLabel}`);
   } else {
@@ -880,9 +776,7 @@ function printSummary(config: EnvConfig): void {
       console.log(`  \x1b[2m│\x1b[0m  Gateway TZ ${gatewayTimezone.padEnd(28)}\x1b[2m│\x1b[0m`);
     }
     console.log(`  \x1b[2m│\x1b[0m  HTTP       :${port.padEnd(27)}\x1b[2m│\x1b[0m`);
-    if (hasCerts) {
-      console.log(`  \x1b[2m│\x1b[0m  HTTPS      :${sslPort.padEnd(27)}\x1b[2m│\x1b[0m`);
-    }
+    console.log(`  \x1b[2m│\x1b[0m  Origin     ${primaryOrigin.padEnd(28)}\x1b[2m│\x1b[0m`);
     console.log(`  \x1b[2m│\x1b[0m  Host       ${hostLabel.padEnd(28)}\x1b[2m│\x1b[0m`);
     console.log(`  \x1b[2m│\x1b[0m  Auth       ${authLabel.padEnd(28)}\x1b[2m│\x1b[0m`);
     console.log('  \x1b[2m└─────────────────────────────────────────┘\x1b[0m');
@@ -890,13 +784,15 @@ function printSummary(config: EnvConfig): void {
 }
 
 function printNextSteps(config: EnvConfig): void {
-  const developmentPort = config.VITE_PORT || '3080';
+  const port = config.PORT || DEFAULTS.PORT;
+  const primaryOrigin = config.ALLOWED_ORIGINS?.split(',')[0]?.trim()
+    || `http://localhost:${port}`;
   console.log('');
   console.log('  \x1b[1mNext steps:\x1b[0m');
   console.log(`    Development:   \x1b[36mnpm run dev\x1b[0m`);
   console.log(`    Production:    \x1b[36mnpm run prod\x1b[0m`);
   console.log('');
-  console.log(`  Open \x1b[36mhttp://localhost:${developmentPort}\x1b[0m in your browser.`);
+  console.log(`  Open \x1b[36m${primaryOrigin}\x1b[0m in your browser.`);
   console.log('');
 }
 
@@ -959,8 +855,17 @@ async function runCheck(config: EnvConfig): Promise<void> {
 
   // Host binding
   const host = config.HOST || DEFAULTS.HOST;
-  if (host === '0.0.0.0') {
-    warn('HOST is 0.0.0.0 — server is accessible from the network');
+  const origins = config.ALLOWED_ORIGINS
+    ? parseBrowserOrigins(config.ALLOWED_ORIGINS)
+    : [];
+  if (config.ALLOWED_ORIGINS && !origins) {
+    fail('ALLOWED_ORIGINS contains an invalid or non-Origin URL');
+    errors++;
+  }
+  const remoteAccess = !isLoopbackHost(host)
+    || (origins || []).some(origin => !isLoopbackBrowserOrigin(origin));
+  if (remoteAccess) {
+    warn(`Remote browser access is configured${config.ALLOWED_ORIGINS ? ` for ${config.ALLOWED_ORIGINS}` : ''}`);
   } else {
     success(`HOST: ${host}`);
   }
@@ -973,18 +878,14 @@ async function runCheck(config: EnvConfig): Promise<void> {
     } else {
       warn('CONVOSKETCHPAD_SESSION_SECRET not set — will be auto-generated (sessions won\'t survive restarts)');
     }
-  } else if (host === '0.0.0.0') {
+  } else if (remoteAccess && config.CONVOSKETCHPAD_ALLOW_INSECURE !== 'true') {
     warn('Authentication is DISABLED while server is network-exposed');
     dim('Run `npm run setup` to enable authentication');
+    errors++;
+  } else if (remoteAccess) {
+    warn('Authentication is disabled with CONVOSKETCHPAD_ALLOW_INSECURE=true');
   } else {
     info('Authentication disabled (localhost-only — OK)');
-  }
-
-  // HTTPS certs
-  if (existsSync(resolve(PROJECT_ROOT, 'certs', 'cert.pem'))) {
-    success('HTTPS certificates found at certs/');
-  } else {
-    info('No HTTPS certificates (HTTP only)');
   }
 
   console.log('');
@@ -1006,6 +907,13 @@ async function runDefaults(existing: EnvConfig, prereqs: PrereqResult): Promise<
 
   const config: EnvConfig = { ...existing };
   const followUpSteps: string[] = [];
+  let selectedAccessPlan: AccessPlan | null = null;
+
+  if (requestedAccessMode === 'custom') {
+    fail('Custom access mode requires interactive questions for bind address, browser Origins, and proxy trust.');
+    dim('Run `npm run setup` interactively, or configure HOST, ALLOWED_ORIGINS, and TRUSTED_PROXIES manually.');
+    process.exit(1);
+  }
 
   function appendFollowUp(steps: string[]): void {
     for (const step of steps) {
@@ -1055,11 +963,16 @@ async function runDefaults(existing: EnvConfig, prereqs: PrereqResult): Promise<
   if (!config.HOST) config.HOST = DEFAULTS.HOST;
 
   if (requestedAccessMode) {
+    const detectedNetworkHost = requestedAccessMode === 'network' ? detectPrimaryIpv4() : null;
+    if (requestedAccessMode === 'network' && !detectedNetworkHost) {
+      fail('Could not detect a usable LAN IPv4 address for network access mode.');
+      dim('Run interactive setup and enter the browser-facing LAN address manually.');
+      process.exit(1);
+    }
     let accessPlan = buildAccessPlan({
       profile: requestedAccessMode as InstallerAccessProfile,
       port: config.PORT,
-      sslPort: config.SSL_PORT,
-      remoteHost: !isLoopback(config.HOST || '') ? config.HOST : detectPrimaryIpv4() || config.HOST || DEFAULTS.HOST,
+      remoteHost: detectedNetworkHost,
       tailscale: prereqs.tailscale,
     });
 
@@ -1080,10 +993,8 @@ async function runDefaults(existing: EnvConfig, prereqs: PrereqResult): Promise<
     }
 
     delete config.ALLOWED_ORIGINS;
-    delete config.CSP_CONNECT_EXTRA;
-    // WS_ALLOWED_HOSTS preserved across setup runs. See merge logic in
-    // applyAccessPlanToConfig (plan + existing + remote-gateway host).
     Object.assign(config, applyAccessPlanToConfig(config, accessPlan));
+    selectedAccessPlan = accessPlan;
 
     success(`Using access mode: ${accessPlan.profile}`);
     if (accessPlan.browserOrigins[0]) {
@@ -1091,18 +1002,31 @@ async function runDefaults(existing: EnvConfig, prereqs: PrereqResult): Promise<
     }
   }
 
-  // Auth: auto-enable when network-exposed with gateway token, generate session secret
+  // Auth: every standard network-exposed mode enables managed authentication.
   if (!config.CONVOSKETCHPAD_SESSION_SECRET) {
     config.CONVOSKETCHPAD_SESSION_SECRET = randomBytes(32).toString('hex');
   }
-  if (config.HOST === '0.0.0.0' && !config.CONVOSKETCHPAD_AUTH) {
-    if (config.GATEWAY_TOKEN) {
-      config.CONVOSKETCHPAD_AUTH = 'true';
-      success('Trusted-user token authentication auto-enabled');
-      dim('Create the first user with: npm run users -- add <name> [--token <token>]');
-    } else {
-      warn('Network-exposed without authentication — consider running interactive setup');
-    }
+  const configuredOrigins = config.ALLOWED_ORIGINS
+    ? parseBrowserOrigins(config.ALLOWED_ORIGINS)
+    : [];
+  if (!configuredOrigins) {
+    fail('Existing ALLOWED_ORIGINS contains an invalid or non-Origin URL.');
+    dim('Use exact HTTP(S) origins without paths, credentials, queries, fragments, or wildcards.');
+    process.exit(1);
+  }
+  const remoteAccess = selectedAccessPlan?.remoteAccess
+    ?? (
+      !isLoopbackHost(config.HOST || DEFAULTS.HOST)
+      || configuredOrigins.some(origin => !isLoopbackBrowserOrigin(origin))
+    );
+  if (remoteAccess && config.CONVOSKETCHPAD_AUTH !== 'true') {
+    config.CONVOSKETCHPAD_AUTH = 'true';
+    delete config.CONVOSKETCHPAD_ALLOW_INSECURE;
+    success('Trusted-user token authentication auto-enabled');
+    dim('Create the first user with: npm run users -- add <name> [--token <token>]');
+  }
+  if (!remoteAccess || config.CONVOSKETCHPAD_AUTH === 'true') {
+    delete config.CONVOSKETCHPAD_ALLOW_INSECURE;
   }
 
   process.stdout.write('  Testing gateway connection... ');
@@ -1114,24 +1038,6 @@ async function runDefaults(existing: EnvConfig, prereqs: PrereqResult): Promise<
     fail('Refusing to write .env because gateway auth could not be verified.');
     console.log('');
     process.exit(1);
-  }
-
-  const requestedOrigins = config.ALLOWED_ORIGINS
-    ?.split(',')
-    .map(origin => origin.trim())
-    .filter(Boolean) || [];
-  const gatewayIsRemote = isRemoteGatewayUrl(config.GATEWAY_URL || DEFAULTS.GATEWAY_URL);
-  if (!gatewayIsRemote) {
-    requireNativeOpenClawCapabilities(['configPatch']);
-  }
-  const changes = gatewayIsRemote
-    ? []
-    : detectNeededConfigChanges({ allowedOrigins: requestedOrigins });
-  if (gatewayIsRemote) {
-    printRemoteOriginInstructions(requestedOrigins);
-  }
-  if (changes.length > 0) {
-    await applyConfigChanges(changes);
   }
 
   if (existsSync(ENV_PATH)) {
@@ -1147,7 +1053,7 @@ async function runDefaults(existing: EnvConfig, prereqs: PrereqResult): Promise<
     printDeploymentGuides();
   }
 
-  const pairingFollowUp = await configureNativePairing(config, false);
+  const pairingFollowUp = await configureNativePairing(config);
   if (pairingFollowUp) appendFollowUp([pairingFollowUp]);
 
   if (followUpSteps.length > 0) {

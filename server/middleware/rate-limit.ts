@@ -62,6 +62,29 @@ if (extraProxies) {
   }
 }
 
+function getDirectClientIp(c: Context): string {
+  const override = c.get('rateLimitDirectIp' as never) as string | undefined;
+  if (override) return override;
+  try {
+    return getConnInfo(c).remote.address || 'unknown';
+  } catch {
+    return 'unknown';
+  }
+}
+
+export function isTrustedProxyRequest(c: Context): boolean {
+  return TRUSTED_PROXIES.has(getDirectClientIp(c));
+}
+
+export function isSecureRequest(c: Context): boolean {
+  if (c.req.url.startsWith('https://')) return true;
+  if (!isTrustedProxyRequest(c)) return false;
+  return c.req.header('x-forwarded-proto')
+    ?.split(',')[0]
+    ?.trim()
+    .toLowerCase() === 'https';
+}
+
 /**
  * Get client identifier from request.
  *
@@ -75,13 +98,7 @@ export function getClientId(c: Context): string {
   if (override) return override;
 
   // Get the real TCP socket remote address (not spoofable)
-  let directIp = 'unknown';
-  try {
-    const info = getConnInfo(c);
-    directIp = info.remote.address || 'unknown';
-  } catch {
-    // getConnInfo may fail in test environments — fall back to 'unknown'
-  }
+  const directIp = getDirectClientIp(c);
 
   // Only trust forwarded headers from known proxy IPs
   if (TRUSTED_PROXIES.has(directIp)) {

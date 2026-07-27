@@ -7,7 +7,7 @@ import { config } from './config.js';
 import {
   gatewayRpcCall,
   gatewaySupports,
-  getGatewayHttpAuthToken,
+  getGatewaySharedHttpAuthToken,
 } from './gateway-rpc.js';
 import type { CanvasArtifact, CanvasAttachment, OwnedInteractionRecord } from './canvas-db.js';
 
@@ -198,7 +198,7 @@ async function loadSourceBytes(
     let sessionKey = '';
     try { sessionKey = match ? decodeURIComponent(match[1]) : ''; } catch { /* invalid encoding */ }
     if (sessionKey !== interaction.sessionKey) throw new Error('Artifact media session does not match the Interaction');
-    const token = getGatewayHttpAuthToken();
+    const token = getGatewaySharedHttpAuthToken();
     const response = await fetch(mediaUrl, {
       headers: token ? { Authorization: `Bearer ${token}` } : undefined,
       signal: AbortSignal.timeout(30_000),
@@ -345,48 +345,6 @@ export async function materializeCanvasArtifacts(
   }
 
   return { artifacts, complete: warnings.length === 0, warnings };
-}
-
-export async function validateCanvasAttachments(
-  ownerId: string,
-  canvasId: string,
-  attachments: CanvasAttachment[],
-): Promise<CanvasAttachment[]> {
-  const persisted: CanvasAttachment[] = [];
-  for (const attachment of attachments) {
-    const id = attachment.id || '';
-    if (!ARTIFACT_ID_PATTERN.test(id) || attachment.storage !== 'canvas') {
-      throw new Error(`${attachment.name}: Attachment must reference Canvas-owned storage`);
-    }
-    const bytes = await readCanvasAttachment(ownerId, canvasId, id);
-    if (!bytes) throw new Error(`${attachment.name}: Canvas attachment is unavailable`);
-    const expectedUri = canvasAttachmentUri(canvasId, id);
-    if (attachment.uri !== expectedUri || attachment.sizeBytes !== bytes.byteLength) {
-      throw new Error(`${attachment.name}: Canvas attachment metadata does not match persisted content`);
-    }
-    persisted.push({
-      id,
-      name: attachment.name,
-      mimeType: attachment.mimeType || 'application/octet-stream',
-      sizeBytes: bytes.byteLength,
-      uri: expectedUri,
-      storage: 'canvas',
-      available: true,
-    });
-  }
-  return persisted;
-}
-
-export async function importCanvasArtifactFromFile(
-  interaction: OwnedInteractionRecord,
-  artifact: CanvasArtifact,
-  sourceFile: string,
-): Promise<CanvasArtifact> {
-  const sourceUri = artifactSourceUri(artifact);
-  const stat = await fs.stat(sourceFile);
-  if (!stat.isFile()) throw new Error('Repair source is not a file');
-  if (stat.size > CANVAS_ARTIFACT_MAX_BYTES) throw new Error('Artifact exceeds the 25 MiB persistence limit');
-  return persistBytes(interaction, artifact, sourceUri, await fs.readFile(sourceFile), artifact.mimeType);
 }
 
 export async function readCanvasArtifact(

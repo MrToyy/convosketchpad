@@ -16,7 +16,7 @@ interface ErrorBoundaryState {
  *
  * Catches unhandled render errors and displays a full-screen crash page
  * with the error message and a reload button. Wrap the entire app tree
- * with this component. For panel-scoped recovery see {@link PanelErrorBoundary}.
+ * with this component.
  */
 export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
   state: ErrorBoundaryState = { hasError: false, error: null };

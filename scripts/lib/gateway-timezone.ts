@@ -1,3 +1,5 @@
+import { gatewayRequiresDevicePairing } from '../../server/lib/gateway-client-identity.js';
+
 export function localIanaTimezone(): string {
   return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
 }
@@ -13,18 +15,5 @@ export function isValidIanaTimezone(value: string): boolean {
 }
 
 export function isRemoteGatewayUrl(value: string): boolean {
-  try {
-    let hostname = new URL(value).hostname.toLowerCase();
-    if (hostname.startsWith('[') && hostname.endsWith(']')) {
-      hostname = hostname.slice(1, -1);
-    }
-    return !(
-      hostname === 'localhost' ||
-      hostname === '::1' ||
-      hostname === '0:0:0:0:0:0:0:1' ||
-      hostname.startsWith('127.')
-    );
-  } catch {
-    return false;
-  }
+  return gatewayRequiresDevicePairing(value);
 }

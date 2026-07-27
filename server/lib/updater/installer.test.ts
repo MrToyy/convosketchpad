@@ -11,7 +11,7 @@ vi.mock('node:child_process', async (importOriginal) => {
   };
 });
 
-import { buildProject, gitFetchAndCheckout } from './installer.js';
+import { buildProject, gitFetchAndCheckout, migrateDatabase } from './installer.js';
 
 describe('updater installer', () => {
   beforeEach(() => {
@@ -78,6 +78,16 @@ describe('updater installer', () => {
       2,
       'npm',
       ['run', 'build'],
+      expect.objectContaining({ cwd: '/project' }),
+    );
+  });
+
+  it('runs the migration CLI built from the selected release', () => {
+    migrateDatabase('/project');
+
+    expect(execFileSyncMock).toHaveBeenCalledWith(
+      process.execPath,
+      ['bin-dist/bin/convosketchpad-migrate.js'],
       expect.objectContaining({ cwd: '/project' }),
     );
   });
