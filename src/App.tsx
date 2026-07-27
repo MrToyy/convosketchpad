@@ -15,13 +15,26 @@ export default function App({ onLogout }: { onLogout?: () => void }) {
   const { language } = useSettings();
   const copy = getAppCopy(language);
   const { connectionState, connect } = useRuntime();
-  const { tokenData } = useDashboardData();
+  const {
+    tokenData,
+    isLoading: usageLoading,
+    loadError: usageError,
+    ensureTokens,
+    refreshTokens,
+  } = useDashboardData();
   const restart = useGatewayRestart(language);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [stats, setStats] = useState<CanvasContextStats>({ branchCount: 0, sessionCount: 0 });
 
   return <div className="flex h-screen w-screen flex-col overflow-hidden bg-background">
-    <TopBar onSettings={() => setSettingsOpen(true)} tokenData={tokenData} />
+    <TopBar
+      onSettings={() => setSettingsOpen(true)}
+      tokenData={tokenData}
+      usageLoading={usageLoading}
+      usageError={usageError}
+      onUsageOpen={() => void ensureTokens()}
+      onUsageRefresh={() => void refreshTokens()}
+    />
     <div className="min-h-0 flex-1 px-2 py-2 sm:px-4"><div className="shell-panel h-full overflow-hidden rounded-2xl"><CanvasPanel onContextStatsChange={setStats} /></div></div>
     <StatusBar connectionState={connectionState} branchCount={stats.branchCount} sessionCount={stats.sessionCount} contextTokens={stats.usedTokens} contextLimit={stats.contextLimit} />
     <SettingsDrawer open={settingsOpen} onClose={() => setSettingsOpen(false)} onReconnect={() => void connect()} connectionState={connectionState} onLogout={onLogout} onGatewayRestart={restart.handleGatewayRestart} gatewayRestarting={restart.gatewayRestarting} />

@@ -85,4 +85,19 @@ Gateway 运行状态流不包含 Canvas、Interaction、发送或 Artifact 事�
 | GET | `/api/server-info` | 服务端时间、时区和 Gateway 运行时间 |
 | POST | `/api/gateway/restart` | 重启本机 Gateway；远程 Gateway 返回 409 |
 
+`GET /api/tokens` 按需调用 OpenClaw `usage.cost`，返回整个 Gateway 在当前保留记录中的累计用量：
+
+```json
+{
+  "totalCost": 0,
+  "totalInput": 12049475,
+  "totalOutput": 657434,
+  "totalCacheRead": 132034816,
+  "updatedAt": 1785147159265,
+  "source": "openclaw-gateway"
+}
+```
+
+`totalCost` 直接使用 OpenClaw 汇总值，只统计计费 Token；Provider 配额由独立的 `/api/provider-limits` 提供。该接口不扫描 `sessions.usage`，也不返回 Provider 历史明细、消息数或错误数。
+
 用户只能通过 `npm run users -- ...` 管理，不提供注册 API。

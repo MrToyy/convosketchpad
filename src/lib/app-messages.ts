@@ -54,6 +54,11 @@ export interface AppCopy {
   usage: {
     heading: string;
     loading: string;
+    refresh: string;
+    refreshFailed: string;
+    gatewayUsage: string;
+    providerQuotas: string;
+    billableTokensOnly: string;
     allTime: string;
     used: string;
     resets: string;
@@ -64,16 +69,9 @@ export interface AppCopy {
     noLimits: string;
     noLimitDetails: string;
     providerLimits: (provider: string) => string;
-    providerDetails: (provider: string) => string;
     input: string;
     output: string;
     cached: string;
-    messages: string;
-    average: string;
-    perMessage: string;
-    breakdownUnavailable: string;
-    noData: string;
-    errors: string;
   };
   update: {
     badge: string;
@@ -162,6 +160,11 @@ export const appCopy = {
     usage: {
       heading: '用量',
       loading: '加载中…',
+      refresh: '刷新用量',
+      refreshFailed: '刷新用量失败，当前显示上次结果。',
+      gatewayUsage: 'Gateway 全局用量',
+      providerQuotas: 'Provider 配额',
+      billableTokensOnly: '仅统计计费 Token',
       allTime: '累计',
       used: '已用',
       resets: '重置于',
@@ -172,16 +175,9 @@ export const appCopy = {
       noLimits: 'Provider 未返回限额',
       noLimitDetails: '暂无可显示的限额明细',
       providerLimits: (provider) => `${provider} 限额`,
-      providerDetails: (provider) => `${provider} Provider 明细`,
       input: '输入',
       output: '输出',
       cached: '缓存',
-      messages: '条消息',
-      average: '平均',
-      perMessage: '/条',
-      breakdownUnavailable: '无法获取 Provider 明细',
-      noData: '暂无用量数据',
-      errors: '个错误',
     },
     update: {
       badge: '更新',
@@ -268,6 +264,11 @@ export const appCopy = {
     usage: {
       heading: 'Usage',
       loading: 'Loading…',
+      refresh: 'Refresh usage',
+      refreshFailed: 'Usage refresh failed. Showing the last result.',
+      gatewayUsage: 'Gateway-wide usage',
+      providerQuotas: 'Provider quotas',
+      billableTokensOnly: 'Billable tokens only',
       allTime: 'all-time',
       used: 'used',
       resets: 'resets',
@@ -278,16 +279,9 @@ export const appCopy = {
       noLimits: 'No provider limits reported',
       noLimitDetails: 'No quota details available',
       providerLimits: (provider) => `${provider} limits`,
-      providerDetails: (provider) => `${provider} provider details`,
       input: 'in',
       output: 'out',
       cached: 'cached',
-      messages: 'msgs',
-      average: 'avg',
-      perMessage: '/msg',
-      breakdownUnavailable: 'Provider breakdown unavailable',
-      noData: 'No usage data',
-      errors: 'errors',
     },
     update: {
       badge: 'update',

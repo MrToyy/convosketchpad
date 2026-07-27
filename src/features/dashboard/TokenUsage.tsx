@@ -1,5 +1,5 @@
-import { useState, useMemo } from 'react';
-import type { TokenData, TokenEntry } from '@/types';
+import { RefreshCw } from 'lucide-react';
+import type { TokenData } from '@/types';
 import { AnimatedNumber } from '@/components/ui/AnimatedNumber';
 import { fmtTokens } from '@/lib/formatting';
 import { useProviderLimits } from './useProviderLimits';
@@ -79,21 +79,21 @@ function ProviderLimitsBlock({ providers, available, copy, language }: {
 }) {
   if (available === null) {
     return (
-      <div className="pt-1.5 mt-1 border-t border-border/30 text-[0.733rem] text-muted-foreground/50 animate-pulse">
+      <div className="pt-1.5 text-[0.733rem] text-muted-foreground/50 animate-pulse">
         {copy.usage.loadingLimits}
       </div>
     );
   }
   if (!available) {
     return (
-      <div className="pt-1.5 mt-1 border-t border-border/30 text-[0.733rem] text-muted-foreground/40">
+      <div className="pt-1.5 text-[0.733rem] text-muted-foreground/40">
         {copy.usage.limitsUnavailable}
       </div>
     );
   }
   if (providers.length === 0) {
     return (
-      <div className="pt-1.5 mt-1 border-t border-border/30 text-[0.733rem] text-muted-foreground/40">
+      <div className="pt-1.5 text-[0.733rem] text-muted-foreground/40">
         {copy.usage.noLimits}
       </div>
     );
@@ -130,125 +130,21 @@ function ProviderLimitsBlock({ providers, available, copy, language }: {
   });
 }
 
-// ── Expandable provider row ──────────────────────────────────────────
-
-function ProviderRow({
-  entry,
-  maxCost,
-  copy,
-}: {
-  entry: TokenEntry;
-  maxCost: number;
-  copy: AppCopy;
-}) {
-  const [expanded, setExpanded] = useState(false);
-  const pct = Math.max(2, (entry.cost / maxCost) * 100);
-  const barClass = PROVIDER_BAR_CLASSES[entry.source] || DEFAULT_BAR_CLASS;
-  const costCents = Math.round(entry.cost * 100);
-  const icon = PROVIDER_ICONS[entry.source] || '●';
-  const avgCost = entry.messageCount ? entry.cost / entry.messageCount : 0;
-
-  return (
-    <div className="flex flex-col">
-      <button
-        onClick={() => setExpanded(!expanded)}
-        aria-expanded={expanded}
-        aria-label={copy.usage.providerDetails(entry.source)}
-        className="flex items-center gap-2 text-[0.733rem] w-full hover:bg-muted/30 rounded px-0.5 py-0.5 transition-colors cursor-pointer group"
-      >
-        <span className="w-3.5 text-center shrink-0 text-xs flex items-center justify-center">{icon}</span>
-        <span className="text-foreground text-[0.733rem] font-bold w-16 shrink-0 uppercase tracking-[0.5px]">
-          {entry.source}
-        </span>
-        <div className="flex-1 h-2 bg-background border border-border/60 overflow-hidden">
-          <div
-            className={`h-full ${barClass}`}
-            style={{
-              width: `${pct}%`,
-              transition: 'width 700ms cubic-bezier(0.25, 0.46, 0.45, 0.94)',
-            }}
-          />
-        </div>
-        <AnimatedNumber
-          value={costCents}
-          format={(n) => '$' + (n / 100).toFixed(2)}
-          className="text-muted-foreground text-[0.733rem] w-13 text-right shrink-0"
-          duration={600}
-        />
-        <span
-          className={`text-[0.667rem] transition-transform duration-150 ${expanded ? 'rotate-180' : ''} text-muted-foreground/50 group-hover:text-muted-foreground`}
-        >
-          ▼
-        </span>
-      </button>
-
-      {expanded && (
-        <div className="pl-6 pr-1 pb-1.5 pt-0.5 flex flex-col gap-1 border-l-2 border-border/30 ml-[7px]">
-          {/* Token breakdown */}
-          <div className="flex gap-3 text-[0.733rem] text-muted-foreground flex-wrap">
-            <span>
-              ↑ <span className="text-foreground">{fmtTokens(entry.inputTokens || 0)}</span> {copy.usage.input}
-            </span>
-            <span>
-              ↓ <span className="text-foreground">{fmtTokens(entry.outputTokens || 0)}</span> {copy.usage.output}
-            </span>
-            {(entry.cacheReadTokens || 0) > 0 && (
-              <span>
-                📦 <span className="text-foreground">{fmtTokens(entry.cacheReadTokens || 0)}</span> {copy.usage.cached}
-              </span>
-            )}
-          </div>
-
-          {/* Message stats */}
-          <div className="flex gap-3 text-[0.733rem] text-muted-foreground flex-wrap">
-            <span>
-              💬 <span className="text-foreground">{(entry.messageCount || 0).toLocaleString()}</span> {copy.usage.messages}
-            </span>
-            <span>
-              {copy.usage.average} <span className="text-foreground">${avgCost.toFixed(4)}</span>{copy.usage.perMessage}
-            </span>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
 // ── Main component ───────────────────────────────────────────────────
 
 interface TokenUsageProps {
   data: TokenData | null;
+  loading: boolean;
+  error: boolean;
+  onRefresh: () => void;
 }
 
-/** Dashboard widget displaying token usage breakdown with visual bars. */
-export function TokenUsage({ data }: TokenUsageProps) {
+/** Gateway-wide token usage plus independently sourced Provider quotas. */
+export function TokenUsage({ data, loading, error, onRefresh }: TokenUsageProps) {
   const { language } = useSettings();
   const copy = getAppCopy(language);
-  const entries = useMemo(
-    () =>
-      (data?.entries || []).filter(
-        (e) => e.cost > 0 || (e.messageCount || 0) > 0,
-      ),
-    [data?.entries],
-  );
-  const maxCost = useMemo(() => Math.max(1, ...entries.map((e) => e.cost)), [entries]);
   const providerLimits = useProviderLimits();
-
-  if (!data) {
-    return (
-      <div className="h-full flex flex-col min-h-0">
-        <div className="panel-header border-l-[3px] border-l-primary">
-          <span className="panel-label text-primary">
-            <span className="panel-diamond">◆</span>
-            {copy.usage.heading}
-          </span>
-        </div>
-        <div className="p-3 text-muted-foreground text-[0.667rem]">{copy.usage.loading}</div>
-      </div>
-    );
-  }
-
-  const totalCostCents = Math.round((data.totalCost ?? 0) * 100);
+  const totalCostCents = Math.round((data?.totalCost ?? 0) * 100);
 
   return (
     <div className="h-full flex flex-col min-h-0">
@@ -257,83 +153,68 @@ export function TokenUsage({ data }: TokenUsageProps) {
           <span className="panel-diamond">◆</span>
           {copy.usage.heading}
         </span>
+        <button
+          type="button"
+          onClick={onRefresh}
+          disabled={loading}
+          aria-label={copy.usage.refresh}
+          title={copy.usage.refresh}
+          className="ml-auto rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
+        </button>
       </div>
       <div className="flex-1 overflow-y-auto">
         <div className="px-3 py-2.5 flex flex-col gap-1">
-          {/* ── Accumulated cost ───────────────────────────────── */}
-          <div className="flex items-baseline gap-2 pb-1.5 border-b border-border/40 mb-0.5">
-            <AnimatedNumber
-              value={totalCostCents}
-              format={(n) => '$' + (n / 100).toFixed(2)}
-              className="text-xl font-bold text-primary [text-shadow:0_0_8px_rgba(232,168,56,0.3)]"
-              duration={800}
-            />
-            <span className="text-[0.733rem] text-muted-foreground uppercase tracking-[1px]">{copy.usage.allTime}</span>
+          <div className="text-[0.733rem] font-semibold uppercase tracking-[1px] text-muted-foreground">
+            {copy.usage.gatewayUsage}
           </div>
-
-          {/* ── Per-provider expandable rows ───────────────────── */}
-          {entries.length > 0 ? (
-            entries.map((e) => (
-              <ProviderRow
-                key={e.source}
-                entry={e}
-                maxCost={maxCost}
-                copy={copy}
-              />
-            ))
-          ) : data.breakdownAvailable === false ? (
-            <div className="text-[0.733rem] text-muted-foreground/50 italic">{copy.usage.breakdownUnavailable}</div>
+          {!data ? (
+            <div className="py-2 text-[0.733rem] text-muted-foreground">
+              {error ? copy.usage.refreshFailed : copy.usage.loading}
+            </div>
           ) : (
-            <div className="text-[0.733rem] text-muted-foreground/50 italic">{copy.usage.noData}</div>
+            <>
+              <div className="flex items-baseline gap-2">
+                <AnimatedNumber
+                  value={totalCostCents}
+                  format={(n) => '$' + (n / 100).toFixed(2)}
+                  className="text-xl font-bold text-primary [text-shadow:0_0_8px_rgba(232,168,56,0.3)]"
+                  duration={800}
+                />
+                <span className="text-[0.733rem] uppercase tracking-[1px] text-muted-foreground">{copy.usage.allTime}</span>
+              </div>
+              <div className="text-[0.667rem] text-muted-foreground/60">{copy.usage.billableTokensOnly}</div>
+              {error && (
+                <div className="text-[0.667rem] text-destructive">{copy.usage.refreshFailed}</div>
+              )}
+              <div className="mt-1 flex flex-wrap gap-3 border-t border-border/40 pt-1.5 text-[0.733rem] text-muted-foreground">
+                <span>
+                  ↑ <AnimatedNumber value={data.totalInput} format={fmtTokens} className="text-foreground" duration={600} />{' '}
+                  {copy.usage.input}
+                </span>
+                <span>
+                  ↓ <AnimatedNumber value={data.totalOutput} format={fmtTokens} className="text-foreground" duration={600} />{' '}
+                  {copy.usage.output}
+                </span>
+                <span>
+                  📦 <AnimatedNumber value={data.totalCacheRead} format={fmtTokens} className="text-foreground" duration={600} />{' '}
+                  {copy.usage.cached}
+                </span>
+              </div>
+            </>
           )}
 
-          {/* ── OpenClaw-native Provider quota windows ─────────── */}
-          <ProviderLimitsBlock
-            providers={providerLimits?.providers ?? []}
-            available={providerLimits?.available ?? null}
-            copy={copy}
-            language={language}
-          />
-
-          {/* ── Aggregate token stats ──────────────────────────── */}
-          <div className="flex gap-3 pt-1.5 mt-0.5 border-t border-border/40 text-[0.733rem] text-muted-foreground flex-wrap">
-            <span>
-              ↑{' '}
-              <AnimatedNumber
-                value={data.totalInput || 0}
-                format={fmtTokens}
-                className="text-foreground"
-                duration={600}
-              />{' '}
-              {copy.usage.input}
-            </span>
-            <span>
-              ↓{' '}
-              <AnimatedNumber
-                value={data.totalOutput || 0}
-                format={fmtTokens}
-                className="text-foreground"
-                duration={600}
-              />{' '}
-              {copy.usage.output}
-            </span>
-            {(data.totalMessages ?? 0) > 0 && (
-              <span>
-                💬{' '}
-                <AnimatedNumber
-                  value={data.totalMessages || 0}
-                  format={(n) => n.toLocaleString()}
-                  className="text-foreground"
-                  duration={600}
-                />{' '}
-                {copy.usage.messages}
-              </span>
-            )}
-            {(data.totalErrors ?? 0) > 0 && (
-              <span className="text-red">
-                ⚠ <span className="font-bold">{data.totalErrors?.toLocaleString()}</span> {copy.usage.errors}
-              </span>
-            )}
+          <div className="mt-2 border-t border-border/50 pt-2">
+            <div className="text-[0.733rem] font-semibold uppercase tracking-[1px] text-muted-foreground">
+              {copy.usage.providerQuotas}
+            </div>
+            <ProviderLimitsBlock
+              providers={providerLimits?.providers ?? []}
+              available={providerLimits?.available ?? null}
+              copy={copy}
+              language={language}
+            />
           </div>
         </div>
       </div>

@@ -24,6 +24,7 @@ ConvoSketchpad 的重要变更均记录在此文件中。格式遵循 [Keep a Ch
 - Setup 统一 Local、LAN、Tailscale IP、Tailscale Serve 和 Custom 的精确浏览器 Origin、绑定地址、可信代理与远程认证策略。
 - 生产与开发统一使用 `HOST` / `PORT` 作为浏览器入口；开发后端端口改为自动分配的 loopback 实现细节，并废弃用户级 `VITE_HOST` / `VITE_PORT`。
 - 移除应用和 Vite 的内置 TLS；HTTPS 统一由反向代理或 Tailscale Serve 终止。
+- 用量面板移除高成本的 Provider 历史明细扫描，改为按需读取 Gateway 全局金额与 Input/Output/Cache Read；Provider 配额保持独立展示。
 
 ### 安全
 
