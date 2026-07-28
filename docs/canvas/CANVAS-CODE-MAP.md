@@ -18,11 +18,14 @@
 
 | 关注点 | 文件 |
 |---|---|
-| Canvas 数据控制、Agent、发送和完整节点投影 | `src/features/canvas/CanvasPanel.tsx` |
+| Canvas 页面组合与 Agent/Canvas 操作 | `src/features/canvas/CanvasPanel.tsx` |
+| Graph 快照、SSE、Preview 与降级刷新控制 | `src/features/canvas/useCanvasGraphController.ts`、`src/hooks/useCanvasSync.ts` |
+| Composer 草稿、上传和 Send Operation 生命周期 | `src/features/canvas/useCanvasComposerDrafts.ts` |
+| Graph 到 Interaction/Composer 节点与边的纯投影 | `src/features/canvas/canvas-flow-projection.ts` |
 | Interaction/Composer 节点、节点注册与自动布局适配 | `src/features/canvas/CanvasNodes.tsx`、`src/features/canvas/constants.ts` |
 | 状态栏 Branch/工作中计数与活跃 Compose 上下文 | `src/features/canvas/status.ts`、`src/components/StatusBar.tsx` |
 | HTTP API 与数据契约 | `src/features/canvas/api.ts`、`src/features/canvas/types.ts` |
-| Canvas SSE、实体合并、降级轮询和退避 | `src/hooks/useCanvasSync.ts`、`src/features/canvas/sync.ts`、`src/features/canvas/graph-refresh.ts` |
+| Canvas 实体合并、降级轮询和退避 | `src/features/canvas/sync.ts`、`src/features/canvas/graph-refresh.ts` |
 | 布局、拖拽保存与显式重新排列 | `src/features/canvas/CanvasPanel.tsx`、`src/features/canvas/CanvasNodes.tsx`、`src/features/canvas/layout.ts` |
 | 图片缩略图与按需原图预览 | `src/features/canvas/CanvasNodes.tsx`、`src/features/chat/ImageLightbox.tsx` |
 | Gateway 运行状态 | `src/contexts/RuntimeContext.tsx`、`src/hooks/useRuntimeEvents.ts` |
@@ -33,14 +36,17 @@
 | 关注点 | 文件 |
 |---|---|
 | Canvas 与发送 HTTP API | `server/routes/canvas.ts` |
+| Root/Fork 与发送应用用例 | `server/lib/canvas-branch-service.ts`、`server/lib/canvas-send-service.ts` |
+| 发送领域类型、状态判定与历史快照组装 | `server/lib/canvas-domain.ts`、`server/lib/canvas-history-snapshot.ts` |
+| 公开 DTO 与内部资源定位 | `server/lib/canvas-public-dto.ts`、`server/lib/canvas-resource-locator.ts` |
 | Interaction 完成时的 OpenClaw Session 上下文快照 | `server/lib/canvas-context-snapshot.ts` |
 | Canvas cursor、SSE 和 Preview | `server/routes/canvas.ts`、`server/lib/canvas-sync.ts` |
 | Gateway 运行状态 SSE | `server/routes/runtime.ts`、`server/lib/runtime-events.ts` |
 | SQLite Schema、迁移和 Branch 状态机 | `server/lib/canvas-db.ts`、`server/lib/canvas-migrations.ts` |
 | `0.2.0` 迁移验证入口与原始 Schema fixture | `bin/convosketchpad-migrate.ts`、`server/lib/fixtures/canvas-v0.2.0.sql` |
 | Fork/Session 恢复 Replay Package、文件引用与物理去重 | `server/lib/canvas-replay-plan.ts` |
-| 后端发送、重试和 Gateway 事件关联 | `server/lib/canvas-send-coordinator.ts`、`server/lib/canvas-send-retry.ts` |
-| Gateway 唯一连接与设备边界 | `server/lib/gateway-rpc.ts`、`server/lib/device-identity.ts` |
+| 发送调度、单次 Worker、投递构建与 Gateway 事件关联 | `server/lib/canvas-send-coordinator.ts`、`server/lib/canvas-send-worker.ts`、`server/lib/canvas-send-delivery.ts`、`server/lib/canvas-gateway-events.ts` |
+| Gateway 唯一连接、Canvas 类型化适配与设备边界 | `server/lib/gateway-rpc.ts`、`server/lib/openclaw-canvas.ts`、`server/lib/device-identity.ts` |
 | Session/对话协调 | `server/lib/canvas-reconciler.ts`、`server/lib/openclaw-session-policy.ts` |
 | Artifact 观察与 Interaction 终态策略 | `server/lib/canvas-artifact-watch.ts`、`server/lib/canvas-reconciliation-state.ts` |
 | 文件持久化、媒体派生与历史缩略图回填 | `server/lib/canvas-artifact-store.ts`、`server/lib/canvas-media-derivatives.ts`、`server/routes/upload-reference.ts` |
@@ -58,4 +64,4 @@
   → 权威记录和 Artifact 协调
 ```
 
-相关测试位于 `server/lib/canvas-db.test.ts`、`server/lib/canvas-media-derivatives.test.ts`、`server/lib/canvas-replay-plan.test.ts`、`server/lib/canvas-reconciler.test.ts`、`server/lib/canvas-sync.test.ts`、`server/lib/canvas-context-snapshot.test.ts`、`server/lib/updater/snapshot.test.ts`、`server/lib/gateway-rpc.test.ts`、`server/routes/canvas-artifacts.test.ts`、`server/routes/upload-reference.test.ts`、`src/features/chat/ImageLightbox.test.tsx`、`src/features/canvas/CanvasNodes.layout.test.ts`、`src/features/canvas/CanvasPanel.rearrange.test.tsx`、`src/features/canvas/sync.test.ts`、`src/features/canvas/status.test.ts`、`src/features/canvas/graph-refresh.test.ts` 和 `src/hooks/useCanvasSync.test.ts`。数据库测试会从完整的 `0.2.0` Schema fixture 建库，验证迁移账本、状态转换、Artifact 合并、附件回填及重启不重跑。
+发送分层的特征测试位于 `server/lib/canvas-domain.test.ts`、`server/lib/canvas-send-service.test.ts`、`server/lib/canvas-public-dto.test.ts`、`server/lib/canvas-gateway-events.test.ts` 和 `server/lib/canvas-resource-locator.test.ts`；前端控制与投影测试位于 `src/features/canvas/useCanvasComposerDrafts.test.tsx`、`src/features/canvas/canvas-flow-projection.test.ts` 和既有 Canvas/SSE 测试。数据库测试继续从完整的 `0.2.0` Schema fixture 建库，验证迁移账本、状态转换、Artifact 合并、附件回填及重启不重跑。

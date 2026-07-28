@@ -7,90 +7,53 @@ import {
   readCanvasAttachment,
 } from '../lib/canvas-artifact-store.js';
 import {
-  canvasArtifactThumbnailUri,
-  canvasAttachmentThumbnailUri,
   ensureCanvasMediaDerivative,
   isCanvasMediaSystemError,
 } from '../lib/canvas-media-derivatives.js';
 import {
   getCanvasStore,
-  type CanvasArtifact,
-  type CanvasAttachment,
-  type InteractionRecord,
-  type SendReservation,
-  type CanvasStore,
 } from '../lib/canvas-db.js';
+import {
+  CanvasSendApplicationError,
+  CanvasSendService,
+} from '../lib/canvas-send-service.js';
+import { CanvasBranchService } from '../lib/canvas-branch-service.js';
 import {
   interactionHasPendingUpdates,
 } from '../lib/canvas-reconciler.js';
-import { config } from '../lib/config.js';
-import { gatewayRpcCall } from '../lib/gateway-rpc.js';
 import { dispatchCanvasSend } from '../lib/canvas-send-coordinator.js';
 import { subscribeCanvasSync } from '../lib/canvas-sync.js';
+import { openClawCanvas } from '../lib/openclaw-canvas.js';
 import {
-  getCanvasSessionResetPolicy,
-  sessionWillResetBeforeSend,
-} from '../lib/openclaw-session-policy.js';
+  publicCanvasInteraction as publicInteraction,
+  publicCanvasSendReservation as publicSendReservation,
+} from '../lib/canvas-public-dto.js';
 import { rateLimitGeneral } from '../middleware/rate-limit.js';
 
 const app = new Hono();
-const SESSION_LIST_LIMIT = 1_000;
 const encoder = new TextEncoder();
 
 function sseFrame(event: string, data: unknown, id?: number): Uint8Array {
   return encoder.encode(`${id === undefined ? '' : `id: ${id}\n`}event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
 }
 
-interface GatewayAgentSummary {
-  id?: string;
-}
-
-interface GatewayAgentList {
-  defaultId?: string;
-  agents?: GatewayAgentSummary[];
-}
-
-interface GatewaySessionSummary {
-  key?: string;
-  sessionKey?: string;
-  id?: string;
-  sessionId?: string;
-}
-
-async function refreshBranchSessionIdentity(
-  store: CanvasStore,
-  target: { branchId: string; sessionKey: string },
-  markMissing: boolean,
-): Promise<void> {
-  const response = await gatewayRpcCall('sessions.list', {
-    limit: SESSION_LIST_LIMIT,
-  }, 15_000) as { sessions?: GatewaySessionSummary[] };
-  if (!Array.isArray(response.sessions)) return;
-
-  const session = response.sessions.find(
-    (candidate) => (candidate.sessionKey || candidate.key) === target.sessionKey,
-  );
-  const sessionId = session?.sessionId || session?.id;
-  if (sessionId) store.observeBranchSession(target.branchId, sessionId);
-  else if (!session && markMissing) store.markBranchSessionMissing(target.branchId);
-}
-
 async function listGatewayAgents(): Promise<{ defaultId: string; ids: Set<string> }> {
-  let response: GatewayAgentList;
   try {
-    response = await gatewayRpcCall('agents.list', {}, 15_000) as GatewayAgentList;
+    const { defaultId, ids } = await openClawCanvas.listAgents();
+    if (!defaultId || !ids.has(defaultId)) throw new Error('agent_catalog_unavailable');
+    return { defaultId, ids };
   } catch (error) {
     console.warn('[canvas] agents.list failed:', error instanceof Error ? error.message : error);
     throw new Error('agent_catalog_unavailable');
   }
-  const agents = Array.isArray(response.agents) ? response.agents : [];
-  const ids = new Set(agents.flatMap((agent) => typeof agent.id === 'string' && agent.id.trim() ? [agent.id.trim()] : []));
-  const defaultId = typeof response.defaultId === 'string' ? response.defaultId.trim() : '';
-  if (!defaultId || !ids.has(defaultId)) throw new Error('agent_catalog_unavailable');
-  return { defaultId, ids };
 }
 
 function errorResponse(c: Context, error: unknown) {
+  if (error instanceof CanvasSendApplicationError) {
+    if (error.status === 404) return c.json({ error: error.publicMessage }, 404);
+    if (error.status === 409) return c.json({ error: error.publicMessage }, 409);
+    return c.json({ error: error.publicMessage }, 422);
+  }
   const message = error instanceof Error ? error.message : 'canvas_error';
   if (message === 'not_found') return c.json({ error: 'Not found' }, 404);
   if (message === 'agent_locked' || message === 'agent_changed') return c.json({ error: message }, 409);
@@ -114,72 +77,6 @@ function routeParam(c: Context, name: string): string {
   return c.req.param(name) || '';
 }
 
-function publicAttachment(attachment: CanvasAttachment): CanvasAttachment {
-  const canvasMatch = attachment.uri?.match(/^\/api\/canvas\/attachments\/([^/]+)\/([^/]+)$/);
-  return {
-    id: attachment.id,
-    name: attachment.name,
-    mimeType: attachment.mimeType,
-    sizeBytes: attachment.sizeBytes,
-    uri: attachment.storage === 'canvas' && attachment.uri?.startsWith('/api/canvas/')
-      ? attachment.uri
-      : undefined,
-    ...(attachment.mimeType.startsWith('image/') && canvasMatch
-      ? {
-        thumbnailUri: canvasAttachmentThumbnailUri(
-          decodeURIComponent(canvasMatch[1]),
-          decodeURIComponent(canvasMatch[2]),
-        ),
-      }
-      : {}),
-    storage: attachment.storage,
-    available: attachment.available,
-    warning: attachment.warning,
-  };
-}
-
-function publicArtifact(artifact: CanvasArtifact): CanvasArtifact {
-  const canvasMatch = artifact.uri.match(/^\/api\/canvas\/artifacts\/([^/]+)\/([^/]+)\/([^/]+)$/);
-  return {
-    id: artifact.id,
-    gatewayArtifactId: artifact.gatewayArtifactId,
-    name: artifact.name,
-    mimeType: artifact.mimeType,
-    sizeBytes: artifact.sizeBytes,
-    uri: artifact.storage === 'canvas' || artifact.storage === 'external' ? artifact.uri : '',
-    ...(artifact.storage === 'canvas' && artifact.mimeType?.startsWith('image/') && canvasMatch
-      ? {
-        thumbnailUri: canvasArtifactThumbnailUri(
-          decodeURIComponent(canvasMatch[1]),
-          decodeURIComponent(canvasMatch[2]),
-          decodeURIComponent(canvasMatch[3]),
-        ),
-      }
-      : {}),
-    storage: artifact.storage,
-    available: artifact.available,
-    warning: artifact.warning,
-  };
-}
-
-function publicInteraction(interaction: InteractionRecord): InteractionRecord {
-  return {
-    ...interaction,
-    attachments: interaction.attachments.map(publicAttachment),
-    artifacts: interaction.artifacts.map(publicArtifact),
-  };
-}
-
-function publicSendReservation(operation: SendReservation) {
-  const publicOperation = {
-    ...operation,
-    attachments: operation.attachments.map(publicAttachment),
-  } as Partial<SendReservation>;
-  delete publicOperation.outgoingMessage;
-  delete publicOperation.bootstrapResources;
-  return publicOperation;
-}
-
 app.get('/api/canvas/canvases', rateLimitGeneral, (c) => {
   const identity = identityOr401(c);
   if (!identity) return c.json({ error: 'Authentication required' }, 401);
@@ -190,8 +87,11 @@ app.get('/api/canvas/agents', rateLimitGeneral, async (c) => {
   const identity = identityOr401(c);
   if (!identity) return c.json({ error: 'Authentication required' }, 401);
   try {
-    const response = await gatewayRpcCall('agents.list', {}, 15_000) as GatewayAgentList;
-    return c.json(response);
+    const catalog = await openClawCanvas.listAgents();
+    return c.json({
+      ...(catalog.defaultId ? { defaultId: catalog.defaultId } : {}),
+      agents: catalog.agents,
+    });
   } catch (error) {
     console.warn('[canvas] agents.list failed:', error instanceof Error ? error.message : error);
     return c.json({ error: 'agent_catalog_unavailable' }, 502);
@@ -495,7 +395,8 @@ app.post('/api/canvas/canvases/:id/root-branches', rateLimitGeneral, (c) => {
   const identity = identityOr401(c);
   if (!identity) return c.json({ error: 'Authentication required' }, 401);
   try {
-    return c.json({ branch: getCanvasStore().createRootBranch(identity.userId, routeParam(c, 'id')) }, 201);
+    const service = new CanvasBranchService(getCanvasStore());
+    return c.json({ branch: service.createRoot(identity.userId, routeParam(c, 'id')) }, 201);
   } catch (error) { return errorResponse(c, error); }
 });
 
@@ -503,7 +404,8 @@ app.post('/api/canvas/interactions/:id/fork', rateLimitGeneral, (c) => {
   const identity = identityOr401(c);
   if (!identity) return c.json({ error: 'Authentication required' }, 401);
   try {
-    return c.json({ branch: getCanvasStore().forkInteraction(identity.userId, routeParam(c, 'id')) }, 201);
+    const service = new CanvasBranchService(getCanvasStore());
+    return c.json({ branch: service.fork(identity.userId, routeParam(c, 'id')) }, 201);
   } catch (error) { return errorResponse(c, error); }
 });
 
@@ -522,62 +424,24 @@ app.post('/api/canvas/branches/:id/send', rateLimitGeneral, async (c) => {
   }
   try {
     const store = getCanvasStore();
-    const branchId = routeParam(c, 'id');
-    const branch = store.getOwnedBranch(identity.userId, branchId);
-    if (!branch) return c.json({ error: 'Not found' }, 404);
-    const canvas = store.getCanvas(identity.userId, branch.canvasId);
-    if (!canvas) return c.json({ error: 'Not found' }, 404);
-    if (canvas.agentId !== parsed.data.expectedAgentId) throw new Error('agent_changed');
-
-    const attachments = store.getOwnedCanvasAttachments(identity.userId, canvas.id, parsed.data.attachmentIds);
-    if (attachments.length !== parsed.data.attachmentIds.length) {
-      return c.json({ error: 'Attachment not found or not owned by this Canvas' }, 422);
-    }
-
-    if (branch.sessionState === 'active') {
-      try {
-        await refreshBranchSessionIdentity(store, { branchId: branch.id, sessionKey: branch.sessionKey }, true);
-      } catch (error) {
-        console.warn('[canvas] Session identity preflight skipped:', error instanceof Error ? error.message : error);
-      }
-    }
-
-    let forceSessionRecovery = false;
-    if (branch.sessionState === 'active') {
-      const refreshedBranch = store.getOwnedBranch(identity.userId, branch.id);
-      if (refreshedBranch?.sessionIntegrity !== 'drifted') {
-        const lifecycle = store.getOwnedBranchSessionLifecycle(identity.userId, branch.id);
-        const resetPolicy = await getCanvasSessionResetPolicy();
-        forceSessionRecovery =
-          !resetPolicy.available ||
-          !resetPolicy.policy ||
-          !lifecycle ||
-          sessionWillResetBeforeSend({
-            policy: resetPolicy.policy,
-            sessionStartedAt: lifecycle.sessionStartedAt,
-            lastInteractionAt: lifecycle.lastInteractionAt,
-            timeZone: config.gatewayTimezone,
-          });
-      }
-    }
-
-    const reservation = store.prepareSend(identity.userId, {
-      branchId,
+    const result = await new CanvasSendService({ store }).submit(identity.userId, {
+      branchId: routeParam(c, 'id'),
       expectedHeadInteractionId: parsed.data.expectedHeadInteractionId,
+      expectedAgentId: parsed.data.expectedAgentId,
       userInput: parsed.data.userInput,
-      attachments,
-      forceSessionRecovery,
+      attachmentIds: parsed.data.attachmentIds,
     });
-    const result = await dispatchCanvasSend(reservation.id);
-    if ('agentOutput' in result) return c.json({ interaction: publicInteraction(result) }, 201);
-    if (result.status === 'failed') {
-      const status = result.error?.includes('does not advertise chat.send') ? 503 : 422;
-      return c.json({
-        error: result.error || 'send_rejected',
-        operation: publicSendReservation(result),
-      }, status);
+    if (result.kind === 'interaction') {
+      return c.json({ interaction: publicInteraction(result.interaction) }, 201);
     }
-    return c.json({ operation: publicSendReservation(result) }, 202);
+    if (result.kind === 'rejected') {
+      const payload = {
+        error: result.error,
+        operation: publicSendReservation(result.operation),
+      };
+      return result.status === 503 ? c.json(payload, 503) : c.json(payload, 422);
+    }
+    return c.json({ operation: publicSendReservation(result.operation) }, 202);
   } catch (error) { return errorResponse(c, error); }
 });
 

@@ -94,6 +94,11 @@ export const canvasApi = {
       method: 'POST', body: JSON.stringify(body),
     });
   },
+  async sendOperation(id: string): Promise<SendReservation> {
+    return (await request<{ operation: SendReservation }>(
+      `/api/canvas/send-operations/${encodeURIComponent(id)}`,
+    )).operation;
+  },
 };
 
 export function canvasArtifactUrl(uri: string): string {

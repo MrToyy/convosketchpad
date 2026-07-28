@@ -31,6 +31,7 @@ ConvoSketchpad 的重要变更均记录在此文件中。格式遵循 [Keep a Ch
 - Fork 与失效 Session 恢复统一为完整 Replay Package：保留全部历史文本及可用附件/Artifact 的逻辑位置，按真实内容哈希去重物理文件，通过原生 `chat.send.attachments` 投递。恢复 Interaction 完成后会收敛 Branch 的新物理 Session ID，超出 Gateway 载荷上限时明确失败而不静默裁剪历史。
 - 图片压缩与历史媒体处理统一迁移到后端：原图保持不可变，投递图和 WebP 缩略图按 Canvas、内容哈希和策略版本缓存；Canvas 节点只加载缩略图，打开预览或下载时才读取原图，外部 HTTP Artifact 不主动抓取。
 - 更新器停服迁移新增历史图片缩略图全量回填和 60 分钟超时；单文件失败可诊断地跳过，系统性存储或数据库错误触发回滚。移除浏览器压缩、媒体准备资源 API 和投递副本上传链。
+- 重构 Canvas 继续/Fork 发送链路：分离前端 Graph、Composer 与 Flow 投影，后端拆分应用用例、发送判定、OpenClaw 适配、Worker、投递构建和事件消费；公开 API、SQLite Schema 与 Gateway 协议保持不变。修复排队发送完成或失败后 Composer 仍长期保持发送状态的问题。
 
 ### 安全
 

@@ -127,7 +127,9 @@ Node 客户端不发送浏览器 `Origin` Header，因此 ConvoSketchpad 不需�
 
 | 区域 | 入口 |
 |---|---|
-| Canvas 数据控制、发送、状态投影和完整实体更新 | `src/features/canvas/CanvasPanel.tsx`、`src/features/canvas/status.ts` |
+| Canvas 页面组合、状态栏投影 | `src/features/canvas/CanvasPanel.tsx`、`src/features/canvas/status.ts` |
+| Graph/SSE 控制与 Composer/Send Operation 生命周期 | `src/features/canvas/useCanvasGraphController.ts`、`src/features/canvas/useCanvasComposerDrafts.ts` |
+| Graph 到节点和边的纯投影 | `src/features/canvas/canvas-flow-projection.ts` |
 | Interaction/Composer 节点与节点布局适配 | `src/features/canvas/CanvasNodes.tsx`、`src/features/canvas/constants.ts` |
 | 产品 HTTP 客户端与数据契约 | `src/features/canvas/api.ts`、`src/features/canvas/types.ts` |
 | 图片缩略图、按需原图预览 | `src/features/canvas/CanvasNodes.tsx`、`src/features/chat/ImageLightbox.tsx` |
@@ -139,19 +141,23 @@ Node 客户端不发送浏览器 `Origin` Header，因此 ConvoSketchpad 不需�
 
 | 区域 | 入口 |
 |---|---|
-| Canvas API 与 Interaction 上下文快照 | `server/routes/canvas.ts`、`server/lib/canvas-context-snapshot.ts` |
+| Canvas API、Branch 与发送应用用例 | `server/routes/canvas.ts`、`server/lib/canvas-branch-service.ts`、`server/lib/canvas-send-service.ts` |
+| Interaction 上下文快照、发送判定与历史快照组装 | `server/lib/canvas-context-snapshot.ts`、`server/lib/canvas-domain.ts`、`server/lib/canvas-history-snapshot.ts` |
 | Gateway 运行状态 SSE | `server/routes/runtime.ts`、`server/lib/runtime-events.ts` |
 | Canvas cursor、SSE 与 Preview | `server/routes/canvas.ts`、`server/lib/canvas-sync.ts` |
 | Schema、迁移和状态机 | `server/lib/canvas-db.ts`、`server/lib/canvas-migrations.ts` |
-| Fork/Session 恢复 Replay Package 编译与资源物理去重 | `server/lib/canvas-replay-plan.ts` |
-| 发送协调与恢复重试 | `server/lib/canvas-send-coordinator.ts`、`server/lib/canvas-send-retry.ts` |
-| Gateway 唯一连接 | `server/lib/gateway-rpc.ts` |
+| Fork/Session 恢复 Replay Package 编译与资源物理去重 | `server/lib/canvas-replay-plan.ts`、`server/lib/canvas-resource-locator.ts` |
+| 发送调度、单次 Worker、投递构建与恢复重试 | `server/lib/canvas-send-coordinator.ts`、`server/lib/canvas-send-worker.ts`、`server/lib/canvas-send-delivery.ts`、`server/lib/canvas-send-retry.ts` |
+| Gateway 唯一连接、Canvas 适配与事件消费 | `server/lib/gateway-rpc.ts`、`server/lib/openclaw-canvas.ts`、`server/lib/canvas-gateway-events.ts` |
 | 对话与 Artifact 协调 | `server/lib/canvas-reconciler.ts`、`server/lib/canvas-artifact-watch.ts`、`server/lib/canvas-reconciliation-state.ts` |
 | 附件、Artifact、投递图与缩略图文件存储 | `server/routes/upload-reference.ts`、`server/lib/canvas-artifact-store.ts`、`server/lib/canvas-media-derivatives.ts` |
 
 ## 数据模型与迁移
 
 现有 `interactions.attachments_json`、`artifacts_json` 和 `session_metadata_json` 保持向下回滚兼容。Interaction 增量增加 `version`、执行状态、Artifact 同步状态、终止时间和错误字段；迁移完成后，运行时 Artifact 投影只由规范化表读取。
+
+Canvas 发送分层重构不改变 SQLite Schema：`CanvasStore` 继续作为共享连接和事务门面，应用服务、纯发送判定、
+投递 Worker 与 OpenClaw 适配层只重新划分代码职责，不建立第二套状态或持久化来源。
 
 Interaction 上下文快照复用 `session_metadata_json` 持久化并投影为 Graph 的 `contextSnapshot`，因此不新增
 Schema 迁移。旧数据库和旧节点自然返回 `null`；只有新版本确认完成且 OpenClaw 提供可靠数据的节点才具有快照。

@@ -3,6 +3,14 @@ import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { buildCanvasReplayPlan } from './canvas-replay-plan.js';
+import {
+  decideCanvasSendPlan,
+  type CanonicalCanvasSnapshot,
+  type CanvasContextResource,
+  type SendDispatchState,
+  type SendMaterialization,
+} from './canvas-domain.js';
+import { assembleCanonicalCanvasSnapshot } from './canvas-history-snapshot.js';
 import { config } from './config.js';
 import { applySingleChainSchemaMigration } from './canvas-migrations.js';
 import { packageMetadata } from './package-metadata.js';
@@ -12,8 +20,7 @@ export type BranchSessionState = 'draft' | 'active';
 export type InteractionStatus = 'streaming' | 'completed' | 'failed';
 export type InteractionExecutionState = 'running' | 'completed' | 'failed' | 'unconfirmed';
 export type ArtifactSyncState = 'not_started' | 'observing' | 'synced' | 'degraded';
-export type SendMaterialization = 'lazy-root' | 'continue-existing' | 'checkpoint-delta' | 'canonical-replay' | 'session-recovery';
-export type SendDispatchState = 'reserved' | 'awaiting_media' | 'dispatching' | 'ambiguous' | 'acknowledged' | 'failed';
+export type { CanvasContextResource, SendDispatchState, SendMaterialization } from './canvas-domain.js';
 export type BranchSessionIntegrity = 'unknown' | 'healthy' | 'drifted';
 export type CanvasUserStatus = 'active' | 'disabled' | 'unmanaged';
 
@@ -122,26 +129,6 @@ export interface CanvasArtifact {
   storage?: 'canvas' | 'external' | 'source';
   available?: boolean;
   warning?: string;
-}
-
-export interface CanvasContextResource {
-  id: string;
-  contentHash?: string;
-  sourceInteractionId: string;
-  source: 'user_attachment' | 'agent_artifact';
-  replayRef?: string;
-  name: string;
-  mimeType: string;
-  sizeBytes?: number;
-  uri: string;
-  available: boolean;
-  warning?: string;
-}
-
-interface CanonicalSnapshot {
-  version: 2;
-  interactions: Array<{ id: string; user: string; assistant: string }>;
-  resources: CanvasContextResource[];
 }
 
 export interface CanvasGraph {
@@ -274,12 +261,6 @@ function parseInteractionContextSnapshot(value: unknown): InteractionContextSnap
     return null;
   }
   return value as InteractionContextSnapshot;
-}
-
-function reusableContextResourceUri(uri: string): boolean {
-  return uri.startsWith('/api/canvas/')
-    || uri.startsWith('data:')
-    || /^https?:\/\//i.test(uri);
 }
 
 function mapCanvas(row: SqlRow): CanvasRecord {
@@ -1052,7 +1033,7 @@ export class CanvasStore {
     );
   }
 
-  private buildCanonicalSnapshot(interactionId: string): CanonicalSnapshot {
+  private buildCanonicalSnapshot(interactionId: string): CanonicalCanvasSnapshot {
     const rows: SqlRow[] = [];
     let cursor: string | null = interactionId;
     const seen = new Set<string>();
@@ -1065,48 +1046,16 @@ export class CanvasStore {
     }
     rows.reverse();
 
-    const resources: CanvasContextResource[] = [];
-    const addResource = (resource: CanvasContextResource) => {
-      if (!resource.available || !reusableContextResourceUri(resource.uri)) return;
-      resources.push(resource);
-    };
-    for (const row of rows) {
-      const sourceInteractionId = asString(row.id);
-      parseJson<CanvasAttachment[]>(row.attachments_json, []).forEach((attachment, index) => {
-        if (!attachment.uri) return;
-        addResource({
-          id: `${sourceInteractionId}:attachment:${index}`,
-          ...(attachment.contentHash ? { contentHash: attachment.contentHash } : {}),
-          sourceInteractionId,
-          source: 'user_attachment',
-          name: attachment.name,
-          mimeType: attachment.mimeType || 'application/octet-stream',
-          sizeBytes: attachment.sizeBytes,
-          uri: attachment.uri,
-          available: attachment.available !== false,
-          ...(attachment.warning ? { warning: attachment.warning } : {}),
-        });
-      });
-      this.listInteractionArtifacts(sourceInteractionId).forEach((artifact, index) => {
-        addResource({
-          id: `${sourceInteractionId}:artifact:${index}`,
-          ...(artifact.contentHash ? { contentHash: artifact.contentHash } : {}),
-          sourceInteractionId,
-          source: 'agent_artifact',
-          name: artifact.name,
-          mimeType: artifact.mimeType || 'application/octet-stream',
-          sizeBytes: artifact.sizeBytes,
-          uri: artifact.uri,
-          available: artifact.available !== false,
-          ...(artifact.warning ? { warning: artifact.warning } : {}),
-        });
-      });
-    }
-    return {
-      version: 2,
-      interactions: rows.map((row) => ({ id: asString(row.id), user: asString(row.user_input), assistant: asString(row.agent_output) })),
-      resources,
-    };
+    return assembleCanonicalCanvasSnapshot(rows.map((row) => {
+      const id = asString(row.id);
+      return {
+        id,
+        user: asString(row.user_input),
+        assistant: asString(row.agent_output),
+        attachments: parseJson<CanvasAttachment[]>(row.attachments_json, []),
+        artifacts: this.listInteractionArtifacts(id),
+      };
+    }));
   }
 
   prepareSend(ownerId: string, input: {
@@ -1122,17 +1071,19 @@ export class CanvasStore {
       const existing = this.db.prepare(`SELECT * FROM send_reservations WHERE branch_id = ? AND status = 'prepared'`).get(branch.id) as SqlRow | undefined;
       if (existing) throw new Error('send_in_progress');
 
-      let materialization: SendMaterialization;
+      const decision = decideCanvasSendPlan({
+        branch,
+        expectedHeadInteractionId: input.expectedHeadInteractionId,
+        forceSessionRecovery: input.forceSessionRecovery,
+      });
+      const materialization = decision.materialization;
       let outgoingMessage = input.userInput;
-      let expectedHead: string | null = null;
+      const expectedHead = decision.expectedHeadInteractionId;
       let bootstrapResources: CanvasContextResource[] = [];
 
-      if (branch.sessionState === 'draft' && branch.kind === 'root' && !branch.headInteractionId) {
-        materialization = 'lazy-root';
-      } else if (branch.sessionState === 'draft' && branch.kind === 'fork' && !branch.headInteractionId) {
-        materialization = 'canonical-replay';
+      if (decision.replayReason === 'canonical-replay') {
         const row = this.db.prepare('SELECT snapshot_json FROM branches WHERE id = ?').get(branch.id) as SqlRow;
-        const snapshot = parseJson<CanonicalSnapshot>(row.snapshot_json, {
+        const snapshot = parseJson<CanonicalCanvasSnapshot>(row.snapshot_json, {
           version: 2,
           interactions: [],
           resources: [],
@@ -1140,19 +1091,11 @@ export class CanvasStore {
         const replay = buildCanvasReplayPlan(snapshot, 'canonical-replay', input.userInput);
         bootstrapResources = replay.resources;
         outgoingMessage = replay.message;
-      } else if (branch.sessionState === 'active' && branch.headInteractionId && input.expectedHeadInteractionId === branch.headInteractionId) {
-        expectedHead = branch.headInteractionId;
-        if (branch.sessionIntegrity === 'drifted' || input.forceSessionRecovery) {
-          materialization = 'session-recovery';
-          const snapshot = this.buildCanonicalSnapshot(branch.headInteractionId);
-          const replay = buildCanvasReplayPlan(snapshot, 'session-recovery', input.userInput);
-          bootstrapResources = replay.resources;
-          outgoingMessage = replay.message;
-        } else {
-          materialization = 'continue-existing';
-        }
-      } else {
-        throw new Error('invalid_branch_transition');
+      } else if (decision.replayReason === 'session-recovery' && branch.headInteractionId) {
+        const snapshot = this.buildCanonicalSnapshot(branch.headInteractionId);
+        const replay = buildCanvasReplayPlan(snapshot, 'session-recovery', input.userInput);
+        bootstrapResources = replay.resources;
+        outgoingMessage = replay.message;
       }
 
       const id = randomUUID();
