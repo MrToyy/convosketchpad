@@ -42,6 +42,9 @@ export interface CanvasCopy {
   createBranch: string;
   newSession: string;
   continueBranch: string;
+  rearrangeCanvas: string;
+  rearrangingCanvas: string;
+  rearrangeUnavailableWhileWorking: string;
   saveLayoutFailed: string;
   createCanvasFailed: string;
   renameCanvasFailed: string;
@@ -171,6 +174,9 @@ export const canvasCopy = {
     createBranch: '创建分支',
     newSession: '新建主分支',
     continueBranch: '继续分支',
+    rearrangeCanvas: '重新排列',
+    rearrangingCanvas: '排列中…',
+    rearrangeUnavailableWhileWorking: '请等待正在发送或生成的节点完成后再重新排列',
     saveLayoutFailed: '无法保存画布布局',
     createCanvasFailed: '无法创建画布',
     renameCanvasFailed: '无法重命名画布',
@@ -236,6 +242,9 @@ export const canvasCopy = {
     createBranch: 'Create branch',
     newSession: 'New root branch',
     continueBranch: 'Continue branch',
+    rearrangeCanvas: 'Rearrange',
+    rearrangingCanvas: 'Rearranging…',
+    rearrangeUnavailableWhileWorking: 'Wait for sending or generating nodes to finish before rearranging',
     saveLayoutFailed: 'Unable to save Canvas layout',
     createCanvasFailed: 'Unable to create Canvas',
     renameCanvasFailed: 'Unable to rename Canvas',

@@ -7,12 +7,15 @@ import {
   applyNodeChanges,
   type Edge,
   type NodeChange,
+  type ReactFlowInstance,
   type Viewport,
   type XYPosition,
 } from '@xyflow/react';
 import {
   AlertCircle,
   Bot,
+  Loader2,
+  Network,
   PanelLeftClose,
   PanelLeftOpen,
   Pencil,
@@ -105,6 +108,7 @@ export function CanvasPanel({ onStatusStatsChange }: { onStatusStatsChange?: (st
   const [agentCatalogError, setAgentCatalogError] = useState(false);
   const [agentCatalogLoading, setAgentCatalogLoading] = useState(false);
   const [agentChanging, setAgentChanging] = useState(false);
+  const [rearranging, setRearranging] = useState(false);
   const [focusedComposer, setFocusedComposer] = useState<{
     branchId: string;
     sourceInteractionId: string | null;
@@ -113,6 +117,8 @@ export function CanvasPanel({ onStatusStatsChange }: { onStatusStatsChange?: (st
   const nodesRef = useRef<CanvasFlowNode[]>([]);
   const positionsRef = useRef<Record<string, XYPosition>>({});
   const viewportRef = useRef<Viewport | undefined>(undefined);
+  const reactFlowRef = useRef<ReactFlowInstance<CanvasFlowNode, Edge> | null>(null);
+  const arrangeInProgressRef = useRef(false);
   const loadedCanvasRef = useRef<string | null>(null);
   const knownLayoutNodeIdsRef = useRef(new Set<string>());
   const selectedIdRef = useRef<string | null>(selectedId);
@@ -429,8 +435,79 @@ export function CanvasPanel({ onStatusStatsChange }: { onStatusStatsChange?: (st
   const onMoveEnd = useCallback((_event: MouseEvent | TouchEvent | null, viewport: Viewport) => {
     if (!selectedId) return;
     viewportRef.current = viewport;
+    if (arrangeInProgressRef.current) return;
     void persistLayout().catch((cause) => setError(localizeError(cause, copy.saveLayoutFailed)));
   }, [copy.saveLayoutFailed, localizeError, persistLayout, selectedId]);
+
+  const workingCount = deriveCanvasStatusCounts(
+    graph?.canvas.id === selectedId ? graph : null,
+  ).workingCount;
+  const hasLocalSend = graph?.canvas.id === selectedId
+    && graph.branches.some((branch) => drafts[branch.id]?.sending);
+  const rearrangeDisabled = rearranging || workingCount > 0 || hasLocalSend || nodes.length === 0;
+
+  const rearrangeCanvas = useCallback(async () => {
+    const canvasId = selectedId;
+    const instance = reactFlowRef.current;
+    const currentNodes = nodesRef.current;
+    if (!canvasId || !instance || currentNodes.length === 0 || rearranging || workingCount > 0 || hasLocalSend) return;
+
+    const previousNodes = currentNodes;
+    const previousPositions = { ...positionsRef.current };
+    const previousViewport = instance.getViewport();
+    const arrangedNodes = autoLayoutCanvasNodes(currentNodes, flow.edges);
+    const arrangedPositions = Object.fromEntries(
+      arrangedNodes.map((node) => [node.id, node.position]),
+    );
+
+    if (saveTimer.current) {
+      window.clearTimeout(saveTimer.current);
+      saveTimer.current = null;
+    }
+    arrangeInProgressRef.current = true;
+    setRearranging(true);
+    nodesRef.current = arrangedNodes;
+    positionsRef.current = arrangedPositions;
+    knownLayoutNodeIdsRef.current = new Set(arrangedNodes.map((node) => node.id));
+    setNodes(arrangedNodes);
+
+    try {
+      await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+      await instance.fitView({
+        padding: 0.12,
+        duration: 300,
+        minZoom: 0.2,
+        maxZoom: 1.5,
+      });
+      const viewport = instance.getViewport();
+      if (selectedIdRef.current === canvasId) viewportRef.current = viewport;
+      await canvasApi.saveLayout(canvasId, {
+        nodes: arrangedPositions,
+        viewport,
+      });
+    } catch (cause) {
+      if (selectedIdRef.current === canvasId) {
+        nodesRef.current = previousNodes;
+        positionsRef.current = previousPositions;
+        viewportRef.current = previousViewport;
+        knownLayoutNodeIdsRef.current = new Set(previousNodes.map((node) => node.id));
+        setNodes(previousNodes);
+        await instance.setViewport(previousViewport, { duration: 150 }).catch(() => undefined);
+      }
+      setError(localizeError(cause, copy.saveLayoutFailed));
+    } finally {
+      arrangeInProgressRef.current = false;
+      setRearranging(false);
+    }
+  }, [
+    copy.saveLayoutFailed,
+    flow.edges,
+    hasLocalSend,
+    localizeError,
+    rearranging,
+    selectedId,
+    workingCount,
+  ]);
 
   const createCanvas = useCallback(async () => {
     const name = nextCanvasName(canvases, copy);
@@ -559,6 +636,18 @@ export function CanvasPanel({ onStatusStatsChange }: { onStatusStatsChange?: (st
                 </div>
               ) : <span className="rounded-lg bg-secondary px-2 py-1 text-xs text-muted-foreground">{copy.agentLabel(graph.canvas.agentId)}</span>}
               <Button size="sm" onClick={() => void createRoot()}><Plus size={14} /> {copy.newSession}</Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => void rearrangeCanvas()}
+                disabled={rearrangeDisabled}
+                title={workingCount > 0 || hasLocalSend ? copy.rearrangeUnavailableWhileWorking : copy.rearrangeCanvas}
+              >
+                {rearranging
+                  ? <Loader2 size={14} aria-hidden="true" className="animate-spin" />
+                  : <Network size={14} aria-hidden="true" />}
+                {rearranging ? copy.rearrangingCanvas : copy.rearrangeCanvas}
+              </Button>
             </div>
             <ReactFlow
               key={selectedId}
@@ -567,6 +656,8 @@ export function CanvasPanel({ onStatusStatsChange }: { onStatusStatsChange?: (st
               nodeTypes={canvasNodeTypes}
               onNodesChange={onNodesChange}
               onMoveEnd={onMoveEnd}
+              onInit={(instance) => { reactFlowRef.current = instance; }}
+              nodesDraggable={!rearranging}
               fitView
               minZoom={0.2}
               maxZoom={1.5}

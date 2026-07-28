@@ -296,16 +296,21 @@ export function autoLayoutCanvasNodes(nodes: CanvasFlowNode[], edges: Edge[]): C
   const graph = new dagre.graphlib.Graph();
   graph.setDefaultEdgeLabel(() => ({}));
   graph.setGraph({ rankdir: 'LR', ranksep: NODE_HORIZONTAL_GAP, nodesep: NODE_VERTICAL_GAP, marginx: 40, marginy: 40 });
-  nodes.forEach((node) => graph.setNode(node.id, {
-    width: node.type === 'composer' ? COMPOSER_NODE_WIDTH : INTERACTION_NODE_WIDTH,
-    height: DEFAULT_NODE_HEIGHT,
-  }));
+  nodes.forEach((node) => {
+    const fallbackWidth = node.type === 'composer' ? COMPOSER_NODE_WIDTH : INTERACTION_NODE_WIDTH;
+    graph.setNode(node.id, {
+      width: node.measured?.width || fallbackWidth,
+      height: node.measured?.height || DEFAULT_NODE_HEIGHT,
+    });
+  });
   edges.forEach((edge) => graph.setEdge(edge.source, edge.target));
   dagre.layout(graph);
   return nodes.map((node) => {
     const position = graph.node(node.id) as { x: number; y: number };
-    const width = node.type === 'composer' ? COMPOSER_NODE_WIDTH : INTERACTION_NODE_WIDTH;
-    return { ...node, position: { x: position.x - width / 2, y: position.y - DEFAULT_NODE_HEIGHT / 2 } };
+    const fallbackWidth = node.type === 'composer' ? COMPOSER_NODE_WIDTH : INTERACTION_NODE_WIDTH;
+    const width = node.measured?.width || fallbackWidth;
+    const height = node.measured?.height || DEFAULT_NODE_HEIGHT;
+    return { ...node, position: { x: position.x - width / 2, y: position.y - height / 2 } };
   });
 }
 

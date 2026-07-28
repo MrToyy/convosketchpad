@@ -11,7 +11,7 @@
 | PATCH | `/api/canvas/canvases/:id` | 更新名称，或在首次发送前更新 Agent |
 | DELETE | `/api/canvas/canvases/:id` | 删除 Canvas 和持久化文件 |
 | GET | `/api/canvas/canvases/:id/graph` | 无副作用读取 Canvas、Branch、Interaction、布局和 `pendingSends` |
-| PUT | `/api/canvas/canvases/:id/layout` | 保存节点位置和视口 |
+| PUT | `/api/canvas/canvases/:id/layout` | 完整保存手动拖拽或自动重排后的节点位置和视口 |
 | POST | `/api/canvas/canvases/:id/root-branches` | 创建或返回草稿主 Branch |
 | POST | `/api/canvas/interactions/:id/fork` | 从已完成历史 Interaction 创建 Branch |
 | GET | `/api/canvas/agents` | 读取服务端代理的 Agent 目录 |

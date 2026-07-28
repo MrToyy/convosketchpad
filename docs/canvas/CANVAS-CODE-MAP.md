@@ -12,6 +12,7 @@
 - Fork 与 Session 恢复共用完整 Replay Package；逻辑资源引用不裁剪，物理文件只按内容去重。
 - 原始图片不可变；投递图和缩略图由后端按内容哈希与策略版本生成，Canvas 节点不直接加载原图。
 - 前端只应用当前 Canvas 的完整实体 upsert；瞬时 Preview 不持久化，SSE 不可用且 `hasPendingUpdates` 时才降级轮询。
+- 显式重新排列只在没有可见发送或运行任务时执行；按实际节点尺寸进行左到右拓扑布局，并把节点位置和适应后的视口作为一个完整布局保存。
 
 ## 前端
 
@@ -22,7 +23,7 @@
 | 状态栏 Branch/工作中计数与活跃 Compose 上下文 | `src/features/canvas/status.ts`、`src/components/StatusBar.tsx` |
 | HTTP API 与数据契约 | `src/features/canvas/api.ts`、`src/features/canvas/types.ts` |
 | Canvas SSE、实体合并、降级轮询和退避 | `src/hooks/useCanvasSync.ts`、`src/features/canvas/sync.ts`、`src/features/canvas/graph-refresh.ts` |
-| 布局 | `src/features/canvas/layout.ts`、`layout.test.ts` |
+| 布局、拖拽保存与显式重新排列 | `src/features/canvas/CanvasPanel.tsx`、`src/features/canvas/CanvasNodes.tsx`、`src/features/canvas/layout.ts` |
 | 图片缩略图与按需原图预览 | `src/features/canvas/CanvasNodes.tsx`、`src/features/chat/ImageLightbox.tsx` |
 | Gateway 运行状态 | `src/contexts/RuntimeContext.tsx`、`src/hooks/useRuntimeEvents.ts` |
 | Artifact 显示 | `src/features/chat/ImageLightbox.tsx` |
@@ -57,4 +58,4 @@
   → 权威记录和 Artifact 协调
 ```
 
-相关测试位于 `server/lib/canvas-db.test.ts`、`server/lib/canvas-media-derivatives.test.ts`、`server/lib/canvas-replay-plan.test.ts`、`server/lib/canvas-reconciler.test.ts`、`server/lib/canvas-sync.test.ts`、`server/lib/canvas-context-snapshot.test.ts`、`server/lib/updater/snapshot.test.ts`、`server/lib/gateway-rpc.test.ts`、`server/routes/canvas-artifacts.test.ts`、`server/routes/upload-reference.test.ts`、`src/features/chat/ImageLightbox.test.tsx`、`src/features/canvas/sync.test.ts`、`src/features/canvas/status.test.ts`、`src/features/canvas/graph-refresh.test.ts` 和 `src/hooks/useCanvasSync.test.ts`。数据库测试会从完整的 `0.2.0` Schema fixture 建库，验证迁移账本、状态转换、Artifact 合并、附件回填及重启不重跑。
+相关测试位于 `server/lib/canvas-db.test.ts`、`server/lib/canvas-media-derivatives.test.ts`、`server/lib/canvas-replay-plan.test.ts`、`server/lib/canvas-reconciler.test.ts`、`server/lib/canvas-sync.test.ts`、`server/lib/canvas-context-snapshot.test.ts`、`server/lib/updater/snapshot.test.ts`、`server/lib/gateway-rpc.test.ts`、`server/routes/canvas-artifacts.test.ts`、`server/routes/upload-reference.test.ts`、`src/features/chat/ImageLightbox.test.tsx`、`src/features/canvas/CanvasNodes.layout.test.ts`、`src/features/canvas/CanvasPanel.rearrange.test.tsx`、`src/features/canvas/sync.test.ts`、`src/features/canvas/status.test.ts`、`src/features/canvas/graph-refresh.test.ts` 和 `src/hooks/useCanvasSync.test.ts`。数据库测试会从完整的 `0.2.0` Schema fixture 建库，验证迁移账本、状态转换、Artifact 合并、附件回填及重启不重跑。
