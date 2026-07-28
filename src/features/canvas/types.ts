@@ -64,6 +64,18 @@ export interface CanvasContextResource {
   fetchUrl?: string;
 }
 
+export interface InteractionContextSnapshot {
+  usedTokens: number;
+  contextLimit: number;
+  sessionKey: string;
+  sessionId: string;
+  model?: string;
+  provider?: string;
+  compactionCount?: number;
+  capturedAt: number;
+  source: 'openclaw-session';
+}
+
 export interface CanvasInteraction {
   id: string;
   version: number;
@@ -80,6 +92,7 @@ export interface CanvasInteraction {
   attachments: CanvasAttachmentMeta[];
   artifacts: CanvasArtifact[];
   sessionMetadata: Record<string, unknown>;
+  contextSnapshot: InteractionContextSnapshot | null;
   createdAt: number;
   updatedAt: number;
 }

@@ -1,4 +1,5 @@
 import { RefreshCw, RotateCw } from 'lucide-react';
+import { UpdateBadge } from '@/components/UpdateBadge';
 import { useSettings } from '@/contexts/SettingsContext';
 import { getSettingsCopy } from './messages';
 
@@ -53,6 +54,19 @@ export function ConnectionSettings({
           <RefreshCw size={14} className={connectionState === 'reconnecting' ? 'animate-spin' : ''} />
           <span className="hidden sm:inline">{copy.reconnect}</span>
         </button>
+      </div>
+
+      <div className="cockpit-divider my-2" />
+      <div className="cockpit-row">
+        <div className="min-w-0 flex-1">
+          <span className="cockpit-kicker text-[0.6rem]">
+            <span className="text-primary">◆</span>
+            {copy.application}
+          </span>
+          <p className="mt-2 text-sm font-medium text-foreground">ConvoSketchpad</p>
+          <p className="mt-1 text-xs text-muted-foreground">{copy.version} v{__APP_VERSION__}</p>
+        </div>
+        <UpdateBadge />
       </div>
 
       {/* Gateway Service */}

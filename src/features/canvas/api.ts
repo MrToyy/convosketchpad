@@ -75,9 +75,6 @@ export const canvasApi = {
   async agents(): Promise<{ agents?: Array<{ id: string; name?: string; identity?: { name?: string; emoji?: string } }> }> {
     return request('/api/canvas/agents');
   },
-  async runtimeStats(id: string): Promise<{ branchCount: number; sessionCount: number; usedTokens?: number; contextLimit?: number }> {
-    return request(`/api/canvas/canvases/${id}/runtime-stats`);
-  },
   async createRoot(canvasId: string): Promise<CanvasBranch> {
     return (await request<{ branch: CanvasBranch }>(`/api/canvas/canvases/${canvasId}/root-branches`, { method: 'POST' })).branch;
   },

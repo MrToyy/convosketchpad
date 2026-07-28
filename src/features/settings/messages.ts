@@ -15,6 +15,8 @@ export interface SettingsCopy {
     statuses: Record<'connected' | 'connecting' | 'reconnecting' | 'disconnected', string>;
     reconnect: string;
     reconnectTitle: string;
+    application: string;
+    version: string;
     service: string;
     restartTitle: string;
     restartHint: string;
@@ -52,9 +54,11 @@ export const settingsCopy = {
     connection: {
       heading: '网关',
       status: '网关状态',
-      statuses: { connected: '已连接', connecting: '正在连接…', reconnecting: '正在重新连接…', disconnected: '未连接' },
-      reconnect: '重新连接',
-      reconnectTitle: '重新连接网关',
+      statuses: { connected: '已连接', connecting: '正在连接…', reconnecting: '正在刷新状态…', disconnected: '未连接' },
+      reconnect: '刷新状态',
+      reconnectTitle: '刷新 OpenClaw 连接状态',
+      application: '应用',
+      version: '当前版本',
       service: '网关服务',
       restartTitle: '重启本地网关',
       restartHint: '配对、智能体或后台进程需要完全重新加载时使用。',
@@ -90,9 +94,11 @@ export const settingsCopy = {
     connection: {
       heading: 'Gateway',
       status: 'Gateway status',
-      statuses: { connected: 'Connected', connecting: 'Connecting…', reconnecting: 'Reconnecting…', disconnected: 'Disconnected' },
-      reconnect: 'Reconnect',
-      reconnectTitle: 'Reconnect gateway',
+      statuses: { connected: 'Connected', connecting: 'Connecting…', reconnecting: 'Refreshing status…', disconnected: 'Disconnected' },
+      reconnect: 'Refresh status',
+      reconnectTitle: 'Refresh OpenClaw connection status',
+      application: 'Application',
+      version: 'Current version',
       service: 'Gateway service',
       restartTitle: 'Restart local gateway',
       restartHint: 'Use when pairing, agents, or background processes need a full reload.',

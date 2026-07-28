@@ -25,7 +25,6 @@ import healthRoutes from './routes/health.js';
 import authRoutes from './routes/auth.js';
 import tokensRoutes from './routes/tokens.js';
 import providerLimitsRoutes from './routes/provider-limits.js';
-import serverInfoRoutes from './routes/server-info.js';
 import versionRoutes from './routes/version.js';
 import versionCheckRoutes from './routes/version-check.js';
 import gatewayRoutes from './routes/gateway.js';
@@ -72,7 +71,7 @@ app.use('*', cacheHeaders);
 
 const routes = [
   healthRoutes, authRoutes, tokensRoutes, providerLimitsRoutes,
-  serverInfoRoutes, versionRoutes, versionCheckRoutes, gatewayRoutes,
+  versionRoutes, versionCheckRoutes, gatewayRoutes,
   uploadReferenceRoutes, canvasRoutes, runtimeRoutes,
 ];
 for (const route of routes) app.route('/', route);

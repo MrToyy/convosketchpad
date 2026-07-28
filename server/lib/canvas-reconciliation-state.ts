@@ -1,5 +1,6 @@
 import type {
   CanvasArtifact,
+  InteractionContextSnapshot,
   InteractionExecutionState,
 } from './canvas-db.js';
 import { artifactSyncStateDuringObservation } from './canvas-artifact-watch.js';
@@ -25,6 +26,7 @@ export interface ReconciliationFinishInput {
   terminalAt: number;
   executionError?: string;
   reconciliationError?: string;
+  contextSnapshot?: InteractionContextSnapshot;
 }
 
 export function buildReconciledInteractionUpdate(
@@ -61,5 +63,6 @@ export function buildReconciledInteractionUpdate(
       artifactWarnings: snapshot?.artifactWarnings || [],
       ...(lastError ? { lastError } : { lastError: null }),
     },
+    ...(input.contextSnapshot ? { contextSnapshot: input.contextSnapshot } : {}),
   };
 }

@@ -46,6 +46,11 @@ import {
 } from './CanvasNodes';
 import { EMPTY_CANVAS_DRAFT, MAX_CANVAS_ATTACHMENTS } from './constants';
 import {
+  contextForComposerSource,
+  deriveCanvasStatusCounts,
+  type CanvasStatusStats,
+} from './status';
+import {
   COMPOSER_NODE_WIDTH,
   DEFAULT_NODE_HEIGHT,
   composerNodeId,
@@ -75,14 +80,17 @@ interface GatewayAgentOption {
   identity?: { name?: string; emoji?: string };
 }
 
-export interface CanvasContextStats {
-  branchCount: number;
-  sessionCount: number;
-  usedTokens?: number;
-  contextLimit?: number;
+function branchHasComposer(graph: CanvasGraph, branchId: string): boolean {
+  const branch = graph.branches.find((candidate) => candidate.id === branchId);
+  if (!branch) return false;
+  if (branch.sessionState === 'draft') return true;
+  const head = branch.headInteractionId
+    ? graph.interactions.find((interaction) => interaction.id === branch.headInteractionId)
+    : undefined;
+  return branch.sessionState === 'active' && head?.executionState === 'completed';
 }
 
-export function CanvasPanel({ onContextStatsChange }: { onContextStatsChange?: (stats: CanvasContextStats) => void }) {
+export function CanvasPanel({ onStatusStatsChange }: { onStatusStatsChange?: (stats: CanvasStatusStats) => void }) {
   const { connectionState } = useRuntime();
   const { language } = useSettings();
   const copy = getCanvasCopy(language);
@@ -101,6 +109,10 @@ export function CanvasPanel({ onContextStatsChange }: { onContextStatsChange?: (
   const [agentCatalogError, setAgentCatalogError] = useState(false);
   const [agentCatalogLoading, setAgentCatalogLoading] = useState(false);
   const [agentChanging, setAgentChanging] = useState(false);
+  const [focusedComposer, setFocusedComposer] = useState<{
+    branchId: string;
+    sourceInteractionId: string | null;
+  } | null>(null);
   const saveTimer = useRef<number | null>(null);
   const nodesRef = useRef<CanvasFlowNode[]>([]);
   const positionsRef = useRef<Record<string, XYPosition>>({});
@@ -127,6 +139,7 @@ export function CanvasPanel({ onContextStatsChange }: { onContextStatsChange?: (
     if (selectedIdRef.current !== canvasId) return;
     if (loadedCanvasRef.current !== canvasId) {
       loadedCanvasRef.current = canvasId;
+      setFocusedComposer(null);
       setPreviews({});
       positionsRef.current = { ...(nextGraph.layout?.nodes || {}) };
       viewportRef.current = nextGraph.layout?.viewport;
@@ -168,23 +181,29 @@ export function CanvasPanel({ onContextStatsChange }: { onContextStatsChange?: (
     }
   }, [connectionState]);
   useEffect(() => { void loadAgents(); }, [loadAgents]);
-  const refreshContextStats = useCallback(async () => {
-    if (!graph || connectionState !== 'connected') {
-      onContextStatsChange?.({ branchCount: graph?.branches.length || 0, sessionCount: 0 });
-      return;
-    }
-    try {
-      onContextStatsChange?.(await canvasApi.runtimeStats(graph.canvas.id));
-    } catch {
-      onContextStatsChange?.({ branchCount: graph.branches.length, sessionCount: 0 });
-    }
-  }, [connectionState, graph, onContextStatsChange]);
+
+  const focusComposer = useCallback((branchId: string, sourceInteractionId: string | null) => {
+    setFocusedComposer({ branchId, sourceInteractionId });
+  }, []);
+  const blurComposer = useCallback((branchId: string) => {
+    setFocusedComposer((current) => current?.branchId === branchId ? null : current);
+  }, []);
+
   useEffect(() => {
-    void refreshContextStats();
-    if (connectionState !== 'connected') return;
-    const timer = window.setInterval(() => void refreshContextStats(), 30_000);
-    return () => window.clearInterval(timer);
-  }, [refreshContextStats, connectionState]);
+    const visibleGraph = graph?.canvas.id === selectedId ? graph : null;
+    const counts = deriveCanvasStatusCounts(visibleGraph);
+    const activeContext = visibleGraph
+      && focusedComposer
+      && branchHasComposer(visibleGraph, focusedComposer.branchId)
+      ? contextForComposerSource(visibleGraph, focusedComposer.sourceInteractionId)
+      : undefined;
+    onStatusStatsChange?.({ ...counts, ...(activeContext ? { activeContext } : {}) });
+  }, [
+    focusedComposer,
+    graph,
+    onStatusStatsChange,
+    selectedId,
+  ]);
   const handleCanvasSync = useCallback((batch: CanvasSyncBatch) => {
     setGraph((current) => current && current.canvas.id === selectedIdRef.current
       ? applyCanvasSyncBatch(current, batch)
@@ -381,13 +400,15 @@ export function CanvasPanel({ onContextStatsChange }: { onContextStatsChange?: (
           onFiles: (files) => handleFiles(branch.id, files),
           onRemoveFile: (index) => removeFile(branch.id, index),
           onSend: () => void send(branch),
+          onFocus: () => focusComposer(branch.id, source),
+          onBlur: () => blurComposer(branch.id),
         },
       });
     }
     const all = [...interactionNodes, ...composerNodes];
     const hasSavedLayout = Boolean(Object.keys(positionsRef.current).length || (graph.layout && Object.keys(graph.layout.nodes).length));
     return { nodes: hasSavedLayout ? all : autoLayoutCanvasNodes(all, edges), edges };
-  }, [addFromInteraction, copy, drafts, graph, handleFiles, previews, removeFile, send, updateDraft]);
+  }, [addFromInteraction, blurComposer, copy, drafts, focusComposer, graph, handleFiles, previews, removeFile, send, updateDraft]);
 
   useEffect(() => {
     setNodes((current) => {

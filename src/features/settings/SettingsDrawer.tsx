@@ -4,7 +4,6 @@ import { useSettings } from '@/contexts/SettingsContext';
 import { AppearanceSettings } from './AppearanceSettings';
 import { ConnectionSettings } from './ConnectionSettings';
 import { getSettingsCopy } from './messages';
-import { getAppCopy } from '@/lib/app-messages';
 
 interface SettingsDrawerProps {
   open: boolean; onClose: () => void;
@@ -16,7 +15,6 @@ interface SettingsDrawerProps {
 export function SettingsDrawer(props: SettingsDrawerProps) {
   const { language } = useSettings();
   const copy = getSettingsCopy(language);
-  const appCopy = getAppCopy(language);
   const [category, setCategory] = useState<'connection' | 'appearance'>('connection');
   const closeRef = useRef<HTMLButtonElement>(null);
   const onKeyDown = useCallback((event: KeyboardEvent) => { if (event.key === 'Escape') props.onClose(); }, [props]);
@@ -36,7 +34,7 @@ export function SettingsDrawer(props: SettingsDrawerProps) {
         <button type="button" role="tab" aria-selected={category === 'appearance'} className="shell-chip flex-1 justify-center" data-active={category === 'appearance'} onClick={() => setCategory('appearance')}><Monitor size={13} />{copy.drawer.categories.appearance}</button>
       </div>
       <div className="flex-1 overflow-y-auto p-4">{category === 'appearance' ? <AppearanceSettings /> : <ConnectionSettings onReconnect={props.onReconnect} connectionState={props.connectionState} onGatewayRestart={props.onGatewayRestart} gatewayRestarting={props.gatewayRestarting} />}</div>
-      <div className="border-t border-border/70 p-4">{props.onLogout && <button onClick={props.onLogout} className="cockpit-toolbar-button w-full justify-center" data-tone="danger"><LogOut size={14} />{copy.drawer.signOut}</button>}<div className="mt-3 text-xs text-muted-foreground"><div className="flex justify-between"><span>ConvoSketchpad</span><span>v{__APP_VERSION__}</span></div><div className="mt-1">{appCopy.tagline}</div></div></div>
+      {props.onLogout && <div className="border-t border-border/70 p-4"><button onClick={props.onLogout} className="cockpit-toolbar-button w-full justify-center" data-tone="danger"><LogOut size={14} />{copy.drawer.signOut}</button></div>}
     </div>
   </>;
 }

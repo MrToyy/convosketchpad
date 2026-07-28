@@ -16,8 +16,7 @@ export interface AppCopy {
   status: {
     states: Record<'connected' | 'connecting' | 'reconnecting' | 'disconnected', string>;
     branches: string;
-    sessions: string;
-    uptime: string;
+    working: string;
     context: string;
     contextTooltip: (used: string, limit: string, percent: string) => string;
     contextCritical: string;
@@ -120,10 +119,14 @@ export const appCopy = {
     common: { loading: '加载中…', confirm: '确认', cancel: '取消', close: '关闭', retry: '重试' },
     topBar: { usage: '用量', settings: '设置' },
     status: {
-      states: { connected: '已连接', connecting: '连接中', reconnecting: '重连中', disconnected: '离线' },
+      states: {
+        connected: 'OpenClaw 已连接',
+        connecting: 'OpenClaw 连接中',
+        reconnecting: '正在刷新 OpenClaw 状态',
+        disconnected: 'OpenClaw 未连接',
+      },
       branches: '分支',
-      sessions: '会话',
-      uptime: '运行时间',
+      working: '工作中',
       context: '上下文',
       contextTooltip: (used, limit, percent) => `上下文：${used} / ${limit} Token（${percent}%）`,
       contextCritical: '严重：建议创建新的根分支',
@@ -224,10 +227,14 @@ export const appCopy = {
     common: { loading: 'Loading…', confirm: 'Confirm', cancel: 'Cancel', close: 'Close', retry: 'Retry' },
     topBar: { usage: 'Usage', settings: 'Settings' },
     status: {
-      states: { connected: 'Connected', connecting: 'Connecting', reconnecting: 'Reconnecting', disconnected: 'Offline' },
+      states: {
+        connected: 'OpenClaw connected',
+        connecting: 'Connecting to OpenClaw',
+        reconnecting: 'Refreshing OpenClaw status',
+        disconnected: 'OpenClaw disconnected',
+      },
       branches: 'branches',
-      sessions: 'sessions',
-      uptime: 'Uptime',
+      working: 'working',
       context: 'Context',
       contextTooltip: (used, limit, percent) => `Context: ${used} / ${limit} tokens (${percent}%)`,
       contextCritical: 'CRITICAL: Consider starting a new root branch',

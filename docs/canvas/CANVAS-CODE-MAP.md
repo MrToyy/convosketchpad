@@ -17,6 +17,7 @@
 |---|---|
 | Canvas 数据控制、Agent、发送和完整节点投影 | `src/features/canvas/CanvasPanel.tsx` |
 | Interaction/Composer 节点、节点注册与自动布局适配 | `src/features/canvas/CanvasNodes.tsx`、`src/features/canvas/constants.ts` |
+| 状态栏 Branch/工作中计数与活跃 Compose 上下文 | `src/features/canvas/status.ts`、`src/components/StatusBar.tsx` |
 | HTTP API 与数据契约 | `src/features/canvas/api.ts`、`src/features/canvas/types.ts` |
 | Canvas SSE、实体合并、降级轮询和退避 | `src/hooks/useCanvasSync.ts`、`src/features/canvas/sync.ts`、`src/features/canvas/graph-refresh.ts` |
 | 布局 | `src/features/canvas/layout.ts`、`layout.test.ts` |
@@ -29,6 +30,7 @@
 | 关注点 | 文件 |
 |---|---|
 | Canvas 与发送 HTTP API | `server/routes/canvas.ts` |
+| Interaction 完成时的 OpenClaw Session 上下文快照 | `server/lib/canvas-context-snapshot.ts` |
 | Canvas cursor、SSE 和 Preview | `server/routes/canvas.ts`、`server/lib/canvas-sync.ts` |
 | Gateway 运行状态 SSE | `server/routes/runtime.ts`、`server/lib/runtime-events.ts` |
 | SQLite Schema、迁移和 Branch 状态机 | `server/lib/canvas-db.ts`、`server/lib/canvas-migrations.ts` |
@@ -52,4 +54,4 @@
   → 权威记录和 Artifact 协调
 ```
 
-相关测试位于 `server/lib/canvas-db.test.ts`、`server/lib/canvas-reconciler.test.ts`、`server/lib/canvas-sync.test.ts`、`server/lib/updater/snapshot.test.ts`、`server/lib/gateway-rpc.test.ts`、`server/routes/canvas-artifacts.test.ts`、`server/routes/upload-reference.test.ts`、`src/features/canvas/sync.test.ts`、`src/features/canvas/graph-refresh.test.ts` 和 `src/hooks/useCanvasSync.test.ts`。数据库测试会从完整的 `0.2.0` Schema fixture 建库，验证迁移账本、状态转换、Artifact 合并、附件回填及重启不重跑。
+相关测试位于 `server/lib/canvas-db.test.ts`、`server/lib/canvas-reconciler.test.ts`、`server/lib/canvas-sync.test.ts`、`server/lib/canvas-context-snapshot.test.ts`、`server/lib/updater/snapshot.test.ts`、`server/lib/gateway-rpc.test.ts`、`server/routes/canvas-artifacts.test.ts`、`server/routes/upload-reference.test.ts`、`src/features/canvas/sync.test.ts`、`src/features/canvas/status.test.ts`、`src/features/canvas/graph-refresh.test.ts` 和 `src/hooks/useCanvasSync.test.ts`。数据库测试会从完整的 `0.2.0` Schema fixture 建库，验证迁移账本、状态转换、Artifact 合并、附件回填及重启不重跑。

@@ -25,7 +25,7 @@ function shellQuote(value: string): string {
 }
 
 /**
- * Shows an update badge next to the version in the status bar
+ * Shows an update action next to the application version in settings
  * when a newer version of ConvoSketchpad is available. Clicking it opens
  * a modal with update instructions.
  */
@@ -69,12 +69,12 @@ export function UpdateBadge() {
     <>
       <button
         onClick={() => setOpen(true)}
-        className="inline-flex items-center gap-1 text-[0.6rem] text-primary hover:text-primary/80 transition-colors cursor-pointer ml-1.5"
+        className="cockpit-toolbar-button shrink-0"
         title={copy.update.availableTitle(versionInfo.latest)}
         aria-label={copy.update.availableAria(versionInfo.latest)}
       >
-        <ArrowUpCircle className="w-3 h-3" />
-        <span className="uppercase tracking-wide font-bold">{copy.update.badge}</span>
+        <ArrowUpCircle className="h-3.5 w-3.5" />
+        <span>{copy.update.badge}</span>
       </button>
 
       <Dialog open={open} onOpenChange={setOpen}>

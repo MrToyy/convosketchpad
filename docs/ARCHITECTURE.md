@@ -81,6 +81,14 @@ Fork 或 Session 恢复所需的历史资源由服务端从 Canvas 自有副本�
 
 Gateway 终态信号保存在 `gateway_signal_inbox`；Artifact 观察状态、尝试次数和下一次执行时间保存在 `artifact_sync_jobs`。服务重启会扫描持久任务恢复协调，内存计时器只负责唤醒。Interaction 已显示 `synced` 时仍可存在静默观察任务。
 
+底部状态栏的 Branch 数和“工作中”数量直接从当前 Graph 投影；“工作中”按 Branch 去重，只包含
+`prepared` 发送与 `running` Interaction。它不把 `unconfirmed`、失败或 Artifact 后台观察包装成用户可处理事项。
+Interaction 首次从 `running`/`unconfirmed` 确认完成时，后端从 OpenClaw 读取该物理 Session 的新鲜累计
+Token 与上下文上限，并把不可覆盖的 `contextSnapshot` 随 Interaction 保存。读取必须同时匹配完整 Session key
+和物理 Session ID；失败不阻塞 Interaction 完成，后续 Artifact 观察也不会补写或覆盖，以免下一轮执行造成串算。
+上下文 Meter 仅在 Compose 文本框获得焦点时读取其来源 Interaction 的快照：继续 Branch 使用当前头节点，草稿
+Fork 使用分叉来源节点，空白根节点不显示。前端不查询 Gateway、不沿祖先节点求和，也不存在 Canvas 级聚合或周期轮询。
+
 ## Gateway 连接
 
 `server/lib/gateway-rpc.ts` 维护唯一连接，身份固定为：
@@ -107,7 +115,7 @@ Node 客户端不发送浏览器 `Origin` Header，因此 ConvoSketchpad 不需�
 
 | 区域 | 入口 |
 |---|---|
-| Canvas 数据控制、发送和完整实体更新 | `src/features/canvas/CanvasPanel.tsx` |
+| Canvas 数据控制、发送、状态投影和完整实体更新 | `src/features/canvas/CanvasPanel.tsx`、`src/features/canvas/status.ts` |
 | Interaction/Composer 节点与节点布局适配 | `src/features/canvas/CanvasNodes.tsx`、`src/features/canvas/constants.ts` |
 | 产品 HTTP 客户端与数据契约 | `src/features/canvas/api.ts`、`src/features/canvas/types.ts` |
 | 图片压缩与附件投递副本 | `src/features/canvas/attachments.ts` |
@@ -119,7 +127,7 @@ Node 客户端不发送浏览器 `Origin` Header，因此 ConvoSketchpad 不需�
 
 | 区域 | 入口 |
 |---|---|
-| Canvas API | `server/routes/canvas.ts` |
+| Canvas API 与 Interaction 上下文快照 | `server/routes/canvas.ts`、`server/lib/canvas-context-snapshot.ts` |
 | Gateway 运行状态 SSE | `server/routes/runtime.ts`、`server/lib/runtime-events.ts` |
 | Canvas cursor、SSE 与 Preview | `server/routes/canvas.ts`、`server/lib/canvas-sync.ts` |
 | Schema、迁移和状态机 | `server/lib/canvas-db.ts`、`server/lib/canvas-migrations.ts` |
@@ -131,6 +139,9 @@ Node 客户端不发送浏览器 `Origin` Header，因此 ConvoSketchpad 不需�
 ## 数据模型与迁移
 
 现有 `interactions.attachments_json`、`artifacts_json` 和 `session_metadata_json` 保持向下回滚兼容。Interaction 增量增加 `version`、执行状态、Artifact 同步状态、终止时间和错误字段；迁移完成后，运行时 Artifact 投影只由规范化表读取。
+
+Interaction 上下文快照复用 `session_metadata_json` 持久化并投影为 Graph 的 `contextSnapshot`，因此不新增
+Schema 迁移。旧数据库和旧节点自然返回 `null`；只有新版本确认完成且 OpenClaw 提供可靠数据的节点才具有快照。
 
 新增 `canvas_attachments` 作为上传登记与投递副本索引。旧 Interaction 中可识别的 Canvas 附件在启动迁移时使用 SQLite JSON1 回填；历史 JSON 保持不可变。
 

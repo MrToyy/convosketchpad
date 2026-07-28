@@ -305,28 +305,6 @@ app.get('/api/canvas/canvases/:id/events', (c) => {
   });
 });
 
-app.get('/api/canvas/canvases/:id/runtime-stats', rateLimitGeneral, async (c) => {
-  const identity = identityOr401(c);
-  if (!identity) return c.json({ error: 'Authentication required' }, 401);
-  const graph = getCanvasStore().getGraph(identity.userId, routeParam(c, 'id'));
-  if (!graph) return c.json({ error: 'Not found' }, 404);
-  try {
-    const response = await gatewayRpcCall('sessions.list', { limit: SESSION_LIST_LIMIT }, 15_000) as {
-      sessions?: Array<{ key?: string; sessionKey?: string; totalTokens?: number; contextTokens?: number }>;
-    };
-    const branchKeys = new Set(graph.branches.map((branch) => branch.sessionKey));
-    const sessions = (response.sessions || []).filter((session) => branchKeys.has(session.sessionKey || session.key || ''));
-    return c.json({
-      branchCount: graph.branches.length,
-      sessionCount: sessions.length,
-      usedTokens: sessions.reduce((sum, session) => sum + (session.totalTokens || 0), 0),
-      contextLimit: sessions.reduce((sum, session) => sum + (session.contextTokens || 0), 0),
-    });
-  } catch {
-    return c.json({ branchCount: graph.branches.length, sessionCount: 0 });
-  }
-});
-
 app.get('/api/canvas/artifacts/:canvasId/:interactionId/:artifactId', rateLimitGeneral, async (c) => {
   const identity = identityOr401(c);
   if (!identity) return c.json({ error: 'Authentication required' }, 401);

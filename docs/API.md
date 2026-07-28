@@ -15,7 +15,6 @@
 | POST | `/api/canvas/canvases/:id/root-branches` | 创建或返回草稿主 Branch |
 | POST | `/api/canvas/interactions/:id/fork` | 从已完成历史 Interaction 创建 Branch |
 | GET | `/api/canvas/agents` | 读取服务端代理的 Agent 目录 |
-| GET | `/api/canvas/canvases/:id/runtime-stats` | 读取该 Canvas 的 Session 和上下文统计 |
 
 ## 发送
 
@@ -40,7 +39,20 @@
 
 服务端不接受附件路径或可变元数据。即时接受返回 `201 { interaction }`；已排队或结果不确定返回 `202 { operation }`；头节点、Agent 或并发冲突返回 `409`；附件问题返回 `422`；缺少 `chat.send` 能力返回 `503`。
 
-Graph 响应额外包含持久化 `cursor` 和 `hasPendingUpdates`。Interaction 同时返回 `version`、`executionState`（`running | completed | failed | unconfirmed`）、`artifactSyncState`（`not_started | observing | synced | degraded`）、`terminalAt` 和安全错误信息。已知 Artifact 全部持久化后 `artifactSyncState` 即为 `synced`；可能仍在运行的晚到 Artifact 静默观察任务不属于用户可见 pending 状态。`hasPendingUpdates` 仅用于 Canvas SSE 不可用时决定是否启用降级轮询。数据库迁移版本属于后端内部实现，不通过产品 API 暴露。
+Graph 响应额外包含持久化 `cursor` 和 `hasPendingUpdates`。Interaction 同时返回 `version`、`executionState`（`running | completed | failed | unconfirmed`）、`artifactSyncState`（`not_started | observing | synced | degraded`）、`terminalAt`、安全错误信息，以及可空的 `contextSnapshot`。后端仅在 Interaction 首次确认完成时尝试记录 OpenClaw 对该物理 Session 的累计上下文快照：
+
+```json
+{
+  "usedTokens": 12000,
+  "contextLimit": 100000,
+  "sessionKey": "agent:main:canvas:branch-id",
+  "sessionId": "physical-session-id",
+  "capturedAt": 1785147159265,
+  "source": "openclaw-session"
+}
+```
+
+只有 Gateway 明确返回新鲜 Token 数据，且 Session key 与物理 Session ID 都匹配时才保存；否则为 `null`。这是节点完成时的累计值，不是该节点单独消耗量，客户端不得沿祖先节点求和。已知 Artifact 全部持久化后 `artifactSyncState` 即为 `synced`；可能仍在运行的晚到 Artifact 静默观察任务不属于用户可见 pending 状态。`hasPendingUpdates` 仅用于 Canvas SSE 不可用时决定是否启用降级轮询。数据库迁移版本属于后端内部实现，不通过产品 API 暴露。
 
 ## Canvas 文件
 
@@ -82,7 +94,6 @@ Gateway 运行状态流不包含 Canvas、Interaction、发送或 Artifact 事�
 | GET | `/health`、`/api/health` | 进程和 Gateway 可达性 |
 | GET | `/api/tokens` | Gateway 原生用量汇总 |
 | GET | `/api/provider-limits` | Gateway 原生 Provider 配额窗口 |
-| GET | `/api/server-info` | 服务端时间、时区和 Gateway 运行时间 |
 | POST | `/api/gateway/restart` | 重启本机 Gateway；远程 Gateway 返回 409 |
 
 `GET /api/tokens` 按需调用 OpenClaw `usage.cost`，返回整个 Gateway 在当前保留记录中的累计用量：

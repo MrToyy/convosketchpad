@@ -25,6 +25,7 @@ ConvoSketchpad 的重要变更均记录在此文件中。格式遵循 [Keep a Ch
 - 生产与开发统一使用 `HOST` / `PORT` 作为浏览器入口；开发后端端口改为自动分配的 loopback 实现细节，并废弃用户级 `VITE_HOST` / `VITE_PORT`。
 - 移除应用和 Vite 的内置 TLS；HTTPS 统一由反向代理或 Tailscale Serve 终止。
 - 用量面板移除高成本的 Provider 历史明细扫描，改为按需读取 Gateway 全局金额与 Input/Output/Cache Read；Provider 配额保持独立展示。
+- 精简底部状态栏：分支和工作中数量直接来自 Graph；Interaction 完成时保存其 Session 累计上下文快照，获得焦点的 Compose Node 只展示来源节点的快照，不聚合祖先节点；移除实时 Branch 上下文查询、Canvas 级 Session 聚合、服务端时间、Gateway 运行时间及其周期轮询，并把版本与更新入口迁移到“设置 → 连接”。
 
 ### 安全
 

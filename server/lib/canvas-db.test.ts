@@ -690,6 +690,49 @@ describe('CanvasStore', () => {
     expect(store.getOwnedInteraction('user-b', current.id)).toBeNull();
   });
 
+  it('stores the first cumulative context snapshot without later double counting or replacement', () => {
+    const store = createStore();
+    const canvas = seedUser(store);
+    const branch = store.createRootBranch('user-a', canvas.id);
+    const reservation = store.prepareSend('user-a', {
+      branchId: branch.id,
+      userInput: 'one',
+      attachments: [],
+    });
+    const current = store.acknowledgeSend('user-a', reservation.id, 'run-1');
+    const firstSnapshot = {
+      usedTokens: 12_000,
+      contextLimit: 100_000,
+      sessionKey: branch.sessionKey,
+      sessionId: 'session-1',
+      capturedAt: 123,
+      source: 'openclaw-session' as const,
+    };
+
+    store.applyReconciledInteraction(current.id, {
+      status: 'completed',
+      agentOutput: 'done',
+      artifacts: [],
+      contextSnapshot: firstSnapshot,
+      reconciliation: { phase: 'pending', artifactSync: 'pending' },
+    });
+    store.applyReconciledInteraction(current.id, {
+      status: 'completed',
+      agentOutput: 'done',
+      artifacts: [],
+      contextSnapshot: {
+        ...firstSnapshot,
+        usedTokens: 19_000,
+        capturedAt: 456,
+      },
+      reconciliation: { phase: 'synced', artifactSync: 'synced' },
+    });
+
+    const updated = store.getOwnedInteraction('user-a', current.id)!;
+    expect(updated.contextSnapshot).toEqual(firstSnapshot);
+    expect(updated.sessionMetadata.contextSnapshot).toEqual(firstSnapshot);
+  });
+
   it('finds unfinished, silently observed, and legacy interactions without reopening terminal records', () => {
     const { store, databasePath } = createStoreFixture();
     const canvas = seedUser(store);

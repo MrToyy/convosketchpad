@@ -14,7 +14,7 @@
 - 同一客户端 IP 默认 30 分钟内失败 3 次后锁定 30 分钟；记录只在内存中保存。
 - loopback Gateway 使用共享 Token且不发送设备身份；远程 Gateway 设备身份固定请求 `operator.read` / `operator.write`，设备 Token 只保存在服务端。
 - 远程配对审批和状态由 OpenClaw 原生 `devices list/approve` 管理，setup 不直接改写 OpenClaw 配对文件，也不为远程 Gateway 自动取得 admin 权限。
-- 启用受管认证时不向用户暴露宿主机项目路径，并禁用状态栏升级检查；升级只能由宿主机管理员在终端执行。
+- 启用受管认证时不向用户暴露宿主机项目路径，并禁用设置面板中的升级入口；升级只能由宿主机管理员在终端执行。
 
 ## 按问题定位代码
 

@@ -19,6 +19,7 @@ function interaction(overrides: Partial<CanvasInteraction> = {}): CanvasInteract
     attachments: [],
     artifacts: [],
     sessionMetadata: {},
+    contextSnapshot: null,
     createdAt: 1,
     updatedAt: 1,
     ...overrides,

@@ -52,6 +52,18 @@ export interface BranchRecord {
   updatedAt: number;
 }
 
+export interface InteractionContextSnapshot {
+  usedTokens: number;
+  contextLimit: number;
+  sessionKey: string;
+  sessionId: string;
+  model?: string;
+  provider?: string;
+  compactionCount?: number;
+  capturedAt: number;
+  source: 'openclaw-session';
+}
+
 export interface InteractionRecord {
   id: string;
   version: number;
@@ -68,6 +80,7 @@ export interface InteractionRecord {
   attachments: CanvasAttachment[];
   artifacts: CanvasArtifact[];
   sessionMetadata: Record<string, unknown>;
+  contextSnapshot: InteractionContextSnapshot | null;
   createdAt: number;
   updatedAt: number;
 }
@@ -214,6 +227,29 @@ function parseJson<T>(value: unknown, fallback: T): T {
   try { return JSON.parse(value) as T; } catch { return fallback; }
 }
 
+function parseInteractionContextSnapshot(value: unknown): InteractionContextSnapshot | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const snapshot = value as Record<string, unknown>;
+  if (
+    typeof snapshot.usedTokens !== 'number'
+    || !Number.isFinite(snapshot.usedTokens)
+    || snapshot.usedTokens < 0
+    || typeof snapshot.contextLimit !== 'number'
+    || !Number.isFinite(snapshot.contextLimit)
+    || snapshot.contextLimit <= 0
+    || typeof snapshot.sessionKey !== 'string'
+    || !snapshot.sessionKey
+    || typeof snapshot.sessionId !== 'string'
+    || !snapshot.sessionId
+    || typeof snapshot.capturedAt !== 'number'
+    || !Number.isFinite(snapshot.capturedAt)
+    || snapshot.source !== 'openclaw-session'
+  ) {
+    return null;
+  }
+  return value as InteractionContextSnapshot;
+}
+
 function contextResourceKey(uri: string): string {
   try {
     if (uri.startsWith('file://')) return `local:${path.resolve(fileURLToPath(uri))}`;
@@ -269,6 +305,8 @@ function mapBranch(row: SqlRow): BranchRecord {
 }
 
 function mapInteraction(row: SqlRow): InteractionRecord {
+  const sessionMetadata = parseJson<Record<string, unknown>>(row.session_metadata_json, {});
+  const contextSnapshot = parseInteractionContextSnapshot(sessionMetadata.contextSnapshot);
   return {
     id: asString(row.id),
     version: Math.max(1, asNumber(row.version) || 1),
@@ -285,7 +323,8 @@ function mapInteraction(row: SqlRow): InteractionRecord {
     error: asNullableString(row.error),
     attachments: parseJson<CanvasAttachment[]>(row.attachments_json, []),
     artifacts: parseJson<CanvasArtifact[]>(row.artifacts_json, []),
-    sessionMetadata: parseJson<Record<string, unknown>>(row.session_metadata_json, {}),
+    sessionMetadata,
+    contextSnapshot,
     createdAt: asNumber(row.created_at),
     updatedAt: asNumber(row.updated_at),
   };
@@ -1527,6 +1566,7 @@ export class CanvasStore {
     terminalAt?: number;
     error?: string | null;
     reconciliation: Record<string, unknown>;
+    contextSnapshot?: InteractionContextSnapshot;
   }): InteractionRecord | null {
     return this.transaction(() => {
       const row = this.db.prepare('SELECT * FROM interactions WHERE id = ?').get(interactionId) as SqlRow | undefined;
@@ -1535,7 +1575,12 @@ export class CanvasStore {
       const previous = metadata.reconciliation && typeof metadata.reconciliation === 'object'
         ? metadata.reconciliation as Record<string, unknown>
         : {};
-      const nextMetadata = { ...metadata, reconciliation: { ...previous, ...input.reconciliation } };
+      const contextChanged = Boolean(input.contextSnapshot && !metadata.contextSnapshot);
+      const nextMetadata = {
+        ...metadata,
+        ...(contextChanged ? { contextSnapshot: input.contextSnapshot } : {}),
+        reconciliation: { ...previous, ...input.reconciliation },
+      };
       const reconciliationArtifactSync = input.reconciliation.artifactSync;
       const artifactSyncState = input.artifactSyncState
         || (reconciliationArtifactSync === 'synced' || reconciliationArtifactSync === 'degraded'
@@ -1555,7 +1600,8 @@ export class CanvasStore {
         || input.agentOutput !== asString(row.agent_output)
         || terminalAt !== (row.terminal_at == null ? null : asNumber(row.terminal_at))
         || nextError !== asNullableString(row.error)
-        || artifactsChanged;
+        || artifactsChanged
+        || contextChanged;
       if (visibleChanged) {
         this.db.prepare(`UPDATE interactions
           SET status = ?, execution_state = ?, artifact_sync_state = ?, agent_output = ?,

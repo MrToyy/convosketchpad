@@ -55,6 +55,8 @@ interface ComposerNodeData extends Record<string, unknown> {
   onFiles: (files: File[]) => void;
   onRemoveFile: (index: number) => void;
   onSend: () => void;
+  onFocus: () => void;
+  onBlur: () => void;
   onClose?: () => void;
 }
 
@@ -213,6 +215,8 @@ function ComposerNode({ data }: NodeProps<ComposerFlowNode>) {
         autoFocus
         value={data.draft.text}
         onChange={(event) => data.onTextChange(event.target.value)}
+        onFocus={data.onFocus}
+        onBlur={data.onBlur}
         placeholder={copy.composerPlaceholder}
         className="nodrag nowheel min-h-28 w-full resize-y rounded-2xl border border-border bg-background/65 px-3 py-3 text-sm outline-none focus:border-primary"
         disabled={data.draft.sending}
