@@ -61,6 +61,7 @@ export class GatewayDispatchError extends Error {
 
 export interface GatewayRuntimeStatus {
   state: 'disconnected' | 'connecting' | 'connected';
+  gatewayRestartSupported: boolean;
   error?: string;
   serverVersion?: string;
   methods: string[];
@@ -123,6 +124,7 @@ const statusSubscribers = new Set<(status: GatewayRuntimeStatus) => void>();
 function runtimeStatus(): GatewayRuntimeStatus {
   return {
     state: connected ? 'connected' : connecting ? 'connecting' : 'disconnected',
+    gatewayRestartSupported: gatewayConnectionMode(config.gatewayUrl) === 'loopback',
     ...(lastConnectionError ? { error: lastConnectionError } : {}),
     ...(capabilities.serverVersion ? { serverVersion: capabilities.serverVersion } : {}),
     methods: [...capabilities.methods],

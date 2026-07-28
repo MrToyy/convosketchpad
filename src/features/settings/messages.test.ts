@@ -8,8 +8,8 @@ describe('settings copy', () => {
     expect(getSettingsCopy('en').drawer.title).toBe('Settings');
   });
 
-  it('localizes Canvas-only appearance and connection settings', () => {
+  it('localizes appearance and system settings', () => {
     expect(getSettingsCopy('zh-CN').appearance.language).toBe('界面语言');
-    expect(getSettingsCopy('en').connection.restart).toBe('Restart');
+    expect(getSettingsCopy('en').system.restart).toBe('Restart');
   });
 });

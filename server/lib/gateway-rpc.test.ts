@@ -62,6 +62,7 @@ vi.mock('./device-identity.js', () => ({
 import {
   gatewayRpcCall,
   gatewayDispatchCall,
+  getGatewayRuntimeStatus,
 } from './gateway-rpc.js';
 
 let wss: WebSocketServer;
@@ -159,6 +160,13 @@ describe('gateway-rpc (persistent WebSocket)', () => {
   });
 
   describe('gatewayRpcCall', () => {
+    it('reports whether the configured OpenClaw Gateway can be restarted locally', () => {
+      expect(getGatewayRuntimeStatus().gatewayRestartSupported).toBe(true);
+
+      gatewayConnectionModeMock.mockReturnValue('remote');
+      expect(getGatewayRuntimeStatus().gatewayRestartSupported).toBe(false);
+    });
+
     it('uses shared-token backend auth without device identity for a loopback Gateway', async () => {
       rpcHandler = () => ({ ok: true });
 

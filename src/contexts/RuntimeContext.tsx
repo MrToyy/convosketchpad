@@ -4,6 +4,7 @@ import { useRuntimeEvents } from '@/hooks/useRuntimeEvents';
 
 interface RuntimeContextValue {
   connectionState: 'disconnected' | 'connecting' | 'connected' | 'reconnecting';
+  gatewayRestartSupported: boolean;
   connect: () => Promise<void>;
 }
 
@@ -12,6 +13,7 @@ const RuntimeContext = createContext<RuntimeContextValue | null>(null);
 export function RuntimeProvider({ children }: { children: ReactNode }) {
   const {
     connectionState,
+    gatewayRestartSupported,
     connect: connectRuntime,
   } = useRuntimeEvents();
   const connect = useCallback(async () => {
@@ -19,8 +21,9 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
   }, [connectRuntime]);
   const value = useMemo<RuntimeContextValue>(() => ({
     connectionState,
+    gatewayRestartSupported,
     connect,
-  }), [connect, connectionState]);
+  }), [connect, connectionState, gatewayRestartSupported]);
   return <RuntimeContext.Provider value={value}>{children}</RuntimeContext.Provider>;
 }
 

@@ -4,10 +4,12 @@ type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'reconnecti
 
 interface RuntimeStatus {
   state: 'disconnected' | 'connecting' | 'connected';
+  gatewayRestartSupported: boolean;
 }
 
 interface UseRuntimeEventsReturn {
   connectionState: ConnectionState;
+  gatewayRestartSupported: boolean;
   connect: () => Promise<void>;
 }
 
@@ -23,10 +25,12 @@ const PRODUCT_EVENT_TYPES = [
  */
 export function useRuntimeEvents(): UseRuntimeEventsReturn {
   const [connectionState, setConnectionState] = useState<ConnectionState>('connecting');
+  const [gatewayRestartSupported, setGatewayRestartSupported] = useState(false);
   const sourceRef = useRef<EventSource | null>(null);
 
   const applyStatus = useCallback((status: RuntimeStatus) => {
     setConnectionState(status.state);
+    setGatewayRestartSupported(status.gatewayRestartSupported === true);
   }, []);
 
   const disconnect = useCallback(() => {
@@ -78,6 +82,7 @@ export function useRuntimeEvents(): UseRuntimeEventsReturn {
 
   return {
     connectionState,
+    gatewayRestartSupported,
     connect,
   };
 }

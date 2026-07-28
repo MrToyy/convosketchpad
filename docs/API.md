@@ -93,10 +93,14 @@ Canvas 本地图片附件和 Artifact 额外返回版本化 `thumbnailUri`，但
 
 | 方法 | 路径 | 用途 |
 |---|---|---|
-| GET | `/api/runtime/status` | 后端 Gateway 连接状态、版本、方法和 `maxPayload` |
+| GET | `/api/runtime/status` | 后端 OpenClaw Gateway 连接状态、版本、方法、`maxPayload` 和本机重启能力 |
 | GET | `/api/runtime/events` | 只发布 `runtime.connection_changed` 的全局 SSE；15 秒心跳 |
 
 Gateway 运行状态流不包含 Canvas、Interaction、发送或 Artifact 事件。受管用户被禁用或 Session 被撤销后，心跳检查会关闭两个 SSE。`/api/agentlog` 已移除。
+
+HTTP 状态和 `runtime.connection_changed` 都包含必选布尔字段 `gatewayRestartSupported`。它只表示当前配置的
+OpenClaw Gateway 是否为可由 ConvoSketchpad 调用本机 CLI 重启的 loopback 服务；远程 Gateway 为 `false`。
+该字段不替代 `/api/gateway/restart` 的服务端校验，也不暴露 Gateway 地址或凭据。
 
 ## 认证与运维
 

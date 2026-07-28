@@ -23,6 +23,7 @@ describe('product runtime transport', () => {
     vi.stubGlobal('EventSource', FakeEventSource);
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
       state: 'connected',
+      gatewayRestartSupported: true,
       methods: ['chat.send'],
       maxPayload: 1024,
     }), { status: 200, headers: { 'Content-Type': 'application/json' } })));
@@ -35,6 +36,7 @@ describe('product runtime transport', () => {
     await waitFor(() => expect(result.current.connectionState).toBe('connected'));
     expect(fetch).toHaveBeenCalledWith('/api/runtime/status', { credentials: 'include' });
     expect(FakeEventSource.instances[0]?.url).toBe('/api/runtime/events');
+    expect(result.current.gatewayRestartSupported).toBe(true);
   });
 
   it('does not confuse EventSource reconnects with Gateway state', async () => {
@@ -56,9 +58,10 @@ describe('product runtime transport', () => {
     expect(result.current.connectionState).toBe('connected');
     act(() => {
       FakeEventSource.instances[0].emit('runtime.connection_changed', {
-        payload: { state: 'disconnected', methods: [] },
+        payload: { state: 'disconnected', gatewayRestartSupported: false, methods: [] },
       });
     });
     expect(result.current.connectionState).toBe('disconnected');
+    expect(result.current.gatewayRestartSupported).toBe(false);
   });
 });
