@@ -37,7 +37,7 @@ Canvas 拓扑和布局不是临时展示状态。它们与不可变的 Interacti
 
 ### OpenClaw 负责执行，ConvoSketchpad 负责 Canvas 数据
 
-OpenClaw 负责 Agent、工具、Session、执行、原生事件和原始对话记录。ConvoSketchpad 后端唯一负责与 OpenClaw 通信，并保存 Canvas 拓扑、对话内容副本、上传附件、尽力持久化的生成 Artifact、发送状态、恢复元数据和受管用户隔离。前端只负责呈现与提交用户指令；图片压缩结果通过产品 HTTP API交给后端。
+OpenClaw 负责 Agent、工具、Session、执行、原生事件和原始对话记录。ConvoSketchpad 后端唯一负责与 OpenClaw 通信，并保存 Canvas 拓扑、对话内容副本、上传附件、尽力持久化的生成 Artifact、发送状态、恢复元数据和受管用户隔离。前端只负责呈现、上传原始附件与提交用户指令；发送用图片压缩、缩略图和历史媒体处理统一由后端完成。
 
 ConvoSketchpad 不是独立的 Agent 运行环境，必须连接到可访问的 OpenClaw Gateway。
 

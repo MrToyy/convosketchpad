@@ -35,8 +35,6 @@ function operation(overrides: Partial<SendReservation> = {}): SendReservation {
     attachments: [],
     materialization: 'lazy-root',
     sessionKey: 'agent:main:canvas:branch-1',
-    outgoingMessage: 'hello',
-    bootstrapResources: [],
     status: 'prepared',
     dispatchState: 'dispatching',
     attemptCount: 1,

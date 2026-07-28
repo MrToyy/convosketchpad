@@ -14,7 +14,10 @@ import {
   buildReconciledInteractionUpdate,
   type ReconciliationFinishInput,
 } from './canvas-reconciliation-state.js';
-import { captureInteractionContextSnapshot } from './canvas-context-snapshot.js';
+import {
+  captureInteractionCompletionSession,
+  type InteractionCompletionSession,
+} from './canvas-context-snapshot.js';
 import { config } from './config.js';
 import {
   getCanvasStore,
@@ -652,18 +655,15 @@ export async function reconcileTranscriptSnapshot(
   };
 }
 
-async function captureContextBeforeCompletion(
+async function captureSessionBeforeCompletion(
   interaction: OwnedInteractionRecord,
   snapshot: CanvasTranscriptSnapshot | null,
-): Promise<ReconciliationFinishInput['contextSnapshot']> {
-  if (
-    interaction.contextSnapshot
-    || (interaction.executionState !== 'running' && interaction.executionState !== 'unconfirmed')
-  ) {
+): Promise<InteractionCompletionSession | undefined> {
+  if (interaction.executionState !== 'running' && interaction.executionState !== 'unconfirmed') {
     return undefined;
   }
   try {
-    return await captureInteractionContextSnapshot(
+    return await captureInteractionCompletionSession(
       interaction.sessionKey,
       snapshot?.sessionId || interaction.observedSessionId || interaction.openClawSessionId || undefined,
     ) || undefined;
@@ -672,18 +672,30 @@ async function captureContextBeforeCompletion(
   }
 }
 
+interface ReconciliationCompletionInput extends ReconciliationFinishInput {
+  completionSessionId?: string;
+}
+
 function finish(
   interaction: OwnedInteractionRecord,
   snapshot: CanvasTranscriptSnapshot | null,
-  input: ReconciliationFinishInput,
+  input: ReconciliationCompletionInput,
 ): void {
+  const { completionSessionId, ...reconciliationInput } = input;
   const updated = getCanvasStore().applyReconciledInteraction(
     interaction.id,
-    buildReconciledInteractionUpdate(interaction, snapshot, input),
+    buildReconciledInteractionUpdate(interaction, snapshot, reconciliationInput),
   );
   if (updated) {
     const { graphChanged } = compareReconciledInteractions(interaction, updated);
-    if (graphChanged) {
+    const adopted = completionSessionId
+      ? getCanvasStore().adoptRecoveredInteractionSession(
+        interaction.id,
+        completionSessionId,
+        reconciliationInput.contextSnapshot?.capturedAt,
+      )
+      : null;
+    if (graphChanged || adopted) {
       publishCanvasChanged(interaction.ownerId, interaction.canvasId);
     }
   }
@@ -773,25 +785,31 @@ async function settlementRead(interactionId: string): Promise<void> {
       elapsed >= BACKGROUND_OFFSETS_MS[BACKGROUND_OFFSETS_MS.length - 1],
     );
     if (artifactWatch.stop) {
-      const contextSnapshot = canvasTranscriptHasResponse(settlement.best)
-        ? await captureContextBeforeCompletion(interaction, settlement.best)
+      const completionSession = canvasTranscriptHasResponse(settlement.best)
+        ? await captureSessionBeforeCompletion(interaction, settlement.best)
         : undefined;
       finish(interaction, settlement.best, {
         artifactSync: artifactWatch.artifactSync,
         terminalAt: settlement.terminalAt,
         reconciliationError: readError,
-        ...(contextSnapshot ? { contextSnapshot } : {}),
+        ...(completionSession?.contextSnapshot
+          ? { contextSnapshot: completionSession.contextSnapshot }
+          : {}),
+        ...(completionSession ? { completionSessionId: completionSession.sessionId } : {}),
       });
       stopMonitor(interactionId);
       return;
     }
     if (canvasTranscriptHasResponse(settlement.best)) {
-      const contextSnapshot = await captureContextBeforeCompletion(interaction, settlement.best);
+      const completionSession = await captureSessionBeforeCompletion(interaction, settlement.best);
       finish(interaction, settlement.best, {
         artifactSync: 'pending',
         terminalAt: settlement.terminalAt,
         reconciliationError: readError,
-        ...(contextSnapshot ? { contextSnapshot } : {}),
+        ...(completionSession?.contextSnapshot
+          ? { contextSnapshot: completionSession.contextSnapshot }
+          : {}),
+        ...(completionSession ? { completionSessionId: completionSession.sessionId } : {}),
       });
     }
     settlement.backgroundIndex = nextBackgroundIndex(elapsed);
@@ -804,12 +822,15 @@ async function settlementRead(interactionId: string): Promise<void> {
   if (elapsed >= CANVAS_SETTLE_MIN_MS
     && settlement.stableReads >= 2
     && canvasTranscriptHasResponse(settlement.best)) {
-    const contextSnapshot = await captureContextBeforeCompletion(interaction, settlement.best);
+    const completionSession = await captureSessionBeforeCompletion(interaction, settlement.best);
     finish(interaction, settlement.best, {
       artifactSync: 'pending',
       terminalAt: settlement.terminalAt,
       reconciliationError: readError,
-      ...(contextSnapshot ? { contextSnapshot } : {}),
+      ...(completionSession?.contextSnapshot
+        ? { contextSnapshot: completionSession.contextSnapshot }
+        : {}),
+      ...(completionSession ? { completionSessionId: completionSession.sessionId } : {}),
     });
     responsePersisted = true;
   }
@@ -817,12 +838,15 @@ async function settlementRead(interactionId: string): Promise<void> {
   if (elapsed >= CANVAS_SETTLE_MAX_MS) {
     if (canvasTranscriptHasResponse(settlement.best)
       && !responsePersisted) {
-      const contextSnapshot = await captureContextBeforeCompletion(interaction, settlement.best);
+      const completionSession = await captureSessionBeforeCompletion(interaction, settlement.best);
       finish(interaction, settlement.best, {
         artifactSync: 'pending',
         terminalAt: settlement.terminalAt,
         reconciliationError: readError,
-        ...(contextSnapshot ? { contextSnapshot } : {}),
+        ...(completionSession?.contextSnapshot
+          ? { contextSnapshot: completionSession.contextSnapshot }
+          : {}),
+        ...(completionSession ? { completionSessionId: completionSession.sessionId } : {}),
       });
     } else if (!canvasTranscriptHasResponse(settlement.best)) {
       getCanvasStore().updateReconciliationMetadata(interactionId, {

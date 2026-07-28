@@ -16,7 +16,7 @@ curl -fsSL https://raw.githubusercontent.com/MrToyy/convosketchpad/main/install.
 
 1. **前置检查**：检查 Node.js、npm、Git、OpenClaw 和 Gateway 可用性。
 2. **下载**：校验并安装所选稳定 Release，或显式指定的开发分支；不会丢弃已有脏工作区。
-3. **安装与构建**：安装 npm 依赖并生成生产构建。
+3. **安装与构建**：安装 npm 依赖（包括当前平台的 Sharp 图片处理组件）并生成生产构建。
 4. **配置**：除非使用 `--skip-setup`，否则运行配置向导。
 5. **服务**：配置或重启受支持的系统服务；不使用服务管理器时输出直接启动命令。
 
@@ -148,5 +148,8 @@ curl -fsS http://127.0.0.1:3080/health
 ```
 
 根据所选拓扑调整 URL，然后打开 ConvoSketchpad，确认能够发现 Agent、创建 Canvas，并发送一个简单 Interaction。
+
+从旧版本首次启动时，服务会在开始监听前完成数据库迁移和历史图片缩略图回填；已有图片较多时启动时间会相应
+增加。受管更新器会在停服阶段执行该步骤。不要同时启动另一份服务或手工修改 `artifacts/`。
 
 发生故障时，记录准确的失败步骤、已执行检查、已做变更，以及仍需运维人员处理的操作。

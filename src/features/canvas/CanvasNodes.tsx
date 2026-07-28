@@ -93,6 +93,10 @@ function InteractionNode({ data }: NodeProps<InteractionFlowNode>) {
   const bootstrapWarnings = Array.isArray(interaction.sessionMetadata.bootstrapWarnings)
     ? interaction.sessionMetadata.bootstrapWarnings.filter((item): item is string => typeof item === 'string')
     : [];
+  const imageAttachments = interaction.attachments.filter((item) =>
+    item.mimeType.startsWith('image/') && Boolean(item.thumbnailUri));
+  const fileAttachments = interaction.attachments.filter((item) =>
+    !item.mimeType.startsWith('image/') || !item.thumbnailUri);
   return (
     <article className="w-[380px] rounded-3xl border border-border/80 bg-card/96 p-4 shadow-2xl backdrop-blur">
       <Handle type="target" position={Position.Left} className="!bg-primary" />
@@ -109,9 +113,9 @@ function InteractionNode({ data }: NodeProps<InteractionFlowNode>) {
       <details className="nodrag mt-3 cursor-text select-text rounded-2xl border border-border/60 bg-background/45 px-3 py-2">
         <summary className="cursor-pointer text-xs font-medium text-muted-foreground">{copy.userInput}</summary>
         <p className="mt-2 whitespace-pre-wrap text-sm text-foreground">{interaction.userInput || copy.attachmentsOnly}</p>
-        {interaction.attachments.length > 0 && (
+        {fileAttachments.length > 0 && (
           <div className="mt-2 flex flex-wrap gap-2">
-            {interaction.attachments.map((item, index) => (
+            {fileAttachments.map((item, index) => (
               <span key={`${item.name}-${index}`} className="rounded-lg bg-secondary px-2 py-1 text-[0.667rem] text-muted-foreground">
                 {item.name}
               </span>
@@ -119,6 +123,24 @@ function InteractionNode({ data }: NodeProps<InteractionFlowNode>) {
           </div>
         )}
       </details>
+
+      {imageAttachments.length > 0 && (
+        <div className="nodrag mt-3 grid grid-cols-2 gap-2">
+          {imageAttachments.map((attachment, index) => (
+            <div key={`${attachment.uri}-${index}`} className="overflow-hidden rounded-2xl border border-border/60 bg-background/45">
+              <ImageLightbox
+                thumbnailSrc={attachment.thumbnailUri!}
+                originalSrc={attachment.uri}
+                alt={attachment.name}
+                thumbnailClassName="h-28 w-full cursor-zoom-in bg-black/10 object-contain"
+              />
+              <a href={attachment.uri} target="_blank" rel="noreferrer" download className="flex items-center gap-2 px-2 py-2 text-[0.667rem] text-foreground hover:bg-secondary/70">
+                <Paperclip size={12} /><span className="min-w-0 flex-1 truncate">{attachment.name}</span><Download size={12} />
+              </a>
+            </div>
+          ))}
+        </div>
+      )}
 
       <div className="nodrag nowheel mt-3 max-h-[360px] cursor-text select-text overflow-auto text-sm">
         {running && !visibleOutput ? (
@@ -159,11 +181,16 @@ function InteractionNode({ data }: NodeProps<InteractionFlowNode>) {
             return (
               <div key={`${artifact.uri}-${index}`} className="overflow-hidden rounded-2xl border border-border/60 bg-background/45">
                 {isImage && available && (
-                  <ImageLightbox
-                    src={canvasArtifactUrl(artifact.uri)}
-                    alt={artifact.name}
-                    thumbnailClassName="max-h-56 w-full cursor-zoom-in bg-black/10 object-contain"
-                  />
+                  artifact.thumbnailUri
+                    ? (
+                      <ImageLightbox
+                        thumbnailSrc={artifact.thumbnailUri}
+                        originalSrc={canvasArtifactUrl(artifact.uri)}
+                        alt={artifact.name}
+                        thumbnailClassName="max-h-56 w-full cursor-zoom-in bg-black/10 object-contain"
+                      />
+                    )
+                    : null
                 )}
                 {available ? (
                   <a href={canvasArtifactUrl(artifact.uri)} target="_blank" rel="noreferrer" download className="flex items-center gap-2 px-3 py-2 text-xs text-foreground hover:bg-secondary/70">

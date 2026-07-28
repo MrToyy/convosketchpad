@@ -47,6 +47,8 @@ GET /api/canvas/send-operations/:id
 ```
 
 - `reserved`：确认请求没有写出，等待连接后重试。
+- `awaiting_media`：后端正在读取或生成大图投递派生文件；浏览器无需执行操作。长时间不推进时检查服务日志、
+  `artifacts/` 写权限、可用磁盘空间和源图片是否有效。
 - `ambiguous`：请求可能已写出，服务端会持续用同一幂等键重试；这是防止重复消息的安全状态。
 - `failed`：Gateway 明确拒绝，或附件/载荷无法构造。
 
@@ -69,9 +71,17 @@ Gateway 终止事件只是提示。服务端会从权威对话记录协调最终
 ## 附件发送失败
 
 - 最多四个原始文件，每个最大 20 MiB。
-- 大图在浏览器压缩后上传投递副本，原件仍保存在 Canvas。
+- 大图由后端按需生成投递派生文件，原件始终保存在 Canvas 且不被改写。
 - 最终 Base64 `chat.send` Frame 必须小于 Gateway `maxPayload`。
-- 上传成功但投递副本缺失时，重新选择文件后重试。
+- 图片格式无效、不受支持或超过后端安全解码限制时，发送会明确失败；检查 Send Operation 错误与服务日志。
+
+Fork 与 Session 恢复会完整投递目标历史中仍可用的附件和 Artifact，不会根据本轮指令自动裁剪。相同内容
+只占一个物理附件，后端生成的历史大图会按真实内容哈希在同一 Canvas 内复用。若 operation 报告
+`replay_payload_too_large`，说明完整 Replay Package 即使经过物理去重仍超过 Gateway `maxPayload`；
+服务端不会静默删文件。应提高 Gateway 的受支持载荷上限，或从较短历史位置创建新 Branch。
+
+OpenClaw 的 Session 记录可能把收到的原生附件显示为 `MediaPaths` / `MediaTypes`，而不是保留 RPC
+`attachments` 字段。判断媒体是否传入 Agent 时应同时检查这些字段。
 
 ## Artifact 不可用
 
@@ -88,6 +98,18 @@ npm run migrate
 如果 `/api/chat/media/outgoing/...` 返回 401，确认 `GATEWAY_TOKEN` 是当前 Gateway 的共享密钥。设备 Token 只用于远程 WebSocket，不能替代 Gateway HTTP Bearer Token。已完成 run 无法被 `artifacts.list` 反查 Session 时，后端会安全回退到当前 Interaction 的 transcript Artifact，不会扫描并导入整条 Session 的历史文件。
 
 如果 OpenClaw 已完成而节点仍显示运行中，检查数据库中的 `execution_state`、`run_id` 和 `gateway_signal_inbox`，再检查后端能否调用 `sessions.get/list`。不要依据浏览器调试事件或手工修改节点状态；无法唯一关联的信号会保守进入协调流程。
+
+## 图片缩略图不显示
+
+Canvas 节点只加载后端缩略图，不以原图作为自动回退；点击预览后才请求原图。外部 HTTP Artifact 按设计只显示
+文件卡片，不生成缩略图。Canvas 本地图片缩略图返回 404 时检查：
+
+- 原附件或 Artifact 是否仍存在于 `artifacts/`，MIME 是否为受支持的栅格图片；
+- `artifacts/` 是否可写、磁盘是否有空间；
+- 升级时 `npm run migrate` 的 `0.3.0_media_derivatives_v1` 输出是否有对应警告。
+
+可在目标版本已构建且服务停止时运行 `npm run migrate -- --rescan-media`，复查并补齐缺失的缩略图；该命令不会
+改写原图。普通 `npm run migrate` 在迁移账本存在时不会重复全量扫描。
 
 ## 远程启动被拒绝
 

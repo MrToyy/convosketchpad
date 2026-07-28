@@ -4,6 +4,7 @@ import { execFileSync } from 'node:child_process';
 import { EXIT_CODES, UpdateError } from './types.js';
 
 const EXEC_TIMEOUT = 300_000;
+const MIGRATION_TIMEOUT = 60 * 60 * 1_000;
 const RELEASE_TAG_REGEX = /^v(\d+\.\d+\.\d+)$/;
 const RELEASE_REF_PREFIX = 'refs/convosketchpad/releases';
 
@@ -123,7 +124,7 @@ export function migrateDatabase(cwd: string): void {
     execFileSync(
       process.execPath,
       ['bin-dist/bin/convosketchpad-migrate.js'],
-      { cwd, stdio: 'pipe', timeout: EXEC_TIMEOUT },
+      { cwd, stdio: 'pipe', timeout: MIGRATION_TIMEOUT },
     );
   } catch (err) {
     throw new UpdateError(

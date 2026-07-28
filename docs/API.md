@@ -39,6 +39,14 @@
 
 服务端不接受附件路径或可变元数据。即时接受返回 `201 { interaction }`；已排队或结果不确定返回 `202 { operation }`；头节点、Agent 或并发冲突返回 `409`；附件问题返回 `422`；缺少 `chat.send` 能力返回 `503`。
 
+公开的 Send Operation 只包含状态和原始用户输入/附件元数据。内部 `outgoingMessage`、完整历史资源清单、
+内容哈希和媒体派生信息不返回浏览器。`awaiting_media` 表示后端正在生成或读取发送所需的大图派生文件，
+浏览器无需上传压缩副本；服务重启后协调器会从该状态恢复。
+
+Fork 和 Session 恢复使用同一完整 Replay Package。历史逻辑引用不会按当前指令裁剪；内容相同的历史文件
+只物理投递一次，已生成的大图投递派生文件可在同一 Canvas 的后续重放中复用。完整载荷超过 Gateway
+`maxPayload` 时，初始发送返回 `422` 且 operation 的错误为 `replay_payload_too_large`，不会只发送部分历史。
+
 Graph 响应额外包含持久化 `cursor` 和 `hasPendingUpdates`。Interaction 同时返回 `version`、`executionState`（`running | completed | failed | unconfirmed`）、`artifactSyncState`（`not_started | observing | synced | degraded`）、`terminalAt`、安全错误信息，以及可空的 `contextSnapshot`。后端仅在 Interaction 首次确认完成时尝试记录 OpenClaw 对该物理 Session 的累计上下文快照：
 
 ```json
@@ -54,16 +62,22 @@ Graph 响应额外包含持久化 `cursor` 和 `hasPendingUpdates`。Interaction
 
 只有 Gateway 明确返回新鲜 Token 数据，且 Session key 与物理 Session ID 都匹配时才保存；否则为 `null`。这是节点完成时的累计值，不是该节点单独消耗量，客户端不得沿祖先节点求和。已知 Artifact 全部持久化后 `artifactSyncState` 即为 `synced`；可能仍在运行的晚到 Artifact 静默观察任务不属于用户可见 pending 状态。`hasPendingUpdates` 仅用于 Canvas SSE 不可用时决定是否启用降级轮询。数据库迁移版本属于后端内部实现，不通过产品 API 暴露。
 
+Canvas 本地图片附件和 Artifact 额外返回版本化 `thumbnailUri`，但不返回 `contentHash`。外部 HTTP Artifact
+不提供缩略图 URI，也不会被 ConvoSketchpad 后端主动抓取。
+
 ## Canvas 文件
 
 | 方法 | 路径 | 用途 |
 |---|---|---|
 | POST | `/api/canvas/canvases/:canvasId/attachments` | 持久化最多四个原始附件并登记元数据 |
-| POST | `/api/canvas/attachments/:attachmentId/delivery-variant` | 为已登记附件上传浏览器压缩的投递副本；multipart 同时提供 `canvasId` |
-| GET | `/api/canvas/send-operations/:id/resources/:resourceId` | 读取当前所有者发送操作所需的 Fork/恢复资源 |
-| POST | `/api/canvas/send-operations/:id/resources/:resourceId/delivery-variant` | 上传该资源的浏览器压缩投递副本 |
 | GET | `/api/canvas/attachments/:canvasId/:attachmentId` | 读取原始附件 |
+| GET | `/api/canvas/attachments/:canvasId/:attachmentId/thumbnail` | 生成或读取 Canvas 本地图片附件的版本化缩略图 |
 | GET | `/api/canvas/artifacts/:canvasId/:interactionId/:artifactId` | 读取持久化 Artifact |
+| GET | `/api/canvas/artifacts/:canvasId/:interactionId/:artifactId/thumbnail` | 生成或读取 Canvas 本地图片 Artifact 的版本化缩略图 |
+
+缩略图路由执行与原文件相同的认证、所有者和 Canvas 边界检查，返回私有、不可变缓存响应。当前
+`thumbnail-v1` 输出 WebP，最大边长 768 px、最大 160 KiB；格式不支持或源文件缺失时返回 404。
+原文件端点不做压缩，供用户打开预览或下载。
 
 ## Canvas 同步
 

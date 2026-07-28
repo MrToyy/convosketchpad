@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
+import { buildCanvasReplayPlan } from './canvas-replay-plan.js';
 import { config } from './config.js';
 import { applySingleChainSchemaMigration } from './canvas-migrations.js';
 import { packageMetadata } from './package-metadata.js';
@@ -97,10 +97,12 @@ export interface OwnedInteractionRecord extends InteractionRecord {
 
 export interface CanvasAttachment {
   id?: string;
+  contentHash?: string;
   name: string;
   mimeType: string;
   sizeBytes: number;
   uri?: string;
+  thumbnailUri?: string;
   sourceUri?: string;
   storage?: 'canvas' | 'source';
   available?: boolean;
@@ -109,11 +111,13 @@ export interface CanvasAttachment {
 
 export interface CanvasArtifact {
   id?: string;
+  contentHash?: string;
   gatewayArtifactId?: string;
   name: string;
   mimeType?: string;
   sizeBytes?: number;
   uri: string;
+  thumbnailUri?: string;
   sourceUri?: string;
   storage?: 'canvas' | 'external' | 'source';
   available?: boolean;
@@ -122,8 +126,10 @@ export interface CanvasArtifact {
 
 export interface CanvasContextResource {
   id: string;
+  contentHash?: string;
   sourceInteractionId: string;
   source: 'user_attachment' | 'agent_artifact';
+  replayRef?: string;
   name: string;
   mimeType: string;
   sizeBytes?: number;
@@ -179,7 +185,7 @@ export interface SendReservation {
   sessionKey: string;
   outgoingMessage: string;
   snapshotVersion?: number;
-  bootstrapResources: Array<CanvasContextResource & { fetchUrl: string }>;
+  bootstrapResources: CanvasContextResource[];
   status: 'prepared' | 'acknowledged' | 'failed';
   dispatchState: SendDispatchState;
   attemptCount: number;
@@ -195,11 +201,31 @@ export interface DispatchableSendReservation extends SendReservation {
   agentId: string;
 }
 
-export interface CanvasAttachmentDelivery {
-  attachment: CanvasAttachment;
-  deliveryAttachmentId: string;
-  deliveryMimeType: string;
-  deliverySizeBytes: number;
+export type CanvasMediaDerivativePurpose = 'delivery' | 'thumbnail';
+
+export interface CanvasMediaDerivative {
+  canvasId: string;
+  sourceContentHash: string;
+  purpose: CanvasMediaDerivativePurpose;
+  policyVersion: string;
+  derivativeId: string;
+  mimeType: string;
+  sizeBytes: number;
+  width: number;
+  height: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface CanvasMediaBackfillSource {
+  kind: 'attachment' | 'artifact';
+  ownerId: string;
+  canvasId: string;
+  interactionId?: string;
+  sourceId: string;
+  name: string;
+  mimeType: string;
+  contentHash?: string;
 }
 
 export interface BranchSessionLifecycle {
@@ -248,13 +274,6 @@ function parseInteractionContextSnapshot(value: unknown): InteractionContextSnap
     return null;
   }
   return value as InteractionContextSnapshot;
-}
-
-function contextResourceKey(uri: string): string {
-  try {
-    if (uri.startsWith('file://')) return `local:${path.resolve(fileURLToPath(uri))}`;
-  } catch { /* use the URI as-is */ }
-  return uri.trim();
 }
 
 function reusableContextResourceUri(uri: string): boolean {
@@ -418,12 +437,10 @@ export class CanvasStore {
       CREATE TABLE IF NOT EXISTS canvas_attachments (
         canvas_id TEXT NOT NULL REFERENCES canvases(id) ON DELETE CASCADE,
         attachment_id TEXT NOT NULL,
+        content_hash TEXT,
         name TEXT NOT NULL,
         mime_type TEXT NOT NULL,
         size_bytes INTEGER NOT NULL,
-        delivery_attachment_id TEXT,
-        delivery_mime_type TEXT,
-        delivery_size_bytes INTEGER,
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL,
         PRIMARY KEY(canvas_id, attachment_id)
@@ -444,18 +461,10 @@ export class CanvasStore {
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL
       );
-      CREATE TABLE IF NOT EXISTS send_resource_variants (
-        reservation_id TEXT NOT NULL REFERENCES send_reservations(id) ON DELETE CASCADE,
-        resource_id TEXT NOT NULL,
-        attachment_id TEXT NOT NULL,
-        mime_type TEXT NOT NULL,
-        size_bytes INTEGER NOT NULL,
-        created_at INTEGER NOT NULL,
-        PRIMARY KEY(reservation_id, resource_id)
-      );
       CREATE TABLE IF NOT EXISTS interaction_artifacts (
         interaction_id TEXT NOT NULL REFERENCES interactions(id) ON DELETE CASCADE,
         id TEXT NOT NULL,
+        content_hash TEXT,
         gateway_artifact_id TEXT,
         name TEXT NOT NULL,
         mime_type TEXT,
@@ -468,6 +477,20 @@ export class CanvasStore {
         ordinal INTEGER NOT NULL,
         updated_at INTEGER NOT NULL,
         PRIMARY KEY(interaction_id, id)
+      );
+      CREATE TABLE IF NOT EXISTS canvas_media_derivatives (
+        canvas_id TEXT NOT NULL REFERENCES canvases(id) ON DELETE CASCADE,
+        source_content_hash TEXT NOT NULL,
+        purpose TEXT NOT NULL CHECK(purpose IN ('delivery', 'thumbnail')),
+        policy_version TEXT NOT NULL,
+        derivative_id TEXT NOT NULL,
+        mime_type TEXT NOT NULL,
+        size_bytes INTEGER NOT NULL,
+        width INTEGER NOT NULL,
+        height INTEGER NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY(canvas_id, source_content_hash, purpose, policy_version)
       );
       CREATE TABLE IF NOT EXISTS artifact_sync_jobs (
         interaction_id TEXT PRIMARY KEY REFERENCES interactions(id) ON DELETE CASCADE,
@@ -549,6 +572,14 @@ export class CanvasStore {
     }
     if (!userColumns.some((column) => asString(column.name) === 'status')) {
       this.db.exec("ALTER TABLE canvas_users ADD COLUMN status TEXT NOT NULL DEFAULT 'unmanaged'");
+    }
+    const attachmentColumns = this.db.prepare('PRAGMA table_info(canvas_attachments)').all() as SqlRow[];
+    if (!attachmentColumns.some((column) => asString(column.name) === 'content_hash')) {
+      this.db.exec('ALTER TABLE canvas_attachments ADD COLUMN content_hash TEXT');
+    }
+    const artifactColumns = this.db.prepare('PRAGMA table_info(interaction_artifacts)').all() as SqlRow[];
+    if (!artifactColumns.some((column) => asString(column.name) === 'content_hash')) {
+      this.db.exec('ALTER TABLE interaction_artifacts ADD COLUMN content_hash TEXT');
     }
     const branchColumns = this.db.prepare('PRAGMA table_info(branches)').all() as SqlRow[];
     if (!branchColumns.some((column) => asString(column.name) === 'openclaw_session_id')) {
@@ -682,6 +713,7 @@ export class CanvasStore {
       WHERE interaction_id = ? ORDER BY ordinal, id`).all(interactionId) as SqlRow[];
     return rows.map((row) => ({
       id: asString(row.id),
+      ...(asNullableString(row.content_hash) ? { contentHash: asString(row.content_hash) } : {}),
       ...(asNullableString(row.gateway_artifact_id) ? { gatewayArtifactId: asString(row.gateway_artifact_id) } : {}),
       name: asString(row.name),
       ...(asNullableString(row.mime_type) ? { mimeType: asString(row.mime_type) } : {}),
@@ -705,6 +737,7 @@ export class CanvasStore {
   private normalizeInteractionArtifacts(interactionId: string, artifacts: CanvasArtifact[]): CanvasArtifact[] {
     return artifacts.map((artifact, index) => ({
       id: artifact.id || `${interactionId}:artifact:${index}`,
+      ...(artifact.contentHash ? { contentHash: artifact.contentHash } : {}),
       ...(artifact.gatewayArtifactId ? { gatewayArtifactId: artifact.gatewayArtifactId } : {}),
       name: artifact.name,
       ...(artifact.mimeType ? { mimeType: artifact.mimeType } : {}),
@@ -720,13 +753,14 @@ export class CanvasStore {
   private replaceInteractionArtifacts(interactionId: string, artifacts: CanvasArtifact[], now: number): void {
     this.db.prepare('DELETE FROM interaction_artifacts WHERE interaction_id = ?').run(interactionId);
     const insert = this.db.prepare(`INSERT INTO interaction_artifacts
-      (interaction_id, id, gateway_artifact_id, name, mime_type, size_bytes, uri,
+      (interaction_id, id, content_hash, gateway_artifact_id, name, mime_type, size_bytes, uri,
         source_uri, storage, available, warning, ordinal, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
     this.normalizeInteractionArtifacts(interactionId, artifacts).forEach((artifact, index) => {
       insert.run(
         interactionId,
         artifact.id || `${interactionId}:artifact:${index}`,
+        artifact.contentHash || null,
         artifact.gatewayArtifactId || null,
         artifact.name,
         artifact.mimeType || null,
@@ -973,6 +1007,28 @@ export class CanvasStore {
     return this.getBranchById(branchId);
   }
 
+  adoptRecoveredInteractionSession(
+    interactionId: string,
+    sessionId: string,
+    observedAt = Date.now(),
+  ): BranchRecord | null {
+    const normalized = sessionId.trim();
+    if (!normalized) return null;
+    const row = this.db.prepare(`SELECT i.branch_id, i.execution_state, i.session_metadata_json
+      FROM interactions i WHERE i.id = ?`).get(interactionId) as SqlRow | undefined;
+    if (!row || asString(row.execution_state) !== 'completed') return null;
+    const metadata = parseJson<Record<string, unknown>>(row.session_metadata_json, {});
+    if (metadata.materialization !== 'session-recovery') return null;
+    const branchId = asString(row.branch_id);
+    this.db.prepare(`UPDATE branches
+      SET openclaw_session_id = ?, openclaw_session_started_at = ?,
+        observed_session_id = ?, observed_session_started_at = ?,
+        session_integrity = 'healthy', updated_at = ?
+      WHERE id = ?`)
+      .run(normalized, observedAt, normalized, observedAt, observedAt, branchId);
+    return this.getBranchById(branchId);
+  }
+
   forkInteraction(ownerId: string, interactionId: string): BranchRecord {
     const sourceRow = this.db.prepare(`SELECT i.*, b.canvas_id, b.head_interaction_id, c.agent_id, c.owner_id
       FROM interactions i JOIN branches b ON b.id = i.branch_id JOIN canvases c ON c.id = b.canvas_id
@@ -1010,12 +1066,8 @@ export class CanvasStore {
     rows.reverse();
 
     const resources: CanvasContextResource[] = [];
-    const seenResources = new Set<string>();
     const addResource = (resource: CanvasContextResource) => {
       if (!resource.available || !reusableContextResourceUri(resource.uri)) return;
-      const key = contextResourceKey(resource.uri);
-      if (!key || seenResources.has(key)) return;
-      seenResources.add(key);
       resources.push(resource);
     };
     for (const row of rows) {
@@ -1024,6 +1076,7 @@ export class CanvasStore {
         if (!attachment.uri) return;
         addResource({
           id: `${sourceInteractionId}:attachment:${index}`,
+          ...(attachment.contentHash ? { contentHash: attachment.contentHash } : {}),
           sourceInteractionId,
           source: 'user_attachment',
           name: attachment.name,
@@ -1037,6 +1090,7 @@ export class CanvasStore {
       this.listInteractionArtifacts(sourceInteractionId).forEach((artifact, index) => {
         addResource({
           id: `${sourceInteractionId}:artifact:${index}`,
+          ...(artifact.contentHash ? { contentHash: artifact.contentHash } : {}),
           sourceInteractionId,
           source: 'agent_artifact',
           name: artifact.name,
@@ -1078,28 +1132,22 @@ export class CanvasStore {
       } else if (branch.sessionState === 'draft' && branch.kind === 'fork' && !branch.headInteractionId) {
         materialization = 'canonical-replay';
         const row = this.db.prepare('SELECT snapshot_json FROM branches WHERE id = ?').get(branch.id) as SqlRow;
-        const snapshot = parseJson<{ version?: number; interactions?: Array<{ user: string; assistant: string }>; resources?: CanvasContextResource[] }>(row.snapshot_json, {});
-        bootstrapResources = snapshot.resources || [];
-        const transcript = (snapshot.interactions || []).map((item, index) =>
-          `Interaction ${index + 1}\nUser: ${item.user}\nAgent: ${item.assistant}`,
-        ).join('\n\n');
-        const resourceManifest = bootstrapResources.length > 0
-          ? `\n\n<canvas-context-resources>${JSON.stringify(bootstrapResources.map(({ id, sourceInteractionId, source, name, mimeType, sizeBytes, uri }) => ({ id, sourceInteractionId, source, name, mimeType, sizeBytes, uri })))}</canvas-context-resources>`
-          : '';
-        outgoingMessage = `<canvas-context-snapshot>\nThe user forked an earlier Canvas interaction. Continue from this immutable prior context.\n\n${transcript}${resourceManifest}\n</canvas-context-snapshot>\n\n${input.userInput}`;
+        const snapshot = parseJson<CanonicalSnapshot>(row.snapshot_json, {
+          version: 2,
+          interactions: [],
+          resources: [],
+        });
+        const replay = buildCanvasReplayPlan(snapshot, 'canonical-replay', input.userInput);
+        bootstrapResources = replay.resources;
+        outgoingMessage = replay.message;
       } else if (branch.sessionState === 'active' && branch.headInteractionId && input.expectedHeadInteractionId === branch.headInteractionId) {
         expectedHead = branch.headInteractionId;
         if (branch.sessionIntegrity === 'drifted' || input.forceSessionRecovery) {
           materialization = 'session-recovery';
           const snapshot = this.buildCanonicalSnapshot(branch.headInteractionId);
-          bootstrapResources = snapshot.resources;
-          const transcript = snapshot.interactions.map((item, index) =>
-            `Interaction ${index + 1}\nUser: ${item.user}\nAgent: ${item.assistant}`,
-          ).join('\n\n');
-          const resourceManifest = bootstrapResources.length > 0
-            ? `\n\n<canvas-context-resources>${JSON.stringify(bootstrapResources.map(({ id, sourceInteractionId, source, name, mimeType, sizeBytes, uri }) => ({ id, sourceInteractionId, source, name, mimeType, sizeBytes, uri })))}</canvas-context-resources>`
-            : '';
-          outgoingMessage = `<canvas-context-snapshot>\nOpenClaw reset this Canvas session. Restore the immutable Canvas history before continuing.\n\n${transcript}${resourceManifest}\n</canvas-context-snapshot>\n\n${input.userInput}`;
+          const replay = buildCanvasReplayPlan(snapshot, 'session-recovery', input.userInput);
+          bootstrapResources = replay.resources;
+          outgoingMessage = replay.message;
         } else {
           materialization = 'continue-existing';
         }
@@ -1120,6 +1168,7 @@ export class CanvasStore {
   getReservation(id: string): SendReservation | null {
     const row = this.db.prepare('SELECT * FROM send_reservations WHERE id = ?').get(id) as SqlRow | undefined;
     if (!row) return null;
+    const bootstrapResources = parseJson<CanvasContextResource[]>(row.bootstrap_resources_json, []);
     return {
       id: asString(row.id),
       branchId: asString(row.branch_id),
@@ -1130,10 +1179,7 @@ export class CanvasStore {
       sessionKey: asString(row.session_key),
       outgoingMessage: asString(row.outgoing_message),
       snapshotVersion: ['canonical-replay', 'session-recovery'].includes(asString(row.materialization)) ? 2 : undefined,
-      bootstrapResources: parseJson<CanvasContextResource[]>(row.bootstrap_resources_json, []).map((resource) => ({
-        ...resource,
-        fetchUrl: `/api/canvas/send-operations/${encodeURIComponent(asString(row.id))}/resources/${encodeURIComponent(resource.id)}`,
-      })),
+      bootstrapResources,
       status: asString(row.status) as SendReservation['status'],
       dispatchState: (asString(row.dispatch_state) || 'reserved') as SendDispatchState,
       attemptCount: asNumber(row.attempt_count),
@@ -1171,7 +1217,7 @@ export class CanvasStore {
     const rows = this.db.prepare(`SELECT r.id
       FROM send_reservations r
       WHERE r.status = 'prepared'
-        AND r.dispatch_state IN ('reserved', 'dispatching', 'ambiguous')
+        AND r.dispatch_state IN ('reserved', 'awaiting_media', 'dispatching', 'ambiguous')
         AND (r.next_attempt_at IS NULL OR r.next_attempt_at <= ?)
       ORDER BY COALESCE(r.next_attempt_at, r.created_at), r.created_at
       LIMIT ?`).all(now, limit) as SqlRow[];
@@ -1185,7 +1231,7 @@ export class CanvasStore {
     const row = this.db.prepare(`SELECT MIN(COALESCE(next_attempt_at, ?)) AS next_at
       FROM send_reservations
       WHERE status = 'prepared'
-        AND dispatch_state IN ('reserved', 'dispatching', 'ambiguous')`)
+        AND dispatch_state IN ('reserved', 'awaiting_media', 'dispatching', 'ambiguous')`)
       .get(now) as SqlRow | undefined;
     return row?.next_at == null ? null : asNumber(row.next_at);
   }
@@ -1196,7 +1242,7 @@ export class CanvasStore {
       SET dispatch_state = 'dispatching', attempt_count = attempt_count + 1,
         last_attempt_at = ?, next_attempt_at = NULL, error = NULL, updated_at = ?
       WHERE id = ? AND status = 'prepared'
-        AND dispatch_state IN ('reserved', 'dispatching', 'ambiguous')`)
+        AND dispatch_state IN ('reserved', 'awaiting_media', 'dispatching', 'ambiguous')`)
       .run(now, now, id);
     return this.getReservation(id);
   }
@@ -1214,49 +1260,6 @@ export class CanvasStore {
       SET dispatch_state = 'awaiting_media', next_attempt_at = NULL, updated_at = ?
       WHERE id = ? AND status = 'prepared'`).run(Date.now(), id);
     return this.getReservation(id);
-  }
-
-  markReservationMediaReady(id: string): SendReservation | null {
-    this.db.prepare(`UPDATE send_reservations
-      SET dispatch_state = 'reserved', next_attempt_at = NULL, error = NULL, updated_at = ?
-      WHERE id = ? AND status = 'prepared' AND dispatch_state = 'awaiting_media'`)
-      .run(Date.now(), id);
-    return this.getReservation(id);
-  }
-
-  setReservationResourceVariant(
-    ownerId: string,
-    reservationId: string,
-    resourceId: string,
-    attachment: CanvasAttachment,
-  ): boolean {
-    if (!attachment.id || !this.getOwnedReservation(ownerId, reservationId)) return false;
-    const resource = this.getOwnedReservationResource(ownerId, reservationId, resourceId);
-    if (!resource) return false;
-    this.db.prepare(`INSERT INTO send_resource_variants
-      (reservation_id, resource_id, attachment_id, mime_type, size_bytes, created_at)
-      VALUES (?, ?, ?, ?, ?, ?)
-      ON CONFLICT(reservation_id, resource_id) DO UPDATE SET
-        attachment_id = excluded.attachment_id,
-        mime_type = excluded.mime_type,
-        size_bytes = excluded.size_bytes,
-        created_at = excluded.created_at`)
-      .run(reservationId, resourceId, attachment.id, attachment.mimeType, attachment.sizeBytes, Date.now());
-    this.markReservationMediaReady(reservationId);
-    return true;
-  }
-
-  getReservationResourceVariant(
-    reservationId: string,
-    resourceId: string,
-  ): { attachmentId: string; mimeType: string; sizeBytes: number } | null {
-    const row = this.db.prepare(`SELECT * FROM send_resource_variants
-      WHERE reservation_id = ? AND resource_id = ?`).get(reservationId, resourceId) as SqlRow | undefined;
-    return row ? {
-      attachmentId: asString(row.attachment_id),
-      mimeType: asString(row.mime_type),
-      sizeBytes: asNumber(row.size_bytes),
-    } : null;
   }
 
   getOwnedReservationSessionTarget(
@@ -1345,14 +1348,24 @@ export class CanvasStore {
     if (!canvas) throw new Error('not_found');
     const now = Date.now();
     this.db.prepare(`INSERT INTO canvas_attachments
-      (canvas_id, attachment_id, name, mime_type, size_bytes, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      (canvas_id, attachment_id, content_hash, name, mime_type, size_bytes, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(canvas_id, attachment_id) DO UPDATE SET
+        content_hash = COALESCE(excluded.content_hash, canvas_attachments.content_hash),
         name = excluded.name,
         mime_type = excluded.mime_type,
         size_bytes = excluded.size_bytes,
         updated_at = excluded.updated_at`)
-      .run(canvasId, attachment.id, attachment.name, attachment.mimeType, attachment.sizeBytes, now, now);
+      .run(
+        canvasId,
+        attachment.id,
+        attachment.contentHash || null,
+        attachment.name,
+        attachment.mimeType,
+        attachment.sizeBytes,
+        now,
+        now,
+      );
     return attachment;
   }
 
@@ -1367,6 +1380,7 @@ export class CanvasStore {
       if (!row) continue;
       result.push({
         id: asString(row.attachment_id),
+        ...(asNullableString(row.content_hash) ? { contentHash: asString(row.content_hash) } : {}),
         name: asString(row.name),
         mimeType: asString(row.mime_type),
         sizeBytes: asNumber(row.size_bytes),
@@ -1378,53 +1392,121 @@ export class CanvasStore {
     return result;
   }
 
-  setCanvasAttachmentDeliveryVariant(
+  setCanvasAttachmentContentHash(
     ownerId: string,
     canvasId: string,
     attachmentId: string,
-    delivery: CanvasAttachment,
+    contentHash: string,
   ): boolean {
-    if (!delivery.id || !this.getCanvas(ownerId, canvasId)) return false;
+    if (!/^[a-f0-9]{64}$/.test(contentHash) || !this.getCanvas(ownerId, canvasId)) return false;
     const result = this.db.prepare(`UPDATE canvas_attachments
-      SET delivery_attachment_id = ?, delivery_mime_type = ?, delivery_size_bytes = ?, updated_at = ?
+      SET content_hash = ?, updated_at = ?
       WHERE canvas_id = ? AND attachment_id = ?`)
-      .run(delivery.id, delivery.mimeType, delivery.sizeBytes, Date.now(), canvasId, attachmentId);
+      .run(contentHash, Date.now(), canvasId, attachmentId);
     return Number(result.changes) > 0;
   }
 
-  getCanvasAttachmentDeliveries(canvasId: string, attachmentIds: string[]): CanvasAttachmentDelivery[] {
-    const result: CanvasAttachmentDelivery[] = [];
-    const statement = this.db.prepare(`SELECT * FROM canvas_attachments
-      WHERE canvas_id = ? AND attachment_id = ?`);
-    for (const attachmentId of attachmentIds) {
-      const row = statement.get(canvasId, attachmentId) as SqlRow | undefined;
-      if (!row) continue;
-      const deliveryAttachmentId = asNullableString(row.delivery_attachment_id) || attachmentId;
-      result.push({
-        attachment: {
-          id: attachmentId,
-          name: asString(row.name),
-          mimeType: asString(row.mime_type),
-          sizeBytes: asNumber(row.size_bytes),
-          uri: `/api/canvas/attachments/${encodeURIComponent(canvasId)}/${encodeURIComponent(attachmentId)}`,
-          storage: 'canvas',
-          available: true,
-        },
-        deliveryAttachmentId,
-        deliveryMimeType: asNullableString(row.delivery_mime_type) || asString(row.mime_type),
-        deliverySizeBytes: row.delivery_size_bytes == null ? asNumber(row.size_bytes) : asNumber(row.delivery_size_bytes),
-      });
-    }
-    return result;
+  setInteractionArtifactContentHash(
+    ownerId: string,
+    interactionId: string,
+    artifactId: string,
+    contentHash: string,
+  ): boolean {
+    if (!/^[a-f0-9]{64}$/.test(contentHash) || !this.getOwnedInteraction(ownerId, interactionId)) return false;
+    const result = this.db.prepare(`UPDATE interaction_artifacts
+      SET content_hash = ?, updated_at = ?
+      WHERE interaction_id = ? AND id = ?`)
+      .run(contentHash, Date.now(), interactionId, artifactId);
+    return Number(result.changes) > 0;
   }
 
-  getOwnedReservationResource(ownerId: string, reservationId: string, resourceId: string): { resource: CanvasContextResource; agentId: string } | null {
-    const row = this.db.prepare(`SELECT r.bootstrap_resources_json, c.agent_id
-      FROM send_reservations r JOIN branches b ON b.id = r.branch_id JOIN canvases c ON c.id = b.canvas_id
-      WHERE r.id = ? AND c.owner_id = ?`).get(reservationId, ownerId) as SqlRow | undefined;
-    if (!row) return null;
-    const resource = parseJson<CanvasContextResource[]>(row.bootstrap_resources_json, []).find((item) => item.id === resourceId);
-    return resource ? { resource, agentId: asString(row.agent_id) } : null;
+  getCanvasMediaDerivative(
+    canvasId: string,
+    sourceContentHash: string,
+    purpose: CanvasMediaDerivativePurpose,
+    policyVersion: string,
+  ): CanvasMediaDerivative | null {
+    const row = this.db.prepare(`SELECT * FROM canvas_media_derivatives
+      WHERE canvas_id = ? AND source_content_hash = ? AND purpose = ? AND policy_version = ?`)
+      .get(canvasId, sourceContentHash, purpose, policyVersion) as SqlRow | undefined;
+    return row ? {
+      canvasId: asString(row.canvas_id),
+      sourceContentHash: asString(row.source_content_hash),
+      purpose: asString(row.purpose) as CanvasMediaDerivativePurpose,
+      policyVersion: asString(row.policy_version),
+      derivativeId: asString(row.derivative_id),
+      mimeType: asString(row.mime_type),
+      sizeBytes: asNumber(row.size_bytes),
+      width: asNumber(row.width),
+      height: asNumber(row.height),
+      createdAt: asNumber(row.created_at),
+      updatedAt: asNumber(row.updated_at),
+    } : null;
+  }
+
+  recordCanvasMediaDerivative(input: Omit<CanvasMediaDerivative, 'createdAt' | 'updatedAt'>): CanvasMediaDerivative {
+    if (!/^[a-f0-9]{64}$/.test(input.sourceContentHash)) throw new Error('invalid_media_content_hash');
+    if (!/^[a-f0-9]{40}$/.test(input.derivativeId)) throw new Error('invalid_media_derivative_id');
+    const now = Date.now();
+    this.db.prepare(`INSERT INTO canvas_media_derivatives
+      (canvas_id, source_content_hash, purpose, policy_version, derivative_id,
+        mime_type, size_bytes, width, height, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(canvas_id, source_content_hash, purpose, policy_version) DO UPDATE SET
+        derivative_id = excluded.derivative_id,
+        mime_type = excluded.mime_type,
+        size_bytes = excluded.size_bytes,
+        width = excluded.width,
+        height = excluded.height,
+        updated_at = excluded.updated_at`)
+      .run(
+        input.canvasId,
+        input.sourceContentHash,
+        input.purpose,
+        input.policyVersion,
+        input.derivativeId,
+        input.mimeType,
+        input.sizeBytes,
+        input.width,
+        input.height,
+        now,
+        now,
+      );
+    return this.getCanvasMediaDerivative(
+      input.canvasId,
+      input.sourceContentHash,
+      input.purpose,
+      input.policyVersion,
+    )!;
+  }
+
+  listCanvasMediaBackfillSources(): CanvasMediaBackfillSource[] {
+    const attachments = this.db.prepare(`SELECT
+        'attachment' AS kind, c.owner_id, a.canvas_id, NULL AS interaction_id,
+        a.attachment_id AS source_id, a.name, a.mime_type, a.content_hash
+      FROM canvas_attachments a
+      JOIN canvases c ON c.id = a.canvas_id
+      ORDER BY a.canvas_id, a.attachment_id`).all() as SqlRow[];
+    const artifacts = this.db.prepare(`SELECT
+        'artifact' AS kind, c.owner_id, b.canvas_id, ia.interaction_id,
+        ia.id AS source_id, ia.name, COALESCE(ia.mime_type, '') AS mime_type,
+        ia.content_hash
+      FROM interaction_artifacts ia
+      JOIN interactions i ON i.id = ia.interaction_id
+      JOIN branches b ON b.id = i.branch_id
+      JOIN canvases c ON c.id = b.canvas_id
+      WHERE ia.storage = 'canvas' AND ia.available = 1
+      ORDER BY b.canvas_id, ia.interaction_id, ia.ordinal`).all() as SqlRow[];
+    return [...attachments, ...artifacts].map((row) => ({
+      kind: asString(row.kind) as CanvasMediaBackfillSource['kind'],
+      ownerId: asString(row.owner_id),
+      canvasId: asString(row.canvas_id),
+      ...(asNullableString(row.interaction_id) ? { interactionId: asString(row.interaction_id) } : {}),
+      sourceId: asString(row.source_id),
+      name: asString(row.name),
+      mimeType: asString(row.mime_type),
+      ...(asNullableString(row.content_hash) ? { contentHash: asString(row.content_hash) } : {}),
+    }));
   }
 
   getOwnedCanvasAttachment(ownerId: string, canvasId: string, attachmentId: string): CanvasAttachment | null {

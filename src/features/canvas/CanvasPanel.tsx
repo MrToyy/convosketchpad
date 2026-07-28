@@ -27,11 +27,7 @@ import { Button } from '@/components/ui/button';
 import { useRuntime } from '@/contexts/RuntimeContext';
 import { useSettings } from '@/contexts/SettingsContext';
 import { useCanvasSync } from '@/hooks/useCanvasSync';
-import { canvasApi, persistCanvasFiles, persistDeliveryVariant } from './api';
-import {
-  prepareDeliveryAttachment,
-  prepareDeliveryAttachments,
-} from './attachments';
+import { canvasApi, persistCanvasFiles } from './api';
 import {
   createGraphRefreshController,
   graphNeedsFallbackPolling,
@@ -284,40 +280,13 @@ export function CanvasPanel({ onStatusStatsChange }: { onStatusStatsChange?: (st
       const canvasAgentId = graph?.canvas.agentId;
       const canvasId = graph?.canvas.id;
       if (!canvasId || !canvasAgentId) throw new CanvasLocalizedError(copy.currentCanvasMissing);
-      const preparedDraftAttachments = await prepareDeliveryAttachments(draft.files, language);
       const attachmentMeta = draft.files.length ? await persistCanvasFiles(draft.files, canvasId) : [];
-      await Promise.all(preparedDraftAttachments.map(async (prepared, index) => {
-        const bytes = Uint8Array.from(atob(prepared.content), (character) => character.charCodeAt(0));
-        const variant = new globalThis.File([bytes], prepared.fileName, { type: prepared.mimeType });
-        await persistDeliveryVariant(attachmentMeta[index].id, canvasId, variant);
-      }));
-      let result = await canvasApi.send(branch.id, {
+      const result = await canvasApi.send(branch.id, {
         expectedHeadInteractionId: branch.sessionState === 'active' ? branch.headInteractionId : null,
         expectedAgentId: canvasAgentId,
         userInput: draft.text,
         attachmentIds: attachmentMeta.map((attachment) => attachment.id),
       });
-      if (result.operation?.dispatchState === 'awaiting_media') {
-        for (const resource of result.operation.bootstrapResources) {
-          if (!resource.fetchUrl) continue;
-          const response = await fetch(resource.fetchUrl, { credentials: 'include' });
-          if (!response.ok) throw new Error(copy.readFailedWithStatus(response.status));
-          const blob = await response.blob();
-          const source = new globalThis.File(
-            [blob],
-            resource.name,
-            { type: resource.mimeType || blob.type || 'application/octet-stream' },
-          );
-          const prepared = await prepareDeliveryAttachment(source, language);
-          const bytes = Uint8Array.from(atob(prepared.content), (character) => character.charCodeAt(0));
-          await canvasApi.uploadOperationResourceVariant(
-            result.operation.id,
-            resource.id,
-            new globalThis.File([bytes], prepared.fileName, { type: prepared.mimeType }),
-          );
-        }
-        result = await canvasApi.dispatch(result.operation.id);
-      }
       if (composerPosition && result.interaction) {
         positionsRef.current = { ...positionsRef.current, [result.interaction.id]: composerPosition };
         delete positionsRef.current[composerId];
@@ -329,7 +298,7 @@ export function CanvasPanel({ onStatusStatsChange }: { onStatusStatsChange?: (st
       const message = localizeError(cause, copy.messageSendFailed);
       updateDraft(branch.id, (current) => ({ ...current, sending: false, error: message }));
     }
-  }, [canvasStreamState, copy, drafts, graph?.canvas.agentId, graph?.canvas.id, language, loadGraph, localizeError, persistLayout, updateDraft]);
+  }, [canvasStreamState, copy, drafts, graph?.canvas.agentId, graph?.canvas.id, loadGraph, localizeError, persistLayout, updateDraft]);
 
   const addFromInteraction = useCallback(async (interaction: CanvasInteraction) => {
     try {

@@ -44,11 +44,16 @@ npm run update
 5. 只把所选 Release 标签获取到内部 Ref；
 6. 验证目标是否为匹配的 `convosketchpad` Package；
 7. 运行 `npm ci` 和 `npm run build`；
-8. 对已停止的受管服务运行目标版本数据库迁移，并校验 SQLite 外键与完整性；
+8. 对已停止的受管服务运行目标版本数据库迁移、历史图片缩略图回填，并校验 SQLite 外键与完整性；
 9. 重启检测到的服务；
 10. 验证 `/health` 和 `/api/version`。
 
 从 `0.2.0` 升级到本版本时，数据迁移标识为 `0.2.0_to_0.3.0_v1`。它只读取现有 SQLite 数据，不依赖 Gateway 在线、Session 历史或某个特定数据库实例；迁移成功后通过 `schema_migrations` 账本保证不会在后续启动中重复扫描历史节点。
+
+媒体回填标识为 `0.3.0_media_derivatives_v1`。它读取 Canvas 本地文件，为所有历史上传附件和 Agent Artifact
+计算真实内容哈希，并为其中的图片生成缩略图，不修改原件。更新器允许该停服步骤最长运行 60 分钟；单个损坏或不支持的图片
+会记录警告并继续，存储或数据库系统性错误会触发回滚。迁移账本存在后，后续更新和服务启动都不会重复全量扫描。
+需要诊断性地复查历史媒体时，停止服务后显式运行 `npm run migrate -- --rescan-media`。
 
 `0.2.0` 自带的旧更新器尚没有独立的迁移阶段。由它发起首次升级时，目标版本服务在第一次打开数据库时执行同一事务化迁移，因此无需先安装中间版本。升级到本版本以后，后续更新将使用上述停服、快照、显式迁移和完整性校验流程。
 
@@ -101,7 +106,7 @@ npm run update -- --no-restart
 
 切换工作区前，更新器会记录当前 Commit、Package 版本、时间戳和 `.env` Hash。存在 `.env` 时，以 `0600` 权限复制。检测到受管服务时会先停服；存在 `database/canvas.sqlite` 时，再使用 SQLite `VACUUM INTO` 创建包含已提交 WAL 内容的一致副本，并以 `0600` 权限保存。状态保存在 `~/.convosketchpad/updater/` 下。
 
-如果快照完成后 Fetch、校验、构建、迁移、重启或健康检查失败，更新器会先停止服务，切回已保存的 Commit，恢复数据库快照，运行 `npm ci` 和 `npm run build`，并重启检测到的服务。Artifact 文件不在数据库迁移中改写，因此更新器不会复制或删除 `artifacts/`。
+如果快照完成后 Fetch、校验、构建、迁移、重启或健康检查失败，更新器会先停止服务，切回已保存的 Commit，恢复数据库快照，运行 `npm ci` 和 `npm run build`，并重启检测到的服务。原始附件和 Artifact 文件不在数据库迁移中改写；媒体回填只在 `artifacts/` 下增加可再生成的派生文件。更新器不会复制或删除 `artifacts/`，因此回滚数据库后多出的派生文件可能保留，但不会被旧版本引用。
 
 | 路径 | 用途 |
 |---|---|
@@ -164,4 +169,5 @@ sudo systemctl restart convosketchpad.service
 npm run migrate
 ```
 
-成功输出应包含 `0.2.0_to_0.3.0_v1 applied`。若手动替换数据库，请同时移除同名 `-wal`、`-shm` 文件，或优先使用更新器的 `--rollback`。
+成功输出应包含 `0.2.0_to_0.3.0_v1 applied` 和 `0.3.0_media_derivatives_v1 applied`。若手动替换数据库，
+请同时移除同名 `-wal`、`-shm` 文件，或优先使用更新器的 `--rollback`。

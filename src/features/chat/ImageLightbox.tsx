@@ -5,13 +5,19 @@ import { useSettings } from '@/contexts/SettingsContext';
 import { getAppCopy } from '@/lib/app-messages';
 
 interface ImageLightboxProps {
-  src: string;
+  thumbnailSrc: string;
+  originalSrc: string;
   alt?: string;
   thumbnailClassName?: string;
 }
 
 /** Thumbnail that expands into a full-screen lightbox on click. */
-export function ImageLightbox({ src, alt, thumbnailClassName }: ImageLightboxProps) {
+export function ImageLightbox({
+  thumbnailSrc,
+  originalSrc,
+  alt,
+  thumbnailClassName,
+}: ImageLightboxProps) {
   const { language } = useSettings();
   const copy = getAppCopy(language);
   const imageAlt = alt || copy.media.image;
@@ -20,12 +26,12 @@ export function ImageLightbox({ src, alt, thumbnailClassName }: ImageLightboxPro
   const handleDownload = useCallback(async (e: React.MouseEvent) => {
     e.stopPropagation();
     try {
-      const res = await fetch(src);
+      const res = await fetch(originalSrc);
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      const rawName = src.split('/').pop()?.split('?')[0];
+      const rawName = originalSrc.split('/').pop()?.split('?')[0];
       const filename = rawName || `image-${Date.now()}.png`;
       a.download = filename;
       document.body.appendChild(a);
@@ -34,20 +40,20 @@ export function ImageLightbox({ src, alt, thumbnailClassName }: ImageLightboxPro
       URL.revokeObjectURL(url);
     } catch {
       // Fallback: open in new tab
-      window.open(src, '_blank');
+      window.open(originalSrc, '_blank');
     }
-  }, [src]);
+  }, [originalSrc]);
 
   const handleOpenOriginal = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
-    window.open(src, '_blank');
-  }, [src]);
+    window.open(originalSrc, '_blank');
+  }, [originalSrc]);
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogPrimitive.Trigger asChild>
         <img
-          src={src}
+          src={thumbnailSrc}
           alt={imageAlt}
           className={thumbnailClassName || "max-w-[512px] max-h-[512px] rounded border border-border/60 object-contain cursor-pointer hover:border-primary/60 transition-colors"}
           loading="lazy"
@@ -62,12 +68,14 @@ export function ImageLightbox({ src, alt, thumbnailClassName }: ImageLightboxPro
         >
           <DialogPrimitive.Title className="sr-only">{imageAlt}</DialogPrimitive.Title>
           <DialogPrimitive.Description className="sr-only">{copy.media.expandedView(imageAlt)}</DialogPrimitive.Description>
-          <img
-            src={src}
-            alt={imageAlt}
-            className="max-w-[90vw] max-h-[85vh] object-contain rounded-lg shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
-          />
+          {open && (
+            <img
+              src={originalSrc}
+              alt={imageAlt}
+              className="max-w-[90vw] max-h-[85vh] object-contain rounded-lg shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            />
+          )}
           {/* Top-right action buttons */}
           <div className="absolute top-4 right-4 flex gap-2" onClick={(e) => e.stopPropagation()}>
             <button

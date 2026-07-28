@@ -34,8 +34,6 @@ function operation(branchId: string): SendReservation {
     attachments: [],
     materialization: 'lazy-root',
     sessionKey: `agent:main:canvas:${branchId}`,
-    outgoingMessage: '',
-    bootstrapResources: [],
     status: 'prepared',
     dispatchState: 'reserved',
     attemptCount: 0,

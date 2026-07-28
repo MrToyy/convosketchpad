@@ -62,14 +62,26 @@ reserved
 ## 发送流程
 
 1. 浏览器把原始附件上传到 Canvas 文件存储；上传路由同时写入 `canvas_attachments` 登记表。
-2. 图片压缩仍在浏览器执行，但压缩结果只作为“投递副本”上传给后端；浏览器不组装 `chat.send`。
-3. 浏览器调用 `POST /api/canvas/branches/:id/send`，只提交用户文本、预期头节点、预期 Agent 和附件 ID。
-4. 服务端从数据库解析附件名称、MIME、大小和文件位置，执行所有者、Agent、Branch 与排他性检查。
-5. 服务端持久化发送预留，再由发送协调器调用原生 `chat.send`，预留 ID 同时作为 `idempotencyKey`。
+2. 浏览器调用 `POST /api/canvas/branches/:id/send`，只提交用户文本、预期头节点、预期 Agent 和附件 ID。
+3. 服务端从数据库解析附件名称、MIME、大小和文件位置，执行所有者、Agent、Branch 与排他性检查。
+4. 服务端持久化发送预留；需要处理大图时进入可恢复的 `awaiting_media`，由后端生成版本化投递派生文件。
+5. 发送协调器调用原生 `chat.send`，预留 ID 同时作为 `idempotencyKey`。
 6. Gateway 接受后，服务端创建 `running` Interaction；终态 Gateway 信号先幂等写入收件箱，再由后端关联和协调。
 7. `canvas-reconciler` 读取 OpenClaw 权威对话记录，持久化最终文本和 Artifact。
 
-Fork 或 Session 恢复所需的历史资源由服务端从 Canvas 自有副本读取。资源缺失会作为启动警告记录。
+Fork 与失效 Session 恢复共用一个后端 Replay Package 编译流程：
+
+- 沿目标 Branch 从根到目标节点完整重放全部 Interaction 文本，不根据当前指令猜测或删减历史 Artifact；
+- 每个可用历史附件和 Artifact 都在其原始 Interaction 旁保留逻辑引用，并分配稳定的 `F001`、`F002` 等引用；
+- 相同内容在多个历史位置出现时保留每个逻辑引用，但按持久化内容 ID 只投递一个物理文件；
+- 历史文件只通过原生 `chat.send.attachments` 发送，重放文本不包含 Canvas HTTP URI、数据库 ID 或资源 JSON；
+- 历史资源先于本轮用户附件按确定顺序投递；大图由后端生成按内容哈希和策略版本复用的投递派生文件；
+- 派生文件准备期间 Send Operation 保持 `awaiting_media`，浏览器无需上传压缩副本或接触重放资源；
+- 文件副本缺失时不伪造成功，后端在重放消息中附加简短警告；完整 Replay Package 超出 Gateway
+  `maxPayload` 时整次发送明确失败为 `replay_payload_too_large`，不会静默丢弃部分资源。
+
+OpenClaw 在会话记录中可能把 RPC 的 `attachments` 规范化为 `MediaPaths` / `MediaTypes`，因此 Control UI
+不一定显示原始 `attachments` 数组；这不代表 Agent 没有收到媒体。
 
 ## Canvas 同步与后台协调
 
@@ -118,7 +130,7 @@ Node 客户端不发送浏览器 `Origin` Header，因此 ConvoSketchpad 不需�
 | Canvas 数据控制、发送、状态投影和完整实体更新 | `src/features/canvas/CanvasPanel.tsx`、`src/features/canvas/status.ts` |
 | Interaction/Composer 节点与节点布局适配 | `src/features/canvas/CanvasNodes.tsx`、`src/features/canvas/constants.ts` |
 | 产品 HTTP 客户端与数据契约 | `src/features/canvas/api.ts`、`src/features/canvas/types.ts` |
-| 图片压缩与附件投递副本 | `src/features/canvas/attachments.ts` |
+| 图片缩略图、按需原图预览 | `src/features/canvas/CanvasNodes.tsx`、`src/features/chat/ImageLightbox.tsx` |
 | Gateway 运行状态上下文 | `src/contexts/RuntimeContext.tsx`、`src/hooks/useRuntimeEvents.ts` |
 | Canvas SSE、实体合并与降级退避 | `src/hooks/useCanvasSync.ts`、`src/features/canvas/sync.ts`、`src/features/canvas/graph-refresh.ts` |
 | 登录和外观设置 | `src/features/auth/`、`src/features/settings/` |
@@ -131,10 +143,11 @@ Node 客户端不发送浏览器 `Origin` Header，因此 ConvoSketchpad 不需�
 | Gateway 运行状态 SSE | `server/routes/runtime.ts`、`server/lib/runtime-events.ts` |
 | Canvas cursor、SSE 与 Preview | `server/routes/canvas.ts`、`server/lib/canvas-sync.ts` |
 | Schema、迁移和状态机 | `server/lib/canvas-db.ts`、`server/lib/canvas-migrations.ts` |
+| Fork/Session 恢复 Replay Package 编译与资源物理去重 | `server/lib/canvas-replay-plan.ts` |
 | 发送协调与恢复重试 | `server/lib/canvas-send-coordinator.ts`、`server/lib/canvas-send-retry.ts` |
 | Gateway 唯一连接 | `server/lib/gateway-rpc.ts` |
 | 对话与 Artifact 协调 | `server/lib/canvas-reconciler.ts`、`server/lib/canvas-artifact-watch.ts`、`server/lib/canvas-reconciliation-state.ts` |
-| 附件和 Artifact 文件存储 | `server/routes/upload-reference.ts`、`server/lib/canvas-artifact-store.ts` |
+| 附件、Artifact、投递图与缩略图文件存储 | `server/routes/upload-reference.ts`、`server/lib/canvas-artifact-store.ts`、`server/lib/canvas-media-derivatives.ts` |
 
 ## 数据模型与迁移
 
@@ -143,9 +156,15 @@ Node 客户端不发送浏览器 `Origin` Header，因此 ConvoSketchpad 不需�
 Interaction 上下文快照复用 `session_metadata_json` 持久化并投影为 Graph 的 `contextSnapshot`，因此不新增
 Schema 迁移。旧数据库和旧节点自然返回 `null`；只有新版本确认完成且 OpenClaw 提供可靠数据的节点才具有快照。
 
-新增 `canvas_attachments` 作为上传登记与投递副本索引。旧 Interaction 中可识别的 Canvas 附件在启动迁移时使用 SQLite JSON1 回填；历史 JSON 保持不可变。
+新增 `canvas_attachments` 作为上传登记，并为附件与规范化 Artifact 保存真实文件内容的 SHA-256。旧 Interaction
+中可识别的 Canvas 附件在启动迁移时使用 SQLite JSON1 回填；历史 JSON 保持不可变。Artifact 的公开 ID
+继续稳定标识来源，但 Replay 物理去重与媒体缓存只使用内容哈希，避免同一来源 URI 的不同内容被误合并。
 
-新增 `interaction_artifacts`、`artifact_sync_jobs`、`canvas_changes`、`gateway_signal_inbox` 和内部 `schema_migrations`。从 `0.2.0` 升级时，`0.2.0_to_0.3.0_v1` 在同一个 SQLite 事务中执行一次：
+新增 `interaction_artifacts`、`canvas_media_derivatives`、`artifact_sync_jobs`、`canvas_changes`、
+`gateway_signal_inbox` 和内部 `schema_migrations`。`canvas_media_derivatives` 按 Canvas、源内容哈希、用途和
+策略版本缓存后端生成的投递图与缩略图；原始附件和 Artifact 文件始终不可变。
+
+从 `0.2.0` 升级时，`0.2.0_to_0.3.0_v1` 在同一个 SQLite 事务中执行一次：
 
 - 从 `0.2.0` 的 JSON 副本回填并合并等价 Artifact 来源，优先保留可用的 Canvas 持久化副本；
 - 完成或失败的旧节点只依据本地持久数据计算 Artifact 状态，文本完成且没有 Artifact 的节点为 `synced`，真实不可用副本才为 `degraded`；
@@ -153,6 +172,15 @@ Schema 迁移。旧数据库和旧节点自然返回 `null`；只有新版本确
 - 回填可识别的 Canvas 附件，移除旧协调版本字段，并在事务末尾写入迁移账本。
 
 该数据迁移不连接 Gateway，也不重新读取可能已过期的 Transcript，因此结果不依赖升级时 OpenClaw 的保留窗口或在线状态。新版本服务首次打开 `0.2.0` 数据库时会自动执行；更新器也会在停服后显式运行 `npm run migrate` 并校验外键与 SQLite 完整性。迁移账本存在后不会再次扫描历史节点。此后服务启动只恢复 `running`、`unconfirmed`、`observing` 或仍有 `artifact_sync_jobs` 的明确任务，不使用全局协调版本重新打开已终止节点。
+
+`0.3.0_media_derivatives_v1` 在服务停止期间遍历所有 Canvas 本地文件，为历史上传和 Artifact 计算内容哈希，
+并为其中的图片生成 `thumbnail-v1`。单文件格式无效或无法读取时记录警告并继续；文件系统或 SQLite
+系统性错误会使迁移失败。
+更新器为该阶段提供最长 60 分钟，迁移账本只在遍历结束并通过数据库完整性校验后保留。后续策略升级通过新的
+`policy_version` 生成新派生文件，不覆盖原图。
+
+Canvas Graph 对本地图片只公开版本化 `thumbnailUri`；外部 HTTP Artifact 不由后端抓取，因此只显示文件卡片。
+节点加载缩略图，只有用户打开预览或下载时才请求原图。
 
 旧 `attachments_json`、`artifacts_json` 和 Session 元数据保留不改，供失败回滚到 `0.2.0` 时读取；新版本不会在后续启动中用旧 JSON 覆盖已规范化的数据。
 
@@ -167,7 +195,10 @@ Schema 迁移。旧数据库和旧节点自然返回 `null`；只有新版本确
 
 ## Session 与持久化
 
-ConvoSketchpad观察实际 `sessionId` 和重置策略。Session 漂移、缺失或即将重置时，下一次发送加入规范快照，但不改写历史。
+ConvoSketchpad观察实际 `sessionId` 和重置策略。Session 漂移、缺失或即将重置时，下一次发送加入同一套
+Replay Package，但不改写历史。恢复发送的 Interaction 完成后，协调器以精确 Session key 观察到的物理
+`sessionId` 原子更新 Branch 基线；即使新 ID 晚于 `chat.send` 确认才出现，也不会让 Branch 长期停留在
+`unknown` / `drifted` 并在后续发送中重复恢复。
 
 | 数据 | 权威方或位置 |
 |---|---|

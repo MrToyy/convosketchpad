@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
-import { captureInteractionContextSnapshot } from './canvas-context-snapshot.js';
+import {
+  captureInteractionCompletionSession,
+  captureInteractionContextSnapshot,
+} from './canvas-context-snapshot.js';
 
 const SESSION_KEY = 'agent:main:canvas:branch-1';
 const SESSION_ID = 'session-1';
@@ -65,6 +68,26 @@ describe('Interaction context snapshots', () => {
 
     expect(stale).toBeNull();
     expect(drifted).toBeNull();
+  });
+
+  it('retains exact Session identity when token context is stale', async () => {
+    const result = await captureInteractionCompletionSession(SESSION_KEY, SESSION_ID, {
+      call: vi.fn(async () => ({
+        session: {
+          key: SESSION_KEY,
+          sessionId: SESSION_ID,
+          totalTokens: 100,
+          totalTokensFresh: false,
+          contextTokens: 1_000,
+        },
+      })),
+      supports: vi.fn(() => true),
+    });
+
+    expect(result).toEqual({
+      sessionId: SESSION_ID,
+      contextSnapshot: null,
+    });
   });
 
   it('accepts the exact-key physical session when no prior Session ID was observable', async () => {

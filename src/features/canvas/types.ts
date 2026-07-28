@@ -34,6 +34,7 @@ export interface CanvasAttachmentMeta {
   mimeType: string;
   sizeBytes: number;
   uri: string;
+  thumbnailUri?: string;
   storage: 'canvas';
   available: true;
   warning?: string;
@@ -46,22 +47,10 @@ export interface CanvasArtifact {
   mimeType?: string;
   sizeBytes?: number;
   uri: string;
+  thumbnailUri?: string;
   storage?: 'canvas' | 'external' | 'source';
   available?: boolean;
   warning?: string;
-}
-
-export interface CanvasContextResource {
-  id: string;
-  sourceInteractionId: string;
-  source: 'user_attachment' | 'agent_artifact';
-  name: string;
-  mimeType: string;
-  sizeBytes?: number;
-  uri: string;
-  available: boolean;
-  warning?: string;
-  fetchUrl?: string;
 }
 
 export interface InteractionContextSnapshot {
@@ -133,9 +122,7 @@ export interface SendReservation {
   attachments: CanvasAttachmentMeta[];
   materialization: 'lazy-root' | 'continue-existing' | 'checkpoint-delta' | 'canonical-replay' | 'session-recovery';
   sessionKey: string;
-  outgoingMessage: string;
   snapshotVersion?: number;
-  bootstrapResources: CanvasContextResource[];
   status: 'prepared' | 'acknowledged' | 'failed';
   dispatchState: 'reserved' | 'awaiting_media' | 'dispatching' | 'ambiguous' | 'acknowledged' | 'failed';
   attemptCount: number;

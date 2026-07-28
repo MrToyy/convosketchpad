@@ -94,23 +94,6 @@ export const canvasApi = {
       method: 'POST', body: JSON.stringify(body),
     });
   },
-  async dispatch(operationId: string): Promise<{ interaction?: CanvasInteraction; operation?: SendReservation }> {
-    return request(`/api/canvas/send-operations/${operationId}/dispatch`, {
-      method: 'POST', body: JSON.stringify({}),
-    });
-  },
-  async uploadOperationResourceVariant(
-    operationId: string,
-    resourceId: string,
-    file: File,
-  ): Promise<void> {
-    const form = new FormData();
-    form.append('file', file);
-    await request(
-      `/api/canvas/send-operations/${encodeURIComponent(operationId)}/resources/${encodeURIComponent(resourceId)}/delivery-variant`,
-      { method: 'POST', body: form },
-    );
-  },
 };
 
 export function canvasArtifactUrl(uri: string): string {
@@ -135,18 +118,4 @@ export async function persistCanvasFiles(files: File[], canvasId: string): Promi
     { method: 'POST', body: form },
   );
   return result.items;
-}
-
-export async function persistDeliveryVariant(
-  attachmentId: string,
-  canvasId: string,
-  file: File,
-): Promise<void> {
-  const form = new FormData();
-  form.append('canvasId', canvasId);
-  form.append('file', file);
-  await request(`/api/canvas/attachments/${encodeURIComponent(attachmentId)}/delivery-variant`, {
-    method: 'POST',
-    body: form,
-  });
 }

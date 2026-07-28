@@ -206,7 +206,7 @@ describe('CanvasStore', () => {
       artifactSyncState: 'observing',
     });
     expect(store.listReconciliationCandidates().map((item) => item.id)).toEqual(['streaming']);
-    expect(store.getCanvasAttachmentDeliveries('canvas-1', ['attachment-1'])).toHaveLength(1);
+    expect(store.getOwnedCanvasAttachments('user-a', 'canvas-1', ['attachment-1'])).toHaveLength(1);
     expect(store.getReservation('send-1')).toMatchObject({ dispatchState: 'ambiguous' });
     expect(store.db.prepare(`SELECT COUNT(*) AS count FROM schema_migrations
       WHERE id = '0.2.0_to_0.3.0_v1'`).get()).toMatchObject({ count: 1 });
@@ -375,7 +375,7 @@ describe('CanvasStore', () => {
     expect(store.nextDispatchableReservationAt()).toBeNull();
   });
 
-  it('resolves attachment IDs from the owner-scoped registry and keeps delivery metadata separate', () => {
+  it('resolves attachment IDs from the owner-scoped registry and records their content identity', () => {
     const store = createStore();
     const canvas = seedUser(store);
     const attachment = {
@@ -386,26 +386,48 @@ describe('CanvasStore', () => {
       uri: `/api/canvas/attachments/${canvas.id}/${'a'.repeat(40)}`,
       storage: 'canvas' as const,
       available: true,
+      contentHash: 'f'.repeat(64),
     };
     store.recordCanvasAttachment('user-a', canvas.id, attachment);
-    store.setCanvasAttachmentDeliveryVariant('user-a', canvas.id, attachment.id, {
-      ...attachment,
-      id: 'b'.repeat(40),
-      mimeType: 'image/webp',
-      sizeBytes: 500_000,
-    });
 
     expect(store.getOwnedCanvasAttachments('user-a', canvas.id, [attachment.id])).toEqual([
-      expect.objectContaining({ id: attachment.id, name: 'source.png', mimeType: 'image/png' }),
-    ]);
-    expect(store.getOwnedCanvasAttachments('user-b', canvas.id, [attachment.id])).toEqual([]);
-    expect(store.getCanvasAttachmentDeliveries(canvas.id, [attachment.id])).toEqual([
       expect.objectContaining({
-        deliveryAttachmentId: 'b'.repeat(40),
-        deliveryMimeType: 'image/webp',
-        deliverySizeBytes: 500_000,
+        id: attachment.id,
+        name: 'source.png',
+        mimeType: 'image/png',
+        contentHash: 'f'.repeat(64),
       }),
     ]);
+    expect(store.getOwnedCanvasAttachments('user-b', canvas.id, [attachment.id])).toEqual([]);
+  });
+
+  it('stores versioned media derivatives by Canvas and source content hash', () => {
+    const store = createStore();
+    const canvas = seedUser(store);
+    const derivative = store.recordCanvasMediaDerivative({
+      canvasId: canvas.id,
+      sourceContentHash: 'a'.repeat(64),
+      purpose: 'thumbnail',
+      policyVersion: 'thumbnail-v1',
+      derivativeId: 'b'.repeat(40),
+      mimeType: 'image/webp',
+      sizeBytes: 12_345,
+      width: 768,
+      height: 512,
+    });
+
+    expect(store.getCanvasMediaDerivative(
+      canvas.id,
+      'a'.repeat(64),
+      'thumbnail',
+      'thumbnail-v1',
+    )).toEqual(derivative);
+    expect(store.getCanvasMediaDerivative(
+      canvas.id,
+      'a'.repeat(64),
+      'delivery',
+      'delivery-v1',
+    )).toBeNull();
   });
 
   it('changes the Canvas Agent and rewrites every draft branch session key before the first interaction', () => {
@@ -615,27 +637,128 @@ describe('CanvasStore', () => {
     expect(forkReservation.outgoingMessage).not.toContain('answer two');
     expect(forkReservation.bootstrapResources).toHaveLength(2);
     expect(forkReservation.bootstrapResources.map((resource) => resource.source)).toEqual(['user_attachment', 'agent_artifact']);
-    expect(forkReservation.outgoingMessage).toContain('canvas-context-resources');
+    expect(forkReservation.bootstrapResources.map((resource) => resource.replayRef)).toEqual(['F001', 'F002']);
+    expect(forkReservation.outgoingMessage).toContain('User attachments: F001 — source.png');
+    expect(forkReservation.outgoingMessage).toContain('Agent artifacts: F002 — result.png');
+    expect(forkReservation.outgoingMessage).not.toContain('/api/canvas/');
+    expect(forkReservation.outgoingMessage).not.toContain('canvas-context-resources');
 
-    const resource = forkReservation.bootstrapResources[0];
     expect(store.markReservationAwaitingMedia(forkReservation.id)?.dispatchState).toBe('awaiting_media');
-    expect(store.setReservationResourceVariant('user-b', forkReservation.id, resource.id, {
-      id: 'c'.repeat(40),
-      name: resource.name,
-      mimeType: 'image/webp',
-      sizeBytes: 8,
-    })).toBe(false);
-    expect(store.setReservationResourceVariant('user-a', forkReservation.id, resource.id, {
-      id: 'c'.repeat(40),
-      name: resource.name,
-      mimeType: 'image/webp',
-      sizeBytes: 8,
-    })).toBe(true);
-    expect(store.getReservation(forkReservation.id)?.dispatchState).toBe('reserved');
-    expect(store.getReservationResourceVariant(forkReservation.id, resource.id)).toEqual({
-      attachmentId: 'c'.repeat(40),
-      mimeType: 'image/webp',
-      sizeBytes: 8,
+    expect(store.listDispatchableReservations().map((reservation) => reservation.id))
+      .toContain(forkReservation.id);
+  });
+
+  it('keeps repeated historical file references while preparing one physical replay attachment', () => {
+    const store = createStore();
+    const canvas = seedUser(store);
+    const root = store.createRootBranch('user-a', canvas.id);
+    const contentId = 'a'.repeat(40);
+    const firstReservation = store.prepareSend('user-a', {
+      branchId: root.id,
+      userInput: 'create',
+      attachments: [],
+    });
+    const first = store.acknowledgeSend('user-a', firstReservation.id, 'run-1');
+    completeInteractionForTest(store, 'user-a', first.id, {
+      status: 'completed',
+      agentOutput: 'created',
+      artifacts: [{
+        id: contentId,
+        name: 'created.png',
+        mimeType: 'image/png',
+        sizeBytes: 100,
+        uri: `/api/canvas/artifacts/${canvas.id}/${first.id}/${contentId}`,
+        storage: 'canvas',
+        available: true,
+      }],
+    });
+
+    const secondReservation = store.prepareSend('user-a', {
+      branchId: root.id,
+      expectedHeadInteractionId: first.id,
+      userInput: 'edit',
+      attachments: [{
+        id: contentId,
+        name: 'editing-source.png',
+        mimeType: 'image/png',
+        sizeBytes: 100,
+        uri: `/api/canvas/attachments/${canvas.id}/${contentId}`,
+        storage: 'canvas',
+        available: true,
+      }],
+    });
+    const second = store.acknowledgeSend('user-a', secondReservation.id, 'run-2');
+    completeInteractionForTest(store, 'user-a', second.id, {
+      status: 'completed',
+      agentOutput: 'edited',
+      artifacts: [],
+    });
+    const thirdReservation = store.prepareSend('user-a', {
+      branchId: root.id,
+      expectedHeadInteractionId: second.id,
+      userInput: 'continue',
+      attachments: [],
+    });
+    const third = store.acknowledgeSend('user-a', thirdReservation.id, 'run-3');
+    completeInteractionForTest(store, 'user-a', third.id, {
+      status: 'completed',
+      agentOutput: 'continued',
+      artifacts: [],
+    });
+
+    const fork = store.forkInteraction('user-a', second.id);
+    const replay = store.prepareSend('user-a', {
+      branchId: fork.id,
+      userInput: 'alternative',
+      attachments: [],
+    });
+
+    expect(replay.bootstrapResources).toHaveLength(1);
+    expect(replay.outgoingMessage).toContain('Agent artifacts: F001 — created.png');
+    expect(replay.outgoingMessage).toContain('User attachments: F001 — editing-source.png');
+  });
+
+  it('adopts a replacement physical Session after recovery completion observes it', () => {
+    const store = createStore();
+    const canvas = seedUser(store);
+    const branch = store.createRootBranch('user-a', canvas.id);
+    const initialReservation = store.prepareSend('user-a', {
+      branchId: branch.id,
+      userInput: 'one',
+      attachments: [],
+    });
+    const first = store.acknowledgeSend('user-a', initialReservation.id, 'run-1');
+    completeInteractionForTest(store, 'user-a', first.id, {
+      status: 'completed',
+      agentOutput: 'answer one',
+      artifacts: [],
+    });
+    store.observeBranchSession(branch.id, 'session-old');
+    store.markBranchSessionMissing(branch.id);
+
+    const recovery = store.prepareSend('user-a', {
+      branchId: branch.id,
+      expectedHeadInteractionId: first.id,
+      userInput: 'two',
+      attachments: [],
+    });
+    const recovering = store.acknowledgeSend('user-a', recovery.id, 'run-2');
+    expect(store.getOwnedBranch('user-a', branch.id)?.sessionIntegrity).toBe('unknown');
+
+    store.applyReconciledInteraction(recovering.id, {
+      status: 'completed',
+      agentOutput: 'answer two',
+      artifacts: [],
+      reconciliation: { phase: 'synced', artifactSync: 'synced' },
+    });
+    expect(store.adoptRecoveredInteractionSession(recovering.id, 'session-new', 5_000)).toMatchObject({
+      openClawSessionId: 'session-new',
+      observedSessionId: 'session-new',
+      sessionIntegrity: 'healthy',
+    });
+    expect(store.getOwnedBranchSessionLifecycle('user-a', branch.id)).toMatchObject({
+      sessionStartedAt: 5_000,
+      observedSessionStartedAt: 5_000,
     });
   });
 

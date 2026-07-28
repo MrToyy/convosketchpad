@@ -31,47 +31,22 @@ app.post('/api/canvas/canvases/:canvasId/attachments', rateLimitGeneral, async (
         mimeType: file.type || 'application/octet-stream',
         bytes,
       });
-      return getCanvasStore().recordCanvasAttachment(identity.userId, canvasId, attachment);
+      const recorded = getCanvasStore().recordCanvasAttachment(identity.userId, canvasId, attachment);
+      return {
+        id: recorded.id,
+        name: recorded.name,
+        mimeType: recorded.mimeType,
+        sizeBytes: recorded.sizeBytes,
+        uri: recorded.uri,
+        storage: recorded.storage,
+        available: recorded.available,
+      };
     }));
 
     return c.json({ ok: true, items });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to persist Canvas attachment';
     return c.json({ ok: false, error: message }, 500);
-  }
-});
-
-app.post('/api/canvas/attachments/:attachmentId/delivery-variant', rateLimitGeneral, async (c) => {
-  try {
-    const identity = getCanvasIdentity(c);
-    if (!identity) return c.json({ ok: false, error: 'Authentication required' }, 401);
-    const attachmentId = c.req.param('attachmentId') || '';
-    const form = await c.req.formData();
-    const canvasId = String(form.get('canvasId') || '');
-    const file = form.get('file');
-    if (!/^[a-f0-9]{40}$/.test(attachmentId) || !/^[a-f0-9-]{36}$/i.test(canvasId) || !(file instanceof File)) {
-      return c.json({ ok: false, error: 'Valid delivery variant metadata is required.' }, 400);
-    }
-    const original = getCanvasStore().getOwnedCanvasAttachments(identity.userId, canvasId, [attachmentId])[0];
-    if (!original) return c.json({ ok: false, error: 'Not found' }, 404);
-    if (file.size > MAX_CANVAS_FILE_BYTES) return c.json({ ok: false, error: 'Delivery variant must not exceed 20 MiB.' }, 413);
-    const delivery = await persistCanvasAttachment(identity.userId, canvasId, {
-      name: original.name,
-      mimeType: file.type || original.mimeType,
-      bytes: new Uint8Array(await file.arrayBuffer()),
-    });
-    if (!getCanvasStore().setCanvasAttachmentDeliveryVariant(
-      identity.userId,
-      canvasId,
-      attachmentId,
-      delivery,
-    )) return c.json({ ok: false, error: 'Not found' }, 404);
-    return c.json({ ok: true, item: delivery });
-  } catch (error) {
-    return c.json({
-      ok: false,
-      error: error instanceof Error ? error.message : 'Failed to persist delivery variant',
-    }, 500);
   }
 });
 

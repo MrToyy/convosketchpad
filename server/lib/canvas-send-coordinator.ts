@@ -18,6 +18,13 @@ import {
   type SendReservation,
 } from './canvas-db.js';
 import {
+  canvasReplayResourceFileName,
+} from './canvas-replay-plan.js';
+import {
+  CANVAS_DELIVERY_MAX_BYTES,
+  ensureCanvasMediaDerivative,
+} from './canvas-media-derivatives.js';
+import {
   rescanCanvasReconciliationCandidates,
   scheduleCanvasInteractionReconciliation,
   signalCanvasInteractionTerminal,
@@ -29,7 +36,6 @@ import {
 import { publishRuntimeEvent } from './runtime-events.js';
 import { publishCanvasChanged, publishCanvasPreview } from './canvas-sync.js';
 
-const INLINE_IMAGE_MAX_BYTES = 1_800_000;
 const activeDispatches = new Set<string>();
 let retryTimer: ReturnType<typeof setTimeout> | null = null;
 let retryTimerAt: number | null = null;
@@ -38,13 +44,6 @@ let retryScanRequested = false;
 let started = false;
 let unsubscribeEvents: (() => void) | null = null;
 let unsubscribeStatus: (() => void) | null = null;
-
-class SendMediaRequiredError extends Error {
-  constructor() {
-    super('Browser media preprocessing is required');
-    this.name = 'SendMediaRequiredError';
-  }
-}
 
 function eventRunId(event: GatewayEvent): string {
   const payload = event.payload && typeof event.payload === 'object'
@@ -184,41 +183,98 @@ async function loadContextResource(
   reservation: DispatchableSendReservation,
   resource: CanvasContextResource,
 ): Promise<{ fileName: string; mimeType: string; content: string }> {
-  const variant = getCanvasStore().getReservationResourceVariant(reservation.id, resource.id);
-  if (variant) {
-    const bytes = await readCanvasAttachment(reservation.ownerId, reservation.canvasId, variant.attachmentId);
-    if (!bytes) throw new Error('resource_variant_unavailable');
-    return {
-      fileName: resource.name,
-      mimeType: variant.mimeType,
-      content: Buffer.from(bytes).toString('base64'),
-    };
-  }
-  if (resource.mimeType.startsWith('image/') && (resource.sizeBytes || 0) > INLINE_IMAGE_MAX_BYTES) {
-    throw new SendMediaRequiredError();
-  }
+  const store = getCanvasStore();
   let bytes: Uint8Array | null = null;
+  let recordContentHash: ((contentHash: string) => void) | undefined;
   if (resource.uri.startsWith('/api/canvas/attachments/')) {
     const match = resource.uri.match(/^\/api\/canvas\/attachments\/([^/]+)\/([^/]+)$/);
     if (match && decodeURIComponent(match[1]) === reservation.canvasId) {
-      bytes = await readCanvasAttachment(reservation.ownerId, reservation.canvasId, decodeURIComponent(match[2]));
+      const attachmentId = decodeURIComponent(match[2]);
+      recordContentHash = (contentHash) => {
+        store.setCanvasAttachmentContentHash(
+          reservation.ownerId,
+          reservation.canvasId,
+          attachmentId,
+          contentHash,
+        );
+      };
     }
   } else if (resource.uri.startsWith('/api/canvas/artifacts/')) {
-    const interaction = getCanvasStore().getOwnedInteraction(reservation.ownerId, resource.sourceInteractionId);
+    const interaction = store.getOwnedInteraction(reservation.ownerId, resource.sourceInteractionId);
     const match = resource.uri.match(/^\/api\/canvas\/artifacts\/([^/]+)\/([^/]+)\/([^/]+)$/);
     if (interaction && match) {
-      bytes = (await readCanvasArtifact(interaction, decodeURIComponent(match[3])))?.bytes || null;
+      const artifactId = decodeURIComponent(match[3]);
+      recordContentHash = (contentHash) => {
+        store.setInteractionArtifactContentHash(
+          reservation.ownerId,
+          interaction.id,
+          artifactId,
+          contentHash,
+        );
+      };
     }
-  } else if (resource.uri.startsWith('data:')) {
-    const match = resource.uri.match(/^data:[^;,]+;base64,(.+)$/s);
-    if (match) bytes = Buffer.from(match[1], 'base64');
   }
+  const loadBytes = async () => {
+    if (bytes) return bytes;
+    if (resource.uri.startsWith('/api/canvas/attachments/')) {
+      const match = resource.uri.match(/^\/api\/canvas\/attachments\/([^/]+)\/([^/]+)$/);
+      if (match && decodeURIComponent(match[1]) === reservation.canvasId) {
+        bytes = await readCanvasAttachment(
+          reservation.ownerId,
+          reservation.canvasId,
+          decodeURIComponent(match[2]),
+        );
+      }
+    } else if (resource.uri.startsWith('/api/canvas/artifacts/')) {
+      const interaction = store.getOwnedInteraction(reservation.ownerId, resource.sourceInteractionId);
+      const match = resource.uri.match(/^\/api\/canvas\/artifacts\/([^/]+)\/([^/]+)\/([^/]+)$/);
+      if (interaction && match) {
+        bytes = (await readCanvasArtifact(interaction, decodeURIComponent(match[3])))?.bytes || null;
+      }
+    } else if (resource.uri.startsWith('data:')) {
+      const match = resource.uri.match(/^data:[^;,]+;base64,(.+)$/s);
+      if (match) bytes = Buffer.from(match[1], 'base64');
+    }
+    return bytes;
+  };
+
+  if (resource.mimeType.startsWith('image/')
+    && (resource.sizeBytes || 0) > CANVAS_DELIVERY_MAX_BYTES) {
+    const prepared = await ensureCanvasMediaDerivative(store, {
+      ownerId: reservation.ownerId,
+      canvasId: reservation.canvasId,
+      name: resource.name,
+      mimeType: resource.mimeType,
+      contentHash: resource.contentHash,
+      loadBytes,
+      recordContentHash,
+    }, 'delivery');
+    return {
+      fileName: canvasReplayResourceFileName(resource),
+      mimeType: prepared.derivative.mimeType,
+      content: Buffer.from(prepared.bytes).toString('base64'),
+    };
+  }
+  bytes = await loadBytes();
   if (!bytes) throw new Error('resource_unavailable');
-  if (resource.mimeType.startsWith('image/') && bytes.byteLength > INLINE_IMAGE_MAX_BYTES) {
-    throw new SendMediaRequiredError();
+  if (resource.mimeType.startsWith('image/') && bytes.byteLength > CANVAS_DELIVERY_MAX_BYTES) {
+    const prepared = await ensureCanvasMediaDerivative(store, {
+      ownerId: reservation.ownerId,
+      canvasId: reservation.canvasId,
+      name: resource.name,
+      mimeType: resource.mimeType,
+      contentHash: resource.contentHash,
+      loadBytes: async () => bytes,
+      recordContentHash,
+    }, 'delivery');
+    return {
+      fileName: canvasReplayResourceFileName(resource),
+      mimeType: prepared.derivative.mimeType,
+      content: Buffer.from(prepared.bytes).toString('base64'),
+    };
   }
   return {
-    fileName: resource.name,
+    fileName: canvasReplayResourceFileName(resource),
     mimeType: resource.mimeType || 'application/octet-stream',
     content: Buffer.from(bytes).toString('base64'),
   };
@@ -226,33 +282,70 @@ async function loadContextResource(
 
 async function gatewayAttachments(reservation: DispatchableSendReservation) {
   const store = getCanvasStore();
-  const attachmentIds = reservation.attachments.flatMap((attachment) => attachment.id ? [attachment.id] : []);
-  const deliveries = store.getCanvasAttachmentDeliveries(reservation.canvasId, attachmentIds);
-  if (deliveries.length !== attachmentIds.length) throw new Error('attachment_not_found');
   const attachments = [];
-  for (const delivery of deliveries) {
-    const bytes = await readCanvasAttachment(
-      reservation.ownerId,
-      reservation.canvasId,
-      delivery.deliveryAttachmentId,
-    );
-    if (!bytes) throw new Error('attachment_unavailable');
-    attachments.push({
-      fileName: delivery.attachment.name,
-      mimeType: delivery.deliveryMimeType,
-      content: Buffer.from(bytes).toString('base64'),
-    });
-  }
   const bootstrapWarnings: string[] = [];
   for (const resource of reservation.bootstrapResources) {
     try {
       attachments.push(await loadContextResource(reservation, resource));
     } catch (error) {
-      if (error instanceof SendMediaRequiredError) throw error;
+      const message = error instanceof Error ? error.message : '';
+      if (!['resource_unavailable', 'media_source_unavailable'].includes(message)) throw error;
       bootstrapWarnings.push(`${resource.name}: resource unavailable`);
     }
   }
+  for (const attachment of reservation.attachments) {
+    if (!attachment.id) throw new Error('attachment_not_found');
+    const originalBytes = await readCanvasAttachment(
+      reservation.ownerId,
+      reservation.canvasId,
+      attachment.id,
+    );
+    if (!originalBytes) throw new Error('attachment_unavailable');
+    const prepared = attachment.mimeType.startsWith('image/')
+      && originalBytes.byteLength > CANVAS_DELIVERY_MAX_BYTES
+      ? await ensureCanvasMediaDerivative(store, {
+        ownerId: reservation.ownerId,
+        canvasId: reservation.canvasId,
+        name: attachment.name,
+        mimeType: attachment.mimeType,
+        contentHash: attachment.contentHash,
+        loadBytes: async () => originalBytes,
+        recordContentHash: (contentHash) => {
+          store.setCanvasAttachmentContentHash(
+            reservation.ownerId,
+            reservation.canvasId,
+            attachment.id!,
+            contentHash,
+          );
+        },
+      }, 'delivery')
+      : null;
+    const bytes = prepared?.bytes || originalBytes;
+    if (!bytes) throw new Error('attachment_unavailable');
+    attachments.push({
+      fileName: attachment.name,
+      mimeType: prepared?.derivative.mimeType || attachment.mimeType,
+      content: Buffer.from(bytes).toString('base64'),
+    });
+  }
   return { attachments, bootstrapWarnings };
+}
+
+function assertReplayPayloadFits(
+  reservation: DispatchableSendReservation,
+  params: Record<string, unknown>,
+): void {
+  if (!['canonical-replay', 'session-recovery'].includes(reservation.materialization)) return;
+  const maxPayload = getGatewayRuntimeStatus().maxPayload;
+  if (!maxPayload) return;
+  const estimatedBytes = Buffer.byteLength(JSON.stringify({
+    type: 'req',
+    id: reservation.id,
+    method: 'chat.send',
+    params,
+  }));
+  const safeLimit = Math.max(0, maxPayload - 8 * 1024);
+  if (estimatedBytes > safeLimit) throw new Error('replay_payload_too_large');
 }
 
 function registerInteraction(
@@ -298,20 +391,35 @@ export async function dispatchCanvasSend(reservationId: string): Promise<SendRes
       }
     }
 
+    const requiresMediaPreparation = [
+      ...reservation.attachments,
+      ...reservation.bootstrapResources,
+    ].some((item) => item.mimeType.startsWith('image/')
+      && (item.sizeBytes || 0) > CANVAS_DELIVERY_MAX_BYTES);
+    if (requiresMediaPreparation) {
+      store.markReservationAwaitingMedia(reservation.id);
+      reservation = store.getDispatchableReservation(reservation.id)!;
+      publishCanvasChanged(reservation.ownerId, reservation.canvasId);
+    }
     const { attachments, bootstrapWarnings } = await gatewayAttachments(reservation);
+    const preparedReservation = store.getDispatchableReservation(reservation.id);
+    if (!preparedReservation) throw new Error('not_found');
+    if (preparedReservation.status !== 'prepared') return preparedReservation;
     store.markReservationDispatching(reservation.id);
     reservation = store.getDispatchableReservation(reservation.id)!;
     let message = reservation.outgoingMessage;
     if (bootstrapWarnings.length) {
-      message += `\n\n<canvas-context-resource-warnings>${JSON.stringify(bootstrapWarnings)}</canvas-context-resource-warnings>`;
+      message += `\n\nCanvas replay note: Some restored files could not be attached: ${bootstrapWarnings.join('; ')}`;
     }
-    const raw = await gatewayDispatchCall('chat.send', {
+    const params = {
       sessionKey: reservation.sessionKey,
       message,
       ...(attachments.length ? { attachments } : {}),
       deliver: false,
       idempotencyKey: reservation.id,
-    }, 30_000) as { runId?: unknown };
+    };
+    assertReplayPayloadFits(reservation, params);
+    const raw = await gatewayDispatchCall('chat.send', params, 30_000) as { runId?: unknown };
     const runId = typeof raw?.runId === 'string' ? raw.runId : null;
     const interaction = store.acknowledgeSend(reservation.ownerId, reservation.id, runId, bootstrapWarnings);
     registerInteraction(reservation, interaction, runId);
@@ -321,10 +429,7 @@ export async function dispatchCanvasSend(reservationId: string): Promise<SendRes
     const store = getCanvasStore();
     const reservation = store.getDispatchableReservation(reservationId);
     if (!reservation) throw error;
-    if (error instanceof SendMediaRequiredError) {
-      store.markReservationAwaitingMedia(reservation.id);
-      publishCanvasChanged(reservation.ownerId, reservation.canvasId);
-    } else if (!(error instanceof GatewayDispatchError) || error.kind === 'rejected') {
+    if (!(error instanceof GatewayDispatchError) || error.kind === 'rejected') {
       const message = error instanceof Error ? error.message : 'Send preparation failed';
       store.failReservationById(reservation.id, message);
       console.error(JSON.stringify({
