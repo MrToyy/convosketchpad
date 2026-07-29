@@ -10,6 +10,7 @@
 - Graph 读取无副作用；后台协调和晚到 Artifact 观察由服务端生命周期驱动。
 - 已知 Artifact 完整后节点立即显示 `synced`；静默晚到观察任务独立持久化，不触发前端降级轮询。
 - Fork 与 Session 恢复共用完整 Replay Package；逻辑资源引用不裁剪，物理文件只按内容去重。
+- 节点“重试”只是一项原样重新提交操作：从上一节点创建普通 Branch，保留原 Interaction 和原执行，不建立 Retry 实体。
 - 原始图片不可变；投递图和缩略图由后端按内容哈希与策略版本生成，Canvas 节点不直接加载原图。
 - 前端只应用当前 Canvas 的完整实体 upsert；瞬时 Preview 不持久化，SSE 不可用且 `hasPendingUpdates` 时才降级轮询。
 - 显式重新排列只在没有可见发送或运行任务时执行；按实际节点尺寸进行左到右拓扑布局，并把节点位置和适应后的视口作为一个完整布局保存。
@@ -20,7 +21,7 @@
 |---|---|
 | Canvas 页面组合与 Agent/Canvas 操作 | `src/features/canvas/CanvasPanel.tsx` |
 | Graph 快照、SSE、Preview 与降级刷新控制 | `src/features/canvas/useCanvasGraphController.ts`、`src/hooks/useCanvasSync.ts` |
-| Composer 草稿、上传和 Send Operation 生命周期 | `src/features/canvas/useCanvasComposerDrafts.ts` |
+| Composer 草稿、浏览器文件、持久附件和 Send Operation 失败恢复 | `src/features/canvas/useCanvasComposerDrafts.ts` |
 | Graph 到 Interaction/Composer 节点与边的纯投影 | `src/features/canvas/canvas-flow-projection.ts` |
 | Interaction/Composer 节点、节点注册与自动布局适配 | `src/features/canvas/CanvasNodes.tsx`、`src/features/canvas/constants.ts` |
 | 状态栏 Branch/工作中计数与活跃 Compose 上下文 | `src/features/canvas/status.ts`、`src/components/StatusBar.tsx` |
@@ -36,7 +37,7 @@
 | 关注点 | 文件 |
 |---|---|
 | Canvas 与发送 HTTP API | `server/routes/canvas.ts` |
-| Root/Fork 与发送应用用例 | `server/lib/canvas-branch-service.ts`、`server/lib/canvas-send-service.ts` |
+| Root/Fork、发送与 Interaction 原样重新提交应用用例 | `server/lib/canvas-branch-service.ts`、`server/lib/canvas-send-service.ts` |
 | 发送领域类型、状态判定与历史快照组装 | `server/lib/canvas-domain.ts`、`server/lib/canvas-history-snapshot.ts` |
 | 公开 DTO 与内部资源定位 | `server/lib/canvas-public-dto.ts`、`server/lib/canvas-resource-locator.ts` |
 | Interaction 完成时的 OpenClaw Session 上下文快照 | `server/lib/canvas-context-snapshot.ts` |
@@ -63,5 +64,9 @@
   → canvas_changes + 完整 Interaction upsert
   → 权威记录和 Artifact 协调
 ```
+
+Interaction 原样重新提交在后端事务中复制源用户输入和附件：首节点创建 `direct-submit` Root，其他节点从父
+Interaction 创建 `direct-submit` Fork，随后进入同一发送流程。`creationMode` 只用于区分手动 Composer 与直接
+提交，不保存 Retry 来源；接受前失败的 operation 通过 Graph `failedSends` 恢复为普通 Composer。
 
 发送分层的特征测试位于 `server/lib/canvas-domain.test.ts`、`server/lib/canvas-send-service.test.ts`、`server/lib/canvas-public-dto.test.ts`、`server/lib/canvas-gateway-events.test.ts` 和 `server/lib/canvas-resource-locator.test.ts`；前端控制与投影测试位于 `src/features/canvas/useCanvasComposerDrafts.test.tsx`、`src/features/canvas/canvas-flow-projection.test.ts` 和既有 Canvas/SSE 测试。数据库测试继续从完整的 `0.2.0` Schema fixture 建库，验证迁移账本、状态转换、Artifact 合并、附件回填及重启不重跑。

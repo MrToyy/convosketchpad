@@ -33,7 +33,8 @@ Interaction 的 `executionState`（`running | completed | failed | unconfirmed`�
 ```text
 Canvas（绑定一个 Agent）
   ├─ Branch → Interaction → Interaction
-  └─ 从历史 Interaction 创建的 Branch
+  ├─ 从历史 Interaction 创建的可编辑 Branch
+  └─ 从目标 Interaction 上一节点直接提交复制输入的普通 Branch
 ```
 
 1. Branch 使用稳定的 OpenClaw Session key，并最多有一个头部 Interaction。
@@ -44,6 +45,7 @@ Canvas（绑定一个 Agent）
 6. Gateway 明确接受发送后，服务端在事务中创建 Interaction、推进 Branch 头节点并记录 `runId`。
 7. 从用户视角看 Interaction 只追加，不改写历史。
 8. Gateway 信号优先按 `runId` 关联；Session key 只在恰好存在一个候选节点时作为恢复后备，不允许猜测节点。
+9. UI 中的“重试”不是持久化实体：原 Interaction 和原执行保持不变，新结果只表现为一个普通 Root/Fork Branch。
 
 ## 发送状态机
 
@@ -68,6 +70,11 @@ reserved
 5. 发送协调器调用原生 `chat.send`，预留 ID 同时作为 `idempotencyKey`。
 6. Gateway 接受后，服务端创建 `running` Interaction；终态 Gateway 信号先幂等写入收件箱，再由后端关联和协调。
 7. `canvas-reconciler` 读取 OpenClaw 权威对话记录，持久化最终文本和 Artifact。
+
+节点“重试”调用通用的原样重新提交用例：后端读取源 Interaction 的用户文本和已登记附件，在同一事务中从其
+父 Interaction 创建 `direct-submit` Branch 和 Send Reservation；首节点创建新的 Root Branch。源 Interaction
+可以处于任意执行状态，原 OpenClaw 执行不会停止。新 Branch 继续走上述发送状态机，后端不保存 Retry 类型或
+Retry 来源。
 
 Fork 与失效 Session 恢复共用一个后端 Replay Package 编译流程：
 
@@ -128,7 +135,7 @@ Node 客户端不发送浏览器 `Origin` Header，因此 ConvoSketchpad 不需�
 | 区域 | 入口 |
 |---|---|
 | Canvas 页面组合、状态栏投影 | `src/features/canvas/CanvasPanel.tsx`、`src/features/canvas/status.ts` |
-| Graph/SSE 控制与 Composer/Send Operation 生命周期 | `src/features/canvas/useCanvasGraphController.ts`、`src/features/canvas/useCanvasComposerDrafts.ts` |
+| Graph/SSE 控制与 Composer/Send Operation 生命周期、失败草稿恢复 | `src/features/canvas/useCanvasGraphController.ts`、`src/features/canvas/useCanvasComposerDrafts.ts` |
 | Graph 到节点和边的纯投影 | `src/features/canvas/canvas-flow-projection.ts` |
 | Interaction/Composer 节点与节点布局适配 | `src/features/canvas/CanvasNodes.tsx`、`src/features/canvas/constants.ts` |
 | 产品 HTTP 客户端与数据契约 | `src/features/canvas/api.ts`、`src/features/canvas/types.ts` |
@@ -141,7 +148,7 @@ Node 客户端不发送浏览器 `Origin` Header，因此 ConvoSketchpad 不需�
 
 | 区域 | 入口 |
 |---|---|
-| Canvas API、Branch 与发送应用用例 | `server/routes/canvas.ts`、`server/lib/canvas-branch-service.ts`、`server/lib/canvas-send-service.ts` |
+| Canvas API、Branch、发送与原样重新提交应用用例 | `server/routes/canvas.ts`、`server/lib/canvas-branch-service.ts`、`server/lib/canvas-send-service.ts` |
 | Interaction 上下文快照、发送判定与历史快照组装 | `server/lib/canvas-context-snapshot.ts`、`server/lib/canvas-domain.ts`、`server/lib/canvas-history-snapshot.ts` |
 | Gateway 运行状态 SSE | `server/routes/runtime.ts`、`server/lib/runtime-events.ts` |
 | Canvas cursor、SSE 与 Preview | `server/routes/canvas.ts`、`server/lib/canvas-sync.ts` |
@@ -156,8 +163,12 @@ Node 客户端不发送浏览器 `Origin` Header，因此 ConvoSketchpad 不需�
 
 现有 `interactions.attachments_json`、`artifacts_json` 和 `session_metadata_json` 保持向下回滚兼容。Interaction 增量增加 `version`、执行状态、Artifact 同步状态、终止时间和错误字段；迁移完成后，运行时 Artifact 投影只由规范化表读取。
 
-Canvas 发送分层重构不改变 SQLite Schema：`CanvasStore` 继续作为共享连接和事务门面，应用服务、纯发送判定、
+此前的 Canvas 发送分层重构本身不改变 SQLite Schema：`CanvasStore` 继续作为共享连接和事务门面，应用服务、纯发送判定、
 投递 Worker 与 OpenClaw 适配层只重新划分代码职责，不建立第二套状态或持久化来源。
+
+原样重新提交为 Branch 增加通用 `creation_mode`（`composer | direct-submit`）。它只用于让普通手动草稿继续保持
+单一性，同时允许同一分叉点存在多个直接提交；不记录 Retry 来源。Graph 的 `failedSends` 返回每个 draft Branch
+最新的失败 Send Reservation，使刷新后可以用普通 Composer 恢复原文本、持久附件和错误。
 
 Interaction 上下文快照复用 `session_metadata_json` 持久化并投影为 Graph 的 `contextSnapshot`，因此不新增
 Schema 迁移。旧数据库和旧节点自然返回 `null`；只有新版本确认完成且 OpenClaw 提供可靠数据的节点才具有快照。

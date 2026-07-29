@@ -19,9 +19,13 @@ export interface CanvasCopy {
   artifactDegraded: string;
   previewImage: (name: string) => string;
   forkFromInteraction: string;
+  resubmitInteraction: string;
+  resubmitInteractionParallel: string;
+  resubmitFailed: string;
   closeComposer: string;
   composerPlaceholder: string;
   addAttachment: string;
+  removeAttachment: string;
   send: string;
   attachmentReadFailed: (name: string) => string;
   attachmentTooLarge: (name: string) => string;
@@ -87,6 +91,7 @@ const knownErrors = {
     cannot_fork_branch_head: '分支末尾只能继续对话，不能创建分支',
     interaction_not_completed: '只能从已完成的历史交互创建分支',
     reservation_not_prepared: '发送请求已失效，请重试',
+    source_attachment_unavailable: '原节点的附件已不可用，无法原样重试',
     conflict: '当前位置已有一个未发送的输入框',
     'Not found': '未找到对应内容',
     'Invalid canvas': '画布信息无效',
@@ -94,6 +99,7 @@ const knownErrors = {
     'Invalid name': '画布名称无效',
     'Authentication required': '请先登录',
     'Invalid send request': '发送内容无效',
+    'Invalid resubmit request': '重试请求无效',
     'Message or attachment required': '请输入消息或添加附件',
     'Video attachments are not supported in Canvas': '画布暂不支持视频附件',
     'Invalid layout': '画布布局数据无效',
@@ -114,6 +120,7 @@ const knownErrors = {
     cannot_fork_branch_head: 'Continue from the branch head instead of creating a fork.',
     interaction_not_completed: 'You can only fork from a completed historical interaction.',
     reservation_not_prepared: 'The send request expired. Try again.',
+    source_attachment_unavailable: 'A source attachment is unavailable, so this input cannot be retried.',
     conflict: 'An unsent composer already exists here.',
     'Not found': 'The requested item was not found.',
     'Invalid canvas': 'The Canvas data is invalid.',
@@ -121,6 +128,7 @@ const knownErrors = {
     'Invalid name': 'The Canvas name is invalid.',
     'Authentication required': 'Sign in to continue.',
     'Invalid send request': 'The send request is invalid.',
+    'Invalid resubmit request': 'The retry request is invalid.',
     'Message or attachment required': 'Enter a message or add an attachment.',
     'Video attachments are not supported in Canvas': 'Canvas does not support video attachments yet.',
     'Invalid layout': 'The Canvas layout is invalid.',
@@ -151,9 +159,13 @@ export const canvasCopy = {
     artifactDegraded: '部分 Artifact 未能同步',
     previewImage: (name) => `预览图片 ${name}`,
     forkFromInteraction: '从此交互创建新分支',
+    resubmitInteraction: '重试：从上一节点创建分支并重新提交此输入',
+    resubmitInteractionParallel: '重试：原任务不会停止，新任务将从上一节点并行执行',
+    resubmitFailed: '无法重试此节点',
     closeComposer: '关闭输入框',
     composerPlaceholder: '接下来希望 OpenClaw 做什么？',
     addAttachment: '添加附件',
+    removeAttachment: '移除附件',
     send: '发送',
     attachmentReadFailed: (name) => `无法读取附件：${name}`,
     attachmentTooLarge: (name) => `附件“${name}”超过 20 MB，无法发送给 OpenClaw`,
@@ -219,9 +231,13 @@ export const canvasCopy = {
     artifactDegraded: 'Some Artifacts could not be synced',
     previewImage: (name) => `Preview image ${name}`,
     forkFromInteraction: 'Create a branch from this interaction',
+    resubmitInteraction: 'Retry by branching from the previous node and resubmitting this input',
+    resubmitInteractionParallel: 'Retry in parallel; the original run will not be stopped',
+    resubmitFailed: 'Unable to retry this node',
     closeComposer: 'Close composer',
     composerPlaceholder: 'What should OpenClaw do next?',
     addAttachment: 'Add attachment',
+    removeAttachment: 'Remove attachment',
     send: 'Send',
     attachmentReadFailed: (name) => `Unable to read attachment: ${name}`,
     attachmentTooLarge: (name) => `Attachment “${name}” exceeds 20 MB and cannot be sent to OpenClaw`,

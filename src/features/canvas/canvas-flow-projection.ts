@@ -24,6 +24,7 @@ interface CanvasFlowProjectionInput {
   renderedNodes: CanvasFlowNode[];
   positions: Record<string, XYPosition>;
   drafts: Record<string, CanvasDraft>;
+  resubmittingInteractionIds: Set<string>;
   previews: Record<string, string>;
   labels: {
     createBranch: string;
@@ -31,9 +32,11 @@ interface CanvasFlowProjectionInput {
     continueBranch: string;
   };
   onAdd(interaction: CanvasInteraction): void;
+  onResubmit(interaction: CanvasInteraction): void;
   onTextChange(branchId: string, value: string): void;
   onFiles(branchId: string, files: File[]): void;
   onRemoveFile(branchId: string, index: number): void;
+  onRemovePersistedAttachment(branchId: string, index: number): void;
   onSend(branch: CanvasBranch): void;
   onFocus(branchId: string, sourceInteractionId: string | null): void;
   onBlur(branchId: string): void;
@@ -57,9 +60,12 @@ export function projectCanvasFlow(input: CanvasFlowProjectionInput): {
     branch.headInteractionId ? [branch.headInteractionId] : []));
   const draftForkSources = new Set(graph.branches.flatMap((branch) =>
     branch.kind === 'fork' && branch.sessionState === 'draft' && branch.forkedFromInteractionId
+      && branch.creationMode === 'composer'
       ? [branch.forkedFromInteractionId]
       : []));
-  const pendingBranchIds = new Set(graph.pendingSends.map((operation) => operation.branchId));
+  const pendingByBranch = new Map(
+    graph.pendingSends.map((operation) => [operation.branchId, operation]),
+  );
 
   const interactionNodes: CanvasFlowNode[] = graph.interactions.map((interaction) => ({
     id: interaction.id,
@@ -79,7 +85,9 @@ export function projectCanvasFlow(input: CanvasFlowProjectionInput): {
         !headIds.has(interaction.id)
         && interaction.executionState === 'completed'
         && !draftForkSources.has(interaction.id),
+      resubmitting: input.resubmittingInteractionIds.has(interaction.id),
       onAdd: input.onAdd,
+      onResubmit: input.onResubmit,
     },
   }));
   const interactionNodeById = new Map(interactionNodes.map((node) => [node.id, node]));
@@ -121,6 +129,15 @@ export function projectCanvasFlow(input: CanvasFlowProjectionInput): {
         width: COMPOSER_NODE_WIDTH,
         height: DEFAULT_NODE_HEIGHT,
       });
+    const pendingOperation = pendingByBranch.get(branch.id);
+    const projectedDraft = drafts[branch.id]
+      || (pendingOperation
+        ? {
+          ...EMPTY_CANVAS_DRAFT,
+          text: pendingOperation.userInput,
+          persistedAttachments: pendingOperation.attachments,
+        }
+        : EMPTY_CANVAS_DRAFT);
     composerNodes.push({
       id: nodeId,
       type: 'composer',
@@ -128,9 +145,9 @@ export function projectCanvasFlow(input: CanvasFlowProjectionInput): {
       dragHandle: '.canvas-node-drag-handle',
       data: {
         branch,
-        draft: pendingBranchIds.has(branch.id)
-          ? { ...(drafts[branch.id] || EMPTY_CANVAS_DRAFT), sending: true }
-          : drafts[branch.id] || EMPTY_CANVAS_DRAFT,
+        draft: pendingOperation
+          ? { ...projectedDraft, sending: true }
+          : projectedDraft,
         label: branch.kind === 'fork' && branch.sessionState === 'draft'
           ? labels.createBranch
           : branch.sessionState === 'draft'
@@ -139,6 +156,8 @@ export function projectCanvasFlow(input: CanvasFlowProjectionInput): {
         onTextChange: (value) => input.onTextChange(branch.id, value),
         onFiles: (files) => input.onFiles(branch.id, files),
         onRemoveFile: (index) => input.onRemoveFile(branch.id, index),
+        onRemovePersistedAttachment: (index) =>
+          input.onRemovePersistedAttachment(branch.id, index),
         onSend: () => input.onSend(branch),
         onFocus: () => input.onFocus(branch.id, source),
         onBlur: () => input.onBlur(branch.id),

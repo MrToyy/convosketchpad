@@ -158,6 +158,7 @@ app.get('/api/canvas/canvases/:id/graph', rateLimitGeneral, (c) => {
       ...graph,
       interactions: graph.interactions.map(publicInteraction),
       pendingSends: graph.pendingSends.map(publicSendReservation),
+      failedSends: graph.failedSends.map(publicSendReservation),
       hasPendingUpdates:
         graph.pendingSends.length > 0
         || graph.interactions.some(interactionHasPendingUpdates),
@@ -406,6 +407,35 @@ app.post('/api/canvas/interactions/:id/fork', rateLimitGeneral, (c) => {
   try {
     const service = new CanvasBranchService(getCanvasStore());
     return c.json({ branch: service.fork(identity.userId, routeParam(c, 'id')) }, 201);
+  } catch (error) { return errorResponse(c, error); }
+});
+
+app.post('/api/canvas/interactions/:id/resubmit', rateLimitGeneral, async (c) => {
+  const identity = identityOr401(c);
+  if (!identity) return c.json({ error: 'Authentication required' }, 401);
+  const parsed = z.object({
+    expectedAgentId: z.string().trim().min(1).max(120),
+  }).safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: 'Invalid resubmit request' }, 400);
+  try {
+    const result = await new CanvasSendService({ store: getCanvasStore() }).resubmit(
+      identity.userId,
+      {
+        interactionId: routeParam(c, 'id'),
+        expectedAgentId: parsed.data.expectedAgentId,
+      },
+    );
+    if (result.kind === 'interaction') {
+      return c.json({ interaction: publicInteraction(result.interaction) }, 201);
+    }
+    if (result.kind === 'rejected') {
+      const payload = {
+        error: result.error,
+        operation: publicSendReservation(result.operation),
+      };
+      return result.status === 503 ? c.json(payload, 503) : c.json(payload, 422);
+    }
+    return c.json({ operation: publicSendReservation(result.operation) }, 202);
   } catch (error) { return errorResponse(c, error); }
 });
 

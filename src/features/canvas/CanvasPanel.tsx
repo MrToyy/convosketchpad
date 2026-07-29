@@ -33,6 +33,7 @@ import { canvasApi, persistCanvasFiles } from './api';
 import { CanvasLocalizedError, canvasErrorMessage, getCanvasCopy, type CanvasCopy } from './messages';
 import {
   autoLayoutCanvasNodes,
+  canvasNodeBounds,
   canvasNodeTypes,
   type CanvasFlowNode,
 } from './CanvasNodes';
@@ -43,8 +44,12 @@ import {
   type CanvasStatusStats,
 } from './status';
 import {
+  DEFAULT_NODE_HEIGHT,
+  INTERACTION_NODE_WIDTH,
   composerNodeId,
   mergeVisibleNodePositions,
+  placeNodeToRight,
+  placeRootNode,
 } from './layout';
 import { projectCanvasFlow } from './canvas-flow-projection';
 import { useCanvasComposerDrafts } from './useCanvasComposerDrafts';
@@ -94,11 +99,13 @@ export function CanvasPanel({ onStatusStatsChange }: { onStatusStatsChange?: (st
     updateDraft,
     addFiles,
     removeFile,
+    removePersistedAttachment,
     clearDraft,
     markSending,
     trackOperation,
     markFailed,
     reconcileOperations,
+    hydrateFailedSends,
   } = useCanvasComposerDrafts();
   const [error, setError] = useState<string | null>(null);
   const [canvasListVisible, setCanvasListVisible] = useState(true);
@@ -109,6 +116,9 @@ export function CanvasPanel({ onStatusStatsChange }: { onStatusStatsChange?: (st
   const [agentCatalogLoading, setAgentCatalogLoading] = useState(false);
   const [agentChanging, setAgentChanging] = useState(false);
   const [rearranging, setRearranging] = useState(false);
+  const [resubmittingInteractionIds, setResubmittingInteractionIds] = useState<Set<string>>(
+    () => new Set(),
+  );
   const [focusedComposer, setFocusedComposer] = useState<{
     branchId: string;
     sourceInteractionId: string | null;
@@ -220,6 +230,10 @@ export function CanvasPanel({ onStatusStatsChange }: { onStatusStatsChange?: (st
         .catch(() => undefined);
     }
   }, [graph, reconcileOperations, sendOperationError, trackedOperations]);
+  useEffect(() => {
+    if (!graph) return;
+    hydrateFailedSends(graph.failedSends, sendOperationError);
+  }, [graph, hydrateFailedSends, sendOperationError]);
   const persistLayout = useCallback((canvasId = selectedId) => {
     if (!canvasId) return Promise.resolve();
     const layout = { nodes: { ...positionsRef.current }, ...(viewportRef.current ? { viewport: viewportRef.current } : {}) };
@@ -228,7 +242,14 @@ export function CanvasPanel({ onStatusStatsChange }: { onStatusStatsChange?: (st
 
   const send = useCallback(async (branch: CanvasBranch) => {
     const draft = drafts[branch.id] || EMPTY_CANVAS_DRAFT;
-    if (draft.sending || (!draft.text.trim() && draft.files.length === 0)) return;
+    if (
+      draft.sending
+      || (
+        !draft.text.trim()
+        && draft.files.length === 0
+        && draft.persistedAttachments.length === 0
+      )
+    ) return;
     const composerSource = branch.sessionState === 'draft'
       ? branch.forkedFromInteractionId
       : branch.headInteractionId;
@@ -241,11 +262,15 @@ export function CanvasPanel({ onStatusStatsChange }: { onStatusStatsChange?: (st
       const canvasId = graph?.canvas.id;
       if (!canvasId || !canvasAgentId) throw new CanvasLocalizedError(copy.currentCanvasMissing);
       const attachmentMeta = draft.files.length ? await persistCanvasFiles(draft.files, canvasId) : [];
+      const attachmentIds = [
+        ...draft.persistedAttachments.map((attachment) => attachment.id),
+        ...attachmentMeta.map((attachment) => attachment.id),
+      ];
       const result = await canvasApi.send(branch.id, {
         expectedHeadInteractionId: branch.sessionState === 'active' ? branch.headInteractionId : null,
         expectedAgentId: canvasAgentId,
         userInput: draft.text,
-        attachmentIds: attachmentMeta.map((attachment) => attachment.id),
+        attachmentIds,
       });
       if (composerPosition && result.interaction) {
         positionsRef.current = { ...positionsRef.current, [result.interaction.id]: composerPosition };
@@ -282,6 +307,57 @@ export function CanvasPanel({ onStatusStatsChange }: { onStatusStatsChange?: (st
     } catch (cause) { setError(localizeError(cause, copy.forkFailed)); }
   }, [copy.forkFailed, loadGraph, localizeError, updateDraft]);
 
+  const resubmitInteraction = useCallback(async (interaction: CanvasInteraction) => {
+    if (resubmittingInteractionIds.has(interaction.id)) return;
+    const canvasAgentId = graph?.canvas.agentId;
+    if (!canvasAgentId) {
+      setError(copy.currentCanvasMissing);
+      return;
+    }
+    setResubmittingInteractionIds((current) => new Set(current).add(interaction.id));
+    try {
+      const result = await canvasApi.resubmit(interaction.id, canvasAgentId);
+      if (result.interaction) {
+        const occupied = nodesRef.current.map((node) => canvasNodeBounds(node, node));
+        const parentNode = result.interaction.parentInteractionId
+          ? nodesRef.current.find((node) => node.id === result.interaction?.parentInteractionId)
+          : undefined;
+        const position = parentNode
+          ? placeNodeToRight(canvasNodeBounds(parentNode, parentNode), occupied, {
+            width: INTERACTION_NODE_WIDTH,
+            height: DEFAULT_NODE_HEIGHT,
+          })
+          : placeRootNode(occupied, {
+            width: INTERACTION_NODE_WIDTH,
+            height: DEFAULT_NODE_HEIGHT,
+          });
+        positionsRef.current = {
+          ...positionsRef.current,
+          [result.interaction.id]: position,
+        };
+        await persistLayout();
+      }
+      await loadGraph();
+    } catch (cause) {
+      setError(localizeError(cause, copy.resubmitFailed));
+      await loadGraph().catch(() => undefined);
+    } finally {
+      setResubmittingInteractionIds((current) => {
+        const next = new Set(current);
+        next.delete(interaction.id);
+        return next;
+      });
+    }
+  }, [
+    copy.currentCanvasMissing,
+    copy.resubmitFailed,
+    graph?.canvas.agentId,
+    loadGraph,
+    localizeError,
+    persistLayout,
+    resubmittingInteractionIds,
+  ]);
+
   const flow = useMemo(() => {
     if (!graph) return { nodes: [] as CanvasFlowNode[], edges: [] as Edge[] };
     return projectCanvasFlow({
@@ -289,14 +365,17 @@ export function CanvasPanel({ onStatusStatsChange }: { onStatusStatsChange?: (st
       renderedNodes: nodesRef.current,
       positions: positionsRef.current,
       drafts,
+      resubmittingInteractionIds,
       previews,
       labels: copy,
       onAdd: addFromInteraction,
+      onResubmit: (interaction) => void resubmitInteraction(interaction),
       onTextChange: (branchId, value) => {
         updateDraft(branchId, (draft) => ({ ...draft, text: value, error: null }));
       },
       onFiles: addFiles,
       onRemoveFile: removeFile,
+      onRemovePersistedAttachment: removePersistedAttachment,
       onSend: (branch) => void send(branch),
       onFocus: focusComposer,
       onBlur: blurComposer,
@@ -311,6 +390,9 @@ export function CanvasPanel({ onStatusStatsChange }: { onStatusStatsChange?: (st
     graph,
     previews,
     removeFile,
+    removePersistedAttachment,
+    resubmitInteraction,
+    resubmittingInteractionIds,
     send,
     updateDraft,
   ]);

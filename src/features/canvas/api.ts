@@ -81,6 +81,15 @@ export const canvasApi = {
   async fork(interactionId: string): Promise<CanvasBranch> {
     return (await request<{ branch: CanvasBranch }>(`/api/canvas/interactions/${interactionId}/fork`, { method: 'POST' })).branch;
   },
+  async resubmit(interactionId: string, expectedAgentId: string): Promise<{
+    interaction?: CanvasInteraction;
+    operation?: SendReservation;
+  }> {
+    return request(`/api/canvas/interactions/${interactionId}/resubmit`, {
+      method: 'POST',
+      body: JSON.stringify({ expectedAgentId }),
+    });
+  },
   async saveLayout(canvasId: string, layout: CanvasLayout): Promise<void> {
     await request(`/api/canvas/canvases/${canvasId}/layout`, { method: 'PUT', body: JSON.stringify(layout) });
   },

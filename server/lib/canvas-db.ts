@@ -17,6 +17,7 @@ import { packageMetadata } from './package-metadata.js';
 
 export type BranchKind = 'root' | 'fork';
 export type BranchSessionState = 'draft' | 'active';
+export type BranchCreationMode = 'composer' | 'direct-submit';
 export type InteractionStatus = 'streaming' | 'completed' | 'failed';
 export type InteractionExecutionState = 'running' | 'completed' | 'failed' | 'unconfirmed';
 export type ArtifactSyncState = 'not_started' | 'observing' | 'synced' | 'degraded';
@@ -54,6 +55,7 @@ export interface BranchRecord {
   observedSessionId: string | null;
   sessionIntegrity: BranchSessionIntegrity;
   sessionState: BranchSessionState;
+  creationMode: BranchCreationMode;
   headInteractionId: string | null;
   createdAt: number;
   updatedAt: number;
@@ -138,6 +140,7 @@ export interface CanvasGraph {
   interactions: InteractionRecord[];
   layout: { nodes: Record<string, { x: number; y: number }>; viewport?: { x: number; y: number; zoom: number } } | null;
   pendingSends: SendReservation[];
+  failedSends: SendReservation[];
 }
 
 export interface CanvasSyncBatch {
@@ -180,6 +183,8 @@ export interface SendReservation {
   nextAttemptAt: number | null;
   error: string | null;
   interactionId: string | null;
+  createdAt: number;
+  updatedAt: number;
 }
 
 export interface DispatchableSendReservation extends SendReservation {
@@ -298,6 +303,7 @@ function mapBranch(row: SqlRow): BranchRecord {
     observedSessionId: asNullableString(row.observed_session_id),
     sessionIntegrity: (asString(row.session_integrity) || 'unknown') as BranchSessionIntegrity,
     sessionState: asString(row.session_state) as BranchSessionState,
+    creationMode: (asString(row.creation_mode) || 'composer') as BranchCreationMode,
     headInteractionId: asNullableString(row.head_interaction_id),
     createdAt: asNumber(row.created_at),
     updatedAt: asNumber(row.updated_at),
@@ -386,6 +392,8 @@ export class CanvasStore {
         observed_session_started_at INTEGER,
         session_integrity TEXT NOT NULL DEFAULT 'unknown',
         session_state TEXT NOT NULL CHECK(session_state IN ('draft', 'active')),
+        creation_mode TEXT NOT NULL DEFAULT 'composer'
+          CHECK(creation_mode IN ('composer', 'direct-submit')),
         head_interaction_id TEXT,
         snapshot_json TEXT,
         created_at INTEGER NOT NULL,
@@ -503,10 +511,6 @@ export class CanvasStore {
         applied_at INTEGER NOT NULL,
         app_version TEXT NOT NULL
       );
-      CREATE UNIQUE INDEX IF NOT EXISTS one_draft_root_per_canvas
-        ON branches(canvas_id) WHERE kind = 'root' AND session_state = 'draft';
-      CREATE UNIQUE INDEX IF NOT EXISTS one_draft_fork_per_source
-        ON branches(forked_from_interaction_id) WHERE kind = 'fork' AND session_state = 'draft';
       CREATE UNIQUE INDEX IF NOT EXISTS one_prepared_send_per_branch
         ON send_reservations(branch_id) WHERE status = 'prepared';
       CREATE INDEX IF NOT EXISTS canvas_owner_updated ON canvases(owner_id, updated_at DESC);
@@ -578,6 +582,19 @@ export class CanvasStore {
     if (!branchColumns.some((column) => asString(column.name) === 'observed_session_started_at')) {
       this.db.exec('ALTER TABLE branches ADD COLUMN observed_session_started_at INTEGER');
     }
+    if (!branchColumns.some((column) => asString(column.name) === 'creation_mode')) {
+      this.db.exec("ALTER TABLE branches ADD COLUMN creation_mode TEXT NOT NULL DEFAULT 'composer'");
+    }
+    this.db.exec(`
+      DROP INDEX IF EXISTS one_draft_root_per_canvas;
+      DROP INDEX IF EXISTS one_draft_fork_per_source;
+      CREATE UNIQUE INDEX one_draft_root_per_canvas
+        ON branches(canvas_id)
+        WHERE kind = 'root' AND session_state = 'draft' AND creation_mode = 'composer';
+      CREATE UNIQUE INDEX one_draft_fork_per_source
+        ON branches(forked_from_interaction_id)
+        WHERE kind = 'fork' AND session_state = 'draft' AND creation_mode = 'composer';
+    `);
     const interactionColumns = this.db.prepare('PRAGMA table_info(interactions)').all() as SqlRow[];
     this.db.exec('BEGIN');
     try {
@@ -897,7 +914,8 @@ export class CanvasStore {
     const canvas = this.getCanvas(ownerId, canvasId);
     if (!canvas) throw new Error('not_found');
     const existing = this.db.prepare(`SELECT b.* FROM branches b JOIN canvases c ON c.id = b.canvas_id
-      WHERE b.canvas_id = ? AND c.owner_id = ? AND b.kind = 'root' AND b.session_state = 'draft'`).get(canvasId, ownerId) as SqlRow | undefined;
+      WHERE b.canvas_id = ? AND c.owner_id = ? AND b.kind = 'root'
+        AND b.session_state = 'draft' AND b.creation_mode = 'composer'`).get(canvasId, ownerId) as SqlRow | undefined;
     if (existing) return mapBranch(existing);
     return this.insertBranch(canvasId, 'root', null, null, null, canvas.agentId);
   }
@@ -909,14 +927,27 @@ export class CanvasStore {
     forkedFromInteractionId: string | null,
     snapshot: unknown,
     agentId: string,
+    creationMode: BranchCreationMode = 'composer',
   ): BranchRecord {
     const id = randomUUID();
     const now = Date.now();
     const sessionKey = `agent:${agentId}:canvas:${id}`;
     this.db.prepare(`INSERT INTO branches
-      (id, canvas_id, kind, parent_branch_id, forked_from_interaction_id, session_key, session_state, snapshot_json, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?)`)
-      .run(id, canvasId, kind, parentBranchId, forkedFromInteractionId, sessionKey, snapshot == null ? null : JSON.stringify(snapshot), now, now);
+      (id, canvas_id, kind, parent_branch_id, forked_from_interaction_id, session_key,
+        session_state, creation_mode, snapshot_json, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?)`)
+      .run(
+        id,
+        canvasId,
+        kind,
+        parentBranchId,
+        forkedFromInteractionId,
+        sessionKey,
+        creationMode,
+        snapshot == null ? null : JSON.stringify(snapshot),
+        now,
+        now,
+      );
     return this.getBranchById(id)!;
   }
 
@@ -1018,7 +1049,9 @@ export class CanvasStore {
     if (asString(sourceRow.execution_state) !== 'completed') throw new Error('interaction_not_completed');
     if (asNullableString(sourceRow.head_interaction_id) === interactionId) throw new Error('cannot_fork_branch_head');
 
-    const existing = this.db.prepare(`SELECT * FROM branches WHERE forked_from_interaction_id = ? AND session_state = 'draft'`)
+    const existing = this.db.prepare(`SELECT * FROM branches
+      WHERE forked_from_interaction_id = ? AND session_state = 'draft'
+        AND creation_mode = 'composer'`)
       .get(interactionId) as SqlRow | undefined;
     if (existing) return mapBranch(existing);
 
@@ -1065,47 +1098,136 @@ export class CanvasStore {
     attachments: CanvasAttachment[];
     forceSessionRecovery?: boolean;
   }): SendReservation {
+    return this.transaction(() => this.prepareSendInTransaction(ownerId, input));
+  }
+
+  prepareInteractionResubmission(ownerId: string, input: {
+    interactionId: string;
+    expectedAgentId: string;
+    attachments: CanvasAttachment[];
+  }): SendReservation {
     return this.transaction(() => {
-      const branch = this.getOwnedBranch(ownerId, input.branchId);
-      if (!branch) throw new Error('not_found');
-      const existing = this.db.prepare(`SELECT * FROM send_reservations WHERE branch_id = ? AND status = 'prepared'`).get(branch.id) as SqlRow | undefined;
-      if (existing) throw new Error('send_in_progress');
+      const source = this.db.prepare(`SELECT i.*, b.canvas_id, c.agent_id
+        FROM interactions i
+        JOIN branches b ON b.id = i.branch_id
+        JOIN canvases c ON c.id = b.canvas_id
+        WHERE i.id = ? AND c.owner_id = ?`).get(input.interactionId, ownerId) as SqlRow | undefined;
+      if (!source) throw new Error('not_found');
+      const agentId = asString(source.agent_id);
+      if (agentId !== input.expectedAgentId) throw new Error('agent_changed');
 
-      const decision = decideCanvasSendPlan({
-        branch,
-        expectedHeadInteractionId: input.expectedHeadInteractionId,
-        forceSessionRecovery: input.forceSessionRecovery,
-      });
-      const materialization = decision.materialization;
-      let outgoingMessage = input.userInput;
-      const expectedHead = decision.expectedHeadInteractionId;
-      let bootstrapResources: CanvasContextResource[] = [];
-
-      if (decision.replayReason === 'canonical-replay') {
-        const row = this.db.prepare('SELECT snapshot_json FROM branches WHERE id = ?').get(branch.id) as SqlRow;
-        const snapshot = parseJson<CanonicalCanvasSnapshot>(row.snapshot_json, {
-          version: 2,
-          interactions: [],
-          resources: [],
-        });
-        const replay = buildCanvasReplayPlan(snapshot, 'canonical-replay', input.userInput);
-        bootstrapResources = replay.resources;
-        outgoingMessage = replay.message;
-      } else if (decision.replayReason === 'session-recovery' && branch.headInteractionId) {
-        const snapshot = this.buildCanonicalSnapshot(branch.headInteractionId);
-        const replay = buildCanvasReplayPlan(snapshot, 'session-recovery', input.userInput);
-        bootstrapResources = replay.resources;
-        outgoingMessage = replay.message;
+      const sourceAttachments = parseJson<CanvasAttachment[]>(source.attachments_json, []);
+      const sourceAttachmentIds = sourceAttachments
+        .map((attachment) => attachment.id)
+        .filter((id): id is string => Boolean(id));
+      if (
+        sourceAttachmentIds.length !== sourceAttachments.length
+        || sourceAttachmentIds.length !== input.attachments.length
+        || sourceAttachmentIds.some((id, index) => input.attachments[index]?.id !== id)
+      ) {
+        throw new Error('source_attachment_unavailable');
       }
 
-      const id = randomUUID();
-      const now = Date.now();
-      this.db.prepare(`INSERT INTO send_reservations
-        (id, branch_id, expected_head_interaction_id, user_input, attachments_json, materialization, session_key, outgoing_message, bootstrap_resources_json, status, dispatch_state, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'prepared', 'reserved', ?, ?)`)
-        .run(id, branch.id, expectedHead, input.userInput, JSON.stringify(input.attachments), materialization, branch.sessionKey, outgoingMessage, JSON.stringify(bootstrapResources), now, now);
-      return this.getReservation(id)!;
+      const canvasId = asString(source.canvas_id);
+      const parentInteractionId = asNullableString(source.parent_interaction_id);
+      let branch: BranchRecord;
+      if (parentInteractionId) {
+        const parent = this.db.prepare(`SELECT i.branch_id
+          FROM interactions i
+          JOIN branches b ON b.id = i.branch_id
+          WHERE i.id = ? AND b.canvas_id = ?`).get(parentInteractionId, canvasId) as SqlRow | undefined;
+        if (!parent) throw new Error('invalid_branch_transition');
+        branch = this.insertBranch(
+          canvasId,
+          'fork',
+          asString(parent.branch_id),
+          parentInteractionId,
+          this.buildCanonicalSnapshot(parentInteractionId),
+          agentId,
+          'direct-submit',
+        );
+      } else {
+        branch = this.insertBranch(
+          canvasId,
+          'root',
+          null,
+          null,
+          null,
+          agentId,
+          'direct-submit',
+        );
+      }
+
+      return this.prepareSendInTransaction(ownerId, {
+        branchId: branch.id,
+        expectedHeadInteractionId: null,
+        userInput: asString(source.user_input),
+        attachments: input.attachments,
+      });
     });
+  }
+
+  private prepareSendInTransaction(ownerId: string, input: {
+    branchId: string;
+    expectedHeadInteractionId?: string | null;
+    userInput: string;
+    attachments: CanvasAttachment[];
+    forceSessionRecovery?: boolean;
+  }): SendReservation {
+    const branch = this.getOwnedBranch(ownerId, input.branchId);
+    if (!branch) throw new Error('not_found');
+    const existing = this.db.prepare(`SELECT * FROM send_reservations
+      WHERE branch_id = ? AND status = 'prepared'`).get(branch.id) as SqlRow | undefined;
+    if (existing) throw new Error('send_in_progress');
+
+    const decision = decideCanvasSendPlan({
+      branch,
+      expectedHeadInteractionId: input.expectedHeadInteractionId,
+      forceSessionRecovery: input.forceSessionRecovery,
+    });
+    const materialization = decision.materialization;
+    let outgoingMessage = input.userInput;
+    const expectedHead = decision.expectedHeadInteractionId;
+    let bootstrapResources: CanvasContextResource[] = [];
+
+    if (decision.replayReason === 'canonical-replay') {
+      const row = this.db.prepare('SELECT snapshot_json FROM branches WHERE id = ?').get(branch.id) as SqlRow;
+      const snapshot = parseJson<CanonicalCanvasSnapshot>(row.snapshot_json, {
+        version: 2,
+        interactions: [],
+        resources: [],
+      });
+      const replay = buildCanvasReplayPlan(snapshot, 'canonical-replay', input.userInput);
+      bootstrapResources = replay.resources;
+      outgoingMessage = replay.message;
+    } else if (decision.replayReason === 'session-recovery' && branch.headInteractionId) {
+      const snapshot = this.buildCanonicalSnapshot(branch.headInteractionId);
+      const replay = buildCanvasReplayPlan(snapshot, 'session-recovery', input.userInput);
+      bootstrapResources = replay.resources;
+      outgoingMessage = replay.message;
+    }
+
+    const id = randomUUID();
+    const now = Date.now();
+    this.db.prepare(`INSERT INTO send_reservations
+      (id, branch_id, expected_head_interaction_id, user_input, attachments_json,
+        materialization, session_key, outgoing_message, bootstrap_resources_json,
+        status, dispatch_state, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'prepared', 'reserved', ?, ?)`)
+      .run(
+        id,
+        branch.id,
+        expectedHead,
+        input.userInput,
+        JSON.stringify(input.attachments),
+        materialization,
+        branch.sessionKey,
+        outgoingMessage,
+        JSON.stringify(bootstrapResources),
+        now,
+        now,
+      );
+    return this.getReservation(id)!;
   }
 
   getReservation(id: string): SendReservation | null {
@@ -1130,6 +1252,8 @@ export class CanvasStore {
       nextAttemptAt: row.next_attempt_at == null ? null : asNumber(row.next_attempt_at),
       error: asNullableString(row.error),
       interactionId: asNullableString(row.interaction_id),
+      createdAt: asNumber(row.created_at),
+      updatedAt: asNumber(row.updated_at),
     };
   }
 
@@ -1798,6 +1922,23 @@ export class CanvasStore {
       const reservation = this.getReservation(asString(row.id));
       return reservation ? [reservation] : [];
     });
+    const failedRows = this.db.prepare(`SELECT r.id
+      FROM send_reservations r
+      JOIN branches b ON b.id = r.branch_id
+      WHERE b.canvas_id = ?
+        AND b.session_state = 'draft'
+        AND r.status = 'failed'
+        AND r.rowid = (
+          SELECT newer.rowid FROM send_reservations newer
+          WHERE newer.branch_id = r.branch_id
+          ORDER BY newer.created_at DESC, newer.rowid DESC
+          LIMIT 1
+        )
+      ORDER BY r.created_at`).all(canvasId) as SqlRow[];
+    const failedSends = failedRows.flatMap((row) => {
+      const reservation = this.getReservation(asString(row.id));
+      return reservation ? [reservation] : [];
+    });
     return {
       cursor: this.getCanvasCursor(canvasId),
       canvas,
@@ -1805,6 +1946,7 @@ export class CanvasStore {
       interactions,
       layout: layoutRow ? parseJson(rowValue(layoutRow, 'layout_json'), null) : null,
       pendingSends,
+      failedSends,
     };
   }
 

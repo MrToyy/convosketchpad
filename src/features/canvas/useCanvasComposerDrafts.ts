@@ -12,6 +12,7 @@ export function useCanvasComposerDrafts() {
   const [trackedOperations, setTrackedOperations] = useState<Record<string, string>>({});
   const draftsRef = useRef(drafts);
   const trackedOperationsRef = useRef(trackedOperations);
+  const hydratedFailedOperationIdsRef = useRef(new Set<string>());
   useEffect(() => {
     draftsRef.current = drafts;
   }, [drafts]);
@@ -35,7 +36,10 @@ export function useCanvasComposerDrafts() {
 
   const addFiles = useCallback((branchId: string, incoming: File[]) => {
     updateDraft(branchId, (draft) => {
-      const accepted = incoming.slice(0, MAX_CANVAS_ATTACHMENTS - draft.files.length);
+      const accepted = incoming.slice(
+        0,
+        MAX_CANVAS_ATTACHMENTS - draft.files.length - draft.persistedAttachments.length,
+      );
       const previews = { ...draft.previews };
       accepted.filter((file) => file.type.startsWith('image/')).forEach((file) => {
         previews[`${file.name}-${file.lastModified}`] = URL.createObjectURL(file);
@@ -47,6 +51,15 @@ export function useCanvasComposerDrafts() {
         error: null,
       };
     });
+  }, [updateDraft]);
+
+  const removePersistedAttachment = useCallback((branchId: string, index: number) => {
+    updateDraft(branchId, (draft) => ({
+      ...draft,
+      persistedAttachments: draft.persistedAttachments.filter(
+        (_, itemIndex) => itemIndex !== index,
+      ),
+    }));
   }, [updateDraft]);
 
   const removeFile = useCallback((branchId: string, index: number) => {
@@ -111,16 +124,55 @@ export function useCanvasComposerDrafts() {
     }
   }, [clearDraft, markFailed]);
 
+  const hydrateFailedSends = useCallback((
+    operations: SendReservation[],
+    errorMessage: (operation: SendReservation) => string,
+  ) => {
+    const fresh = operations.filter((operation) => {
+      if (hydratedFailedOperationIdsRef.current.has(operation.id)) return false;
+      hydratedFailedOperationIdsRef.current.add(operation.id);
+      return true;
+    });
+    if (fresh.length === 0) return;
+    setDrafts((current) => {
+      const next = { ...current };
+      for (const operation of fresh) {
+        const existing = next[operation.branchId];
+        if (existing && (
+          existing.text
+          || existing.files.length > 0
+          || existing.persistedAttachments.length > 0
+        )) {
+          next[operation.branchId] = {
+            ...existing,
+            sending: false,
+            error: errorMessage(operation),
+          };
+          continue;
+        }
+        next[operation.branchId] = {
+          ...EMPTY_CANVAS_DRAFT,
+          text: operation.userInput,
+          persistedAttachments: operation.attachments,
+          error: errorMessage(operation),
+        };
+      }
+      return next;
+    });
+  }, []);
+
   return {
     drafts,
     trackedOperations,
     updateDraft,
     addFiles,
     removeFile,
+    removePersistedAttachment,
     clearDraft,
     markSending,
     trackOperation,
     markFailed,
     reconcileOperations,
+    hydrateFailedSends,
   };
 }

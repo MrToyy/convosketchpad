@@ -17,6 +17,7 @@ import {
   Loader2,
   Paperclip,
   Plus,
+  RotateCcw,
   Sparkles,
   X,
 } from 'lucide-react';
@@ -44,7 +45,9 @@ interface InteractionNodeData extends Record<string, unknown> {
   preview: string;
   composerOpen: boolean;
   canAdd: boolean;
+  resubmitting: boolean;
   onAdd: (interaction: CanvasInteraction) => void;
+  onResubmit: (interaction: CanvasInteraction) => void;
 }
 
 interface ComposerNodeData extends Record<string, unknown> {
@@ -54,6 +57,7 @@ interface ComposerNodeData extends Record<string, unknown> {
   onTextChange: (value: string) => void;
   onFiles: (files: File[]) => void;
   onRemoveFile: (index: number) => void;
+  onRemovePersistedAttachment: (index: number) => void;
   onSend: () => void;
   onFocus: () => void;
   onBlur: () => void;
@@ -87,7 +91,15 @@ function interactionStatusLabel(interaction: CanvasInteraction, copy: CanvasCopy
 function InteractionNode({ data }: NodeProps<InteractionFlowNode>) {
   const { language } = useSettings();
   const copy = getCanvasCopy(language);
-  const { interaction, preview, composerOpen, canAdd, onAdd } = data;
+  const {
+    interaction,
+    preview,
+    composerOpen,
+    canAdd,
+    resubmitting,
+    onAdd,
+    onResubmit,
+  } = data;
   const visibleOutput = interaction.agentOutput || preview;
   const running = interaction.executionState === 'running';
   const bootstrapWarnings = Array.isArray(interaction.sessionMetadata.bootstrapWarnings)
@@ -107,7 +119,23 @@ function InteractionNode({ data }: NodeProps<InteractionFlowNode>) {
             {interactionStatusLabel(interaction, copy)}
           </span>
         </div>
-        <time className="text-[0.667rem] text-muted-foreground">{new Date(interaction.createdAt).toLocaleTimeString(language)}</time>
+        <div className="nodrag flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => onResubmit(interaction)}
+            disabled={resubmitting}
+            title={
+              interaction.executionState === 'running' || interaction.executionState === 'unconfirmed'
+                ? copy.resubmitInteractionParallel
+                : copy.resubmitInteraction
+            }
+            aria-label={copy.resubmitInteraction}
+            className="flex size-7 items-center justify-center rounded-full text-muted-foreground hover:bg-secondary hover:text-foreground disabled:cursor-wait disabled:opacity-60"
+          >
+            <RotateCcw size={13} className={resubmitting ? 'animate-spin' : ''} />
+          </button>
+          <time className="text-[0.667rem] text-muted-foreground">{new Date(interaction.createdAt).toLocaleTimeString(language)}</time>
+        </div>
       </header>
 
       <details className="nodrag mt-3 cursor-text select-text rounded-2xl border border-border/60 bg-background/45 px-3 py-2">
@@ -248,6 +276,27 @@ function ComposerNode({ data }: NodeProps<ComposerFlowNode>) {
         className="nodrag nowheel min-h-28 w-full resize-y rounded-2xl border border-border bg-background/65 px-3 py-3 text-sm outline-none focus:border-primary"
         disabled={data.draft.sending}
       />
+      {data.draft.persistedAttachments.length > 0 && (
+        <div className="nodrag mt-3 grid gap-2">
+          {data.draft.persistedAttachments.map((attachment, index) => (
+            <div key={`${attachment.id}-${index}`} className="flex items-center gap-2 rounded-xl bg-secondary/75 px-2 py-2 text-xs">
+              {attachment.mimeType.startsWith('image/') && attachment.thumbnailUri
+                ? <img src={attachment.thumbnailUri} alt="" className="size-9 rounded-lg object-cover" />
+                : <File size={15} />}
+              <span className="min-w-0 flex-1 truncate">{attachment.name}</span>
+              <span className="text-muted-foreground">{formatBytes(attachment.sizeBytes)}</span>
+              <button
+                type="button"
+                onClick={() => data.onRemovePersistedAttachment(index)}
+                disabled={data.draft.sending}
+                aria-label={`${copy.removeAttachment}: ${attachment.name}`}
+              >
+                <X size={14} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
       {data.draft.files.length > 0 && (
         <div className="nodrag mt-3 grid gap-2">
           {data.draft.files.map((file, index) => (
@@ -264,7 +313,17 @@ function ComposerNode({ data }: NodeProps<ComposerFlowNode>) {
       )}
       {data.draft.error && <p translate="no" className="notranslate nodrag mt-2 flex items-start gap-2 text-xs text-destructive"><AlertCircle size={14} />{data.draft.error}</p>}
       <footer className="nodrag mt-3 flex items-center justify-between gap-2">
-        <Button type="button" variant="outline" size="sm" onClick={() => inputRef.current?.click()} disabled={data.draft.sending || data.draft.files.length >= MAX_CANVAS_ATTACHMENTS}>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => inputRef.current?.click()}
+          disabled={
+            data.draft.sending
+            || data.draft.files.length + data.draft.persistedAttachments.length
+              >= MAX_CANVAS_ATTACHMENTS
+          }
+        >
           <Paperclip size={14} /> {copy.addAttachment}
         </Button>
         <input
@@ -279,7 +338,14 @@ function ComposerNode({ data }: NodeProps<ComposerFlowNode>) {
         />
         <CanvasSendButton
           sending={data.draft.sending}
-          disabled={data.draft.sending || (!data.draft.text.trim() && data.draft.files.length === 0)}
+          disabled={
+            data.draft.sending
+            || (
+              !data.draft.text.trim()
+              && data.draft.files.length === 0
+              && data.draft.persistedAttachments.length === 0
+            )
+          }
           onSend={data.onSend}
         />
       </footer>

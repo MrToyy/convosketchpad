@@ -82,5 +82,7 @@ export function publicCanvasSendReservation(operation: SendReservation) {
     nextAttemptAt: operation.nextAttemptAt,
     error: operation.error,
     interactionId: operation.interactionId,
+    createdAt: operation.createdAt,
+    updatedAt: operation.updatedAt,
   };
 }

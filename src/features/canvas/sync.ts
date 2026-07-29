@@ -43,6 +43,17 @@ export function applyCanvasSyncBatch(graph: CanvasGraph, batch: CanvasSyncBatch)
       ...batch.sendOperations.filter((operation) => !pendingOperation(operation)).map((operation) => operation.id),
     ],
   ).filter(pendingOperation);
+  let failedSends = graph.failedSends.filter((operation) =>
+    !batch.removed.sendOperationIds.includes(operation.id));
+  const orderedOperations = [...batch.sendOperations]
+    .sort((left, right) => left.createdAt - right.createdAt);
+  for (const operation of orderedOperations) {
+    failedSends = failedSends.filter((current) =>
+      current.id !== operation.id && current.branchId !== operation.branchId);
+    if (operation.status === 'failed' && !operation.interactionId) {
+      failedSends.push(operation);
+    }
+  }
   const next: CanvasGraph = {
     ...graph,
     cursor: batch.cursor,
@@ -50,6 +61,7 @@ export function applyCanvasSyncBatch(graph: CanvasGraph, batch: CanvasSyncBatch)
     branches: upsertById(graph.branches, batch.branches, batch.removed.branchIds),
     interactions,
     pendingSends,
+    failedSends,
   };
   return { ...next, hasPendingUpdates: graphHasPendingUpdates(next) };
 }

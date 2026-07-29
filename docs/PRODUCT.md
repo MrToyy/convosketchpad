@@ -21,6 +21,7 @@ ConvoSketchpad 让用户从任意已完成的 Interaction 携带当时上下文�
 - 在一个可视化 Canvas 上开始多个相互独立的方向。
 - 无需重放历史即可继续一个值得深入的方向。
 - 从任意已完成的历史 Interaction 创建分支，探索该节点的另一种可能。
+- 对任意 Interaction 原样重试：保留原节点和原执行，从它的上一节点创建普通分支并重新提交相同输入。
 - 在工作过程中移动和排列 Branch，并在再次访问时恢复布局。
 - 持久化保存源附件和生成的 Artifact，并关联到正确的 Interaction。
 - 在工作开始前选择 OpenClaw Agent，此后在整个 Canvas 生命周期中保持执行归属稳定。
@@ -33,7 +34,7 @@ Canvas 拓扑和布局不是临时展示状态。它们与不可变的 Interacti
 
 ### 分支操作必须明确
 
-“继续”用于延伸当前 Branch，“分支”用于从已完成的历史 Interaction 创建新方向。界面和数据模型始终明确区分这两种操作。
+“继续”用于延伸当前 Branch，“分支”用于从已完成的历史 Interaction 创建可编辑的新方向。“重试”是从上一节点创建普通分支并原样重新提交输入的快捷操作，不改写、取消或删除原 Interaction，也不在持久化模型中建立独立的 Retry 类型。
 
 ### OpenClaw 负责执行，ConvoSketchpad 负责 Canvas 数据
 

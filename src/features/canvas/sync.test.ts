@@ -42,6 +42,8 @@ function operation(overrides: Partial<SendReservation> = {}): SendReservation {
     nextAttemptAt: null,
     error: null,
     interactionId: null,
+    createdAt: 1,
+    updatedAt: 1,
     ...overrides,
   };
 }
@@ -62,6 +64,7 @@ function graph(): CanvasGraph {
       observedSessionId: null,
       sessionIntegrity: 'unknown',
       sessionState: 'active',
+      creationMode: 'composer',
       headInteractionId: 'interaction-1',
       createdAt: 1,
       updatedAt: 1,
@@ -69,6 +72,7 @@ function graph(): CanvasGraph {
     interactions: [interaction()],
     layout: null,
     pendingSends: [operation()],
+    failedSends: [],
   };
 }
 
@@ -107,6 +111,26 @@ describe('Canvas sync projection', () => {
       agentOutput: 'done',
     });
     expect(next.pendingSends).toEqual([]);
+    expect(next.failedSends).toEqual([]);
+    expect(next.hasPendingUpdates).toBe(true);
+  });
+
+  it('projects the latest failed send back to its draft branch', () => {
+    const next = applyCanvasSyncBatch(graph(), batch({
+      sendOperations: [operation({
+        status: 'failed',
+        dispatchState: 'failed',
+        error: 'Gateway rejected the send',
+      })],
+    }));
+    expect(next.pendingSends).toEqual([]);
+    expect(next.failedSends).toEqual([
+      expect.objectContaining({
+        branchId: 'branch-1',
+        status: 'failed',
+        error: 'Gateway rejected the send',
+      }),
+    ]);
     expect(next.hasPendingUpdates).toBe(true);
   });
 

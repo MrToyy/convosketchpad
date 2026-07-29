@@ -41,6 +41,8 @@ function operation(branchId: string): SendReservation {
     nextAttemptAt: null,
     error: null,
     interactionId: null,
+    createdAt: 1,
+    updatedAt: 1,
   };
 }
 
@@ -57,6 +59,7 @@ function graph(): Pick<CanvasGraph, 'branches' | 'interactions' | 'pendingSends'
       observedSessionId: null,
       sessionIntegrity: 'unknown',
       sessionState: 'active',
+      creationMode: 'composer',
       headInteractionId: null,
       createdAt: 1,
       updatedAt: 1,

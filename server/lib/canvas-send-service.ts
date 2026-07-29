@@ -20,6 +20,11 @@ export interface SubmitCanvasSendCommand {
   attachmentIds: string[];
 }
 
+export interface ResubmitCanvasInteractionCommand {
+  interactionId: string;
+  expectedAgentId: string;
+}
+
 export type SubmitCanvasSendResult =
   | { kind: 'interaction'; interaction: InteractionRecord }
   | { kind: 'operation'; operation: SendReservation }
@@ -145,6 +150,66 @@ export class CanvasSendService {
       attachments,
       forceSessionRecovery,
     });
+    return this.dispatchReservation(reservation);
+  }
+
+  async resubmit(
+    ownerId: string,
+    command: ResubmitCanvasInteractionCommand,
+  ): Promise<SubmitCanvasSendResult> {
+    const source = this.store.getOwnedInteraction(ownerId, command.interactionId);
+    if (!source) throw new CanvasSendApplicationError('not_found', 404, 'Not found');
+    if (source.agentId !== command.expectedAgentId) {
+      throw new CanvasSendApplicationError('agent_changed', 409);
+    }
+    const attachmentIds = source.attachments.map((attachment) => attachment.id);
+    if (attachmentIds.some((id) => !id)) {
+      throw new CanvasSendApplicationError(
+        'source_attachment_unavailable',
+        422,
+        'source_attachment_unavailable',
+      );
+    }
+    let attachments: CanvasAttachment[];
+    try {
+      attachments = this.resolveAttachments(
+        ownerId,
+        source.canvasId,
+        attachmentIds as string[],
+      );
+    } catch (error) {
+      if (error instanceof CanvasSendApplicationError && error.code === 'attachment_not_found') {
+        throw new CanvasSendApplicationError(
+          'source_attachment_unavailable',
+          422,
+          'source_attachment_unavailable',
+        );
+      }
+      throw error;
+    }
+    let reservation: SendReservation;
+    try {
+      reservation = this.store.prepareInteractionResubmission(ownerId, {
+        interactionId: source.id,
+        expectedAgentId: command.expectedAgentId,
+        attachments,
+      });
+    } catch (error) {
+      if (error instanceof Error && error.message === 'source_attachment_unavailable') {
+        throw new CanvasSendApplicationError(
+          'source_attachment_unavailable',
+          422,
+          'source_attachment_unavailable',
+        );
+      }
+      throw error;
+    }
+    return this.dispatchReservation(reservation);
+  }
+
+  private async dispatchReservation(
+    reservation: SendReservation,
+  ): Promise<SubmitCanvasSendResult> {
     const result = await this.dispatch(reservation.id);
     if ('agentOutput' in result) return { kind: 'interaction', interaction: result };
     if (result.status === 'failed') {

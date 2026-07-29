@@ -55,6 +55,8 @@ describe('Canvas public DTO mapping', () => {
       nextAttemptAt: null,
       error: null,
       interactionId: null,
+      createdAt: 1,
+      updatedAt: 1,
     };
     const publicOperation = publicCanvasSendReservation(operation);
     expect(publicOperation).toMatchObject({

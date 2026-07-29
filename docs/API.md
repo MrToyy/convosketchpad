@@ -14,6 +14,7 @@
 | PUT | `/api/canvas/canvases/:id/layout` | 完整保存手动拖拽或自动重排后的节点位置和视口 |
 | POST | `/api/canvas/canvases/:id/root-branches` | 创建或返回草稿主 Branch |
 | POST | `/api/canvas/interactions/:id/fork` | 从已完成历史 Interaction 创建 Branch |
+| POST | `/api/canvas/interactions/:id/resubmit` | 从上一节点创建普通 Branch，并原样重新提交目标 Interaction 的输入 |
 | GET | `/api/canvas/agents` | 读取服务端代理的 Agent 目录 |
 
 ## 发送
@@ -25,6 +26,20 @@
 | POST | `/api/canvas/send-operations/:id/dispatch` | 派发尚未终止的预留 |
 | POST | `/api/canvas/send-operations/:id/retry` | 使用相同幂等键立即重试 |
 | POST | `/api/canvas/send-operations/:id/cancel` | 只取消确认尚未发出的 `reserved`/`awaiting_media` 预留 |
+
+节点原样重新提交请求只接受当前 Canvas Agent，用于检测并发页面中的 Agent 变化：
+
+```json
+{
+  "expectedAgentId": "main"
+}
+```
+
+服务端读取源 Interaction 的用户文本和已登记附件，客户端不能替换内容。非首节点从其
+`parentInteractionId` 创建普通 Fork Branch，首节点创建新的 Root Branch；原节点和原 OpenClaw 执行均保持
+不变。源节点可以是 `running`、`completed`、`failed` 或 `unconfirmed`。响应与 Branch 发送一致：
+即时接受返回 `201 { interaction }`，排队或结果不确定返回 `202 { operation }`，明确拒绝返回包含 operation 的
+`422`/`503`。
 
 发送请求：
 
@@ -47,7 +62,12 @@ Fork 和 Session 恢复使用同一完整 Replay Package。历史逻辑引用不
 只物理投递一次，已生成的大图投递派生文件可在同一 Canvas 的后续重放中复用。完整载荷超过 Gateway
 `maxPayload` 时，初始发送返回 `422` 且 operation 的错误为 `replay_payload_too_large`，不会只发送部分历史。
 
-Graph 响应额外包含持久化 `cursor` 和 `hasPendingUpdates`。Interaction 同时返回 `version`、`executionState`（`running | completed | failed | unconfirmed`）、`artifactSyncState`（`not_started | observing | synced | degraded`）、`terminalAt`、安全错误信息，以及可空的 `contextSnapshot`。后端仅在 Interaction 首次确认完成时尝试记录 OpenClaw 对该物理 Session 的累计上下文快照：
+Graph 响应额外包含持久化 `cursor`、`hasPendingUpdates` 和通用 `failedSends`。`failedSends` 只包含每个仍为
+draft 的 Branch 最新一次失败 Send Operation，用于刷新后恢复普通 Composer 的原文本、持久附件和错误；
+它不表示后台仍在工作。Branch 的 `creationMode` 为 `composer | direct-submit`，只区分手动草稿和创建后立即
+发送的通用方式，不记录“重试来源”。
+
+Interaction 同时返回 `version`、`executionState`（`running | completed | failed | unconfirmed`）、`artifactSyncState`（`not_started | observing | synced | degraded`）、`terminalAt`、安全错误信息，以及可空的 `contextSnapshot`。后端仅在 Interaction 首次确认完成时尝试记录 OpenClaw 对该物理 Session 的累计上下文快照：
 
 ```json
 {

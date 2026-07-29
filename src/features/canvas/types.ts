@@ -1,5 +1,6 @@
 export type BranchKind = 'root' | 'fork';
 export type BranchSessionState = 'draft' | 'active';
+export type BranchCreationMode = 'composer' | 'direct-submit';
 export type InteractionStatus = 'streaming' | 'completed' | 'failed';
 export type InteractionExecutionState = 'running' | 'completed' | 'failed' | 'unconfirmed';
 export type ArtifactSyncState = 'not_started' | 'observing' | 'synced' | 'degraded';
@@ -23,6 +24,7 @@ export interface CanvasBranch {
   observedSessionId: string | null;
   sessionIntegrity: 'unknown' | 'healthy' | 'drifted';
   sessionState: BranchSessionState;
+  creationMode: BranchCreationMode;
   headInteractionId: string | null;
   createdAt: number;
   updatedAt: number;
@@ -99,6 +101,7 @@ export interface CanvasGraph {
   interactions: CanvasInteraction[];
   layout: CanvasLayout | null;
   pendingSends: SendReservation[];
+  failedSends: SendReservation[];
 }
 
 export interface CanvasSyncBatch {
@@ -130,11 +133,14 @@ export interface SendReservation {
   nextAttemptAt: number | null;
   error: string | null;
   interactionId: string | null;
+  createdAt: number;
+  updatedAt: number;
 }
 
 export interface CanvasDraft {
   text: string;
   files: File[];
+  persistedAttachments: CanvasAttachmentMeta[];
   previews: Record<string, string>;
   sending: boolean;
   error: string | null;

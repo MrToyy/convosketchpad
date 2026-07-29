@@ -206,6 +206,9 @@ describe('CanvasStore', () => {
       artifactSyncState: 'observing',
     });
     expect(store.listReconciliationCandidates().map((item) => item.id)).toEqual(['streaming']);
+    expect(store.getGraph('user-a', 'canvas-1')?.branches).toEqual([
+      expect.objectContaining({ id: 'branch-1', creationMode: 'composer' }),
+    ]);
     expect(store.getOwnedCanvasAttachments('user-a', 'canvas-1', ['attachment-1'])).toHaveLength(1);
     expect(store.getReservation('send-1')).toMatchObject({ dispatchState: 'ambiguous' });
     expect(store.db.prepare(`SELECT COUNT(*) AS count FROM schema_migrations
@@ -373,6 +376,40 @@ describe('CanvasStore', () => {
     store.acknowledgeSend('user-a', reservation.id, 'run-1');
     expect(store.getGraph('user-a', canvas.id)?.pendingSends).toEqual([]);
     expect(store.nextDispatchableReservationAt()).toBeNull();
+  });
+
+  it('restores only the latest failed send for a draft Composer', () => {
+    const store = createStore();
+    const canvas = seedUser(store);
+    const branch = store.createRootBranch('user-a', canvas.id);
+    const first = store.prepareSend('user-a', {
+      branchId: branch.id,
+      userInput: 'first try',
+      attachments: [],
+    });
+    store.failReservation('user-a', first.id, 'first failure');
+    expect(store.getGraph('user-a', canvas.id)?.failedSends).toEqual([
+      expect.objectContaining({
+        id: first.id,
+        userInput: 'first try',
+        error: 'first failure',
+      }),
+    ]);
+
+    const second = store.prepareSend('user-a', {
+      branchId: branch.id,
+      userInput: 'second try',
+      attachments: [],
+    });
+    expect(store.getGraph('user-a', canvas.id)?.failedSends).toEqual([]);
+    store.failReservation('user-a', second.id, 'second failure');
+    expect(store.getGraph('user-a', canvas.id)?.failedSends).toEqual([
+      expect.objectContaining({
+        id: second.id,
+        userInput: 'second try',
+        error: 'second failure',
+      }),
+    ]);
   });
 
   it('resolves attachment IDs from the owner-scoped registry and records their content identity', () => {

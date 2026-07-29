@@ -19,6 +19,8 @@ function operation(overrides: Partial<SendReservation> = {}): SendReservation {
     nextAttemptAt: null,
     error: null,
     interactionId: null,
+    createdAt: 1,
+    updatedAt: 1,
     ...overrides,
   };
 }
@@ -84,5 +86,33 @@ describe('useCanvasComposerDrafts', () => {
       error: 'localized failure',
     });
     expect(result.current.trackedOperations).toEqual({});
+  });
+
+  it('hydrates a refreshed failed send with persisted attachment references', () => {
+    const { result } = renderHook(() => useCanvasComposerDrafts());
+    act(() => {
+      result.current.hydrateFailedSends([
+        operation({
+          status: 'failed',
+          dispatchState: 'failed',
+          error: 'Gateway rejected the send',
+          attachments: [{
+            id: 'a'.repeat(40),
+            name: 'source.png',
+            mimeType: 'image/png',
+            sizeBytes: 10,
+            uri: '/api/canvas/attachments/canvas-1/attachment-1',
+            storage: 'canvas',
+            available: true,
+          }],
+        }),
+      ], () => 'localized failure');
+    });
+    expect(result.current.drafts['branch-1']).toMatchObject({
+      text: 'hello',
+      persistedAttachments: [expect.objectContaining({ name: 'source.png' })],
+      sending: false,
+      error: 'localized failure',
+    });
   });
 });

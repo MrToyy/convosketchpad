@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CanvasFlowNode } from './CanvasNodes';
 import type { CanvasGraph } from './types';
@@ -24,6 +24,7 @@ const apiMocks = vi.hoisted(() => ({
   graph: vi.fn(),
   agents: vi.fn(),
   createRoot: vi.fn(),
+  resubmit: vi.fn(),
   saveLayout: vi.fn(),
 }));
 
@@ -74,6 +75,7 @@ vi.mock('./api', () => ({
     graph: apiMocks.graph,
     agents: apiMocks.agents,
     createRoot: apiMocks.createRoot,
+    resubmit: apiMocks.resubmit,
     saveLayout: apiMocks.saveLayout,
   },
   canvasArtifactUrl: (uri: string) => uri,
@@ -102,6 +104,7 @@ function canvasGraph(executionState: 'completed' | 'running' = 'completed'): Can
       observedSessionId: 'session-1',
       sessionIntegrity: 'healthy',
       sessionState: 'active',
+      creationMode: 'composer',
       headInteractionId: 'interaction-1',
       createdAt: 1,
       updatedAt: 1,
@@ -134,11 +137,13 @@ function canvasGraph(executionState: 'completed' | 'running' = 'completed'): Can
       viewport: { x: -120, y: -80, zoom: 0.7 },
     },
     pendingSends: [],
+    failedSends: [],
   };
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
+  flowMocks.getViewport.mockReset();
   vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
     callback(0);
     return 1;
@@ -147,12 +152,30 @@ beforeEach(() => {
   apiMocks.graph.mockResolvedValue(canvasGraph());
   apiMocks.agents.mockResolvedValue({ agents: [{ id: 'main' }] });
   apiMocks.saveLayout.mockResolvedValue(undefined);
+  apiMocks.resubmit.mockResolvedValue({});
   flowMocks.getViewport
     .mockReturnValueOnce({ x: -120, y: -80, zoom: 0.7 })
     .mockReturnValue({ x: 12, y: 24, zoom: 0.8 });
 });
 
 describe('Canvas rearrange action', () => {
+  it('allows a running Interaction to be resubmitted without stopping the original node', async () => {
+    apiMocks.graph.mockResolvedValue(canvasGraph('running'));
+    render(<CanvasPanel />);
+    await waitFor(() => expect(flowMocks.lastNodes.length).toBeGreaterThan(0));
+    const interactionNode = flowMocks.lastNodes.find((node) => node.id === 'interaction-1');
+    expect(interactionNode?.type).toBe('interaction');
+
+    await act(async () => {
+      if (interactionNode?.type === 'interaction') {
+        interactionNode.data.onResubmit(interactionNode.data.interaction);
+      }
+    });
+
+    await waitFor(() => expect(apiMocks.resubmit).toHaveBeenCalledWith('interaction-1', 'main'));
+    expect(apiMocks.graph).toHaveBeenCalled();
+  });
+
   it('rearranges visible nodes, fits the viewport, and saves one complete layout', async () => {
     let finishSave!: () => void;
     apiMocks.saveLayout.mockImplementationOnce(() => new Promise<void>((resolve) => {
