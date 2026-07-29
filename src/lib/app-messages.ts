@@ -103,8 +103,6 @@ export interface AppCopy {
     copyAria: string;
     copied: string;
     copy: string;
-    saveAria: string;
-    saveAs: (filename: string) => string;
   };
   errors: {
     title: string;
@@ -213,8 +211,6 @@ export const appCopy = {
       copyAria: '复制代码',
       copied: '已复制',
       copy: '复制到剪贴板',
-      saveAria: '保存到文件',
-      saveAs: (filename) => `另存为 ${filename}`,
     },
     errors: {
       title: '页面出现了问题',
@@ -321,8 +317,6 @@ export const appCopy = {
       copyAria: 'Copy code',
       copied: 'Copied',
       copy: 'Copy to clipboard',
-      saveAria: 'Save to file',
-      saveAs: (filename) => `Save as ${filename}`,
     },
     errors: {
       title: 'Something went wrong',

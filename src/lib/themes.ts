@@ -728,25 +728,7 @@ export const themes: Record<ThemeName, Theme> = {
 /** All available theme names as a typed array. */
 export const themeNames = Object.keys(themes) as ThemeName[];
 
-// Highlight.js theme mapping
-const hljsThemes: Record<ThemeName, string> = {
-  'midnight': 'github-dark-dimmed',
-  'light': 'github',
-  'phosphor': 'github-dark-dimmed',
-  'dracula': 'github-dark-dimmed',
-  'nord': 'github-dark-dimmed',
-  'solarized-dark': 'github-dark-dimmed',
-  'catppuccin-mocha': 'github-dark-dimmed',
-  'tokyo-night': 'github-dark-dimmed',
-  'gruvbox-dark': 'github-dark-dimmed',
-  'one-dark': 'github-dark-dimmed',
-  'monokai': 'github-dark-dimmed',
-  'ayu-dark': 'github-dark-dimmed',
-  'rose-pine': 'github-dark-dimmed',
-  'monochrome': 'github-dark-dimmed',
-};
-
-/** Apply a theme by setting CSS custom properties on the document root and loading the matching highlight.js stylesheet. */
+/** Apply a theme by setting CSS custom properties on the document root. */
 export function applyTheme(themeName: ThemeName): void {
   const theme = themes[themeName];
   if (!theme) return;
@@ -763,21 +745,4 @@ export function applyTheme(themeName: ThemeName): void {
       root.style.setProperty(baseProperty, value);
     }
   });
-
-  // Apply highlight.js theme (vendored locally to avoid CDN dependency)
-  const hljsTheme = hljsThemes[themeName];
-  const existingLink = document.getElementById('hljs-theme') as HTMLLinkElement | null;
-  const hljsHref = `/hljs/${hljsTheme}.min.css`;
-  
-  if (existingLink) {
-    if (existingLink.getAttribute('href') !== hljsHref) {
-      existingLink.href = hljsHref;
-    }
-  } else {
-    const link = document.createElement('link');
-    link.id = 'hljs-theme';
-    link.rel = 'stylesheet';
-    link.href = hljsHref;
-    document.head.appendChild(link);
-  }
 }

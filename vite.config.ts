@@ -41,14 +41,14 @@ export default defineConfig({
           // Core React libraries (most stable, cache-friendly)
           'react-vendor': ['react', 'react-dom'],
           
-          // Markdown rendering (heavy with highlight.js)
-          'markdown': ['react-markdown', 'remark-gfm', 'highlight.js'],
+          // Markdown rendering
+          'markdown': ['react-markdown', 'remark-gfm'],
           
           // UI components (radix + lucide icons)
           'ui-vendor': ['lucide-react'],
           
           // Utility libraries
-          'utils': ['clsx', 'tailwind-merge', 'class-variance-authority', 'dompurify'],
+          'utils': ['clsx', 'tailwind-merge', 'class-variance-authority'],
         },
       },
     },

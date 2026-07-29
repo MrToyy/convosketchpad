@@ -1,46 +1,37 @@
-import React, { useState, useCallback } from 'react';
-import { Check, Copy, Download } from 'lucide-react';
-import { getExtension } from '@/lib/highlight';
+import { useCallback, useEffect, useRef, useState, type MouseEvent } from 'react';
+import { Check, Copy } from 'lucide-react';
 import { useSettings } from '@/contexts/SettingsContext';
 import { getAppCopy } from '@/lib/app-messages';
 
 interface CodeBlockActionsProps {
   code: string;
-  language: string;
 }
 
-/** Copy-to-clipboard button overlay for fenced code blocks. */
-export function CodeBlockActions({ code, language }: CodeBlockActionsProps) {
+/** Copy-to-clipboard control for fenced code blocks. */
+export function CodeBlockActions({ code }: CodeBlockActionsProps) {
   const { language: interfaceLanguage } = useSettings();
   const copy = getAppCopy(interfaceLanguage);
   const [copied, setCopied] = useState(false);
+  const resetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const handleCopy = useCallback(async (e: React.MouseEvent) => {
-    e.stopPropagation();
+  useEffect(() => () => {
+    if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
+  }, []);
+
+  const handleCopy = useCallback(async (event: MouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
     try {
       await navigator.clipboard.writeText(code);
       setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
+      if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
+      resetTimerRef.current = setTimeout(() => {
+        setCopied(false);
+        resetTimerRef.current = null;
+      }, 1500);
     } catch (err) {
       console.warn('Clipboard copy failed', err);
     }
   }, [code]);
-
-  const handleSave = useCallback((e: React.MouseEvent) => {
-    e.stopPropagation();
-    const ext = getExtension(language);
-    const filename = `code.${ext}`;
-    const blob = new Blob([code], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    // Delay revoke to ensure download starts in all browsers
-    setTimeout(() => URL.revokeObjectURL(url), 100);
-  }, [code, language]);
 
   return (
     <div className="code-block-actions">
@@ -55,14 +46,6 @@ export function CodeBlockActions({ code, language }: CodeBlockActionsProps) {
         ) : (
           <Copy size={14} aria-hidden="true" />
         )}
-      </button>
-      <button
-        className="code-action-btn"
-        onClick={handleSave}
-        aria-label={copy.code.saveAria}
-        title={copy.code.saveAs(`code.${getExtension(language)}`)}
-      >
-        <Download size={14} aria-hidden="true" />
       </button>
     </div>
   );

@@ -35,6 +35,7 @@ ConvoSketchpad 的重要变更均记录在此文件中。格式遵循 [Keep a Ch
 - 重构 Canvas 继续/Fork 发送链路：分离前端 Graph、Composer 与 Flow 投影，后端拆分应用用例、发送判定、OpenClaw 适配、Worker、投递构建和事件消费；公开 API、SQLite Schema 与 Gateway 协议保持不变。修复排队发送完成或失败后 Composer 仍长期保持发送状态的问题。
 - Canvas Interaction 新增“重试”：保留原节点和原执行，从上一节点创建普通 Branch 并原样提交相同文本与附件；首节点会创建新 Root，运行中、待确认、成功和失败节点均可使用。该操作复用现有发送状态机，不建立独立 Retry 模型；接受前失败会通过普通 Composer 恢复输入和持久附件。
 - “继续分支”被 OpenClaw 接受后立即同步新的 Branch 头节点，使提交前节点无需等待新任务完成即可创建并行分支。
+- 代码块改为安全的纯文本展示并保留复制操作，移除语法着色、语言识别、代码下载及相关 Highlight.js/DOMPurify 运行时依赖。
 
 ### 安全
 
