@@ -18,9 +18,9 @@ npm run setup
 npm run dev
 ```
 
-`npm run dev` 会同时启动 Vite 客户端和监听模式服务端。浏览器只需打开终端中标记为 `Frontend (open in browser)` 的地址，默认是 `http://127.0.0.1:3080`。Vite 会把 `/api`、`/health` 和 `/ws` 代理到内部服务端，默认端口为 `3081`。
+`npm run dev` 会同时启动 Vite 客户端和监听模式服务端。浏览器只需打开终端中标记为 `Open in browser` 的地址，默认是 `http://127.0.0.1:3080`。Vite 会把 `/api` 和 `/health` 代理到自动分配的 loopback 服务端；Gateway WebSocket 只由服务端连接。
 
-客户端变更使用 Vite HMR；服务端变更由 `tsx watch` 自动重启。可以通过 `VITE_PORT` 和 `PORT` 分别指定前端入口端口和内部服务端端口。
+客户端变更使用 Vite HMR；服务端变更由 `tsx watch` 自动重启。开发和生产都通过 `HOST` / `PORT` 指定唯一的 ConvoSketchpad 浏览器入口，开发内部端口无需配置。
 
 ## 项目结构
 
@@ -81,10 +81,21 @@ npm run build
 
 在改动代码附近添加针对性测试。不要为了让变更通过而削弱断言。
 
+## 数据库迁移兼容
+
+`0.2.0 → 0.3.0` 是一次性桥接升级；从 `0.3.0` 开始，正式 Release 必须支持从任意更早的受支持版本直接升级，
+不能要求用户逐个安装中间版本。
+
+- 已发布的 `schema_migrations` ID 和迁移逻辑必须保留；新版本使用新 ID 追加幂等迁移。
+- 目标版本的 `npm run migrate` 必须执行从 `0.3.0` 基线到目标版本之间所有尚未完成的步骤。
+- 迁移只在完整成功后记账；失败必须可重试，不能通过吞掉错误或伪造完成标识继续。
+- 原始附件与 Artifact 不可变。耗时且不影响核心读取正确性的历史回填应放到可重试维护阶段或按需生成。
+- Schema 或持久化语义变化必须扩充最老受支持版本的 Fixture，并验证直接迁移、重复执行、外键和 SQLite 完整性。
+
 ## Git 与 Pull Request
 
 - 从 `main` 创建功能分支，并向 `main` 发起 Pull Request。
-- `master` 是干净的上游镜像，不得包含 ConvoSketchpad 产品定制提交。
+- `main` 是唯一的长期维护和发布分支。
 - 每个 Pull Request 应保持聚焦，并在可行时包含回归测试。
 - 使用 Conventional Commits，例如：
 

@@ -1,149 +1,90 @@
-import { describe, it, expect } from 'vitest';
-import { buildAccessPlan, applyAccessPlanToConfig } from './access-plan.js';
+import { describe, expect, it } from 'vitest';
+import {
+  applyAccessPlanToConfig,
+  buildAccessPlan,
+  normalizeBrowserOrigin,
+  parseBrowserOrigins,
+} from './access-plan.js';
 
-const EXAMPLE_TS_DNS = 'example-node.tail0000.ts.net';
-const EXAMPLE_TS_IPV4 = '100.64.0.42';
-
-const connectedTailscale = {
+const tailscale = {
   installed: true,
   authenticated: true,
-  ipv4: EXAMPLE_TS_IPV4,
-  dnsName: EXAMPLE_TS_DNS,
-  serveOrigins: [`https://${EXAMPLE_TS_DNS}`],
+  ipv4: '100.64.0.42',
+  dnsName: 'example-node.tail0000.ts.net',
+  serveOrigins: ['https://example-node.tail0000.ts.net'],
+  serveRoutes: [{
+    origin: 'https://example-node.tail0000.ts.net',
+    proxyTargets: ['http://127.0.0.1:3080'],
+  }],
 };
 
 describe('buildAccessPlan', () => {
-  it('builds a tailscale-ip plan with network bind and IP origin', () => {
-    expect(buildAccessPlan({
+  it('models only the browser-facing ConvoSketchpad origin', () => {
+    expect(buildAccessPlan({ profile: 'tailscale-ip', port: '3080', tailscale })).toEqual({
       profile: 'tailscale-ip',
-      port: '3080',
-      tailscale: connectedTailscale,
-    })).toMatchObject({
-      bindHost: '0.0.0.0',
-      browserOrigins: [`http://${EXAMPLE_TS_IPV4}:3080`],
-      gatewayAllowedOrigins: [`http://${EXAMPLE_TS_IPV4}:3080`],
-      wsAllowedHosts: [EXAMPLE_TS_IPV4],
+      bindHost: '100.64.0.42',
+      browserOrigins: ['http://100.64.0.42:3080'],
+      trustedProxies: [],
+      remoteAccess: true,
+      followUpSteps: [],
     });
   });
 
-  it('builds a tailscale-serve plan with loopback bind and ts.net origin', () => {
-    expect(buildAccessPlan({
-      profile: 'tailscale-serve',
-      port: '3080',
-      tailscale: connectedTailscale,
-    })).toMatchObject({
+  it('uses loopback with a Tailscale Serve origin', () => {
+    expect(buildAccessPlan({ profile: 'tailscale-serve', port: '3080', tailscale })).toMatchObject({
       bindHost: '127.0.0.1',
-      browserOrigins: [`https://${EXAMPLE_TS_DNS}`],
-      gatewayAllowedOrigins: [`https://${EXAMPLE_TS_DNS}`],
-      wsAllowedHosts: [],
+      browserOrigins: ['https://example-node.tail0000.ts.net'],
+      remoteAccess: true,
     });
   });
 
-  it('adds follow-up steps when tailscale-serve is selected without a confirmed ts.net origin', () => {
+  it('adds a follow-up when Tailscale Serve is not ready', () => {
     const plan = buildAccessPlan({
       profile: 'tailscale-serve',
       port: '3080',
-      tailscale: {
-        installed: true,
-        authenticated: true,
-        ipv4: EXAMPLE_TS_IPV4,
-        dnsName: null,
-        serveOrigins: [],
-      },
+      tailscale: { ...tailscale, serveOrigins: [], serveRoutes: [] },
     });
-    expect(plan.followUpSteps.length).toBeGreaterThan(0);
     expect(plan.followUpSteps[0]).toContain('tailscale serve --bg http://127.0.0.1:3080');
-    expect(plan.followUpSteps[0]).not.toContain('--bg 443');
   });
 });
 
 describe('applyAccessPlanToConfig', () => {
-  it('maps the access plan back onto env config fields', () => {
-    expect(applyAccessPlanToConfig({ PORT: '3080' }, buildAccessPlan({
-      profile: 'tailscale-ip',
-      port: '3080',
-      tailscale: connectedTailscale,
-    }))).toMatchObject({
-      HOST: '0.0.0.0',
-      ALLOWED_ORIGINS: `http://${EXAMPLE_TS_IPV4}:3080`,
-      CSP_CONNECT_EXTRA: `http://${EXAMPLE_TS_IPV4}:3080 ws://${EXAMPLE_TS_IPV4}:3080`,
-      WS_ALLOWED_HOSTS: EXAMPLE_TS_IPV4,
+  it('writes only HOST and browser API ALLOWED_ORIGINS', () => {
+    expect(applyAccessPlanToConfig(
+      { PORT: '3080', GATEWAY_URL: 'http://10.0.0.5:18789' },
+      buildAccessPlan({ profile: 'tailscale-ip', port: '3080', tailscale }),
+    )).toEqual({
+      PORT: '3080',
+      GATEWAY_URL: 'http://10.0.0.5:18789',
+      HOST: '100.64.0.42',
+      ALLOWED_ORIGINS: 'http://100.64.0.42:3080',
     });
   });
 
-  it('adds the remote GATEWAY_URL host to WS_ALLOWED_HOSTS for split-host deployments', () => {
-    const localPlan = buildAccessPlan({ profile: 'local', port: '3080' });
-    expect(applyAccessPlanToConfig({
-      PORT: '3080',
-      GATEWAY_URL: 'http://10.0.0.5:18789',
-    }, localPlan)).toMatchObject({ WS_ALLOWED_HOSTS: '10.0.0.5' });
+  it('clears stale browser and proxy settings when returning to local mode', () => {
+    expect(applyAccessPlanToConfig(
+      {
+        HOST: '0.0.0.0',
+        ALLOWED_ORIGINS: 'https://old.example.test',
+        TRUSTED_PROXIES: '10.0.0.2',
+      },
+      buildAccessPlan({ profile: 'local', port: '3080' }),
+    )).toEqual({ HOST: '127.0.0.1' });
+  });
+});
+
+describe('browser origin parsing', () => {
+  it('accepts exact HTTP(S) origins and normalizes duplicates', () => {
+    expect(parseBrowserOrigins(
+      'https://canvas.example.test, https://canvas.example.test:443, http://10.0.0.5:3080',
+    )).toEqual(['https://canvas.example.test', 'http://10.0.0.5:3080']);
   });
 
-  it('does not add a loopback GATEWAY_URL host to WS_ALLOWED_HOSTS', () => {
-    const localPlan = buildAccessPlan({ profile: 'local', port: '3080' });
-    const next = applyAccessPlanToConfig({
-      PORT: '3080',
-      GATEWAY_URL: 'http://127.0.0.1:18789',
-    }, localPlan);
-    expect(next.WS_ALLOWED_HOSTS).toBeUndefined();
-  });
-
-  it.each([
-    ['http://127.0.1.1:18789', '127/8 alternative loopback'],
-    ['http://127.255.255.254:18789', '127/8 high end'],
-    ['http://localhost:18789', 'hostname literal'],
-    ['http://[::1]:18789', 'bracketed IPv6 loopback from URL.hostname'],
-    ['http://[0:0:0:0:0:0:0:1]:18789', 'expanded IPv6 loopback'],
-  ])('treats %s as loopback (%s)', gatewayUrl => {
-    const localPlan = buildAccessPlan({ profile: 'local', port: '3080' });
-    const next = applyAccessPlanToConfig({
-      PORT: '3080',
-      GATEWAY_URL: gatewayUrl,
-    }, localPlan);
-    expect(next.WS_ALLOWED_HOSTS).toBeUndefined();
-  });
-
-  it('preserves user-added WS_ALLOWED_HOSTS entries when merging plan + gateway host', () => {
-    const tsPlan = buildAccessPlan({
-      profile: 'tailscale-ip',
-      port: '3080',
-      tailscale: connectedTailscale,
-    });
-    const next = applyAccessPlanToConfig({
-      PORT: '3080',
-      GATEWAY_URL: 'http://10.0.0.5:18789',
-      WS_ALLOWED_HOSTS: 'manual-host.example, 192.168.1.42',
-    }, tsPlan);
-    const hosts = next.WS_ALLOWED_HOSTS!.split(',');
-    expect(hosts).toEqual(expect.arrayContaining([
-      EXAMPLE_TS_IPV4,
-      'manual-host.example',
-      '192.168.1.42',
-      '10.0.0.5',
-    ]));
-    expect(hosts).toHaveLength(4); // no duplicates
-  });
-
-  it('dedupes when GATEWAY_URL host already appears in the plan or existing config', () => {
-    const customPlan = buildAccessPlan({
-      profile: 'custom',
-      port: '3080',
-      remoteHost: '10.0.0.5',
-    });
-    const next = applyAccessPlanToConfig({
-      PORT: '3080',
-      GATEWAY_URL: 'http://10.0.0.5:18789',
-      WS_ALLOWED_HOSTS: '10.0.0.5',
-    }, customPlan);
-    expect(next.WS_ALLOWED_HOSTS).toBe('10.0.0.5');
-  });
-
-  it('ignores a malformed GATEWAY_URL instead of throwing', () => {
-    const localPlan = buildAccessPlan({ profile: 'local', port: '3080' });
-    const next = applyAccessPlanToConfig({
-      PORT: '3080',
-      GATEWAY_URL: 'not-a-url',
-    }, localPlan);
-    expect(next.WS_ALLOWED_HOSTS).toBeUndefined();
+  it('rejects paths, credentials, wildcards and unsupported protocols', () => {
+    expect(normalizeBrowserOrigin('https://example.test/path')).toBeNull();
+    expect(normalizeBrowserOrigin('https://user:pass@example.test')).toBeNull();
+    expect(normalizeBrowserOrigin('https://*.example.test')).toBeNull();
+    expect(normalizeBrowserOrigin('*')).toBeNull();
+    expect(normalizeBrowserOrigin('file:///tmp/canvas')).toBeNull();
   });
 });

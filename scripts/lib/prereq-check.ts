@@ -1,5 +1,5 @@
 /**
- * Prerequisite checker — verifies Node.js, npm, openssl, and Tailscale.
+ * Prerequisite checker — verifies Node.js, npm, and Tailscale.
  */
 
 import { execSync } from 'node:child_process';
@@ -10,7 +10,6 @@ export interface PrereqResult {
   nodeOk: boolean;
   nodeVersion: string;
   npmOk: boolean;
-  opensslOk: boolean;
   tailscaleOk: boolean;
   tailscaleIp: string | null;
   tailscale: TailscaleState;
@@ -37,12 +36,6 @@ export function checkPrerequisites(opts?: { quiet?: boolean }): PrereqResult {
     else fail('npm not found');
   }
 
-  const opensslOk = commandExists('openssl');
-  if (!quiet) {
-    if (opensslOk) success('openssl found (for HTTPS cert generation)');
-    else warn('openssl not found (optional — needed for self-signed HTTPS certs)');
-  }
-
   const tailscale = getTailscaleState();
   const tailscaleOk = tailscale.installed;
   const tailscaleIp = tailscale.ipv4;
@@ -52,7 +45,7 @@ export function checkPrerequisites(opts?: { quiet?: boolean }): PrereqResult {
     else warn('Tailscale installed but not connected');
   }
 
-  return { nodeOk, nodeVersion, npmOk, opensslOk, tailscaleOk, tailscaleIp, tailscale };
+  return { nodeOk, nodeVersion, npmOk, tailscaleOk, tailscaleIp, tailscale };
 }
 
 /** Check if a command exists on the system. */

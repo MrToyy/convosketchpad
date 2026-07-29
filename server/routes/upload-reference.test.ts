@@ -7,6 +7,7 @@ async function buildApp(canvas: { id: string; agentId: string } | null = { id: c
   vi.resetModules();
   persistCanvasAttachment.mockImplementation(async (_ownerId, currentCanvasId, input) => ({
     id: 'a'.repeat(40),
+    contentHash: 'f'.repeat(64),
     name: input.name,
     mimeType: input.mimeType,
     sizeBytes: input.bytes.byteLength,
@@ -15,7 +16,12 @@ async function buildApp(canvas: { id: string; agentId: string } | null = { id: c
     available: true,
   }));
   vi.doMock('../lib/canvas-auth.js', () => ({ getCanvasIdentity: () => ({ userId: 'owner-a', name: 'Owner A' }) }));
-  vi.doMock('../lib/canvas-db.js', () => ({ getCanvasStore: () => ({ getCanvas: () => canvas }) }));
+  vi.doMock('../lib/canvas-db.js', () => ({
+    getCanvasStore: () => ({
+      getCanvas: () => canvas,
+      recordCanvasAttachment: (_ownerId: string, _canvasId: string, attachment: unknown) => attachment,
+    }),
+  }));
   vi.doMock('../lib/canvas-artifact-store.js', () => ({ persistCanvasAttachment }));
   const route = await import('./upload-reference.js');
   return { app: route.default };
@@ -46,6 +52,7 @@ describe('POST /api/canvas/canvases/:canvasId/attachments', () => {
     }));
     expect(json.items[0]).not.toHaveProperty('absolutePath');
     expect(json.items[0]).not.toHaveProperty('workspacePath');
+    expect(json.items[0]).not.toHaveProperty('contentHash');
     expect(persistCanvasAttachment).toHaveBeenCalledWith(
       'owner-a',
       canvasId,

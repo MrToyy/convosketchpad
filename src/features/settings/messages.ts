@@ -6,22 +6,20 @@ export interface SettingsCopy {
     title: string;
     close: string;
     categoriesAria: string;
-    categories: { advanced: string; appearance: string };
+    categories: { appearance: string; system: string };
     signOut: string;
   };
-  connection: {
-    heading: string;
+  system: {
+    gatewayHeading: string;
     status: string;
     statuses: Record<'connected' | 'connecting' | 'reconnecting' | 'disconnected', string>;
     reconnect: string;
     reconnectTitle: string;
-    gatewayUrl: string;
-    gatewayUrlHint: string;
-    authToken: string;
-    showToken: string;
-    hideToken: string;
-    authTokenHint: string;
-    service: string;
+    gatewayService: string;
+    remoteGatewayTitle: string;
+    remoteGatewayHint: string;
+    applicationHeading: string;
+    version: string;
     restartTitle: string;
     restartHint: string;
     restart: string;
@@ -52,24 +50,22 @@ export const settingsCopy = {
       title: '设置',
       close: '关闭设置',
       categoriesAria: '设置分类',
-      categories: { advanced: '连接', appearance: '外观' },
+      categories: { appearance: '外观', system: '系统' },
       signOut: '退出登录',
     },
-    connection: {
-      heading: '网关',
-      status: '网关状态',
-      statuses: { connected: '已连接', connecting: '正在连接…', reconnecting: '正在重新连接…', disconnected: '未连接' },
-      reconnect: '重新连接',
-      reconnectTitle: '重新连接网关',
-      gatewayUrl: '网关地址',
-      gatewayUrlHint: '使用本地网关，或粘贴远程中继地址。',
-      authToken: '认证令牌',
-      showToken: '显示令牌',
-      hideToken: '隐藏令牌',
-      authTokenHint: '不设防的本地开发环境可留空。',
-      service: '网关服务',
-      restartTitle: '重启本地网关',
-      restartHint: '配对、智能体或后台进程需要完全重新加载时使用。',
+    system: {
+      gatewayHeading: 'OpenClaw 网关',
+      status: '连接状态',
+      statuses: { connected: '已连接', connecting: '正在连接…', reconnecting: '正在刷新状态…', disconnected: '未连接' },
+      reconnect: '刷新状态',
+      reconnectTitle: '刷新 OpenClaw 网关连接状态',
+      gatewayService: '网关服务',
+      remoteGatewayTitle: '在网关主机上管理',
+      remoteGatewayHint: '当前连接的是远程 OpenClaw 网关，请在网关所在主机上重启或维护。',
+      applicationHeading: 'ConvoSketchpad',
+      version: '当前版本',
+      restartTitle: '重启 OpenClaw 网关',
+      restartHint: '仅在配对、智能体或网关后台进程需要完全重新加载时使用。',
       restart: '重启',
       restarting: '正在重启…',
     },
@@ -96,24 +92,22 @@ export const settingsCopy = {
       title: 'Settings',
       close: 'Close settings',
       categoriesAria: 'Settings categories',
-      categories: { advanced: 'Connection', appearance: 'Appearance' },
+      categories: { appearance: 'Appearance', system: 'System' },
       signOut: 'Sign out',
     },
-    connection: {
-      heading: 'Gateway',
-      status: 'Gateway status',
-      statuses: { connected: 'Connected', connecting: 'Connecting…', reconnecting: 'Reconnecting…', disconnected: 'Disconnected' },
-      reconnect: 'Reconnect',
-      reconnectTitle: 'Reconnect gateway',
-      gatewayUrl: 'Gateway URL',
-      gatewayUrlHint: 'Use a local gateway or paste a remote relay URL.',
-      authToken: 'Authentication token',
-      showToken: 'Show token',
-      hideToken: 'Hide token',
-      authTokenHint: 'May be blank for an unsecured local development gateway.',
-      service: 'Gateway service',
-      restartTitle: 'Restart local gateway',
-      restartHint: 'Use when pairing, agents, or background processes need a full reload.',
+    system: {
+      gatewayHeading: 'OpenClaw Gateway',
+      status: 'Connection status',
+      statuses: { connected: 'Connected', connecting: 'Connecting…', reconnecting: 'Refreshing status…', disconnected: 'Disconnected' },
+      reconnect: 'Refresh status',
+      reconnectTitle: 'Refresh OpenClaw Gateway connection status',
+      gatewayService: 'Gateway service',
+      remoteGatewayTitle: 'Manage on the Gateway host',
+      remoteGatewayHint: 'This is a remote OpenClaw Gateway. Restart or maintain it on the Gateway host.',
+      applicationHeading: 'ConvoSketchpad',
+      version: 'Current version',
+      restartTitle: 'Restart OpenClaw Gateway',
+      restartHint: 'Use only when pairing, agents, or Gateway background processes need a full reload.',
       restart: 'Restart',
       restarting: 'Restarting…',
     },

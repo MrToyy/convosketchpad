@@ -12,9 +12,9 @@
 - `CONVOSKETCHPAD_AUTH=false` 时使用固定 Local User；启用认证后所有 Canvas 查询按 Cookie 中的 owner 过滤。
 - 产品级隔离面向少量可信用户；用户仍共享同一个 OpenClaw Gateway 能力边界。
 - 同一客户端 IP 默认 30 分钟内失败 3 次后锁定 30 分钟；记录只在内存中保存。
-- Gateway 设备身份固定请求 `operator.read` / `operator.write`；设备 Token 只保存在服务端并在转发给浏览器前脱敏。
-- 配对审批和状态由 OpenClaw 原生 `devices list/approve` 管理，不直接改写 OpenClaw 配对文件。
-- 启用受管认证时不向用户暴露宿主机项目路径，并禁用状态栏升级检查；升级只能由宿主机管理员在终端执行。
+- loopback Gateway 使用共享 Token且不发送设备身份；远程 Gateway 设备身份固定请求 `operator.read` / `operator.write`，设备 Token 只保存在服务端。
+- 远程配对审批和状态由 OpenClaw 原生 `devices list/approve` 管理，setup 不直接改写 OpenClaw 配对文件，也不为远程 Gateway 自动取得 admin 权限。
+- 启用受管认证时不向用户暴露宿主机项目路径，并禁用设置面板中的升级入口；升级只能由宿主机管理员在终端执行。
 
 ## 按问题定位代码
 
@@ -30,10 +30,11 @@
 | 用户表、状态、Token version、首用户接管 | [`server/lib/canvas-db.ts`](../../server/lib/canvas-db.ts) | [`server/lib/canvas-db.test.ts`](../../server/lib/canvas-db.test.ts) |
 | 登录失败次数和 IP 锁定 | [`server/lib/login-failures.ts`](../../server/lib/login-failures.ts) | [`server/lib/login-failures.test.ts`](../../server/lib/login-failures.test.ts) |
 | Canvas owner 解析 | [`server/lib/canvas-auth.ts`](../../server/lib/canvas-auth.ts) | [`server/routes/canvas.ts`](../../server/routes/canvas.ts) |
-| WebSocket upgrade 与运行中会话撤销 | [`server/lib/ws-proxy.ts`](../../server/lib/ws-proxy.ts) | [`server/lib/ws-proxy.test.ts`](../../server/lib/ws-proxy.test.ts) |
-| Gateway 设备身份、签名和服务端 Token 存储 | [`server/lib/device-identity.ts`](../../server/lib/device-identity.ts) | [`server/lib/device-identity.test.ts`](../../server/lib/device-identity.test.ts)、[`server/lib/gateway-rpc.ts`](../../server/lib/gateway-rpc.ts) |
+| Gateway/Canvas SSE 与运行中会话撤销 | [`server/routes/runtime.ts`](../../server/routes/runtime.ts)、[`server/routes/canvas.ts`](../../server/routes/canvas.ts) | [`server/middleware/auth.test.ts`](../../server/middleware/auth.test.ts) |
+| Gateway 本机/远程模式、设备身份、签名和服务端 Token 存储 | [`server/lib/gateway-client-identity.ts`](../../server/lib/gateway-client-identity.ts)、[`server/lib/device-identity.ts`](../../server/lib/device-identity.ts) | [`server/lib/device-identity.test.ts`](../../server/lib/device-identity.test.ts)、[`server/lib/gateway-rpc.ts`](../../server/lib/gateway-rpc.ts) |
 | OpenClaw 原生配置与配对安装流程 | [`scripts/lib/gateway-detect.ts`](../../scripts/lib/gateway-detect.ts) | [`scripts/lib/gateway-pairing.ts`](../../scripts/lib/gateway-pairing.ts)、[`scripts/setup.ts`](../../scripts/setup.ts) |
-| 真实客户端 IP 和可信反向代理 | [`server/middleware/rate-limit.ts`](../../server/middleware/rate-limit.ts) | [`server/lib/trust-utils.ts`](../../server/lib/trust-utils.ts) |
+| 真实客户端 IP 和可信反向代理 | [`server/middleware/rate-limit.ts`](../../server/middleware/rate-limit.ts) | [`server/middleware/rate-limit.test.ts`](../../server/middleware/rate-limit.test.ts) |
+| 精确 Origin、远程暴露与启动拒绝 | [`server/lib/browser-origin-policy.ts`](../../server/lib/browser-origin-policy.ts) | [`server/lib/config.ts`](../../server/lib/config.ts)、[`server/lib/origin-utils.ts`](../../server/lib/origin-utils.ts) |
 | 认证模式下禁用升级入口与路径返回 | [`server/routes/version-check.ts`](../../server/routes/version-check.ts) | [`src/components/UpdateBadge.tsx`](../../src/components/UpdateBadge.tsx) |
 | setup 提示和 `.env` 示例 | [`scripts/setup.ts`](../../scripts/setup.ts) | [`.env.example`](../../.env.example) |
 
@@ -49,7 +50,7 @@ AuthGate
 ```
 
 - 前端不生成用户、不生成 Token，也不把受管 Token 持久化到浏览器。
-- Gateway URL 的 `oc-config` 与 ConvoSketchpad 用户 Token 是不同概念；官方 Gateway 流程使用服务端 Token 注入。
+- 浏览器不保存 Gateway URL 或 Token；ConvoSketchpad 用户 Token 只用于换取产品 Session Cookie。
 
 ## 后端认证流程
 
@@ -92,7 +93,7 @@ POST /api/auth/login
 ### 每次请求与即时撤销
 
 - HTTP middleware 每次请求都用数据库中的 `status` 和 `token_version` 复查 Cookie。
-- WebSocket upgrade 时复查；连接后每条客户端消息以及约 30 秒心跳再次复查。
+- Gateway 与 Canvas SSE 建立时复查，之后每 15 秒心跳再次复查；普通 HTTP 请求逐次复查。
 - Rotate、disable 和 enable 都递增 version；旧 Cookie 永久失效，用户必须重新登录。
 
 ### 防暴力破解
@@ -100,7 +101,7 @@ POST /api/auth/login
 - [`LoginFailureTracker`](../../server/lib/login-failures.ts) 按 `getClientId` 的结果记录失败。
 - 登录成功清除当前 IP 的失败记录；锁定期间返回 429 和 `Retry-After`。
 - 状态在服务进程内存中，重启清空。
-- Caddy/Nginx 后需要正确设置 `TRUSTED_PROXIES`，否则多个外部用户可能共享反向代理 IP 的失败额度。
+- Caddy/Nginx 后需要正确设置 `TRUSTED_PROXIES`，否则多个外部用户可能共享反向代理 IP 的失败额度。只有可信代理的 `X-Forwarded-Proto: https` 会让登录 Cookie 设置 Secure，并让生产环境发送 HSTS。
 
 ## 配置入口
 
@@ -116,7 +117,7 @@ CONVOSKETCHPAD_AUTH_LOCKOUT
 TRUSTED_PROXIES
 ```
 
-Origin、CSP、Gateway Token 注入和反向代理配置继续参考[配置](../CONFIGURATION.md)与[安全](../SECURITY.md)。
+Origin、CSP、服务端 Gateway 凭据和反向代理配置继续参考[配置](../CONFIGURATION.md)与[安全](../SECURITY.md)。
 
 ## 测试入口
 
@@ -128,7 +129,7 @@ npm test -- --run \
   server/middleware/auth.test.ts \
   server/lib/managed-users.test.ts \
   server/lib/login-failures.test.ts \
-  server/lib/ws-proxy.test.ts
+  server/routes/auth.test.ts
 ```
 
 改变用户表或 owner 语义时，同时运行 Canvas DB 和 Canvas route 相关测试。

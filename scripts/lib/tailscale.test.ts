@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   normalizeDnsName,
   extractServeOrigins,
+  extractServeRoutes,
   parseTailscaleStatus,
   getTailscaleState,
 } from './tailscale.js';
@@ -33,6 +34,22 @@ describe('extractServeOrigins', () => {
         },
       },
     })).toEqual([`https://${EXAMPLE_TS_DNS}`]);
+  });
+
+  it('retains proxy targets so setup can match the configured Canvas port', () => {
+    expect(extractServeRoutes({
+      Web: {
+        [`${EXAMPLE_TS_DNS}:443`]: {
+          Handlers: {
+            '/': { Proxy: 'http://127.0.0.1:3080' },
+            '/other': { Proxy: 'http://127.0.0.1:9000' },
+          },
+        },
+      },
+    })).toEqual([{
+      origin: `https://${EXAMPLE_TS_DNS}`,
+      proxyTargets: ['http://127.0.0.1:3080', 'http://127.0.0.1:9000'],
+    }]);
   });
 
   it('maps port 80 listeners to http origins', () => {
@@ -97,6 +114,7 @@ describe('getTailscaleState', () => {
       ipv4: null,
       dnsName: null,
       serveOrigins: [],
+      serveRoutes: [],
     });
   });
 });

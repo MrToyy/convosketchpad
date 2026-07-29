@@ -5,7 +5,7 @@
 
 import { join } from 'node:path';
 import { rmSync, existsSync } from 'node:fs';
-import { loadSnapshot } from './snapshot.js';
+import { loadSnapshot, restoreSnapshotDatabase } from './snapshot.js';
 import { gitCheckoutLocal, buildProject } from './installer.js';
 import type { Snapshot, ServiceManager, Reporter } from './types.js';
 
@@ -32,12 +32,22 @@ export async function rollback(
   reporter.info(`Rolling back to ${snapshot.version} (${snapshot.ref.slice(0, 8)})`);
 
   try {
-    // 1. Checkout the previous ref (local only — no network needed)
+    // 1. Stop the service before replacing code or restoring SQLite files.
+    if (serviceManager) {
+      reporter.verbose(`Stopping ${serviceManager.name} before rollback`);
+      await serviceManager.stop();
+    }
+
+    // 2. Checkout the previous ref (local only — no network needed)
     reporter.verbose(`git checkout ${snapshot.ref}`);
     gitCheckoutLocal(cwd, snapshot.ref);
     reporter.ok(`Checked out ${snapshot.ref.slice(0, 8)}`);
 
-    // 2. Clean node_modules to avoid stale dependencies from the failed version
+    // 3. Restore the consistent pre-update database snapshot.
+    restoreSnapshotDatabase(cwd, snapshot);
+    reporter.ok('Database snapshot restored');
+
+    // 4. Clean node_modules to avoid stale dependencies from the failed version
     const nodeModulesPath = join(cwd, 'node_modules');
     if (existsSync(nodeModulesPath)) {
       reporter.verbose('Cleaning node_modules...');
@@ -49,12 +59,12 @@ export async function rollback(
       }
     }
 
-    // 3. Rebuild
+    // 5. Rebuild
     reporter.verbose('Rebuilding...');
     buildProject(cwd);
     reporter.ok('Rebuild complete');
 
-    // 4. Restart service (if available) and verify it's alive
+    // 6. Restart service (if available) and verify it's alive
     if (serviceManager) {
       reporter.verbose(`Restarting via ${serviceManager.name}`);
       await serviceManager.restart();

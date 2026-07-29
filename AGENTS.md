@@ -27,7 +27,7 @@
 | 部署、网络暴露或远程访问 | [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)、[`docs/SECURITY.md`](docs/SECURITY.md) | 部署拓扑、安全基线和信任模型 |
 | 故障诊断 | [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md) | 连接、Agent、Session、文件和认证问题 |
 | 更新、Release 或版本记录 | [`docs/UPDATING.md`](docs/UPDATING.md)、[`CHANGELOG.md`](CHANGELOG.md) | 更新器、发布规则和变更记录 |
-| 分支、Remote、同步 Upstream、提交或推送 | [`docs/canvas/GIT-WORKFLOW.md`](docs/canvas/GIT-WORKFLOW.md) | `master` / `main` 职责和 Git 安全步骤 |
+| 分支、Remote、提交或推送 | [`docs/canvas/GIT-WORKFLOW.md`](docs/canvas/GIT-WORKFLOW.md) | `main` 分支职责和 Git 安全步骤 |
 
 ## 开发流程
 
@@ -66,7 +66,7 @@
 ## 验证要求
 
 - 修改代码时至少运行直接相关的测试，并检查 TypeScript/ESLint 影响。
-- 大范围变更、跨子系统改动或 Upstream 合并必须运行：
+- 大范围变更、跨子系统改动或复杂分支整合必须运行：
 
 ```bash
 npm test -- --run
@@ -81,5 +81,5 @@ npm run build
 
 - 现有修改属于用户；未经明确许可不得丢弃、重置、覆盖或 Stash。
 - 不得提交 `.env`、数据库、日志、依赖目录或构建产物。
-- 不使用破坏性 Git 命令，不 Force Push `main` 或 `master`，不向 `upstream` 推送产品定制提交。
+- 不使用破坏性 Git 命令，不删除 `main`，也不向 `main` Force Push。
 - 提交前按 Git 工作流核对暂存范围；只提交当前任务明确包含的文件。

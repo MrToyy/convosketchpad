@@ -26,11 +26,21 @@ app.post('/api/canvas/canvases/:canvasId/attachments', rateLimitGeneral, async (
 
     const items = await Promise.all(files.map(async (file) => {
       const bytes = new Uint8Array(await file.arrayBuffer());
-      return persistCanvasAttachment(identity.userId, canvasId, {
+      const attachment = await persistCanvasAttachment(identity.userId, canvasId, {
         name: file.name,
         mimeType: file.type || 'application/octet-stream',
         bytes,
       });
+      const recorded = getCanvasStore().recordCanvasAttachment(identity.userId, canvasId, attachment);
+      return {
+        id: recorded.id,
+        name: recorded.name,
+        mimeType: recorded.mimeType,
+        sizeBytes: recorded.sizeBytes,
+        uri: recorded.uri,
+        storage: recorded.storage,
+        available: recorded.available,
+      };
     }));
 
     return c.json({ ok: true, items });

@@ -305,7 +305,7 @@ while [[ $# -gt 0 ]]; do
       echo "  --skip-setup         Skip the interactive setup wizard"
       echo "  --gateway-token <t>  Gateway token (for non-interactive installs)"
       echo "  --gateway-url <url>  Gateway URL (for remote/non-interactive installs)"
-      echo "  --access-mode <m>    Setup access mode: local|network|custom|tailscale-ip|tailscale-serve"
+      echo "  --access-mode <m>    Non-interactive mode: local|network|tailscale-ip|tailscale-serve"
       echo "  --dry-run            Simulate the install without changing anything"
       echo "  --help               Show this help"
       exit 0
@@ -323,10 +323,10 @@ normalize_access_mode() {
   case "$1" in
     "") echo "" ;;
     tailscale) echo "tailscale-ip" ;;
-    local|network|custom|tailscale-ip|tailscale-serve) echo "$1" ;;
+    local|network|tailscale-ip|tailscale-serve) echo "$1" ;;
     *)
       fail "Invalid --access-mode: $1"
-      echo "  Supported values: local, network, custom, tailscale-ip, tailscale-serve"
+      echo "  Supported values: local, network, tailscale-ip, tailscale-serve"
       exit 1
       ;;
   esac

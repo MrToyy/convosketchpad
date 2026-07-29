@@ -1,30 +1,60 @@
-import { useCallback, useEffect, useState } from 'react';
-import { useGateway } from '@/contexts/GatewayContext';
-import type { GatewayEvent, TokenData } from '@/types';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import type { TokenData } from '@/types';
 
-export function useDashboardData(): { tokenData: TokenData | null; refreshTokens: (signal?: AbortSignal) => Promise<void> } {
-  const { connectionState, subscribe } = useGateway();
+interface DashboardData {
+  tokenData: TokenData | null;
+  isLoading: boolean;
+  loadError: boolean;
+  ensureTokens: () => Promise<void>;
+  refreshTokens: () => Promise<void>;
+}
+
+export function useDashboardData(): DashboardData {
   const [tokenData, setTokenData] = useState<TokenData | null>(null);
-  const refreshTokens = useCallback(async (signal?: AbortSignal) => {
-    try {
-      const response = await fetch('/api/tokens', { signal });
-      if (response.ok && !signal?.aborted) setTokenData(await response.json());
-    } catch (error) {
-      if (error instanceof Error && error.name !== 'AbortError') console.debug('[Usage] refresh failed:', error.message);
-    }
-  }, []);
-  useEffect(() => {
-    if (connectionState !== 'connected') return;
-    return subscribe((event: GatewayEvent) => {
-      const payload = event.payload as Record<string, unknown> | undefined;
-      if (event.event === 'tokens.update' || event.event === 'cost.update' || (event.event === 'chat' && payload?.state === 'final')) window.setTimeout(() => void refreshTokens(), 500);
-    });
-  }, [connectionState, refreshTokens, subscribe]);
-  useEffect(() => {
+  const [isLoading, setIsLoading] = useState(false);
+  const [loadError, setLoadError] = useState(false);
+  const inFlightRef = useRef<Promise<void> | null>(null);
+  const controllerRef = useRef<AbortController | null>(null);
+
+  const refreshTokens = useCallback((): Promise<void> => {
+    if (inFlightRef.current) return inFlightRef.current;
+
     const controller = new AbortController();
-    const initialTimer = window.setTimeout(() => void refreshTokens(controller.signal), 0);
-    const timer = window.setInterval(() => void refreshTokens(controller.signal), 60_000);
-    return () => { controller.abort(); window.clearTimeout(initialTimer); window.clearInterval(timer); };
-  }, [refreshTokens]);
-  return { tokenData, refreshTokens };
+    controllerRef.current = controller;
+    setIsLoading(true);
+    setLoadError(false);
+
+    const request = (async () => {
+      try {
+        const response = await fetch('/api/tokens', { signal: controller.signal });
+        if (!response.ok) throw new Error(`Usage request failed with HTTP ${response.status}`);
+        const nextData = await response.json() as TokenData;
+        if (!controller.signal.aborted) setTokenData(nextData);
+      } catch (error) {
+        if (error instanceof Error && error.name !== 'AbortError') {
+          console.debug('[Usage] refresh failed:', error.message);
+          setLoadError(true);
+        }
+      } finally {
+        if (controllerRef.current === controller) {
+          controllerRef.current = null;
+          inFlightRef.current = null;
+        }
+        if (!controller.signal.aborted) setIsLoading(false);
+      }
+    })();
+    inFlightRef.current = request;
+    return request;
+  }, []);
+
+  const ensureTokens = useCallback(
+    () => tokenData ? Promise.resolve() : refreshTokens(),
+    [refreshTokens, tokenData],
+  );
+
+  useEffect(() => {
+    return () => controllerRef.current?.abort();
+  }, []);
+
+  return { tokenData, isLoading, loadError, ensureTokens, refreshTokens };
 }

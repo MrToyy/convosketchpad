@@ -4,6 +4,10 @@ import {
   isRemoteGatewayUrl,
   isValidIanaTimezone,
 } from './gateway-timezone.js';
+import {
+  gatewayConnectionMode,
+  gatewayRequiresDevicePairing,
+} from '../../server/lib/gateway-client-identity.js';
 
 describe('Gateway timezone setup helpers', () => {
   it.each([
@@ -18,6 +22,13 @@ describe('Gateway timezone setup helpers', () => {
   it('detects remote Gateway URLs', () => {
     expect(isRemoteGatewayUrl('https://gateway.example.com')).toBe(true);
     expect(isRemoteGatewayUrl('http://10.0.0.5:18789')).toBe(true);
+  });
+
+  it('uses the same loopback trust boundary for runtime authentication and setup pairing', () => {
+    expect(gatewayConnectionMode('http://127.42.0.9:18789')).toBe('loopback');
+    expect(gatewayRequiresDevicePairing('http://127.42.0.9:18789')).toBe(false);
+    expect(gatewayConnectionMode('https://gateway.example.com')).toBe('remote');
+    expect(gatewayRequiresDevicePairing('https://gateway.example.com')).toBe(true);
   });
 
   it('validates IANA timezone names', () => {

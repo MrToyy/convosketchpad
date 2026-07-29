@@ -13,7 +13,7 @@ import { config, SESSION_COOKIE_NAME } from '../lib/config.js';
 import { createSession, verifySession } from '../lib/session.js';
 import { authenticateManagedToken, resolveManagedSession } from '../lib/managed-users.js';
 import { LoginFailureTracker, type LoginLockout } from '../lib/login-failures.js';
-import { getClientId, rateLimitAuth } from '../middleware/rate-limit.js';
+import { getClientId, isSecureRequest, rateLimitAuth } from '../middleware/rate-limit.js';
 
 const app = new Hono();
 export const loginFailureTracker = new LoginFailureTracker({
@@ -69,7 +69,7 @@ app.post('/api/auth/login', rateLimitAuth, async (c) => {
     setCookie(c, SESSION_COOKIE_NAME, sessionToken, {
       httpOnly: true,
       sameSite: 'Strict',
-      secure: c.req.url.startsWith('https'),
+      secure: isSecureRequest(c),
       path: '/',
       maxAge: Math.floor(config.sessionTtlMs / 1000),
     });

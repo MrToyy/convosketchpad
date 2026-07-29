@@ -26,6 +26,7 @@ vi.mock('./config.js', () => ({
 const {
   clearStoredDeviceAuthMock,
   createDeviceBlockMock,
+  gatewayConnectionModeMock,
   getStoredDeviceAuthMock,
   storeDeviceAuthMock,
 } = vi.hoisted(() => ({
@@ -38,8 +39,16 @@ const {
     nonce,
     _debug: { clientId, clientMode, role, scopes, token },
   })),
+  gatewayConnectionModeMock: vi.fn<() => 'loopback' | 'remote'>(() => 'loopback'),
   getStoredDeviceAuthMock: vi.fn<() => MockStoredDeviceAuth | null>(() => null),
   storeDeviceAuthMock: vi.fn(),
+}));
+
+vi.mock('./gateway-client-identity.js', () => ({
+  CONVOSKETCHPAD_GATEWAY_CLIENT_ID: 'gateway-client',
+  CONVOSKETCHPAD_GATEWAY_CLIENT_MODE: 'backend',
+  CONVOSKETCHPAD_GATEWAY_CLIENT_PLATFORM: 'node',
+  gatewayConnectionMode: gatewayConnectionModeMock,
 }));
 
 vi.mock('./device-identity.js', () => ({
@@ -52,9 +61,8 @@ vi.mock('./device-identity.js', () => ({
 
 import {
   gatewayRpcCall,
-  gatewayFilesList,
-  gatewayFilesGet,
-  gatewayFilesSet,
+  gatewayDispatchCall,
+  getGatewayRuntimeStatus,
 } from './gateway-rpc.js';
 
 let wss: WebSocketServer;
@@ -72,11 +80,17 @@ describe('gateway-rpc (persistent WebSocket)', () => {
   let lastConnectParams: unknown = null;
   let lastRequestOrigin: string | undefined;
   let connectMode: 'accept' | 'reject' | 'close' = 'accept';
+  let connectPayload: Record<string, unknown> = {};
+  let closeOnRpcMethod = '';
 
   beforeAll(async () => {
     rpcHandler = () => ({});
 
-    wss = new WebSocketServer({ port: 0 });
+    wss = new WebSocketServer({ host: '127.0.0.1', port: 0 });
+    await new Promise<void>((resolve, reject) => {
+      wss.once('listening', resolve);
+      wss.once('error', reject);
+    });
     testPort = (wss.address() as { port: number }).port;
 
     wss.on('connection', (ws, req) => {
@@ -102,11 +116,15 @@ describe('gateway-rpc (persistent WebSocket)', () => {
             ws.close();
             return;
           }
-          ws.send(JSON.stringify({ type: 'res', id: msg.id, ok: true, payload: {} }));
+          ws.send(JSON.stringify({ type: 'res', id: msg.id, ok: true, payload: connectPayload }));
           return;
         }
 
         // RPC call
+        if (msg.method === closeOnRpcMethod) {
+          ws.close();
+          return;
+        }
         try {
           const result = rpcHandler(msg.method, msg.params);
           ws.send(JSON.stringify({ type: 'res', id: msg.id, ok: true, payload: result }));
@@ -129,6 +147,9 @@ describe('gateway-rpc (persistent WebSocket)', () => {
     lastConnectParams = null;
     lastRequestOrigin = undefined;
     connectMode = 'accept';
+    connectPayload = {};
+    closeOnRpcMethod = '';
+    gatewayConnectionModeMock.mockReturnValue('loopback');
     getStoredDeviceAuthMock.mockReturnValue(null);
     delete process.env.CONVOSKETCHPAD_PUBLIC_ORIGIN;
     delete process.env.ALLOWED_ORIGINS;
@@ -139,33 +160,29 @@ describe('gateway-rpc (persistent WebSocket)', () => {
   });
 
   describe('gatewayRpcCall', () => {
-    it('injects device identity into the gateway connect handshake', async () => {
+    it('reports whether the configured OpenClaw Gateway can be restarted locally', () => {
+      expect(getGatewayRuntimeStatus().gatewayRestartSupported).toBe(true);
+
+      gatewayConnectionModeMock.mockReturnValue('remote');
+      expect(getGatewayRuntimeStatus().gatewayRestartSupported).toBe(false);
+    });
+
+    it('uses shared-token backend auth without device identity for a loopback Gateway', async () => {
       rpcHandler = () => ({ ok: true });
 
       await gatewayRpcCall('test.method', { foo: 'bar' });
 
-      expect(createDeviceBlockMock).toHaveBeenCalledWith({
-        clientId: 'openclaw-control-ui',
-        clientMode: 'webchat',
-        role: 'operator',
-        scopes: ['operator.read', 'operator.write'],
-        token: 'test-token',
-        nonce: 'test-nonce',
-      });
+      expect(createDeviceBlockMock).not.toHaveBeenCalled();
       expect(lastConnectParams).toMatchObject({
         client: {
-          id: 'openclaw-control-ui',
-          version: '0.2.0',
-          mode: 'webchat',
+          id: 'gateway-client',
+          version: '0.3.0',
+          mode: 'backend',
+          platform: 'node',
         },
         auth: { token: 'test-token' },
-        device: {
-          id: 'device-123',
-          publicKey: 'pubkey-123',
-          signature: 'sig-test-nonce',
-          nonce: 'test-nonce',
-        },
       });
+      expect(lastConnectParams).not.toHaveProperty('device');
     });
 
     it('requests gateway protocol v4 during connect handshake', async () => {
@@ -180,7 +197,30 @@ describe('gateway-rpc (persistent WebSocket)', () => {
       });
     });
 
-    it('reuses a stored device token through auth.token without exposing a custom auth field', async () => {
+    it('ignores a stored device token for a loopback Gateway', async () => {
+      getStoredDeviceAuthMock.mockReturnValue({
+        deviceId: 'device-123',
+        role: 'operator',
+        scopes: ['operator.read', 'operator.write'],
+        token: 'stored-device-token',
+        updatedAt: new Date().toISOString(),
+      });
+      rpcHandler = () => ({ ok: true });
+
+      const { gatewayRpcCall } = await importFreshGatewayRpc();
+      await gatewayRpcCall('test.method', {});
+
+      expect(lastConnectParams).toMatchObject({
+        auth: { token: 'test-token' },
+        role: 'operator',
+        scopes: ['operator.read', 'operator.write'],
+      });
+      expect(getStoredDeviceAuthMock).not.toHaveBeenCalled();
+      expect(createDeviceBlockMock).not.toHaveBeenCalled();
+    });
+
+    it('reuses a stored device token for a remote Gateway WebSocket', async () => {
+      gatewayConnectionModeMock.mockReturnValue('remote');
       getStoredDeviceAuthMock.mockReturnValue({
         deviceId: 'device-123',
         role: 'operator',
@@ -197,6 +237,12 @@ describe('gateway-rpc (persistent WebSocket)', () => {
         auth: { token: 'stored-device-token' },
         role: 'operator',
         scopes: ['operator.read', 'operator.write'],
+        device: {
+          id: 'device-123',
+          publicKey: 'pubkey-123',
+          signature: 'sig-test-nonce',
+          nonce: 'test-nonce',
+        },
       });
       expect((lastConnectParams as { auth: Record<string, unknown> }).auth)
         .not.toHaveProperty('deviceToken');
@@ -207,33 +253,90 @@ describe('gateway-rpc (persistent WebSocket)', () => {
       }));
     });
 
-    it('uses the configured public origin for the gateway websocket handshake', async () => {
+    it('uses the shared token as remote pairing bootstrap when no device token is stored', async () => {
+      gatewayConnectionModeMock.mockReturnValue('remote');
+      rpcHandler = () => ({ ok: true });
+
+      const { gatewayRpcCall } = await importFreshGatewayRpc();
+      await gatewayRpcCall('test.method', {});
+
+      expect(lastConnectParams).toMatchObject({
+        auth: { token: 'test-token' },
+        device: expect.objectContaining({ id: 'device-123' }),
+      });
+      expect(createDeviceBlockMock).toHaveBeenCalledWith(expect.objectContaining({
+        token: 'test-token',
+      }));
+    });
+
+    it('persists an issued device token only for a remote Gateway', async () => {
+      connectPayload = {
+        auth: {
+          deviceToken: 'issued-device-token',
+          role: 'operator',
+          scopes: ['operator.read', 'operator.write'],
+        },
+      };
+      rpcHandler = () => ({ ok: true });
+
+      const localClient = await importFreshGatewayRpc();
+      await localClient.gatewayRpcCall('test.method', {});
+      expect(storeDeviceAuthMock).not.toHaveBeenCalled();
+
+      localClient.closeGatewayRpc();
+      gatewayConnectionModeMock.mockReturnValue('remote');
+      const remoteClient = await importFreshGatewayRpc();
+      await remoteClient.gatewayRpcCall('test.method', {});
+      expect(storeDeviceAuthMock).toHaveBeenCalledWith(expect.objectContaining({
+        token: 'issued-device-token',
+        role: 'operator',
+        scopes: ['operator.read', 'operator.write'],
+      }));
+    });
+
+    it('never exposes a paired device token as a Gateway HTTP credential', async () => {
+      gatewayConnectionModeMock.mockReturnValue('remote');
+      getStoredDeviceAuthMock.mockReturnValue({
+        deviceId: 'device-123',
+        role: 'operator',
+        scopes: ['operator.read', 'operator.write'],
+        token: 'stored-device-token',
+        updatedAt: new Date().toISOString(),
+      });
+
+      const { getGatewaySharedHttpAuthToken } = await importFreshGatewayRpc();
+
+      expect(getGatewaySharedHttpAuthToken()).toBe('test-token');
+      expect(getStoredDeviceAuthMock).not.toHaveBeenCalled();
+    });
+
+    it('does not send a browser Origin header when legacy public origin is configured', async () => {
       process.env.CONVOSKETCHPAD_PUBLIC_ORIGIN = 'https://192.168.192.252:3443';
       rpcHandler = () => ({ ok: true });
 
       const { gatewayRpcCall } = await importFreshGatewayRpc();
       await gatewayRpcCall('test.method', { foo: 'bar' });
 
-      expect(lastRequestOrigin).toBe('https://192.168.192.252:3443');
+      expect(lastRequestOrigin).toBeUndefined();
     });
 
-    it('falls back to the first non-loopback allowed origin when no public origin is configured', async () => {
+    it('does not reuse the browser API allowlist as a Gateway Origin', async () => {
       process.env.ALLOWED_ORIGINS = 'http://127.0.0.1:3080, https://192.168.192.252:3443';
       rpcHandler = () => ({ ok: true });
 
       const { gatewayRpcCall } = await importFreshGatewayRpc();
       await gatewayRpcCall('test.method', { foo: 'bar' });
 
-      expect(lastRequestOrigin).toBe('https://192.168.192.252:3443');
+      expect(lastRequestOrigin).toBeUndefined();
     });
 
-    it('falls back to localhost when no public or allowed origin is configured', async () => {
+    it('does not synthesize a localhost Origin header', async () => {
       rpcHandler = () => ({ ok: true });
 
       const { gatewayRpcCall } = await importFreshGatewayRpc();
       await gatewayRpcCall('test.method', { foo: 'bar' });
 
-      expect(lastRequestOrigin).toBe('http://127.0.0.1:3080');
+      expect(lastRequestOrigin).toBeUndefined();
     });
 
     it('sends RPC request and returns payload', async () => {
@@ -250,6 +353,24 @@ describe('gateway-rpc (persistent WebSocket)', () => {
     it('rejects on RPC error response', async () => {
       rpcHandler = () => { throw new Error('not found'); };
       await expect(gatewayRpcCall('test.fail', {})).rejects.toThrow('not found');
+    });
+
+    it('classifies an explicit chat.send rejection as safe to fail', async () => {
+      rpcHandler = () => { throw new Error('message rejected'); };
+      await expect(gatewayDispatchCall('chat.send', {
+        sessionKey: 'agent:main:test',
+        message: 'hello',
+        idempotencyKey: 'reservation-1',
+      })).rejects.toMatchObject({ name: 'GatewayDispatchError', kind: 'rejected' });
+    });
+
+    it('classifies a disconnect after chat.send was written as an unknown outcome', async () => {
+      closeOnRpcMethod = 'chat.send';
+      await expect(gatewayDispatchCall('chat.send', {
+        sessionKey: 'agent:main:test',
+        message: 'hello',
+        idempotencyKey: 'reservation-2',
+      })).rejects.toMatchObject({ name: 'GatewayDispatchError', kind: 'outcome_unknown' });
     });
 
     it('handles multiple sequential calls on the same connection', async () => {
@@ -292,6 +413,20 @@ describe('gateway-rpc (persistent WebSocket)', () => {
       await expect(gatewayRpcCall('test.method', {})).rejects.toThrow(/closed before connect completed/i);
     });
 
+    it('recovers when the Gateway becomes available after the initial handshake fails', async () => {
+      connectMode = 'close';
+      const client = await importFreshGatewayRpc();
+      const states: string[] = [];
+      const unsubscribe = client.subscribeGatewayStatus((status) => states.push(status.state));
+
+      await vi.waitFor(() => expect(states.at(-1)).toBe('disconnected'));
+      connectMode = 'accept';
+      await vi.waitFor(() => expect(states).toContain('connected'), { timeout: 2_500 });
+
+      unsubscribe();
+      client.closeGatewayRpc();
+    });
+
     it('closes the persistent connection and rejects later calls during shutdown', async () => {
       rpcHandler = () => ({ ok: true });
       const freshClient = await importFreshGatewayRpc();
@@ -305,58 +440,4 @@ describe('gateway-rpc (persistent WebSocket)', () => {
     });
   });
 
-  describe('gatewayFilesList', () => {
-    it('returns files from gateway response', async () => {
-      const mockFiles = [
-        { name: 'SOUL.md', path: 'SOUL.md', missing: false, size: 100, updatedAtMs: 1000 },
-      ];
-      rpcHandler = () => ({ files: mockFiles });
-
-      const result = await gatewayFilesList('main');
-      expect(result).toEqual(mockFiles);
-    });
-
-    it('returns empty array when no files', async () => {
-      rpcHandler = () => ({});
-      expect(await gatewayFilesList('main')).toEqual([]);
-    });
-  });
-
-  describe('gatewayFilesGet', () => {
-    it('extracts content from nested file field', async () => {
-      rpcHandler = () => ({
-        agentId: 'main',
-        workspace: '/sandbox/.openclaw/workspace',
-        file: { name: 'SOUL.md', missing: false, size: 7, updatedAtMs: 1000, content: '# Soul' },
-      });
-
-      const result = await gatewayFilesGet('main', 'SOUL.md');
-      expect(result?.content).toBe('# Soul');
-    });
-
-    it('returns null for missing files', async () => {
-      rpcHandler = () => ({ file: { name: 'X.md', missing: true } });
-      expect(await gatewayFilesGet('main', 'X.md')).toBeNull();
-    });
-
-    it('returns null on error', async () => {
-      rpcHandler = () => { throw new Error('unsupported'); };
-      expect(await gatewayFilesGet('main', 'bad.md')).toBeNull();
-    });
-  });
-
-  describe('gatewayFilesSet', () => {
-    it('sends correct params', async () => {
-      let received: unknown;
-      rpcHandler = (_m, p) => { received = p; return { ok: true }; };
-
-      await gatewayFilesSet('main', 'SOUL.md', '# New');
-      expect(received).toEqual({ agentId: 'main', name: 'SOUL.md', content: '# New' });
-    });
-
-    it('rejects on error', async () => {
-      rpcHandler = () => { throw new Error('write failed'); };
-      await expect(gatewayFilesSet('main', 'X', 'y')).rejects.toThrow('write failed');
-    });
-  });
 });

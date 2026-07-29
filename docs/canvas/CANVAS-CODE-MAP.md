@@ -2,73 +2,73 @@
 
 ## 不变量
 
-- Canvas 是唯一的主要产品界面。
-- 一个 Canvas 拥有一个 Agent，以及任意数量的主 Branch 或分支 Branch。
-- 创建 Canvas 时使用 Gateway 默认 Agent；首次发送进入准备阶段前可以修改选择。
-- Branch Session 在首次输入时才会延迟创建。
-- “继续”复用健康 Session；Fork、检测到的漂移和预测到的重置恢复使用规范快照。
-- SQLite 负责拓扑、状态和布局；OpenClaw 负责执行和对话记录。
-- 附件和 Artifact 都会生成按所有者隔离的持久化副本。
+- 浏览器只呈现 Canvas、提交用户指令和上传原始附件。
+- 后端唯一负责 OpenClaw 通信、发送状态机和 Canvas 数据持久化。
+- Branch 同时只有一个未终止发送；`ambiguous` 不得超时解锁。
+- OpenClaw 是执行、Session 和原始对话记录权威；SQLite 是 Canvas 拓扑及持久化副本权威。
+- 附件按 ID 和所有者解析，Artifact 保持 25 MiB 上限及降级语义。
+- Graph 读取无副作用；后台协调和晚到 Artifact 观察由服务端生命周期驱动。
+- 已知 Artifact 完整后节点立即显示 `synced`；静默晚到观察任务独立持久化，不触发前端降级轮询。
+- Fork 与 Session 恢复共用完整 Replay Package；逻辑资源引用不裁剪，物理文件只按内容去重。
+- 节点“重试”只是一项原样重新提交操作：从上一节点创建普通 Branch，保留原 Interaction 和原执行，不建立 Retry 实体。
+- “继续分支”只有在 Gateway 明确接受后才推进头节点并主动同步 Canvas；原头节点随即开放普通 Fork，新运行节点本身仍不可分叉。
+- 原始图片不可变；投递图和缩略图由后端按内容哈希与策略版本生成，Canvas 节点不直接加载原图。
+- 前端只应用当前 Canvas 的完整实体 upsert；瞬时 Preview 不持久化，SSE 不可用且 `hasPendingUpdates` 时才降级轮询。
+- Interaction 和 Composer 通过右下角单一控制柄缩放；用户尺寸与位置、视口一起保存，Composer 转成 Interaction 时迁移尺寸。
+- 显式重新排列只在没有可见发送或运行任务时执行；按用户尺寸或实际测量尺寸进行左到右拓扑布局，只改变位置，并把完整布局和适应后的视口一起保存。
 
 ## 前端
 
 | 关注点 | 文件 |
 |---|---|
-| Canvas 图、节点、Agent 选择器和事件处理 | `src/features/canvas/CanvasPanel.tsx` |
-| REST 客户端和数据契约 | `src/features/canvas/api.ts`、`src/features/canvas/types.ts` |
-| 布局与测试 | `src/features/canvas/layout.ts`、`layout.test.ts` |
-| 附件准备 | `src/features/canvas/attachments.ts`、`attachments.test.ts` |
-| Canvas 本地化文案 | `src/features/canvas/messages.ts` |
-| Gateway `chat.send` 传输 | `src/features/chat/operations/sendMessage.ts` |
-| Gateway 流式事件分类 | `src/features/chat/operations/streamEventHandler.ts` |
-| 通用图片压缩与灯箱 | `src/features/chat/image-compress.ts`、`ImageLightbox.tsx` |
-| 仅 Canvas 使用的应用框架 | `src/App.tsx`、`src/components/TopBar.tsx`、`src/components/StatusBar.tsx` |
-
-保留的 `features/chat` 路径只包含 Canvas 使用的协议和媒体基础能力，不包含 Chat 面板、输入栏、历史状态、恢复上下文或 Session 界面。
+| Canvas 页面组合与 Agent/Canvas 操作 | `src/features/canvas/CanvasPanel.tsx` |
+| Graph 快照、SSE、Preview 与降级刷新控制 | `src/features/canvas/useCanvasGraphController.ts`、`src/hooks/useCanvasSync.ts` |
+| Composer 草稿、浏览器文件、持久附件和 Send Operation 失败恢复 | `src/features/canvas/useCanvasComposerDrafts.ts` |
+| Graph 到 Interaction/Composer 节点与边的纯投影 | `src/features/canvas/canvas-flow-projection.ts` |
+| Interaction/Composer 节点、节点注册与自动布局适配 | `src/features/canvas/CanvasNodes.tsx`、`src/features/canvas/constants.ts` |
+| 状态栏 Branch/工作中计数与活跃 Compose 上下文 | `src/features/canvas/status.ts`、`src/components/StatusBar.tsx` |
+| HTTP API 与数据契约 | `src/features/canvas/api.ts`、`src/features/canvas/types.ts` |
+| Canvas 实体合并、降级轮询和退避 | `src/features/canvas/sync.ts`、`src/features/canvas/graph-refresh.ts` |
+| 布局、拖拽保存与显式重新排列 | `src/features/canvas/CanvasPanel.tsx`、`src/features/canvas/CanvasNodes.tsx`、`src/features/canvas/layout.ts` |
+| 图片缩略图与按需原图预览 | `src/features/canvas/CanvasNodes.tsx`、`src/features/chat/ImageLightbox.tsx` |
+| Gateway 运行状态 | `src/contexts/RuntimeContext.tsx`、`src/hooks/useRuntimeEvents.ts` |
+| Artifact 显示 | `src/features/chat/ImageLightbox.tsx` |
 
 ## 服务端
 
 | 关注点 | 文件 |
 |---|---|
-| Canvas HTTP API 与 Agent 目录校验 | `server/routes/canvas.ts` |
-| SQLite Schema 与 Branch 状态机 | `server/lib/canvas-db.ts` |
-| 协调与 Session 漂移 | `server/lib/canvas-reconciler.ts` |
-| OpenClaw 实际重置策略和时区边界预测 | `server/lib/openclaw-session-policy.ts` |
-| 持久化文件 | `server/lib/canvas-artifact-store.ts` |
-| Canvas 自有上传持久化与受限 Artifact 读取 | `server/routes/upload-reference.ts`、`server/lib/canvas-artifact-store.ts` |
-| Gateway 服务端 RPC、浏览器中继和设备 Token 边界 | `server/lib/gateway-rpc.ts`、`server/lib/ws-proxy.ts`、`server/lib/device-identity.ts` |
-| 路由挂载 | `server/app.ts` |
-
-## Agent 流程
-
-```text
-POST Canvas {name}
-  → agents.list → 保存 defaultId
-  → 没有发送预留或 Interaction 时可选 PATCH {agentId}
-  → 重写草稿 Branch Session key
-  → prepare-send {expectedAgentId, ...}
-  → 锁定 Agent
-```
-
-`server/lib/canvas-db.test.ts` 覆盖事务性重写和锁定行为，Canvas Route 测试覆盖持久化文件，完整行为通过 `npm test -- --run` 验证。
+| Canvas 与发送 HTTP API | `server/routes/canvas.ts` |
+| Root/Fork、发送与 Interaction 原样重新提交应用用例 | `server/lib/canvas-branch-service.ts`、`server/lib/canvas-send-service.ts` |
+| 发送领域类型、状态判定与历史快照组装 | `server/lib/canvas-domain.ts`、`server/lib/canvas-history-snapshot.ts` |
+| 公开 DTO 与内部资源定位 | `server/lib/canvas-public-dto.ts`、`server/lib/canvas-resource-locator.ts` |
+| Interaction 完成时的 OpenClaw Session 上下文快照 | `server/lib/canvas-context-snapshot.ts` |
+| Canvas cursor、SSE 和 Preview | `server/routes/canvas.ts`、`server/lib/canvas-sync.ts` |
+| Gateway 运行状态 SSE | `server/routes/runtime.ts`、`server/lib/runtime-events.ts` |
+| SQLite Schema、迁移和 Branch 状态机 | `server/lib/canvas-db.ts`、`server/lib/canvas-migrations.ts` |
+| `0.2.0` 迁移验证入口与原始 Schema fixture | `bin/convosketchpad-migrate.ts`、`server/lib/fixtures/canvas-v0.2.0.sql` |
+| Fork/Session 恢复 Replay Package、文件引用与物理去重 | `server/lib/canvas-replay-plan.ts` |
+| 发送调度、单次 Worker、投递构建与 Gateway 事件关联 | `server/lib/canvas-send-coordinator.ts`、`server/lib/canvas-send-worker.ts`、`server/lib/canvas-send-delivery.ts`、`server/lib/canvas-gateway-events.ts` |
+| Gateway 唯一连接、Canvas 类型化适配与设备边界 | `server/lib/gateway-rpc.ts`、`server/lib/openclaw-canvas.ts`、`server/lib/device-identity.ts` |
+| Session/对话协调 | `server/lib/canvas-reconciler.ts`、`server/lib/openclaw-session-policy.ts` |
+| Artifact 观察与 Interaction 终态策略 | `server/lib/canvas-artifact-watch.ts`、`server/lib/canvas-reconciliation-state.ts` |
+| 文件持久化、媒体派生与监听后的历史缩略图回填 | `server/index.ts`、`server/lib/canvas-artifact-store.ts`、`server/lib/canvas-media-derivatives.ts`、`server/routes/upload-reference.ts` |
 
 ## 发送流程
 
 ```text
-暂存文件
-  → prepare-send
-  → 检查 Session 身份和实际重置策略
-  → 如果发送跨越每日或空闲过期边界，使用规范恢复快照
-  → 持久化 Canvas 附件 ID
-  → 原生 chat.send attachments
-  → ack(runId) 并刷新实际 Session ID
-  → Gateway agent/chat 事件
-  → 协调对话记录和 Artifact
-  → 完成 Interaction 并创建下一个输入框
+原始上传 → canvas_attachments 登记
+  → POST branch/send {attachmentIds}
+  → 服务端校验并写 send_reservations
+  → 后端按需生成/复用大图投递派生文件
+  → 后端 chat.send（预留 ID = idempotencyKey）
+  → ack 后事务创建 Interaction
+  → canvas_changes + 完整 Interaction upsert
+  → 权威记录和 Artifact 协调
 ```
 
-Branch 在内部持久化基准和观测到的 Session 开始时间。如果无法检查策略，活动 Branch 会采用保守恢复路径；之前的 Interaction 和 OpenClaw 对话记录绝不会被重写。
+Interaction 原样重新提交在后端事务中复制源用户输入和附件：首节点创建 `direct-submit` Root，其他节点从父
+Interaction 创建 `direct-submit` Fork，随后进入同一发送流程。`creationMode` 只用于区分手动 Composer 与直接
+提交，不保存 Retry 来源；接受前失败的 operation 通过 Graph `failedSends` 恢复为普通 Composer。
 
-## 文档维护
-
-Canvas 组件移动时更新本文档。Agent、Branch、Interaction、附件、Artifact 或恢复语义发生变化时，同时更新 `docs/ARCHITECTURE.md`。
+发送分层的特征测试位于 `server/lib/canvas-domain.test.ts`、`server/lib/canvas-send-service.test.ts`、`server/lib/canvas-public-dto.test.ts`、`server/lib/canvas-gateway-events.test.ts` 和 `server/lib/canvas-resource-locator.test.ts`；前端控制与投影测试位于 `src/features/canvas/useCanvasComposerDrafts.test.tsx`、`src/features/canvas/canvas-flow-projection.test.ts` 和既有 Canvas/SSE 测试。数据库测试继续从完整的 `0.2.0` Schema fixture 建库，验证迁移账本、状态转换、Artifact 合并、附件回填及重启不重跑；`server/index.test.ts` 验证 HTTP 先监听、历史媒体回填后启动。

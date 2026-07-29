@@ -106,6 +106,7 @@ function printHelp(): void {
     10  Preflight failure
     20  Version resolution failure
     40  Build failure
+    45  Database migration failure
     50  Restart failure (rollback attempted)
     60  Health check failure (rollback attempted)
     70  Rollback failure (critical)

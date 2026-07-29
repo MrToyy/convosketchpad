@@ -7,7 +7,7 @@ import { config } from './config.js';
 import {
   gatewayRpcCall,
   gatewaySupports,
-  getGatewayHttpAuthToken,
+  getGatewaySharedHttpAuthToken,
 } from './gateway-rpc.js';
 import type { CanvasArtifact, CanvasAttachment, OwnedInteractionRecord } from './canvas-db.js';
 
@@ -55,6 +55,44 @@ function attachmentFilePath(ownerId: string, canvasId: string, attachmentId: str
   return path.join(canvasDirectory(ownerId, canvasId), 'attachments', attachmentId);
 }
 
+function derivativeFilePath(ownerId: string, canvasId: string, derivativeId: string): string {
+  if (!ARTIFACT_ID_PATTERN.test(derivativeId)) throw new Error('Invalid Canvas media derivative ID');
+  return path.join(canvasDirectory(ownerId, canvasId), 'derivatives', derivativeId);
+}
+
+export async function persistCanvasMediaDerivative(
+  ownerId: string,
+  canvasId: string,
+  bytes: Uint8Array,
+): Promise<string> {
+  if (bytes.byteLength > CANVAS_ARTIFACT_MAX_BYTES) {
+    throw new Error('Canvas media derivative exceeds the 25 MiB persistence limit');
+  }
+  const id = createHash('sha256').update(bytes).digest('hex').slice(0, 40);
+  const target = derivativeFilePath(ownerId, canvasId, id);
+  await fs.mkdir(path.dirname(target), { recursive: true });
+  const existing = await fs.stat(target).catch(() => null);
+  if (!existing?.isFile()) {
+    const temporary = `${target}.${randomUUID()}.tmp`;
+    try {
+      await fs.writeFile(temporary, bytes, { flag: 'wx' });
+      await fs.rename(temporary, target);
+    } finally {
+      await fs.rm(temporary, { force: true }).catch(() => undefined);
+    }
+  }
+  return id;
+}
+
+export async function readCanvasMediaDerivative(
+  ownerId: string,
+  canvasId: string,
+  derivativeId: string,
+): Promise<Uint8Array | null> {
+  if (!ARTIFACT_ID_PATTERN.test(derivativeId)) return null;
+  return fs.readFile(derivativeFilePath(ownerId, canvasId, derivativeId)).catch(() => null);
+}
+
 export async function persistCanvasAttachment(
   ownerId: string,
   canvasId: string,
@@ -63,7 +101,8 @@ export async function persistCanvasAttachment(
   if (input.bytes.byteLength > CANVAS_ARTIFACT_MAX_BYTES) {
     throw new Error(`${input.name}: Attachment exceeds the 25 MiB persistence limit`);
   }
-  const id = createHash('sha256').update(input.bytes).digest('hex').slice(0, 40);
+  const contentHash = createHash('sha256').update(input.bytes).digest('hex');
+  const id = contentHash.slice(0, 40);
   const target = attachmentFilePath(ownerId, canvasId, id);
   await fs.mkdir(path.dirname(target), { recursive: true });
   const existing = await fs.stat(target).catch(() => null);
@@ -78,6 +117,7 @@ export async function persistCanvasAttachment(
   }
   return {
     id,
+    contentHash,
     name: input.name,
     mimeType: input.mimeType || 'application/octet-stream',
     sizeBytes: input.bytes.byteLength,
@@ -198,7 +238,7 @@ async function loadSourceBytes(
     let sessionKey = '';
     try { sessionKey = match ? decodeURIComponent(match[1]) : ''; } catch { /* invalid encoding */ }
     if (sessionKey !== interaction.sessionKey) throw new Error('Artifact media session does not match the Interaction');
-    const token = getGatewayHttpAuthToken();
+    const token = getGatewaySharedHttpAuthToken();
     const response = await fetch(mediaUrl, {
       headers: token ? { Authorization: `Bearer ${token}` } : undefined,
       signal: AbortSignal.timeout(30_000),
@@ -248,6 +288,7 @@ async function persistBytes(
 ): Promise<CanvasArtifact> {
   if (bytes.byteLength > CANVAS_ARTIFACT_MAX_BYTES) throw new Error('Artifact exceeds the 25 MiB persistence limit');
   const id = canvasArtifactId(sourceUri);
+  const contentHash = createHash('sha256').update(bytes).digest('hex');
   const target = artifactFilePath(interaction, id);
   await fs.mkdir(path.dirname(target), { recursive: true });
   const existing = await fs.stat(target).catch(() => null);
@@ -263,6 +304,7 @@ async function persistBytes(
   return {
     ...artifact,
     id,
+    contentHash,
     uri: canvasArtifactUri(interaction.canvasId, interaction.id, id),
     sourceUri,
     storage: 'canvas',
@@ -345,48 +387,6 @@ export async function materializeCanvasArtifacts(
   }
 
   return { artifacts, complete: warnings.length === 0, warnings };
-}
-
-export async function validateCanvasAttachments(
-  ownerId: string,
-  canvasId: string,
-  attachments: CanvasAttachment[],
-): Promise<CanvasAttachment[]> {
-  const persisted: CanvasAttachment[] = [];
-  for (const attachment of attachments) {
-    const id = attachment.id || '';
-    if (!ARTIFACT_ID_PATTERN.test(id) || attachment.storage !== 'canvas') {
-      throw new Error(`${attachment.name}: Attachment must reference Canvas-owned storage`);
-    }
-    const bytes = await readCanvasAttachment(ownerId, canvasId, id);
-    if (!bytes) throw new Error(`${attachment.name}: Canvas attachment is unavailable`);
-    const expectedUri = canvasAttachmentUri(canvasId, id);
-    if (attachment.uri !== expectedUri || attachment.sizeBytes !== bytes.byteLength) {
-      throw new Error(`${attachment.name}: Canvas attachment metadata does not match persisted content`);
-    }
-    persisted.push({
-      id,
-      name: attachment.name,
-      mimeType: attachment.mimeType || 'application/octet-stream',
-      sizeBytes: bytes.byteLength,
-      uri: expectedUri,
-      storage: 'canvas',
-      available: true,
-    });
-  }
-  return persisted;
-}
-
-export async function importCanvasArtifactFromFile(
-  interaction: OwnedInteractionRecord,
-  artifact: CanvasArtifact,
-  sourceFile: string,
-): Promise<CanvasArtifact> {
-  const sourceUri = artifactSourceUri(artifact);
-  const stat = await fs.stat(sourceFile);
-  if (!stat.isFile()) throw new Error('Repair source is not a file');
-  if (stat.size > CANVAS_ARTIFACT_MAX_BYTES) throw new Error('Artifact exceeds the 25 MiB persistence limit');
-  return persistBytes(interaction, artifact, sourceUri, await fs.readFile(sourceFile), artifact.mimeType);
 }
 
 export async function readCanvasArtifact(

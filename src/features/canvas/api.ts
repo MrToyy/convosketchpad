@@ -1,12 +1,32 @@
 import type {
-  CanvasArtifact,
-  CanvasAttachmentMeta,
   CanvasBranch,
   CanvasGraph,
+  CanvasInteraction,
   CanvasLayout,
   CanvasSummary,
   SendReservation,
 } from './types';
+
+export class CanvasApiError extends Error {
+  readonly status: number;
+  readonly retryAfterMs: number | null;
+
+  constructor(message: string, status: number, retryAfterMs: number | null = null) {
+    super(message);
+    this.name = 'CanvasApiError';
+    this.status = status;
+    this.retryAfterMs = retryAfterMs;
+  }
+}
+
+function retryAfterMs(response: Response): number | null {
+  const value = response.headers.get('Retry-After')?.trim();
+  if (!value) return null;
+  const seconds = Number(value);
+  if (Number.isFinite(seconds) && seconds >= 0) return seconds * 1_000;
+  const date = Date.parse(value);
+  return Number.isFinite(date) ? Math.max(0, date - Date.now()) : null;
+}
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, {
@@ -17,7 +37,13 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
       : { 'Content-Type': 'application/json', ...init?.headers },
   });
   const data = await response.json().catch(() => ({})) as T & { error?: string };
-  if (!response.ok) throw new Error(data.error || `画布请求失败（${response.status}）`);
+  if (!response.ok) {
+    throw new CanvasApiError(
+      data.error || `画布请求失败（${response.status}）`,
+      response.status,
+      retryAfterMs(response),
+    );
+  }
   return data;
 }
 
@@ -46,54 +72,41 @@ export const canvasApi = {
   async graph(id: string): Promise<CanvasGraph> {
     return request<CanvasGraph>(`/api/canvas/canvases/${id}/graph`);
   },
+  async agents(): Promise<{ agents?: Array<{ id: string; name?: string; identity?: { name?: string; emoji?: string } }> }> {
+    return request('/api/canvas/agents');
+  },
   async createRoot(canvasId: string): Promise<CanvasBranch> {
     return (await request<{ branch: CanvasBranch }>(`/api/canvas/canvases/${canvasId}/root-branches`, { method: 'POST' })).branch;
   },
   async fork(interactionId: string): Promise<CanvasBranch> {
     return (await request<{ branch: CanvasBranch }>(`/api/canvas/interactions/${interactionId}/fork`, { method: 'POST' })).branch;
   },
+  async resubmit(interactionId: string, expectedAgentId: string): Promise<{
+    interaction?: CanvasInteraction;
+    operation?: SendReservation;
+  }> {
+    return request(`/api/canvas/interactions/${interactionId}/resubmit`, {
+      method: 'POST',
+      body: JSON.stringify({ expectedAgentId }),
+    });
+  },
   async saveLayout(canvasId: string, layout: CanvasLayout): Promise<void> {
     await request(`/api/canvas/canvases/${canvasId}/layout`, { method: 'PUT', body: JSON.stringify(layout) });
   },
-  async prepareSend(branchId: string, body: {
+  async send(branchId: string, body: {
     expectedHeadInteractionId?: string | null;
     expectedAgentId: string;
     userInput: string;
-    attachments: CanvasAttachmentMeta[];
-  }): Promise<SendReservation> {
-    return (await request<{ reservation: SendReservation }>(`/api/canvas/branches/${branchId}/prepare-send`, {
-      method: 'POST', body: JSON.stringify(body),
-    })).reservation;
-  },
-  async acknowledge(reservationId: string, runId?: string, bootstrapWarnings: string[] = []): Promise<{ id: string }> {
-    return (await request<{ interaction: { id: string } }>(`/api/canvas/send-reservations/${reservationId}/ack`, {
-      method: 'POST', body: JSON.stringify({ runId: runId || null, bootstrapWarnings }),
-    })).interaction;
-  },
-  async failReservation(reservationId: string, error: string): Promise<void> {
-    await request(`/api/canvas/send-reservations/${reservationId}/fail`, {
-      method: 'POST', body: JSON.stringify({ error }),
-    });
-  },
-  async complete(interactionId: string, body: {
-    status: 'completed' | 'failed';
-    agentOutput: string;
-    artifacts: CanvasArtifact[];
-    metadata?: Record<string, unknown>;
-  }): Promise<void> {
-    await request(`/api/canvas/interactions/${interactionId}/complete`, {
+    attachmentIds: string[];
+  }): Promise<{ interaction?: CanvasInteraction; operation?: SendReservation }> {
+    return request(`/api/canvas/branches/${branchId}/send`, {
       method: 'POST', body: JSON.stringify(body),
     });
   },
-  async reconcile(interactionId: string, body: {
-    terminalHint?: boolean;
-    failureHint?: string;
-    runId?: string;
-    force?: boolean;
-  } = {}): Promise<void> {
-    await request(`/api/canvas/interactions/${interactionId}/reconcile`, {
-      method: 'POST', body: JSON.stringify(body),
-    });
+  async sendOperation(id: string): Promise<SendReservation> {
+    return (await request<{ operation: SendReservation }>(
+      `/api/canvas/send-operations/${encodeURIComponent(id)}`,
+    )).operation;
   },
 };
 

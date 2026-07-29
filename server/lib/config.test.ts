@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import { config, printStartupBanner, SESSION_COOKIE_NAME, validateConfig, WS_ALLOWED_HOSTS } from './config.js';
+import { config, printStartupBanner, SESSION_COOKIE_NAME, validateConfig } from './config.js';
 
 describe('Canvas server config', () => {
   it('contains only the runtime paths and limits used by retained features', () => {
@@ -13,10 +13,8 @@ describe('Canvas server config', () => {
     expect(config.limits.maxBodyBytes).toBeGreaterThan(80 * 1024 * 1024);
   });
 
-  it('keeps auth and WebSocket host defaults', () => {
+  it('keeps the managed session cookie scoped to the server port', () => {
     expect(SESSION_COOKIE_NAME).toBe(`convosketchpad_session_${config.port}`);
-    expect(WS_ALLOWED_HOSTS).toEqual(expect.objectContaining({}));
-    expect(WS_ALLOWED_HOSTS.has('localhost')).toBe(true);
   });
 
   it('prints the Canvas product name and validates without throwing', () => {

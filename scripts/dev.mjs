@@ -7,29 +7,44 @@
 
 import 'dotenv/config';
 import { spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import net from 'node:net';
 import path from 'node:path';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const tsxCli = path.join(projectRoot, 'node_modules', 'tsx', 'dist', 'cli.mjs');
 const viteCli = path.join(projectRoot, 'node_modules', 'vite', 'bin', 'vite.js');
-const frontendPort = parsePort(process.env.VITE_PORT, 3080);
-const configuredBackendPort = parsePort(process.env.PORT);
-const fallbackBackendPort = frontendPort < 65_535 ? frontendPort + 1 : frontendPort - 1;
-const backendPort = configuredBackendPort && configuredBackendPort !== frontendPort
-  ? configuredBackendPort
-  : fallbackBackendPort;
-const childEnv = {
+const entryPort = parsePort(process.env.PORT, 3080);
+const entryHost = process.env.HOST?.trim() || '127.0.0.1';
+const preferredBackendPort = entryPort < 65_535 ? entryPort + 1 : entryPort - 1;
+const backendPort = await findAvailableLoopbackPort(preferredBackendPort);
+
+if (process.env.VITE_HOST || process.env.VITE_PORT) {
+  console.warn('[dev] VITE_HOST and VITE_PORT are deprecated; use HOST and PORT for the ConvoSketchpad entrypoint.');
+}
+
+const serverEnv = {
   ...process.env,
+  HOST: '127.0.0.1',
   PORT: String(backendPort),
 };
+delete serverEnv.VITE_HOST;
+delete serverEnv.VITE_PORT;
+
+const clientEnv = {
+  ...process.env,
+  CONVOSKETCHPAD_DEV_ENTRY_HOST: entryHost,
+  CONVOSKETCHPAD_DEV_ENTRY_PORT: String(entryPort),
+  CONVOSKETCHPAD_DEV_BACKEND_PORT: String(backendPort),
+};
+delete clientEnv.VITE_HOST;
+delete clientEnv.VITE_PORT;
 
 printDevEndpoints();
 
 const children = [
-  start('server', tsxCli, ['watch', 'server/index.ts']),
-  start('client', viteCli),
+  start('server', tsxCli, ['watch', 'server/index.ts'], serverEnv),
+  start('client', viteCli, [], clientEnv),
 ];
 
 let stopping = false;
@@ -41,32 +56,45 @@ function parsePort(value, fallback) {
   return fallback;
 }
 
-function printDevEndpoints() {
-  const configuredHost = process.env.VITE_HOST?.trim() || '127.0.0.1';
-  const browserHost = configuredHost === '0.0.0.0' || configuredHost === '::'
-    ? 'localhost'
-    : configuredHost.includes(':') && !configuredHost.startsWith('[')
-      ? `[${configuredHost}]`
-      : configuredHost;
-  const certsExist = existsSync(path.join(projectRoot, 'certs', 'cert.pem'))
-    && existsSync(path.join(projectRoot, 'certs', 'key.pem'));
-  const protocol = process.env.VITE_DISABLE_HTTPS !== 'true' && certsExist ? 'https' : 'http';
+function probeLoopbackPort(port) {
+  return new Promise((resolve) => {
+    const server = net.createServer();
+    server.unref();
+    server.once('error', () => resolve(null));
+    server.listen({ host: '127.0.0.1', port, exclusive: true }, () => {
+      const address = server.address();
+      const selected = typeof address === 'object' && address ? address.port : null;
+      server.close(() => resolve(selected));
+    });
+  });
+}
 
+async function findAvailableLoopbackPort(preferredPort) {
+  const preferred = await probeLoopbackPort(preferredPort);
+  if (preferred) return preferred;
+  const automatic = await probeLoopbackPort(0);
+  if (automatic) return automatic;
+  throw new Error('Could not allocate an internal loopback port for the development backend.');
+}
+
+function printDevEndpoints() {
+  const browserHost = entryHost === '0.0.0.0' || entryHost === '::'
+    ? 'localhost'
+    : entryHost.includes(':') && !entryHost.startsWith('[')
+      ? `[${entryHost}]`
+      : entryHost;
   console.log('');
   console.log('  ConvoSketchpad development');
-  console.log(`  Frontend (open in browser): ${protocol}://${browserHost}:${frontendPort}  [VITE_PORT]`);
-  console.log(`  Backend  (internal only):   http://localhost:${backendPort}  [PORT]`);
-  console.log('  Proxy: /api, /health, /ws -> backend');
-  if (configuredBackendPort === frontendPort) {
-    console.log(`  Note: PORT matched VITE_PORT, so the internal backend was moved to ${backendPort}.`);
-  }
+  console.log(`  Open in browser:          http://${browserHost}:${entryPort}  [HOST / PORT]`);
+  console.log(`  Backend (automatic):      http://127.0.0.1:${backendPort}  [loopback only]`);
+  console.log('  Proxy: /api, /health -> backend');
   console.log('');
 }
 
-function start(name, entrypoint, args = []) {
+function start(name, entrypoint, args = [], env = process.env) {
   const child = spawn(process.execPath, [entrypoint, ...args], {
     cwd: projectRoot,
-    env: childEnv,
+    env,
     stdio: 'inherit',
   });
 

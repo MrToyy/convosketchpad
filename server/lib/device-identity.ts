@@ -1,8 +1,10 @@
 /**
- * Device identity for OpenClaw gateway WebSocket authentication.
+ * Device identity for remote OpenClaw Gateway WebSocket authentication.
  *
- * OpenClaw 2026.2.19+ requires device identity (Ed25519 keypair + signed challenge)
- * for WS connections to receive `operator.read` / `operator.write` scopes.
+ * Remote Gateway clients use a stable Ed25519 identity and signed challenge
+ * to receive `operator.read` / `operator.write` scopes. Direct-loopback
+ * `gateway-client/backend` connections use the shared Gateway token without
+ * loading this identity.
  *
  * The keypair is generated once and persisted to `~/.convosketchpad/device-identity.json`.
  * On subsequent starts the same identity is reused, avoiding re-pairing.

@@ -75,11 +75,21 @@ describe('securityHeaders middleware', () => {
     expect(res.headers.get('Cache-Control')).toBe('public, max-age=3600');
   });
 
-  it('CSP includes connect-src with websocket origins', async () => {
+  it('restricts browser connections to same-origin HTTP/SSE', async () => {
     const app = await buildApp();
     const res = await app.request('/test');
     const csp = res.headers.get('Content-Security-Policy')!;
-    expect(csp).toContain('ws://localhost:*');
-    expect(csp).toContain('wss://localhost:*');
+    expect(csp).toContain("connect-src 'self'");
+    expect(csp).not.toContain('ws://');
+  });
+
+  it('sets HSTS only when the external request is securely identified', async () => {
+    process.env.NODE_ENV = 'production';
+    const app = await buildApp();
+    const insecure = await app.request('http://localhost/test');
+    expect(insecure.headers.get('Strict-Transport-Security')).toBeNull();
+
+    const secure = await app.request('https://localhost/test');
+    expect(secure.headers.get('Strict-Transport-Security')).toContain('max-age=');
   });
 });

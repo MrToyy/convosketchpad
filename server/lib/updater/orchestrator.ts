@@ -12,7 +12,7 @@ import { acquireLock, releaseLock } from './lock.js';
 import { runPreflight } from './preflight.js';
 import { resolveVersion } from './release-resolver.js';
 import { createSnapshot } from './snapshot.js';
-import { gitFetchAndCheckout, buildProject } from './installer.js';
+import { gitFetchAndCheckout, buildProject, migrateDatabase } from './installer.js';
 import { detectServiceManager } from './service-manager.js';
 import { checkHealth, resolveHealthCheckBaseUrl } from './health.js';
 import { rollback } from './rollback.js';
@@ -31,9 +31,9 @@ export async function orchestrate(options: UpdateOptions, reporter: Reporter): P
   }
 
   // Calculate total stages dynamically based on which stages will actually run
-  // lock + preflight + resolve + snapshot + update + build = 7 stages
-  // + confirm (only if not --yes) + restart + health (only if not --no-restart)
-  const totalStages = 7 + (options.yes ? 0 : 1) + (options.noRestart ? 0 : 2);
+  // lock + preflight + resolve + snapshot + update + build = 6 stages
+  // + confirm (only if not --yes) + migrate + restart + health (unless --no-restart)
+  const totalStages = 6 + (options.yes ? 0 : 1) + (options.noRestart ? 0 : 3);
   let stageNum = 0;
   let locked = false;
   let serviceManager: ServiceManager | null = null;
@@ -70,10 +70,14 @@ export async function orchestrate(options: UpdateOptions, reporter: Reporter): P
 
     // ── Dry-run stops here ─────────────────────────────────────────
     if (options.dryRun) {
-      reporter.dry('Would snapshot current state');
+      if (!options.noRestart) {
+        reporter.dry('Would stop the managed service, if detected');
+      }
+      reporter.dry('Would snapshot current state and the SQLite database');
       reporter.dry(`Would checkout ${resolved.tag}`);
       reporter.dry('Would run npm ci && npm run build');
       if (!options.noRestart) {
+        reporter.dry('Would migrate the database when the managed service is stopped');
         reporter.dry('Would restart service');
         reporter.dry('Would run health checks');
       }
@@ -97,7 +101,42 @@ export async function orchestrate(options: UpdateOptions, reporter: Reporter): P
     // ── 5. Snapshot ────────────────────────────────────────────────
     stageNum++;
     reporter.stage('Creating snapshot', stageNum, totalStages);
-    const snapshot = createSnapshot(options.cwd);
+    serviceManager = detectServiceManager();
+    if (!options.noRestart && serviceManager) {
+      reporter.verbose(`Stopping service via ${serviceManager.name} before database snapshot`);
+      try {
+        await serviceManager.stop();
+      } catch (error) {
+        throw new UpdateError(
+          `Could not stop service before database snapshot: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+          'snapshot',
+          EXIT_CODES.BUILD,
+        );
+      }
+    }
+    let snapshot: ReturnType<typeof createSnapshot>;
+    try {
+      snapshot = createSnapshot(options.cwd);
+    } catch (error) {
+      if (!options.noRestart && serviceManager) {
+        try {
+          await serviceManager.restart();
+        } catch (restartError) {
+          reporter.fail(`Could not restart service after snapshot failure: ${
+            restartError instanceof Error ? restartError.message : String(restartError)
+          }`);
+        }
+      }
+      throw new UpdateError(
+        `Could not create update snapshot: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+        'snapshot',
+        EXIT_CODES.BUILD,
+      );
+    }
     snapshotCreated = true;
     reporter.ok(`Snapshot saved (ref: ${snapshot.ref.slice(0, 8)})`);
 
@@ -115,11 +154,20 @@ export async function orchestrate(options: UpdateOptions, reporter: Reporter): P
     buildProject(options.cwd);
     reporter.ok('Build complete');
 
-    // ── 8–9. Restart + health (unless --no-restart) ────────────────
+    // ── 8–10. Migrate + restart + health (unless --no-restart) ─────
     if (!options.noRestart) {
       stageNum++;
+      reporter.stage('Migrating database', stageNum, totalStages);
+      if (serviceManager) {
+        migrateDatabase(options.cwd);
+        reporter.ok('Database migration complete');
+      } else {
+        reporter.warn('No managed service detected — deferring database migration');
+        reporter.hint('The target server will migrate the database on its next manual start.');
+      }
+
+      stageNum++;
       reporter.stage('Restarting service', stageNum, totalStages);
-      serviceManager = detectServiceManager();
 
       if (serviceManager) {
         reporter.verbose(`Detected ${serviceManager.name}`);
@@ -196,7 +244,7 @@ async function handleFailure(
   reporter.fail(message);
 
   // Attempt rollback if we had a snapshot and the failure was after snapshot
-  const rollbackStages = new Set(['update', 'build', 'restart', 'health']);
+  const rollbackStages = new Set(['update', 'build', 'migrate', 'restart', 'health']);
   if (snapshotCreated && rollbackStages.has(stage)) {
     reporter.info('Attempting rollback...');
     const result = await rollback(options.cwd, serviceManager, reporter);
@@ -216,6 +264,8 @@ async function handleFailure(
     reporter.hint('Troubleshooting:');
     reporter.cmd('npm ci');
     reporter.cmd('npm run build');
+  } else if (stage === 'migrate') {
+    reporter.hint('The pre-update database snapshot was retained for rollback.');
   } else if (stage === 'restart' || stage === 'health') {
     if (serviceManager) {
       reporter.hint('Check service logs:');

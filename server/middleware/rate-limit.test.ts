@@ -1,7 +1,7 @@
 /** Tests for the sliding-window rate limiter middleware. */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Hono } from 'hono';
-import { rateLimit, getClientId } from './rate-limit.js';
+import { rateLimit, getClientId, isSecureRequest } from './rate-limit.js';
 
 /**
  * The rate limiter uses a module-level Map, so we use unique client IPs
@@ -58,6 +58,31 @@ describe('rate-limit middleware', () => {
   function req(ip: string) {
     return { headers: { 'x-test-client-id': ip } };
   }
+
+  it('trusts forwarded HTTPS only from an explicitly trusted direct proxy', async () => {
+    const app = new Hono();
+    app.use('/secure', async (c, next) => {
+      c.set('rateLimitDirectIp' as never, (c.req.header('x-test-direct-ip') || 'unknown') as never);
+      await next();
+    });
+    app.get('/secure', c => c.json({ secure: isSecureRequest(c) }));
+
+    const trusted = await app.request('/secure', {
+      headers: {
+        'x-test-direct-ip': '127.0.0.1',
+        'x-forwarded-proto': 'https',
+      },
+    });
+    await expect(trusted.json()).resolves.toEqual({ secure: true });
+
+    const untrusted = await app.request('/secure', {
+      headers: {
+        'x-test-direct-ip': '203.0.113.9',
+        'x-forwarded-proto': 'https',
+      },
+    });
+    await expect(untrusted.json()).resolves.toEqual({ secure: false });
+  });
 
   it('should allow requests under the limit', async () => {
     const app = createApp(3, 60_000);

@@ -19,20 +19,18 @@ import { errorHandler } from './middleware/error-handler.js';
 import { securityHeaders } from './middleware/security-headers.js';
 import { authMiddleware } from './middleware/auth.js';
 import { config } from './lib/config.js';
-import { resolveCorsOrigin } from './lib/origin-utils.js';
+import { isAllowedOrigin, resolveCorsOrigin } from './lib/origin-utils.js';
 
 import healthRoutes from './routes/health.js';
 import authRoutes from './routes/auth.js';
-import agentLogRoutes from './routes/agent-log.js';
 import tokensRoutes from './routes/tokens.js';
 import providerLimitsRoutes from './routes/provider-limits.js';
-import serverInfoRoutes from './routes/server-info.js';
 import versionRoutes from './routes/version.js';
 import versionCheckRoutes from './routes/version-check.js';
 import gatewayRoutes from './routes/gateway.js';
-import connectDefaultsRoutes from './routes/connect-defaults.js';
 import uploadReferenceRoutes from './routes/upload-reference.js';
 import canvasRoutes from './routes/canvas.js';
+import runtimeRoutes from './routes/runtime.js';
 
 const app = new Hono();
 
@@ -49,6 +47,13 @@ app.use(
     allowHeaders: ['Content-Type', 'Authorization'],
   }),
 );
+app.use('/api/*', async (c, next) => {
+  const origin = c.req.header('Origin');
+  if (origin && !isAllowedOrigin(origin)) {
+    return c.json({ error: 'Origin not allowed' }, 403);
+  }
+  return next();
+});
 app.use('*', securityHeaders);
 app.use(
   '/api/*',
@@ -65,9 +70,9 @@ app.use('*', cacheHeaders);
 // ── API routes ───────────────────────────────────────────────────────
 
 const routes = [
-  healthRoutes, authRoutes, agentLogRoutes, tokensRoutes, providerLimitsRoutes,
-  serverInfoRoutes, versionRoutes, versionCheckRoutes, gatewayRoutes,
-  connectDefaultsRoutes, uploadReferenceRoutes, canvasRoutes,
+  healthRoutes, authRoutes, tokensRoutes, providerLimitsRoutes,
+  versionRoutes, versionCheckRoutes, gatewayRoutes,
+  uploadReferenceRoutes, canvasRoutes, runtimeRoutes,
 ];
 for (const route of routes) app.route('/', route);
 

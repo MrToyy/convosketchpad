@@ -2,72 +2,131 @@
 
 ## Gateway 连接失败
 
-检查两个服务和配置的 Token：
-
 ```bash
 openclaw gateway status
 curl -sS http://127.0.0.1:18789/health
-curl -sS http://127.0.0.1:3080/health
+curl -sS http://127.0.0.1:3080/api/runtime/status
 ```
 
-Gateway 重新注册或轮换 Token 后，重新运行 `npm run setup`。使用远程 Gateway 时，将其主机名加入 `WS_ALLOWED_HOSTS`。
-
-如果错误与配对或权限有关，使用 OpenClaw 原生恢复流程：
+确认服务端 `GATEWAY_URL`、`GATEWAY_TOKEN` 和网络可达性。loopback Gateway 不需要设备配对；远程 Gateway 在 Token 轮换或客户端身份升级后重新运行 `npm run setup`，并在 Gateway 宿主机审批 backend 设备：
 
 ```bash
 openclaw devices list --json
 openclaw devices approve <requestId>
 ```
 
-不要在 `paired.json` 和 `device-auth.json` 之间复制 Token。如果已保存的设备 Token 发生漂移，使用 `openclaw devices rotate/remove` 后重新审批。
+ConvoSketchpad 会在首次连接失败和运行中断线后自动指数退避重连，最长间隔 30 秒；不需要依靠刷新浏览器触发。如果 Gateway 恢复超过 30 秒后 `/api/runtime/status` 仍未变为 `connected`，再检查后端服务日志中的握手或鉴权错误。
 
-## `origin not allowed`
+不需要配置 `WS_ALLOWED_HOSTS` 或 `gateway.controlUi.allowedOrigins`。如果后端连接仍报告 `origin not allowed`，确认实际运行的是新版本且客户端身份为 `gateway-client/backend/node`；不要通过扩大浏览器 Origin 列表掩盖旧进程。
 
-在 OpenClaw `gateway.controlUi.allowedOrigins` 中使用准确的浏览器 Origin。`npm run setup` 只会通过带 dry run 的 `openclaw config get/patch` 修改该值。远程访问时，在 `CONVOSKETCHPAD_PUBLIC_ORIGIN` 和 `ALLOWED_ORIGINS` 中设置同一个 Origin，并在 Gateway 宿主机上运行 OpenClaw 配置命令。
+## 配对提示 `missing scope: operator.admin`
 
-## Agent 列表无法加载，或创建 Canvas 返回 502
+这只可能发生在远程 Gateway 的旧 ConvoSketchpad 设备 repair。OpenClaw 会保留既有设备的审批基线；如果旧 operator Token 曾包含 `operator.admin`，普通 read/write CLI 身份无权批准它。
 
-创建 Canvas 时会调用 Gateway `agents.list`。确认服务端 `GATEWAY_TOKEN`、Gateway 连通性、设备审批和所需权限均正常。Agent 目录不可用时，服务端不会猜测 Agent 并创建 Canvas。
+setup 不会为远程 Gateway 自动取得 admin 权限。请在 Gateway 宿主机使用具有 `operator.admin` 的管理上下文审批；若 repair 保留了更宽权限，再执行：
 
-## 无法修改 Agent
+```bash
+openclaw devices rotate \
+  --device <convosketchpad-device-id> \
+  --role operator \
+  --scope operator.read operator.write
+```
 
-首次发送进入准备阶段后，选择器会锁定。这是预期行为；如需使用其他 Agent，请创建新 Canvas。如果另一个标签页已经发送，而当前界面仍显示可编辑选择器，`prepare-send` 会以 `409 agent_changed` 拒绝过期 Agent，并重新加载 Graph。
+随后重新运行 setup 验证。不要删除或直接编辑 OpenClaw 的配对文件。本机 loopback 配置若看到配对提示，确认运行的是新版本并重启 ConvoSketchpad；不要批准不再需要的本机 request。
 
-## Interaction 一直处于生成中
+## Agent 列表或 Canvas 创建返回 502
 
-Gateway 终止事件只作为提示，协调过程会等待权威对话记录。重新加载 Graph 会重新调度未完成记录；重启服务端也会继续处理候选项。检查服务端日志中的 Gateway 对话记录或 Artifact 错误。
+服务端无法完成 `agents.list`。检查 `/api/runtime/status`、设备审批和 `operator.read` 权限。
 
-## Branch 提示 Session 恢复
+## 发送一直排队
 
-OpenClaw 已经替换或移除了稳定 Branch key 后面的 Session。下一次发送会携带 ConvoSketchpad 的规范快照。这是预期恢复行为，不会修改旧 Interaction。
+Graph 的 `pendingSends` 会在 Gateway 不可用时保持 Branch 锁定。检查 operation：
+
+```text
+GET /api/canvas/send-operations/:id
+```
+
+- `reserved`：确认请求没有写出，等待连接后重试。
+- `awaiting_media`：后端正在读取或生成大图投递派生文件；浏览器无需执行操作。长时间不推进时检查服务日志、
+  `artifacts/` 写权限、可用磁盘空间和源图片是否有效。
+- `ambiguous`：请求可能已写出，服务端会持续用同一幂等键重试；这是防止重复消息的安全状态。
+- `failed`：Gateway 明确拒绝，或附件/载荷无法构造。
+
+不要直接修改 SQLite 解锁。
+
+## Interaction 一直生成
+
+Gateway 终止事件只是提示。服务端会从权威对话记录协调最终文本和 Artifact；新 Interaction 会直接登记，服务重启和 Gateway 重连会恢复未完成协调。Graph 读取本身不会启动协调。
+
+## Graph 返回 429
+
+前端先读取一次 Graph 快照，之后通过当前 Canvas 的 `canvas.sync` 完整实体更新推进 cursor，不会为流式 Preview 或完成状态持续读取 Graph。只有 Canvas SSE 不可用且 `hasPendingUpdates=true` 时才降级读取；同一 Canvas 最多一个 Graph 请求在途，并按 `Retry-After` 退避。如果仍持续出现：
+
+- 检查是否运行了旧的前端 Bundle，清理浏览器缓存并重载；
+- 检查是否同时打开了大量同一 Canvas 标签页；
+- 反向代理部署确认 `TRUSTED_PROXIES` 正确，避免所有用户共享同一限流 IP。
+
+不建议仅提高通用限流阈值。
 
 ## 附件发送失败
 
-- 每次发送最多四个文件。
-- 每个文件最大 20 MiB。
-- 大图会针对模型输入进行压缩。
-- 完整 Base64 WebSocket Frame 必须小于 Gateway 声明的 `maxPayload`，因此实际总上限可能低于四倍的 20 MiB。
-- 上传文件归 Canvas 所有，并通过 `chat.send.attachments` 发送，不要求共享 Agent 工作区。
+- 最多四个原始文件，每个最大 20 MiB。
+- 大图由后端按需生成投递派生文件，原件始终保存在 Canvas 且不被改写。
+- 最终 Base64 `chat.send` Frame 必须小于 Gateway `maxPayload`。
+- 图片格式无效、不受支持或超过后端安全解码限制时，发送会明确失败；检查 Send Operation 错误与服务日志。
+
+Fork 与 Session 恢复会完整投递目标历史中仍可用的附件和 Artifact，不会根据本轮指令自动裁剪。相同内容
+只占一个物理附件，后端生成的历史大图会按真实内容哈希在同一 Canvas 内复用。若 operation 报告
+`replay_payload_too_large`，说明完整 Replay Package 即使经过物理去重仍超过 Gateway `maxPayload`；
+服务端不会静默删文件。应提高 Gateway 的受支持载荷上限，或从较短历史位置创建新 Branch。
+
+OpenClaw 的 Session 记录可能把收到的原生附件显示为 `MediaPaths` / `MediaTypes`，而不是保留 RPC
+`attachments` 字段。判断媒体是否传入 Agent 时应同时检查这些字段。
 
 ## Artifact 不可用
 
-文本完成和 Artifact 持久化相互独立。延迟到达或无法读取的 Artifact 会被标记为降级并重试。确认 `artifacts/` 可写，且 Gateway 声明 `artifacts.list/download`。旧版相对路径还需要 `agents.workspace.get`；旧版绝对路径必须在本机真实存在，并位于原生报告的工作区根目录或系统临时目录之下。
+Artifact 与文本完成相互独立。所有完成节点由后端稀疏观察晚到 Artifact 至 2 分钟；已发现 Artifact、同步失败或 Gateway Artifact 能力不完整时继续退避观察到 1 小时。已发现文件全部持久化后节点立即显示同步完成，剩余观察在后端静默进行；超过 25 MiB、无法安全读取或最终仍不可用时才进入终态 `degraded`。刷新页面不会无限重启同步。检查 `artifacts/` 权限和 Gateway `artifacts.list/download` 能力。
 
-## 登录被锁定
+从 `0.2.0` 升级时会执行一次本地数据库迁移。迁移只依据已有 SQLite 数据合并等价 Artifact、修正旧同步状态并恢复明确的未完成任务，不会重新读取 Gateway 历史。已终止节点不会因服务重启再次进入协调；旧 run 无法反查 Session 本身也不会被判定为 Artifact 失败。
 
-默认策略是在 30 分钟内失败三次后，按客户端 IP 锁定 30 分钟。检查 `CONVOSKETCHPAD_AUTH_*` 和 `TRUSTED_PROXIES`。重启会清除内存中的失败记录，但不能替代对 Token 的妥善保护。
+若更新器在数据库迁移阶段失败，它会恢复更新前的一致 SQLite 快照。手动验证当前版本的迁移与数据库完整性可在构建后运行：
 
-## 拒绝远程启动
+```bash
+npm run migrate
+```
 
-监听 `HOST=0.0.0.0` 要求 `CONVOSKETCHPAD_AUTH=true`。请启用认证和 HTTPS。`CONVOSKETCHPAD_ALLOW_INSECURE=true` 只用于明确的不安全覆盖场景。
+如果 `/api/chat/media/outgoing/...` 返回 401，确认 `GATEWAY_TOKEN` 是当前 Gateway 的共享密钥。设备 Token 只用于远程 WebSocket，不能替代 Gateway HTTP Bearer Token。已完成 run 无法被 `artifacts.list` 反查 Session 时，后端会安全回退到当前 Interaction 的 transcript Artifact，不会扫描并导入整条 Session 的历史文件。
+
+如果 OpenClaw 已完成而节点仍显示运行中，检查数据库中的 `execution_state`、`run_id` 和 `gateway_signal_inbox`，再检查后端能否调用 `sessions.get/list`。不要依据浏览器调试事件或手工修改节点状态；无法唯一关联的信号会保守进入协调流程。
+
+## 图片缩略图不显示
+
+Canvas 节点只加载后端缩略图，不以原图作为自动回退；点击预览后才请求原图。外部 HTTP Artifact 按设计只显示
+文件卡片，不生成缩略图。Canvas 本地图片缩略图返回 404 时检查：
+
+- 原附件或 Artifact 是否仍存在于 `artifacts/`，MIME 是否为受支持的栅格图片；
+- `artifacts/` 是否可写、磁盘是否有空间；
+- 升级时 `npm run migrate` 的 `0.3.0_media_derivatives_v1` 输出是否有对应警告。
+
+可在目标版本已构建且服务停止时运行 `npm run migrate -- --rescan-media`，复查并补齐缺失的缩略图；该命令不会
+改写原图。普通 `npm run migrate` 在迁移账本存在时不会重复全量扫描。
+
+## 远程启动被拒绝
+
+非回环 `HOST` 或远程 `ALLOWED_ORIGINS` 都要求受管认证，除非 Custom 模式中经过二次确认并显式设置不安全覆盖。远程部署应由代理提供 HTTPS，并将准确的浏览器 Origin 写入 `ALLOWED_ORIGINS`。
+
+如果启动报告 `Invalid ALLOWED_ORIGINS`，移除路径、查询、Fragment、凭据、`null` 和通配符，只保留例如 `https://canvas.example.com` 的精确 Origin。
+
+`SSL_PORT` 和 `VITE_DISABLE_HTTPS` 已废弃并被忽略。ConvoSketchpad 只提供 HTTP；旧 `certs/` 文件也不会再被自动加载。
+
+`VITE_HOST` 和 `VITE_PORT` 也已废弃。开发和生产统一使用 `HOST` / `PORT` 作为浏览器入口；`npm run dev` 会自动选择 loopback 后端端口。如果旧 `.env` 仍包含这些变量，重新运行 setup 会在备份后移除。
 
 ## 构建或测试失败
 
 ```bash
 npm install
 npm test -- --run
-npx tsc --noEmit -p config/tsconfig.app.json
-npx tsc --noEmit -p config/tsconfig.server.json
+npm run lint
 npm run build
 ```
 

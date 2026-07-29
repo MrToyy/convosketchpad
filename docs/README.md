@@ -27,4 +27,4 @@ ConvoSketchpad 的目标是“让想法自由分支”。以下文档描述当�
 
 - [Canvas 功能与代码地图](canvas/CANVAS-CODE-MAP.md)
 - [认证功能与代码地图](canvas/AUTH-CODE-MAP.md)
-- [Git 与 Upstream 同步工作流](canvas/GIT-WORKFLOW.md)
+- [Git 工作流](canvas/GIT-WORKFLOW.md)

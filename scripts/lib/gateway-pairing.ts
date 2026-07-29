@@ -6,6 +6,11 @@ import {
   storeDeviceAuth,
 } from '../../server/lib/device-identity.js';
 import { packageMetadata } from './package-metadata.js';
+import {
+  CONVOSKETCHPAD_GATEWAY_CLIENT_ID,
+  CONVOSKETCHPAD_GATEWAY_CLIENT_MODE,
+  CONVOSKETCHPAD_GATEWAY_CLIENT_PLATFORM,
+} from '../../server/lib/gateway-client-identity.js';
 
 const PAIRING_TIMEOUT_MS = 12_000;
 
@@ -53,11 +58,10 @@ function gatewayWsUrl(gatewayUrl: string): string {
 export function requestGatewayPairing(input: {
   gatewayUrl: string;
   gatewayToken: string;
-  origin: string;
 }): Promise<GatewayPairingProbeResult> {
   return new Promise((resolve) => {
     const url = gatewayWsUrl(input.gatewayUrl);
-    const socket = new WebSocket(url, { headers: { Origin: input.origin } });
+    const socket = new WebSocket(url);
     const requestId = `convosketchpad-pair-${randomUUID()}`;
     let settled = false;
 
@@ -90,8 +94,8 @@ export function requestGatewayPairing(input: {
         && typeof message.payload?.nonce === 'string'
       ) {
         const scopes = [...CONVOSKETCHPAD_OPERATOR_SCOPES];
-        const clientId = 'openclaw-control-ui';
-        const clientMode = 'webchat';
+        const clientId = CONVOSKETCHPAD_GATEWAY_CLIENT_ID;
+        const clientMode = CONVOSKETCHPAD_GATEWAY_CLIENT_MODE;
         socket.send(JSON.stringify({
           type: 'req',
           id: requestId,
@@ -103,7 +107,7 @@ export function requestGatewayPairing(input: {
               id: clientId,
               displayName: 'ConvoSketchpad',
               version: packageMetadata.version,
-              platform: 'web',
+              platform: CONVOSKETCHPAD_GATEWAY_CLIENT_PLATFORM,
               mode: clientMode,
               instanceId: `convosketchpad-setup-${randomUUID()}`,
             },
