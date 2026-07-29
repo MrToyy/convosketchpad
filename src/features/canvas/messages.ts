@@ -23,6 +23,7 @@ export interface CanvasCopy {
   resubmitInteractionParallel: string;
   resubmitFailed: string;
   closeComposer: string;
+  resizeNode: string;
   composerPlaceholder: string;
   addAttachment: string;
   removeAttachment: string;
@@ -163,6 +164,7 @@ export const canvasCopy = {
     resubmitInteractionParallel: '重试：原任务不会停止，新任务将从上一节点并行执行',
     resubmitFailed: '无法重试此节点',
     closeComposer: '关闭输入框',
+    resizeNode: '拖动调整节点大小',
     composerPlaceholder: '接下来希望 OpenClaw 做什么？',
     addAttachment: '添加附件',
     removeAttachment: '移除附件',
@@ -235,6 +237,7 @@ export const canvasCopy = {
     resubmitInteractionParallel: 'Retry in parallel; the original run will not be stopped',
     resubmitFailed: 'Unable to retry this node',
     closeComposer: 'Close composer',
+    resizeNode: 'Drag to resize node',
     composerPlaceholder: 'What should OpenClaw do next?',
     addAttachment: 'Add attachment',
     removeAttachment: 'Remove attachment',

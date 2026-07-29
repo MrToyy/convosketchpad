@@ -8,9 +8,11 @@ import { EMPTY_CANVAS_DRAFT } from './constants';
 import {
   COMPOSER_NODE_WIDTH,
   DEFAULT_NODE_HEIGHT,
+  INTERACTION_NODE_WIDTH,
   composerNodeId,
   placeNodeToRight,
   placeRootNode,
+  type CanvasNodeSize,
 } from './layout';
 import type {
   CanvasBranch,
@@ -23,6 +25,8 @@ interface CanvasFlowProjectionInput {
   graph: CanvasGraph;
   renderedNodes: CanvasFlowNode[];
   positions: Record<string, XYPosition>;
+  sizes: Record<string, CanvasNodeSize>;
+  resizeEnabled: boolean;
   drafts: Record<string, CanvasDraft>;
   resubmittingInteractionIds: Set<string>;
   previews: Record<string, string>;
@@ -50,6 +54,7 @@ export function projectCanvasFlow(input: CanvasFlowProjectionInput): {
     graph,
     renderedNodes,
     positions,
+    sizes,
     drafts,
     previews,
     labels,
@@ -66,30 +71,48 @@ export function projectCanvasFlow(input: CanvasFlowProjectionInput): {
   const pendingByBranch = new Map(
     graph.pendingSends.map((operation) => [operation.branchId, operation]),
   );
+  const sizeFor = (nodeId: string): CanvasNodeSize | undefined => {
+    if (sizes[nodeId]) return sizes[nodeId];
+    const saved = graph.layout?.nodes[nodeId];
+    return saved?.width !== undefined && saved.height !== undefined
+      ? { width: saved.width, height: saved.height }
+      : undefined;
+  };
 
-  const interactionNodes: CanvasFlowNode[] = graph.interactions.map((interaction) => ({
-    id: interaction.id,
-    type: 'interaction',
-    position: positions[interaction.id]
-      || graph.layout?.nodes[interaction.id]
-      || (headIds.has(interaction.id)
-        ? positions[composerNodeId(interaction.branchId, interaction.parentInteractionId)]
-        : undefined)
-      || { x: 0, y: 0 },
-    dragHandle: '.canvas-node-drag-handle',
-    data: {
-      interaction,
-      preview: previews[interaction.id] || '',
-      composerOpen: draftForkSources.has(interaction.id),
-      canAdd:
-        !headIds.has(interaction.id)
-        && interaction.executionState === 'completed'
-        && !draftForkSources.has(interaction.id),
-      resubmitting: input.resubmittingInteractionIds.has(interaction.id),
-      onAdd: input.onAdd,
-      onResubmit: input.onResubmit,
-    },
-  }));
+  const interactionNodes: CanvasFlowNode[] = graph.interactions.map((interaction) => {
+    const sourceComposerId = composerNodeId(
+      interaction.branchId,
+      interaction.parentInteractionId,
+    );
+    const size = sizeFor(interaction.id)
+      || (headIds.has(interaction.id) ? sizeFor(sourceComposerId) : undefined);
+    return {
+      id: interaction.id,
+      type: 'interaction',
+      position: positions[interaction.id]
+        || graph.layout?.nodes[interaction.id]
+        || (headIds.has(interaction.id)
+          ? positions[sourceComposerId] || graph.layout?.nodes[sourceComposerId]
+          : undefined)
+        || { x: 0, y: 0 },
+      width: size?.width || INTERACTION_NODE_WIDTH,
+      ...(size ? { height: size.height } : {}),
+      dragHandle: '.canvas-node-drag-handle',
+      data: {
+        interaction,
+        preview: previews[interaction.id] || '',
+        composerOpen: draftForkSources.has(interaction.id),
+        canAdd:
+          !headIds.has(interaction.id)
+          && interaction.executionState === 'completed'
+          && !draftForkSources.has(interaction.id),
+        resubmitting: input.resubmittingInteractionIds.has(interaction.id),
+        resizeEnabled: input.resizeEnabled,
+        onAdd: input.onAdd,
+        onResubmit: input.onResubmit,
+      },
+    };
+  });
   const interactionNodeById = new Map(interactionNodes.map((node) => [node.id, node]));
   const edges: Edge[] = graph.interactions.flatMap((interaction) =>
     interaction.parentInteractionId
@@ -109,6 +132,7 @@ export function projectCanvasFlow(input: CanvasFlowProjectionInput): {
     if (!isInitialDraft && !isContinue) continue;
     const source = isInitialDraft ? branch.forkedFromInteractionId : branch.headInteractionId;
     const nodeId = composerNodeId(branch.id, source);
+    const composerSize = sizeFor(nodeId);
     if (source) {
       edges.push({
         id: `edge-${source}-${nodeId}`,
@@ -122,12 +146,14 @@ export function projectCanvasFlow(input: CanvasFlowProjectionInput): {
       .map((node) => canvasNodeBounds(node, renderedById.get(node.id)));
     const defaultPosition = sourceNode
       ? placeNodeToRight(canvasNodeBounds(sourceNode, renderedById.get(sourceNode.id)), occupied, {
-        width: COMPOSER_NODE_WIDTH,
-        height: renderedById.get(nodeId)?.measured?.height || DEFAULT_NODE_HEIGHT,
+        width: composerSize?.width || COMPOSER_NODE_WIDTH,
+        height: composerSize?.height
+          || renderedById.get(nodeId)?.measured?.height
+          || DEFAULT_NODE_HEIGHT,
       })
       : placeRootNode(occupied, {
-        width: COMPOSER_NODE_WIDTH,
-        height: DEFAULT_NODE_HEIGHT,
+        width: composerSize?.width || COMPOSER_NODE_WIDTH,
+        height: composerSize?.height || DEFAULT_NODE_HEIGHT,
       });
     const pendingOperation = pendingByBranch.get(branch.id);
     const projectedDraft = drafts[branch.id]
@@ -142,6 +168,8 @@ export function projectCanvasFlow(input: CanvasFlowProjectionInput): {
       id: nodeId,
       type: 'composer',
       position: positions[nodeId] || graph.layout?.nodes[nodeId] || defaultPosition,
+      width: composerSize?.width || COMPOSER_NODE_WIDTH,
+      ...(composerSize ? { height: composerSize.height } : {}),
       dragHandle: '.canvas-node-drag-handle',
       data: {
         branch,
@@ -153,6 +181,7 @@ export function projectCanvasFlow(input: CanvasFlowProjectionInput): {
           : branch.sessionState === 'draft'
             ? labels.newSession
             : labels.continueBranch,
+        resizeEnabled: input.resizeEnabled,
         onTextChange: (value) => input.onTextChange(branch.id, value),
         onFiles: (files) => input.onFiles(branch.id, files),
         onRemoveFile: (index) => input.onRemoveFile(branch.id, index),

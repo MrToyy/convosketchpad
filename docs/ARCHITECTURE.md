@@ -46,6 +46,7 @@ Canvas（绑定一个 Agent）
 7. 从用户视角看 Interaction 只追加，不改写历史。
 8. Gateway 信号优先按 `runId` 关联；Session key 只在恰好存在一个候选节点时作为恢复后备，不允许猜测节点。
 9. UI 中的“重试”不是持久化实体：原 Interaction 和原执行保持不变，新结果只表现为一个普通 Root/Fork Branch。
+10. Layout 中的节点尺寸只表示用户显式缩放；内容自然测量不持久化。重新排列使用这些尺寸计算间距，但只更新位置。
 
 ## 发送状态机
 

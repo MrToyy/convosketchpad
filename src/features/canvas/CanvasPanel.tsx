@@ -7,6 +7,7 @@ import {
   applyNodeChanges,
   type Edge,
   type NodeChange,
+  type NodeDimensionChange,
   type ReactFlowInstance,
   type Viewport,
   type XYPosition,
@@ -46,10 +47,15 @@ import {
 import {
   DEFAULT_NODE_HEIGHT,
   INTERACTION_NODE_WIDTH,
+  canvasLayoutNodes,
+  canvasLayoutPositions,
+  canvasLayoutSizes,
   composerNodeId,
   mergeVisibleNodePositions,
+  mergeVisibleNodeSizes,
   placeNodeToRight,
   placeRootNode,
+  type CanvasNodeSize,
 } from './layout';
 import { projectCanvasFlow } from './canvas-flow-projection';
 import { useCanvasComposerDrafts } from './useCanvasComposerDrafts';
@@ -126,6 +132,7 @@ export function CanvasPanel({ onStatusStatsChange }: { onStatusStatsChange?: (st
   const saveTimer = useRef<number | null>(null);
   const nodesRef = useRef<CanvasFlowNode[]>([]);
   const positionsRef = useRef<Record<string, XYPosition>>({});
+  const sizesRef = useRef<Record<string, CanvasNodeSize>>({});
   const viewportRef = useRef<Viewport | undefined>(undefined);
   const reactFlowRef = useRef<ReactFlowInstance<CanvasFlowNode, Edge> | null>(null);
   const arrangeInProgressRef = useRef(false);
@@ -134,6 +141,9 @@ export function CanvasPanel({ onStatusStatsChange }: { onStatusStatsChange?: (st
   useEffect(() => {
     selectedIdRef.current = selectedId;
   }, [selectedId]);
+  useEffect(() => () => {
+    if (saveTimer.current) window.clearTimeout(saveTimer.current);
+  }, []);
 
   const sendOperationError = useCallback((operation: {
     error: string | null;
@@ -144,13 +154,21 @@ export function CanvasPanel({ onStatusStatsChange }: { onStatusStatsChange?: (st
   const handleGraphSnapshot = useCallback((nextGraph: CanvasGraph, canvasChanged: boolean) => {
     if (canvasChanged) {
       setFocusedComposer(null);
-      positionsRef.current = { ...(nextGraph.layout?.nodes || {}) };
+      positionsRef.current = canvasLayoutPositions(nextGraph.layout?.nodes || {});
+      sizesRef.current = canvasLayoutSizes(nextGraph.layout?.nodes || {});
       viewportRef.current = nextGraph.layout?.viewport;
       nodesRef.current = [];
       knownLayoutNodeIdsRef.current = new Set(Object.keys(nextGraph.layout?.nodes || {}));
       setNodes([]);
     } else {
-      positionsRef.current = { ...(nextGraph.layout?.nodes || {}), ...positionsRef.current };
+      positionsRef.current = {
+        ...canvasLayoutPositions(nextGraph.layout?.nodes || {}),
+        ...positionsRef.current,
+      };
+      sizesRef.current = {
+        ...canvasLayoutSizes(nextGraph.layout?.nodes || {}),
+        ...sizesRef.current,
+      };
     }
   }, []);
   const handleCanvasSync = useCallback((batch: CanvasSyncBatch) => {
@@ -236,7 +254,10 @@ export function CanvasPanel({ onStatusStatsChange }: { onStatusStatsChange?: (st
   }, [graph, hydrateFailedSends, sendOperationError]);
   const persistLayout = useCallback((canvasId = selectedId) => {
     if (!canvasId) return Promise.resolve();
-    const layout = { nodes: { ...positionsRef.current }, ...(viewportRef.current ? { viewport: viewportRef.current } : {}) };
+    const layout = {
+      nodes: canvasLayoutNodes(positionsRef.current, sizesRef.current),
+      ...(viewportRef.current ? { viewport: viewportRef.current } : {}),
+    };
     return canvasApi.saveLayout(canvasId, layout);
   }, [selectedId]);
 
@@ -256,6 +277,7 @@ export function CanvasPanel({ onStatusStatsChange }: { onStatusStatsChange?: (st
     const composerId = composerNodeId(branch.id, composerSource);
     const composerPosition = positionsRef.current[composerId]
       || nodesRef.current.find((node) => node.id === composerId)?.position;
+    const composerSize = sizesRef.current[composerId];
     markSending(branch.id);
     try {
       const canvasAgentId = graph?.canvas.agentId;
@@ -272,9 +294,21 @@ export function CanvasPanel({ onStatusStatsChange }: { onStatusStatsChange?: (st
         userInput: draft.text,
         attachmentIds,
       });
-      if (composerPosition && result.interaction) {
-        positionsRef.current = { ...positionsRef.current, [result.interaction.id]: composerPosition };
-        delete positionsRef.current[composerId];
+      if (result.interaction && (composerPosition || composerSize)) {
+        if (composerPosition) {
+          positionsRef.current = {
+            ...positionsRef.current,
+            [result.interaction.id]: composerPosition,
+          };
+          delete positionsRef.current[composerId];
+        }
+        if (composerSize) {
+          sizesRef.current = {
+            ...sizesRef.current,
+            [result.interaction.id]: composerSize,
+          };
+          delete sizesRef.current[composerId];
+        }
         await persistLayout();
       }
       if (result.interaction) clearDraft(branch.id);
@@ -364,6 +398,8 @@ export function CanvasPanel({ onStatusStatsChange }: { onStatusStatsChange?: (st
       graph,
       renderedNodes: nodesRef.current,
       positions: positionsRef.current,
+      sizes: sizesRef.current,
+      resizeEnabled: !rearranging,
       drafts,
       resubmittingInteractionIds,
       previews,
@@ -389,6 +425,7 @@ export function CanvasPanel({ onStatusStatsChange }: { onStatusStatsChange?: (st
     focusComposer,
     graph,
     previews,
+    rearranging,
     removeFile,
     removePersistedAttachment,
     resubmitInteraction,
@@ -403,7 +440,14 @@ export function CanvasPanel({ onStatusStatsChange }: { onStatusStatsChange?: (st
       const next = flow.nodes.map((node) => {
         const existing = currentById.get(node.id);
         return existing
-          ? { ...existing, ...node, position: existing.position, measured: existing.measured }
+          ? {
+            ...existing,
+            ...node,
+            position: existing.position,
+            width: existing.width ?? node.width,
+            height: existing.height ?? node.height,
+            measured: existing.measured,
+          }
           : node;
       });
       nodesRef.current = next;
@@ -411,6 +455,13 @@ export function CanvasPanel({ onStatusStatsChange }: { onStatusStatsChange?: (st
         positionsRef.current,
         Object.fromEntries(next.map((node) => [node.id, node.position])),
       );
+      sizesRef.current = mergeVisibleNodeSizes({
+        ...sizesRef.current,
+        ...Object.fromEntries(next.flatMap((node) =>
+          node.width !== undefined && node.height !== undefined
+            ? [[node.id, { width: node.width, height: node.height }]]
+            : [])),
+      }, next.map((node) => node.id));
       return next;
     });
   }, [flow.nodes]);
@@ -435,9 +486,28 @@ export function CanvasPanel({ onStatusStatsChange }: { onStatusStatsChange?: (st
         positionsRef.current,
         Object.fromEntries(next.map((node) => [node.id, node.position])),
       );
+      const manualDimensions = changes.filter((change): change is NodeDimensionChange =>
+        change.type === 'dimensions'
+        && change.resizing !== undefined
+        && change.dimensions !== undefined);
+      if (manualDimensions.length > 0) {
+        sizesRef.current = {
+          ...sizesRef.current,
+          ...Object.fromEntries(manualDimensions.map((change) => [
+            change.id,
+            {
+              width: change.dimensions!.width,
+              height: change.dimensions!.height,
+            },
+          ])),
+        };
+      }
       return next;
     });
-    if (!selectedId || changes.every((change) => change.type !== 'position')) return;
+    const changedLayout = changes.some((change) =>
+      change.type === 'position'
+      || (change.type === 'dimensions' && change.resizing !== undefined));
+    if (!selectedId || !changedLayout) return;
     if (saveTimer.current) window.clearTimeout(saveTimer.current);
     saveTimer.current = window.setTimeout(() => {
       void persistLayout().catch((cause) => setError(localizeError(cause, copy.saveLayoutFailed)));
@@ -494,7 +564,7 @@ export function CanvasPanel({ onStatusStatsChange }: { onStatusStatsChange?: (st
       const viewport = instance.getViewport();
       if (selectedIdRef.current === canvasId) viewportRef.current = viewport;
       await canvasApi.saveLayout(canvasId, {
-        nodes: arrangedPositions,
+        nodes: canvasLayoutNodes(arrangedPositions, sizesRef.current),
         viewport,
       });
     } catch (cause) {

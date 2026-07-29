@@ -11,11 +11,32 @@
 | PATCH | `/api/canvas/canvases/:id` | 更新名称，或在首次发送前更新 Agent |
 | DELETE | `/api/canvas/canvases/:id` | 删除 Canvas 和持久化文件 |
 | GET | `/api/canvas/canvases/:id/graph` | 无副作用读取 Canvas、Branch、Interaction、布局和 `pendingSends` |
-| PUT | `/api/canvas/canvases/:id/layout` | 完整保存手动拖拽或自动重排后的节点位置和视口 |
+| PUT | `/api/canvas/canvases/:id/layout` | 完整保存节点位置、可选用户尺寸和视口 |
 | POST | `/api/canvas/canvases/:id/root-branches` | 创建或返回草稿主 Branch |
 | POST | `/api/canvas/interactions/:id/fork` | 从已完成历史 Interaction 创建 Branch |
 | POST | `/api/canvas/interactions/:id/resubmit` | 从上一节点创建普通 Branch，并原样重新提交目标 Interaction 的输入 |
 | GET | `/api/canvas/agents` | 读取服务端代理的 Agent 目录 |
+
+Layout 节点兼容仅包含 `x/y` 的旧数据。用户缩放后的 `width/height` 必须同时提供；宽度范围为
+`320–800`，高度范围为 `240–900`。重新排列会更新 `x/y`，但保留已有尺寸：
+
+```json
+{
+  "nodes": {
+    "interaction-id": {
+      "x": 120,
+      "y": 80,
+      "width": 640,
+      "height": 520
+    }
+  },
+  "viewport": {
+    "x": -40,
+    "y": -20,
+    "zoom": 0.8
+  }
+}
+```
 
 ## 发送
 

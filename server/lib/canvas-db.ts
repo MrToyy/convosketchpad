@@ -138,7 +138,15 @@ export interface CanvasGraph {
   canvas: CanvasRecord;
   branches: BranchRecord[];
   interactions: InteractionRecord[];
-  layout: { nodes: Record<string, { x: number; y: number }>; viewport?: { x: number; y: number; zoom: number } } | null;
+  layout: {
+    nodes: Record<string, {
+      x: number;
+      y: number;
+      width?: number;
+      height?: number;
+    }>;
+    viewport?: { x: number; y: number; zoom: number };
+  } | null;
   pendingSends: SendReservation[];
   failedSends: SendReservation[];
 }

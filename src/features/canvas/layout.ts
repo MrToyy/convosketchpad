@@ -1,10 +1,20 @@
 import type { XYPosition } from '@xyflow/react';
+import type { CanvasLayoutNode } from './types';
 
 export const INTERACTION_NODE_WIDTH = 380;
 export const COMPOSER_NODE_WIDTH = 360;
 export const DEFAULT_NODE_HEIGHT = 300;
+export const MIN_NODE_WIDTH = 320;
+export const MIN_NODE_HEIGHT = 240;
+export const MAX_NODE_WIDTH = 800;
+export const MAX_NODE_HEIGHT = 900;
 export const NODE_HORIZONTAL_GAP = 110;
 export const NODE_VERTICAL_GAP = 80;
+
+export interface CanvasNodeSize {
+  width: number;
+  height: number;
+}
 
 export interface CanvasNodeBounds {
   id: string;
@@ -32,6 +42,47 @@ export function mergeVisibleNodePositions(
     if (id.startsWith('composer:') && !visibleIds.has(id)) delete next[id];
   }
   return next;
+}
+
+export function mergeVisibleNodeSizes(
+  current: Record<string, CanvasNodeSize>,
+  visibleNodeIds: Iterable<string>,
+): Record<string, CanvasNodeSize> {
+  const visibleIds = new Set(visibleNodeIds);
+  const next = { ...current };
+  for (const id of Object.keys(next)) {
+    if (id.startsWith('composer:') && !visibleIds.has(id)) delete next[id];
+  }
+  return next;
+}
+
+export function canvasLayoutPositions(
+  nodes: Record<string, CanvasLayoutNode>,
+): Record<string, XYPosition> {
+  return Object.fromEntries(
+    Object.entries(nodes).map(([id, node]) => [id, { x: node.x, y: node.y }]),
+  );
+}
+
+export function canvasLayoutSizes(
+  nodes: Record<string, CanvasLayoutNode>,
+): Record<string, CanvasNodeSize> {
+  return Object.fromEntries(
+    Object.entries(nodes).flatMap(([id, node]) =>
+      node.width !== undefined && node.height !== undefined
+        ? [[id, { width: node.width, height: node.height }]]
+        : []),
+  );
+}
+
+export function canvasLayoutNodes(
+  positions: Record<string, XYPosition>,
+  sizes: Record<string, CanvasNodeSize>,
+): Record<string, CanvasLayoutNode> {
+  return Object.fromEntries(Object.entries(positions).map(([id, position]) => [
+    id,
+    { ...position, ...(sizes[id] || {}) },
+  ]));
 }
 
 interface PlacementSize {

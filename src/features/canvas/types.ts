@@ -88,8 +88,15 @@ export interface CanvasInteraction {
   updatedAt: number;
 }
 
+export interface CanvasLayoutNode {
+  x: number;
+  y: number;
+  width?: number;
+  height?: number;
+}
+
 export interface CanvasLayout {
-  nodes: Record<string, { x: number; y: number }>;
+  nodes: Record<string, CanvasLayoutNode>;
   viewport?: { x: number; y: number; zoom: number };
 }
 

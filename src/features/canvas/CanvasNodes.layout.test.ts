@@ -44,7 +44,10 @@ function flowNode(
       preview: '',
       composerOpen: false,
       canAdd: false,
+      resubmitting: false,
+      resizeEnabled: true,
       onAdd: () => undefined,
+      onResubmit: () => undefined,
     },
   };
 }
@@ -81,6 +84,29 @@ describe('Canvas automatic topology layout', () => {
 
     expect(branches[1].position.y).toBeGreaterThanOrEqual(
       branches[0].position.y + upperHeight + NODE_VERTICAL_GAP,
+    );
+  });
+
+  it('uses and preserves explicit user dimensions while rearranging positions', () => {
+    const root = {
+      ...flowNode('root', { width: 380, height: 300 }),
+      width: 700,
+      height: 560,
+    };
+    const child = {
+      ...flowNode('child', { width: 380, height: 300 }),
+      width: 500,
+      height: 480,
+    };
+
+    const arranged = autoLayoutCanvasNodes([root, child], [edge('root', 'child')]);
+    const arrangedRoot = arranged.find((node) => node.id === 'root')!;
+    const arrangedChild = arranged.find((node) => node.id === 'child')!;
+
+    expect(arrangedRoot).toMatchObject({ width: 700, height: 560 });
+    expect(arrangedChild).toMatchObject({ width: 500, height: 480 });
+    expect(arrangedChild.position.x).toBe(
+      arrangedRoot.position.x + 700 + NODE_HORIZONTAL_GAP,
     );
   });
 

@@ -28,6 +28,7 @@ ConvoSketchpad 的重要变更均记录在此文件中。格式遵循 [Keep a Ch
 - 精简底部状态栏：分支和工作中数量直接来自 Graph；Interaction 完成时保存其 Session 累计上下文快照，获得焦点的 Compose Node 只展示来源节点的快照，不聚合祖先节点；移除实时 Branch 上下文查询、Canvas 级 Session 聚合、服务端时间、Gateway 运行时间及其周期轮询，并把版本与更新入口迁移到“设置 → 系统”。
 - 重组设置面板为默认“外观”和“系统”两个页签；系统页分别呈现 OpenClaw 网关管理与 ConvoSketchpad 版本更新，并按运行能力区分本机重启和远程主机管理。
 - Canvas 工具栏新增“重新排列”：在没有可见发送或运行任务时，按真实节点尺寸执行从左到右的拓扑布局、自动适应全图，并把节点位置与视口完整保存到后端。
+- Canvas 的 Interaction 和 Composer 支持通过始终显示的右下角控制柄调整大小；用户尺寸随 Layout 持久化并在 Composer 提交后转移到新 Interaction，重新排列只更新位置而不重置尺寸。
 - Fork 与失效 Session 恢复统一为完整 Replay Package：保留全部历史文本及可用附件/Artifact 的逻辑位置，按真实内容哈希去重物理文件，通过原生 `chat.send.attachments` 投递。恢复 Interaction 完成后会收敛 Branch 的新物理 Session ID，超出 Gateway 载荷上限时明确失败而不静默裁剪历史。
 - 图片压缩与历史媒体处理统一迁移到后端：原图保持不可变，投递图和 WebP 缩略图按 Canvas、内容哈希和策略版本缓存；Canvas 节点只加载缩略图，打开预览或下载时才读取原图，外部 HTTP Artifact 不主动抓取。
 - 更新器停服迁移新增历史图片缩略图全量回填和 60 分钟超时；单文件失败可诊断地跳过，系统性存储或数据库错误触发回滚。移除浏览器压缩、媒体准备资源 API 和投递副本上传链。

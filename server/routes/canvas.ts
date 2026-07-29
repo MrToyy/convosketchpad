@@ -32,6 +32,18 @@ import { rateLimitGeneral } from '../middleware/rate-limit.js';
 
 const app = new Hono();
 const encoder = new TextEncoder();
+const canvasLayoutNodeSchema = z.object({
+  x: z.number().finite(),
+  y: z.number().finite(),
+  width: z.number().finite().min(320).max(800).optional(),
+  height: z.number().finite().min(240).max(900).optional(),
+}).superRefine((node, context) => {
+  if ((node.width === undefined) === (node.height === undefined)) return;
+  context.addIssue({
+    code: 'custom',
+    message: 'width and height must be provided together',
+  });
+});
 
 function sseFrame(event: string, data: unknown, id?: number): Uint8Array {
   return encoder.encode(`${id === undefined ? '' : `id: ${id}\n`}event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
@@ -383,8 +395,12 @@ app.put('/api/canvas/canvases/:id/layout', rateLimitGeneral, async (c) => {
   const identity = identityOr401(c);
   if (!identity) return c.json({ error: 'Authentication required' }, 401);
   const parsed = z.object({
-    nodes: z.record(z.string(), z.object({ x: z.number(), y: z.number() })),
-    viewport: z.object({ x: z.number(), y: z.number(), zoom: z.number().positive() }).optional(),
+    nodes: z.record(z.string(), canvasLayoutNodeSchema),
+    viewport: z.object({
+      x: z.number().finite(),
+      y: z.number().finite(),
+      zoom: z.number().finite().positive(),
+    }).optional(),
   }).safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: 'Invalid layout' }, 400);
   return getCanvasStore().saveLayout(identity.userId, routeParam(c, 'id'), parsed.data)

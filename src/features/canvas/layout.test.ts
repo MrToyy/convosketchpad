@@ -5,8 +5,12 @@ import {
   INTERACTION_NODE_WIDTH,
   NODE_HORIZONTAL_GAP,
   NODE_VERTICAL_GAP,
+  canvasLayoutNodes,
+  canvasLayoutPositions,
+  canvasLayoutSizes,
   composerNodeId,
   mergeVisibleNodePositions,
+  mergeVisibleNodeSizes,
   placeNodeToRight,
   placeRootNode,
   type CanvasNodeBounds,
@@ -33,6 +37,33 @@ describe('Canvas node placement', () => {
     })).toEqual({
       'interaction-1': { x: 100, y: 80 },
       'composer:branch-1:interaction-1': { x: 590, y: 80 },
+    });
+  });
+
+  it('round-trips optional custom sizes while keeping old position-only layouts compatible', () => {
+    const layoutNodes = {
+      'interaction-1': { x: 100, y: 80, width: 640, height: 520 },
+      'interaction-2': { x: 590, y: 80 },
+    };
+    const positions = canvasLayoutPositions(layoutNodes);
+    const sizes = canvasLayoutSizes(layoutNodes);
+
+    expect(positions).toEqual({
+      'interaction-1': { x: 100, y: 80 },
+      'interaction-2': { x: 590, y: 80 },
+    });
+    expect(sizes).toEqual({
+      'interaction-1': { width: 640, height: 520 },
+    });
+    expect(canvasLayoutNodes(positions, sizes)).toEqual(layoutNodes);
+  });
+
+  it('removes stale Composer sizes without discarding persistent Interaction sizes', () => {
+    expect(mergeVisibleNodeSizes({
+      'interaction-1': { width: 640, height: 520 },
+      'composer:branch-1:root': { width: 500, height: 480 },
+    }, ['interaction-1', 'composer:branch-1:interaction-1'])).toEqual({
+      'interaction-1': { width: 640, height: 520 },
     });
   });
 

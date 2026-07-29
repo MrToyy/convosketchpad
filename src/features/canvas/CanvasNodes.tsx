@@ -2,6 +2,7 @@
 import dagre from '@dagrejs/dagre';
 import {
   Handle,
+  NodeResizeControl,
   Position,
   type Edge,
   type Node,
@@ -21,7 +22,7 @@ import {
   Sparkles,
   X,
 } from 'lucide-react';
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { ImageLightbox } from '@/features/chat/ImageLightbox';
 import { MarkdownRenderer } from '@/features/markdown/MarkdownRenderer';
@@ -33,6 +34,10 @@ import {
   COMPOSER_NODE_WIDTH,
   DEFAULT_NODE_HEIGHT,
   INTERACTION_NODE_WIDTH,
+  MAX_NODE_HEIGHT,
+  MAX_NODE_WIDTH,
+  MIN_NODE_HEIGHT,
+  MIN_NODE_WIDTH,
   NODE_HORIZONTAL_GAP,
   NODE_VERTICAL_GAP,
   type CanvasNodeBounds,
@@ -46,6 +51,7 @@ interface InteractionNodeData extends Record<string, unknown> {
   composerOpen: boolean;
   canAdd: boolean;
   resubmitting: boolean;
+  resizeEnabled: boolean;
   onAdd: (interaction: CanvasInteraction) => void;
   onResubmit: (interaction: CanvasInteraction) => void;
 }
@@ -54,6 +60,7 @@ interface ComposerNodeData extends Record<string, unknown> {
   branch: CanvasBranch;
   draft: CanvasDraft;
   label: string;
+  resizeEnabled: boolean;
   onTextChange: (value: string) => void;
   onFiles: (files: File[]) => void;
   onRemoveFile: (index: number) => void;
@@ -88,6 +95,73 @@ function interactionStatusLabel(interaction: CanvasInteraction, copy: CanvasCopy
   return copy.status.failed;
 }
 
+function CanvasNodeResizeHandle({
+  enabled,
+  label,
+}: {
+  enabled: boolean;
+  label: string;
+}) {
+  const [resizing, setResizing] = useState(false);
+  return (
+    <NodeResizeControl
+      position="bottom-right"
+      autoScale={false}
+      minWidth={MIN_NODE_WIDTH}
+      minHeight={MIN_NODE_HEIGHT}
+      maxWidth={MAX_NODE_WIDTH}
+      maxHeight={MAX_NODE_HEIGHT}
+      shouldResize={() => enabled}
+      onResizeStart={() => setResizing(true)}
+      onResizeEnd={() => setResizing(false)}
+      style={{
+        left: 'auto',
+        top: 'auto',
+        right: 0,
+        bottom: 0,
+        width: 28,
+        height: 28,
+        translate: 'none',
+        zIndex: 10,
+      }}
+      className={`group/resize !border-0 !bg-transparent !shadow-none ${enabled ? '!cursor-nwse-resize' : '!cursor-not-allowed'}`}
+    >
+      <span
+        title={label}
+        data-resize-enabled={enabled}
+        className="pointer-events-none relative block size-full"
+      >
+        <svg
+          data-testid="node-resize-grip"
+          viewBox="0 0 16 16"
+          aria-hidden="true"
+          fill="none"
+          className={`absolute bottom-[5px] right-[5px] size-3.5 transition-colors duration-150 ${resizing ? 'text-primary' : enabled ? 'text-muted-foreground/50 group-hover/resize:text-primary/80' : 'text-muted-foreground/30'}`}
+        >
+          <path
+            d="M2.75 13.25 13.25 2.75"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+          />
+          <path
+            d="M7.25 13.25 13.25 7.25"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+          />
+          <path
+            d="M11.25 13.25 13.25 11.25"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+          />
+        </svg>
+      </span>
+    </NodeResizeControl>
+  );
+}
+
 function InteractionNode({ data }: NodeProps<InteractionFlowNode>) {
   const { language } = useSettings();
   const copy = getCanvasCopy(language);
@@ -97,6 +171,7 @@ function InteractionNode({ data }: NodeProps<InteractionFlowNode>) {
     composerOpen,
     canAdd,
     resubmitting,
+    resizeEnabled,
     onAdd,
     onResubmit,
   } = data;
@@ -110,8 +185,10 @@ function InteractionNode({ data }: NodeProps<InteractionFlowNode>) {
   const fileAttachments = interaction.attachments.filter((item) =>
     !item.mimeType.startsWith('image/') || !item.thumbnailUri);
   return (
-    <article className="w-[380px] rounded-3xl border border-border/80 bg-card/96 p-4 shadow-2xl backdrop-blur">
+    <>
+      <CanvasNodeResizeHandle enabled={resizeEnabled} label={copy.resizeNode} />
       <Handle type="target" position={Position.Left} className="!bg-primary" />
+      <article className="h-full w-full overflow-auto rounded-3xl border border-border/80 bg-card/96 p-4 shadow-2xl backdrop-blur">
       <header className="canvas-node-drag-handle flex cursor-grab items-center justify-between gap-3 active:cursor-grabbing">
         <div className="flex min-w-0 items-center gap-2">
           <span className={`size-2 rounded-full ${running ? 'animate-pulse bg-primary' : interaction.executionState === 'failed' || interaction.executionState === 'unconfirmed' ? 'bg-destructive' : 'bg-green'}`} />
@@ -236,6 +313,7 @@ function InteractionNode({ data }: NodeProps<InteractionFlowNode>) {
         </div>
       )}
 
+      </article>
       {!composerOpen && canAdd && (
         <button
           type="button"
@@ -247,7 +325,7 @@ function InteractionNode({ data }: NodeProps<InteractionFlowNode>) {
         </button>
       )}
       <Handle type="source" position={Position.Right} className="!bg-primary" />
-    </article>
+    </>
   );
 }
 
@@ -256,8 +334,10 @@ function ComposerNode({ data }: NodeProps<ComposerFlowNode>) {
   const copy = getCanvasCopy(language);
   const inputRef = useRef<HTMLInputElement>(null);
   return (
-    <section className="w-[360px] rounded-3xl border border-primary/35 bg-card/98 p-4 shadow-2xl">
+    <>
+      <CanvasNodeResizeHandle enabled={data.resizeEnabled} label={copy.resizeNode} />
       <Handle type="target" position={Position.Left} className="!bg-primary" />
+      <section className="h-full w-full overflow-auto rounded-3xl border border-primary/35 bg-card/98 p-4 shadow-2xl">
       <header className="canvas-node-drag-handle mb-3 flex cursor-grab items-center justify-between active:cursor-grabbing">
         <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-primary">
           <Sparkles size={14} /> {data.label}
@@ -273,7 +353,7 @@ function ComposerNode({ data }: NodeProps<ComposerFlowNode>) {
         onFocus={data.onFocus}
         onBlur={data.onBlur}
         placeholder={copy.composerPlaceholder}
-        className="nodrag nowheel min-h-28 w-full resize-y rounded-2xl border border-border bg-background/65 px-3 py-3 text-sm outline-none focus:border-primary"
+        className="nodrag nowheel min-h-28 w-full resize-none rounded-2xl border border-border bg-background/65 px-3 py-3 text-sm outline-none focus:border-primary"
         disabled={data.draft.sending}
       />
       {data.draft.persistedAttachments.length > 0 && (
@@ -349,7 +429,8 @@ function ComposerNode({ data }: NodeProps<ComposerFlowNode>) {
           onSend={data.onSend}
         />
       </footer>
-    </section>
+      </section>
+    </>
   );
 }
 
@@ -365,8 +446,8 @@ export function autoLayoutCanvasNodes(nodes: CanvasFlowNode[], edges: Edge[]): C
   nodes.forEach((node) => {
     const fallbackWidth = node.type === 'composer' ? COMPOSER_NODE_WIDTH : INTERACTION_NODE_WIDTH;
     graph.setNode(node.id, {
-      width: node.measured?.width || fallbackWidth,
-      height: node.measured?.height || DEFAULT_NODE_HEIGHT,
+      width: node.width || node.measured?.width || fallbackWidth,
+      height: node.height || node.measured?.height || DEFAULT_NODE_HEIGHT,
     });
   });
   edges.forEach((edge) => graph.setEdge(edge.source, edge.target));
@@ -374,8 +455,8 @@ export function autoLayoutCanvasNodes(nodes: CanvasFlowNode[], edges: Edge[]): C
   return nodes.map((node) => {
     const position = graph.node(node.id) as { x: number; y: number };
     const fallbackWidth = node.type === 'composer' ? COMPOSER_NODE_WIDTH : INTERACTION_NODE_WIDTH;
-    const width = node.measured?.width || fallbackWidth;
-    const height = node.measured?.height || DEFAULT_NODE_HEIGHT;
+    const width = node.width || node.measured?.width || fallbackWidth;
+    const height = node.height || node.measured?.height || DEFAULT_NODE_HEIGHT;
     return { ...node, position: { x: position.x - width / 2, y: position.y - height / 2 } };
   });
 }
@@ -385,7 +466,9 @@ export function canvasNodeBounds(node: CanvasFlowNode, rendered?: CanvasFlowNode
   return {
     id: node.id,
     position: node.position,
-    width: rendered?.measured?.width || node.measured?.width || fallbackWidth,
-    height: rendered?.measured?.height || node.measured?.height || DEFAULT_NODE_HEIGHT,
+    width: rendered?.width || node.width || rendered?.measured?.width
+      || node.measured?.width || fallbackWidth,
+    height: rendered?.height || node.height || rendered?.measured?.height
+      || node.measured?.height || DEFAULT_NODE_HEIGHT,
   };
 }

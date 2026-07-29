@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { NodeChange } from '@xyflow/react';
 import type { CanvasFlowNode } from './CanvasNodes';
 import type { CanvasGraph } from './types';
 import { CanvasPanel } from './CanvasPanel';
@@ -15,6 +16,7 @@ const flowMocks = vi.hoisted(() => {
     setViewport,
     lastNodes: [] as CanvasFlowNode[],
     lastNodesDraggable: true,
+    onNodesChange: null as ((changes: NodeChange<CanvasFlowNode>[]) => void) | null,
     instance: { fitView, getViewport, setViewport },
   };
 });
@@ -35,6 +37,7 @@ vi.mock('@xyflow/react', async (importOriginal) => {
     children?: ReactNode;
     nodes: CanvasFlowNode[];
     nodesDraggable?: boolean;
+    onNodesChange?: (changes: NodeChange<CanvasFlowNode>[]) => void;
     onInit?: (instance: typeof flowMocks.instance) => void;
   };
   return {
@@ -42,9 +45,16 @@ vi.mock('@xyflow/react', async (importOriginal) => {
     Background: () => null,
     Controls: () => null,
     MiniMap: () => null,
-    ReactFlow: ({ children, nodes, nodesDraggable, onInit }: MockReactFlowProps) => {
+    ReactFlow: ({
+      children,
+      nodes,
+      nodesDraggable,
+      onNodesChange,
+      onInit,
+    }: MockReactFlowProps) => {
       flowMocks.lastNodes = nodes;
       flowMocks.lastNodesDraggable = nodesDraggable !== false;
+      flowMocks.onNodesChange = onNodesChange || null;
       React.useEffect(() => {
         onInit?.(flowMocks.instance);
       }, [onInit]);
@@ -131,8 +141,13 @@ function canvasGraph(executionState: 'completed' | 'running' = 'completed'): Can
     }],
     layout: {
       nodes: {
-        'interaction-1': { x: 800, y: 500 },
-        'composer:branch-1:interaction-1': { x: 1_300, y: 500 },
+        'interaction-1': { x: 800, y: 500, width: 640, height: 520 },
+        'composer:branch-1:interaction-1': {
+          x: 1_300,
+          y: 500,
+          width: 500,
+          height: 480,
+        },
       },
       viewport: { x: -120, y: -80, zoom: 0.7 },
     },
@@ -198,8 +213,11 @@ describe('Canvas rearrange action', () => {
     });
     expect(apiMocks.saveLayout).toHaveBeenCalledWith('canvas-1', {
       nodes: {
-        'interaction-1': expect.any(Object),
-        'composer:branch-1:interaction-1': expect.any(Object),
+        'interaction-1': expect.objectContaining({ width: 640, height: 520 }),
+        'composer:branch-1:interaction-1': expect.objectContaining({
+          width: 500,
+          height: 480,
+        }),
       },
       viewport: { x: 12, y: 24, zoom: 0.8 },
     });
@@ -207,6 +225,51 @@ describe('Canvas rearrange action', () => {
     finishSave();
     await waitFor(() => expect(screen.getByRole('button', { name: '重新排列' })).toBeEnabled());
     expect(flowMocks.lastNodesDraggable).toBe(true);
+  });
+
+  it('persists manual dimensions without treating natural measurement as a custom size', async () => {
+    render(<CanvasPanel />);
+    await waitFor(() => expect(flowMocks.onNodesChange).not.toBeNull());
+    apiMocks.saveLayout.mockClear();
+
+    act(() => {
+      flowMocks.onNodesChange?.([{
+        id: 'interaction-1',
+        type: 'dimensions',
+        dimensions: { width: 650, height: 530 },
+      }]);
+    });
+    await new Promise((resolve) => setTimeout(resolve, 550));
+    expect(apiMocks.saveLayout).not.toHaveBeenCalled();
+
+    act(() => {
+      flowMocks.onNodesChange?.([{
+        id: 'interaction-1',
+        type: 'dimensions',
+        resizing: true,
+        setAttributes: true,
+        dimensions: { width: 700, height: 560 },
+      }, {
+        id: 'interaction-1',
+        type: 'dimensions',
+        resizing: false,
+        dimensions: { width: 700, height: 560 },
+      }]);
+    });
+
+    await waitFor(() => expect(apiMocks.saveLayout).toHaveBeenCalledWith(
+      'canvas-1',
+      expect.objectContaining({
+        nodes: expect.objectContaining({
+          'interaction-1': {
+            x: 800,
+            y: 500,
+            width: 700,
+            height: 560,
+          },
+        }),
+      }),
+    ), { timeout: 1_500 });
   });
 
   it('restores the previous nodes and viewport when persistence fails', async () => {

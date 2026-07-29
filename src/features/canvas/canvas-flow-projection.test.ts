@@ -33,6 +33,8 @@ function project(graph: CanvasGraph) {
     graph,
     renderedNodes: [],
     positions: {},
+    sizes: {},
+    resizeEnabled: true,
     drafts: {},
     resubmittingInteractionIds: new Set(),
     previews: {},
@@ -202,7 +204,16 @@ describe('Canvas flow projection', () => {
         updatedAt: 2,
       }],
       interactions: [previous, accepted],
-      layout: null,
+      layout: {
+        nodes: {
+          'composer:branch-root:interaction-1': {
+            x: 490,
+            y: 30,
+            width: 700,
+            height: 560,
+          },
+        },
+      },
       pendingSends: [],
       failedSends: [],
       hasPendingUpdates: true,
@@ -214,6 +225,9 @@ describe('Canvas flow projection', () => {
       data: { canAdd: true },
     });
     expect(result.nodes.find((node) => node.id === accepted.id)).toMatchObject({
+      width: 700,
+      height: 560,
+      position: { x: 490, y: 30 },
       data: { canAdd: false },
     });
     expect(result.nodes.some((node) => node.type === 'composer')).toBe(false);
