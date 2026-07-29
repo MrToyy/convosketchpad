@@ -1,8 +1,9 @@
 # 更新 ConvoSketchpad
 
-从 `0.2.0` 开始，ConvoSketchpad 为已发布的稳定版本提供终端更新器。
+`0.2.0` 首次提供终端更新器；`0.2.0 → 0.3.0` 是一次性桥接升级。从已经安装的 `0.3.0`
+开始，ConvoSketchpad 支持直接升级到任意后续受支持的稳定版本，无需依次安装中间版本。
 
-更新器只接受 `https://github.com/MrToyy/convosketchpad` 发布的 Release。本地标签、继承自 OpenClaw Nerve 的标签、Fork、分支、Draft 和预发布版本都不能作为更新源。
+更新器只接受 `https://github.com/MrToyy/convosketchpad` 发布的 Release。本地标签、非本仓库发行的历史标签、Fork、分支、Draft 和预发布版本都不能作为更新源。
 
 只有关闭受管认证时，“设置 → 系统”中的 ConvoSketchpad 版本区域才会显示更新入口。受管部署必须由宿主机管理员直接在服务端终端运行更新器。
 
@@ -21,7 +22,90 @@ git remote set-url origin https://github.com/MrToyy/convosketchpad.git
 
 即使使用 `--yes`，更新器也会拒绝脏工作区，因为切换 Release 无法安全保留未提交工作。
 
-## 快速开始
+## 从 0.2.0 升级到 0.3.0
+
+`0.2.0` 自带的旧更新器没有独立的数据库迁移阶段，也不会创建 SQLite 快照。升级前必须停止服务，并把
+`.env`、`database/` 和 `artifacts/` 一起备份到仓库外。
+
+### 1. 检查工作区
+
+```bash
+git status --short
+```
+
+只有没有输出时才继续；更新器不会覆盖、暂存或保留本地修改。
+
+### 2. 停止服务
+
+根据部署方式选择一条命令：
+
+```bash
+# systemd 系统服务
+sudo systemctl stop convosketchpad.service
+
+# systemd 用户服务
+systemctl --user stop convosketchpad.service
+
+# macOS launchd
+launchctl stop com.mrtoyy.convosketchpad
+```
+
+手动运行的服务直接在原终端中停止。
+
+### 3. 创建仓库外备份
+
+在 ConvoSketchpad 仓库根目录执行：
+
+```bash
+backup_dir="../convosketchpad-0.2.0-backup-$(date +%Y%m%d-%H%M%S)"
+mkdir -p "$backup_dir"
+for path in .env database artifacts; do
+  if [ -e "$path" ]; then
+    cp -R -p "$path" "$backup_dir/"
+  fi
+done
+echo "Backup saved to $backup_dir"
+```
+
+备份目录必须位于仓库外，否则更新器会因为工作区存在未跟踪文件而拒绝继续。
+
+### 4. 更新并验证
+
+固定选择 `v0.3.0`，避免这次一次性桥接跨过兼容基线：
+
+```bash
+npm run update -- --version v0.3.0
+```
+
+已注册的 systemd 或 launchd 服务即使已经停止，仍会被更新器识别并在升级后启动。没有服务管理器时手动运行：
+
+```bash
+npm start
+```
+
+将端口替换为实际配置后验证：
+
+```bash
+curl -fsS http://127.0.0.1:3080/health
+curl -fsS http://127.0.0.1:3080/api/version
+```
+
+`0.3.0` 首次打开数据库时会在 HTTP 监听前完成事务化结构与 Interaction 数据迁移。历史媒体 Hash
+和缩略图回填在监听后于后台继续；缺失缩略图仍可在首次请求时按需生成，因此不会占用 `0.2.0`
+旧更新器的 60 秒健康检查窗口。系统性回填错误会写入服务日志且不记录迁移完成标识，下次启动会重试。
+
+需要在重新开放服务前完成全部历史媒体回填时，使用保守流程：
+
+```bash
+npm run update -- --version v0.3.0 --no-restart
+npm run migrate
+sudo systemctl start convosketchpad.service
+```
+
+systemd 用户服务或 launchd 部署应把最后一条命令替换成对应的启动命令。这个流程同样依赖第 3 步的手动备份；
+`0.2.0` 旧更新器生成的回滚状态不包含数据库副本。
+
+## 从 0.3.0 开始更新
 
 只解析和预览目标 Release，不修改文件：
 
@@ -55,9 +139,11 @@ npm run update
 会记录警告并继续，存储或数据库系统性错误会触发回滚。迁移账本存在后，后续更新和服务启动都不会重复全量扫描。
 需要诊断性地复查历史媒体时，停止服务后显式运行 `npm run migrate -- --rescan-media`。
 
-`0.2.0` 自带的旧更新器尚没有独立的迁移阶段。由它发起首次升级时，目标版本服务在第一次打开数据库时执行同一事务化迁移，因此无需先安装中间版本。升级到本版本以后，后续更新将使用上述停服、快照、显式迁移和完整性校验流程。
-
 如果没有检测到受支持的服务管理器，更新器不会假设手动启动的进程已经停止，也不会在线执行显式迁移。目标服务下次手动启动时会先自动迁移数据库。
+
+从 `0.3.0` 开始，目标 Release 必须保留基线之后的全部迁移步骤；更新器直接安装所选目标版本，并由目标版本
+顺序执行尚未记录在 `schema_migrations` 中的迁移。迁移 ID 发布后不得修改或删除。大型、可延后的历史数据处理
+应设计成幂等维护迁移或按需生成，不应让普通服务启动长期不可用。
 
 ## CLI 参数
 
@@ -77,8 +163,8 @@ npm run update
 # 先预览
 npm run update -- --dry-run
 
-# 选择一个已发布的稳定版本
-npm run update -- --version v0.2.0
+# 选择一个已发布且不低于当前版本的稳定版本
+npm run update -- --version v0.4.0
 
 # 回滚到上一个快照
 npm run update -- --rollback
@@ -102,7 +188,7 @@ npm run update -- --no-restart
 | 70 | 回滚失败 |
 | 80 | 另一个更新进程持有锁 |
 
-## 回滚与状态
+## 0.3.0 及以后版本的回滚与状态
 
 切换工作区前，更新器会记录当前 Commit、Package 版本、时间戳和 `.env` Hash。存在 `.env` 时，以 `0600` 权限复制。检测到受管服务时会先停服；存在 `database/canvas.sqlite` 时，再使用 SQLite `VACUUM INTO` 创建包含已提交 WAL 内容的一致副本，并以 `0600` 权限保存。状态保存在 `~/.convosketchpad/updater/` 下。
 
@@ -127,6 +213,13 @@ gh release edit vX.Y.Z --draft=false --latest
 ```
 
 安装器和更新器绝不会提供 Draft 或预发布版本。
+
+从 `0.3.0` 开始，改变 Schema 或持久数据语义的 Release 还必须：
+
+- 保留从 `0.3.0` 起的全部已发布迁移，不要求用户先安装中间版本；
+- 为新迁移使用新的幂等 ID，并在成功结束时才写入 `schema_migrations`；
+- 使用最老受支持版本的数据库 Fixture 验证直接迁移、重复执行、外键和 SQLite 完整性；
+- 把耗时且不影响核心读取正确性的回填放入可重试维护阶段。
 
 ## 故障排查
 

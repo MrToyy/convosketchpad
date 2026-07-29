@@ -56,7 +56,7 @@ async function listGatewayAgents(): Promise<{ defaultId: string; ids: Set<string
     return { defaultId, ids };
   } catch (error) {
     console.warn('[canvas] agents.list failed:', error instanceof Error ? error.message : error);
-    throw new Error('agent_catalog_unavailable');
+    throw new Error('agent_catalog_unavailable', { cause: error });
   }
 }
 

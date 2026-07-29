@@ -52,7 +52,7 @@
 | Gateway 唯一连接、Canvas 类型化适配与设备边界 | `server/lib/gateway-rpc.ts`、`server/lib/openclaw-canvas.ts`、`server/lib/device-identity.ts` |
 | Session/对话协调 | `server/lib/canvas-reconciler.ts`、`server/lib/openclaw-session-policy.ts` |
 | Artifact 观察与 Interaction 终态策略 | `server/lib/canvas-artifact-watch.ts`、`server/lib/canvas-reconciliation-state.ts` |
-| 文件持久化、媒体派生与历史缩略图回填 | `server/lib/canvas-artifact-store.ts`、`server/lib/canvas-media-derivatives.ts`、`server/routes/upload-reference.ts` |
+| 文件持久化、媒体派生与监听后的历史缩略图回填 | `server/index.ts`、`server/lib/canvas-artifact-store.ts`、`server/lib/canvas-media-derivatives.ts`、`server/routes/upload-reference.ts` |
 
 ## 发送流程
 
@@ -71,4 +71,4 @@ Interaction 原样重新提交在后端事务中复制源用户输入和附件�
 Interaction 创建 `direct-submit` Fork，随后进入同一发送流程。`creationMode` 只用于区分手动 Composer 与直接
 提交，不保存 Retry 来源；接受前失败的 operation 通过 Graph `failedSends` 恢复为普通 Composer。
 
-发送分层的特征测试位于 `server/lib/canvas-domain.test.ts`、`server/lib/canvas-send-service.test.ts`、`server/lib/canvas-public-dto.test.ts`、`server/lib/canvas-gateway-events.test.ts` 和 `server/lib/canvas-resource-locator.test.ts`；前端控制与投影测试位于 `src/features/canvas/useCanvasComposerDrafts.test.tsx`、`src/features/canvas/canvas-flow-projection.test.ts` 和既有 Canvas/SSE 测试。数据库测试继续从完整的 `0.2.0` Schema fixture 建库，验证迁移账本、状态转换、Artifact 合并、附件回填及重启不重跑。
+发送分层的特征测试位于 `server/lib/canvas-domain.test.ts`、`server/lib/canvas-send-service.test.ts`、`server/lib/canvas-public-dto.test.ts`、`server/lib/canvas-gateway-events.test.ts` 和 `server/lib/canvas-resource-locator.test.ts`；前端控制与投影测试位于 `src/features/canvas/useCanvasComposerDrafts.test.tsx`、`src/features/canvas/canvas-flow-projection.test.ts` 和既有 Canvas/SSE 测试。数据库测试继续从完整的 `0.2.0` Schema fixture 建库，验证迁移账本、状态转换、Artifact 合并、附件回填及重启不重跑；`server/index.test.ts` 验证 HTTP 先监听、历史媒体回填后启动。

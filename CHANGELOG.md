@@ -4,8 +4,11 @@ ConvoSketchpad 的重要变更均记录在此文件中。格式遵循 [Keep a Ch
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-07-29
+
 ### 变更
 
+- 停止维护历史来源仓库的同步工作流，将 `main` 明确为唯一长期维护和发布分支；产品文档仅保留独立的许可证与第三方来源说明入口。
 - 将运行链路统一为“浏览器 HTTP/SSE ↔ ConvoSketchpad 后端 ↔ OpenClaw Gateway”，移除浏览器 Gateway RPC、通用 WebSocket 中继和浏览器 Gateway 凭据设置。
 - 新增后端发送协调器、可恢复幂等重试和 `ambiguous` 安全状态；未知发送结果会保持 Branch 锁定。
 - 增量新增 Canvas 附件登记与发送派发字段，并提供从 `0.2.0` Schema 到单链条数据模型的事务化一次性迁移；旧 Interaction JSON 保持回滚兼容。
@@ -31,7 +34,7 @@ ConvoSketchpad 的重要变更均记录在此文件中。格式遵循 [Keep a Ch
 - Canvas 的 Interaction 和 Composer 支持通过始终显示的右下角控制柄调整大小；用户尺寸随 Layout 持久化并在 Composer 提交后转移到新 Interaction，重新排列只更新位置而不重置尺寸。
 - Fork 与失效 Session 恢复统一为完整 Replay Package：保留全部历史文本及可用附件/Artifact 的逻辑位置，按真实内容哈希去重物理文件，通过原生 `chat.send.attachments` 投递。恢复 Interaction 完成后会收敛 Branch 的新物理 Session ID，超出 Gateway 载荷上限时明确失败而不静默裁剪历史。
 - 图片压缩与历史媒体处理统一迁移到后端：原图保持不可变，投递图和 WebP 缩略图按 Canvas、内容哈希和策略版本缓存；Canvas 节点只加载缩略图，打开预览或下载时才读取原图，外部 HTTP Artifact 不主动抓取。
-- 更新器停服迁移新增历史图片缩略图全量回填和 60 分钟超时；单文件失败可诊断地跳过，系统性存储或数据库错误触发回滚。移除浏览器压缩、媒体准备资源 API 和投递副本上传链。
+- 更新器停服迁移新增历史图片缩略图全量回填和 60 分钟超时；由 `0.2.0` 旧更新器触发首次启动时，HTTP 先就绪、媒体回填再于后台可重试执行，避免历史图片较多导致旧更新器健康检查超时。单文件失败可诊断地跳过，显式迁移中的系统性存储或数据库错误触发回滚。移除浏览器压缩、媒体准备资源 API 和投递副本上传链。
 - 重构 Canvas 继续/Fork 发送链路：分离前端 Graph、Composer 与 Flow 投影，后端拆分应用用例、发送判定、OpenClaw 适配、Worker、投递构建和事件消费；公开 API、SQLite Schema 与 Gateway 协议保持不变。修复排队发送完成或失败后 Composer 仍长期保持发送状态的问题。
 - Canvas Interaction 新增“重试”：保留原节点和原执行，从上一节点创建普通 Branch 并原样提交相同文本与附件；首节点会创建新 Root，运行中、待确认、成功和失败节点均可使用。该操作复用现有发送状态机，不建立独立 Retry 模型；接受前失败会通过普通 Composer 恢复输入和持久附件。
 - “继续分支”被 OpenClaw 接受后立即同步新的 Branch 头节点，使提交前节点无需等待新任务完成即可创建并行分支。
@@ -39,10 +42,17 @@ ConvoSketchpad 的重要变更均记录在此文件中。格式遵循 [Keep a Ch
 
 ### 安全
 
+- 升级 ESLint 与 TypeScript-ESLint 开发工具链，使用已修复拒绝服务漏洞的 `brace-expansion` 版本。
 - Gateway Token 和设备 Token 现在只存在于服务端；浏览器 CSP `connect-src` 限制为同源。
 - 发送接口只接受已登记且属于当前 Canvas 的附件 ID。
 - 远程 Gateway 设备 Token 保持精确 read/write；本机 loopback 不读取或使用已有设备凭据。
 - 只有可信代理确认的 HTTPS 才设置 Secure Cookie 与 HSTS；远程 Origin 未认证时默认拒绝启动。
+
+### 升级说明
+
+- `0.2.0 → 0.3.0` 是一次性桥接升级。升级前停止服务，并把 `.env`、`database/` 和 `artifacts/` 一起备份到仓库外；随后固定执行 `npm run update -- --version v0.3.0`。
+- `0.2.0` 旧更新器不会创建 SQLite 快照；需要完全停服迁移时使用 `--no-restart`，更新完成后执行 `npm run migrate` 再启动服务。
+- 从已经安装的 `0.3.0` 开始，后续稳定版保留累计迁移并支持直接升级到目标版本，无需逐个安装中间版本。
 
 ## [0.2.0] - 2026-07-24
 
@@ -83,5 +93,6 @@ ConvoSketchpad 的重要变更均记录在此文件中。格式遵循 [Keep a Ch
 
 ConvoSketchpad 源自 OpenClaw Nerve。更早的上游版本历史仍可在 [OpenClaw Nerve 更新日志](https://github.com/daggerhashimoto/openclaw-nerve/blob/master/CHANGELOG.md)中查看。
 
-[Unreleased]: https://github.com/MrToyy/convosketchpad/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/MrToyy/convosketchpad/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/MrToyy/convosketchpad/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/MrToyy/convosketchpad/releases/tag/v0.2.0

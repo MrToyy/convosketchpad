@@ -176,13 +176,12 @@ PORT=4000 npm run dev
 
 - [Canvas 功能与代码地图](docs/canvas/CANVAS-CODE-MAP.md)
 - [认证功能与代码地图](docs/canvas/AUTH-CODE-MAP.md)
-- [Git 与 Upstream 同步工作流](docs/canvas/GIT-WORKFLOW.md)
+- [Git 工作流](docs/canvas/GIT-WORKFLOW.md)
 
-### Upstream 与许可证
+### 许可证
 
-ConvoSketchpad 源自 [OpenClaw Nerve](https://github.com/daggerhashimoto/openclaw-nerve)，保留其 MIT 许可证和 Git 历史，目前作为独立代码库维护。这里的“独立维护”仅指项目开发与发布；运行时仍依赖 OpenClaw。
-
-本项目采用 [MIT License](LICENSE)。
+本项目采用 [MIT License](LICENSE)。第三方来源与版权说明见
+[NOTICE](NOTICE.md)。
 
 <p align="right"><a href="#top">返回顶部 ↑</a> · <a href="#english">跳转到 English ↓</a></p>
 
@@ -346,12 +345,11 @@ Maintainer references:
 
 - [Canvas feature and code map](docs/canvas/CANVAS-CODE-MAP.md)
 - [Authentication feature and code map](docs/canvas/AUTH-CODE-MAP.md)
-- [Git and upstream synchronization workflow](docs/canvas/GIT-WORKFLOW.md)
+- [Git workflow](docs/canvas/GIT-WORKFLOW.md)
 
-### Upstream and license
+### License
 
-ConvoSketchpad is derived from [OpenClaw Nerve](https://github.com/daggerhashimoto/openclaw-nerve), retains its MIT license and Git history, and is maintained as an independent codebase. “Independently maintained” refers only to project development and releases; the runtime still depends on OpenClaw.
-
-This project is available under the [MIT License](LICENSE).
+This project is available under the [MIT License](LICENSE). See
+[NOTICE](NOTICE.md) for third-party provenance and copyright notices.
 
 <p align="right"><a href="#top">Back to top ↑</a> · <a href="#中文">中文 ↑</a></p>

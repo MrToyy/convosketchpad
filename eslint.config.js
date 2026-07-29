@@ -20,13 +20,18 @@ export default defineConfig([
   {
     files: ['src/**/*.{ts,tsx}'],
     extends: [
-      reactHooks.configs.flat.recommended,
       reactRefresh.configs.vite,
     ],
+    plugins: {
+      'react-hooks': reactHooks,
+    },
     languageOptions: {
       globals: globals.browser,
     },
     rules: {
+      // React Compiler is not enabled; keep the stable Hooks correctness rules
+      // without compiler-specific ref, effect, and memoization restrictions.
+      'react-hooks/rules-of-hooks': 'error',
       'react-hooks/exhaustive-deps': 'warn',
     },
   },

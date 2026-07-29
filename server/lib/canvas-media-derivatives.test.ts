@@ -158,4 +158,38 @@ describe('Canvas media derivatives', () => {
     expect(await current.media.runCanvasMediaBackfillMigration(current.store)).toBeNull();
     current.store.close();
   });
+
+  it('does not record a systemically failed backfill and retries it successfully', async () => {
+    const current = await setup();
+    const persisted = await current.files.persistCanvasAttachment('owner-a', current.canvas.id, {
+      name: 'retry.png',
+      mimeType: 'image/png',
+      bytes: await sharp({
+        create: {
+          width: 320,
+          height: 240,
+          channels: 3,
+          background: { r: 180, g: 90, b: 20 },
+        },
+      }).png().toBuffer(),
+    });
+    current.store.recordCanvasAttachment('owner-a', current.canvas.id, {
+      ...persisted,
+      contentHash: undefined,
+    });
+    const failHashWrite = vi.spyOn(current.store, 'setCanvasAttachmentContentHash')
+      .mockImplementation(() => {
+        throw Object.assign(new Error('storage full'), { code: 'ENOSPC' });
+      });
+
+    await expect(current.media.runCanvasMediaBackfillMigration(current.store))
+      .rejects.toThrow('storage full');
+    expect(current.media.canvasMediaBackfillApplied(current.store)).toBe(false);
+
+    failHashWrite.mockRestore();
+    await expect(current.media.runCanvasMediaBackfillMigration(current.store))
+      .resolves.toMatchObject({ total: 1, hashed: 1, generated: 1, skipped: 0 });
+    expect(current.media.canvasMediaBackfillApplied(current.store)).toBe(true);
+    current.store.close();
+  });
 });

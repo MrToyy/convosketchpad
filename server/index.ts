@@ -21,19 +21,7 @@ import { packageMetadata } from './lib/package-metadata.js';
 
 printStartupBanner(packageMetadata.version, packageMetadata.description);
 validateConfig();
-const mediaMigration = await runCanvasMediaBackfillMigration(getCanvasStore());
-if (mediaMigration) {
-  console.log(JSON.stringify({
-    level: mediaMigration.skipped > 0 ? 'warn' : 'info',
-    subsystem: 'canvas_media',
-    action: 'historical_thumbnail_backfill_completed',
-    total: mediaMigration.total,
-    hashed: mediaMigration.hashed,
-    generated: mediaMigration.generated,
-    reused: mediaMigration.reused,
-    skipped: mediaMigration.skipped,
-  }));
-}
+const canvasStore = getCanvasStore();
 
 // ── HTTP server ──────────────────────────────────────────────────────
 
@@ -45,6 +33,26 @@ const httpServer = serve(
   },
   (info) => {
     console.log(`\x1b[33m[convosketchpad]\x1b[0m http://${config.host}:${info.port}`);
+    void runCanvasMediaBackfillMigration(canvasStore).then((mediaMigration) => {
+      if (!mediaMigration) return;
+      console.log(JSON.stringify({
+        level: mediaMigration.skipped > 0 ? 'warn' : 'info',
+        subsystem: 'canvas_media',
+        action: 'historical_thumbnail_backfill_completed',
+        total: mediaMigration.total,
+        hashed: mediaMigration.hashed,
+        generated: mediaMigration.generated,
+        reused: mediaMigration.reused,
+        skipped: mediaMigration.skipped,
+      }));
+    }).catch((error) => {
+      console.error(JSON.stringify({
+        level: 'error',
+        subsystem: 'canvas_media',
+        action: 'historical_thumbnail_backfill_failed',
+        error: error instanceof Error ? error.message : String(error),
+      }));
+    });
   },
 );
 

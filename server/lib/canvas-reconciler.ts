@@ -731,10 +731,9 @@ async function settlementRead(interactionId: string): Promise<void> {
   }
   getCanvasStore().markArtifactSyncAttempt(interactionId);
 
-  let snapshot: CanvasTranscriptSnapshot | null = null;
   let readError: string | undefined;
   try {
-    snapshot = await reconcileTranscriptSnapshot(interaction);
+    const snapshot = await reconcileTranscriptSnapshot(interaction);
     settlement.best = snapshot;
     if (snapshot.fingerprint === settlement.previousFingerprint) settlement.stableReads += 1;
     else settlement.stableReads = 1;

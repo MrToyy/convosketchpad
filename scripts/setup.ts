@@ -424,7 +424,7 @@ async function collectInteractive(
 
   let port = existing.PORT || DEFAULTS.PORT;
   config.PORT = port;
-  let accessPlan = buildAccessPlan({ profile: 'local', port });
+  let accessPlan: AccessPlan;
   let tailscaleState: TailscaleState = prereqs.tailscale;
 
   function printFollowUpSteps(steps: string[]): void {

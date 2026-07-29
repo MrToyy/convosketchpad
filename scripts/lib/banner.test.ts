@@ -12,7 +12,7 @@ describe('setup banner', () => {
     printBanner();
 
     const output = log.mock.calls.flat().join(' ');
-    expect(output).toContain('ConvoSketchpad v0.2.0');
+    expect(output).toContain('ConvoSketchpad v0.3.0');
     expect(output).toContain('A branching AI workspace for visual thinkers');
   });
 });
