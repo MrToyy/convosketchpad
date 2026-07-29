@@ -628,7 +628,7 @@ describe('CanvasStore', () => {
     });
   });
 
-  it('allows fork only from completed non-head history and freezes that history', () => {
+  it('allows fork from the completed previous head while its accepted continuation is running', () => {
     const store = createStore();
     const canvas = seedUser(store);
     const root = store.createRootBranch('user-a', canvas.id);
@@ -665,7 +665,7 @@ describe('CanvasStore', () => {
       branchId: root.id, expectedHeadInteractionId: first.id, userInput: 'two', attachments: [],
     });
     const second = store.acknowledgeSend('user-a', secondReservation.id, 'run-2');
-    completeInteractionForTest(store, 'user-a', second.id, { status: 'completed', agentOutput: 'answer two', artifacts: [] });
+    expect(second.executionState).toBe('running');
 
     const fork = store.forkInteraction('user-a', first.id);
     const forkReservation = store.prepareSend('user-a', { branchId: fork.id, userInput: 'alternative', attachments: [] });

@@ -68,7 +68,7 @@ reserved
 3. 服务端从数据库解析附件名称、MIME、大小和文件位置，执行所有者、Agent、Branch 与排他性检查。
 4. 服务端持久化发送预留；需要处理大图时进入可恢复的 `awaiting_media`，由后端生成版本化投递派生文件。
 5. 发送协调器调用原生 `chat.send`，预留 ID 同时作为 `idempotencyKey`。
-6. Gateway 接受后，服务端创建 `running` Interaction；终态 Gateway 信号先幂等写入收件箱，再由后端关联和协调。
+6. Gateway 接受后，服务端创建 `running` Interaction、推进 Branch 头节点并立即发布 Canvas 变更；提交前已完成的头节点因此成为可分叉历史节点，无需等待新 Interaction 终止。
 7. `canvas-reconciler` 读取 OpenClaw 权威对话记录，持久化最终文本和 Artifact。
 
 节点“重试”调用通用的原样重新提交用例：后端读取源 Interaction 的用户文本和已登记附件，在同一事务中从其

@@ -28,6 +28,31 @@ function interaction(
   };
 }
 
+function project(graph: CanvasGraph) {
+  return projectCanvasFlow({
+    graph,
+    renderedNodes: [],
+    positions: {},
+    drafts: {},
+    resubmittingInteractionIds: new Set(),
+    previews: {},
+    labels: {
+      createBranch: 'Create branch',
+      newSession: 'New session',
+      continueBranch: 'Continue',
+    },
+    onAdd: vi.fn(),
+    onResubmit: vi.fn(),
+    onTextChange: vi.fn(),
+    onFiles: vi.fn(),
+    onRemoveFile: vi.fn(),
+    onRemovePersistedAttachment: vi.fn(),
+    onSend: vi.fn(),
+    onFocus: vi.fn(),
+    onBlur: vi.fn(),
+  });
+}
+
 describe('Canvas flow projection', () => {
   it('projects continuation and draft Fork composers without embedding controller state', () => {
     const graph: CanvasGraph = {
@@ -111,28 +136,7 @@ describe('Canvas flow projection', () => {
       failedSends: [],
       hasPendingUpdates: false,
     };
-    const result = projectCanvasFlow({
-      graph,
-      renderedNodes: [],
-      positions: {},
-      drafts: {},
-      resubmittingInteractionIds: new Set(),
-      previews: {},
-      labels: {
-        createBranch: 'Create branch',
-        newSession: 'New session',
-        continueBranch: 'Continue',
-      },
-      onAdd: vi.fn(),
-      onResubmit: vi.fn(),
-      onTextChange: vi.fn(),
-      onFiles: vi.fn(),
-      onRemoveFile: vi.fn(),
-      onRemovePersistedAttachment: vi.fn(),
-      onSend: vi.fn(),
-      onFocus: vi.fn(),
-      onBlur: vi.fn(),
-    });
+    const result = project(graph);
     expect(result.nodes.map((node) => node.id)).toEqual(expect.arrayContaining([
       'interaction-1',
       'interaction-2',
@@ -160,5 +164,58 @@ describe('Canvas flow projection', () => {
           },
         },
       });
+  });
+
+  it('opens Fork on the previous head as soon as an accepted continuation becomes the new head', () => {
+    const previous = interaction('interaction-1', null);
+    const accepted = {
+      ...interaction('interaction-2', previous.id),
+      agentOutput: '',
+      status: 'streaming' as const,
+      executionState: 'running' as const,
+      artifactSyncState: 'not_started' as const,
+      terminalAt: null,
+    };
+    const graph: CanvasGraph = {
+      cursor: 2,
+      canvas: {
+        id: 'canvas-1',
+        name: 'Canvas',
+        agentId: 'main',
+        createdAt: 1,
+        updatedAt: 2,
+      },
+      branches: [{
+        id: 'branch-root',
+        canvasId: 'canvas-1',
+        kind: 'root',
+        parentBranchId: null,
+        forkedFromInteractionId: null,
+        sessionKey: 'root-session',
+        openClawSessionId: 'session-1',
+        observedSessionId: 'session-1',
+        sessionIntegrity: 'healthy',
+        sessionState: 'active',
+        creationMode: 'composer',
+        headInteractionId: accepted.id,
+        createdAt: 1,
+        updatedAt: 2,
+      }],
+      interactions: [previous, accepted],
+      layout: null,
+      pendingSends: [],
+      failedSends: [],
+      hasPendingUpdates: true,
+    };
+
+    const result = project(graph);
+
+    expect(result.nodes.find((node) => node.id === previous.id)).toMatchObject({
+      data: { canAdd: true },
+    });
+    expect(result.nodes.find((node) => node.id === accepted.id)).toMatchObject({
+      data: { canAdd: false },
+    });
+    expect(result.nodes.some((node) => node.type === 'composer')).toBe(false);
   });
 });

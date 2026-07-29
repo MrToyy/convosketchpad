@@ -97,6 +97,7 @@ export async function runCanvasSendWorker(
     );
     registerCanvasInteraction(reservation, interaction, runId);
     scheduleCanvasInteractionReconciliation(interaction.id);
+    publishCanvasChanged(reservation.ownerId, reservation.canvasId);
     return interaction;
   } catch (error) {
     const store = getCanvasStore();
