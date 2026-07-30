@@ -23,6 +23,7 @@ vi.mock('../../server/lib/device-identity.js', () => ({
 }));
 
 import { requestGatewayPairing } from './gateway-pairing.js';
+import { packageMetadata } from './package-metadata.js';
 
 describe('native Gateway pairing probe', () => {
   let server: Server;
@@ -102,7 +103,7 @@ describe('native Gateway pairing probe', () => {
       client: {
         id: 'gateway-client',
         displayName: 'ConvoSketchpad',
-        version: '0.3.1',
+        version: packageMetadata.version,
         mode: 'backend',
       },
       device: { id: 'convosketchpad-device' },

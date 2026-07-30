@@ -64,6 +64,7 @@ import {
   gatewayDispatchCall,
   getGatewayRuntimeStatus,
 } from './gateway-rpc.js';
+import { packageMetadata } from './package-metadata.js';
 
 let wss: WebSocketServer;
 
@@ -176,7 +177,7 @@ describe('gateway-rpc (persistent WebSocket)', () => {
       expect(lastConnectParams).toMatchObject({
         client: {
           id: 'gateway-client',
-          version: '0.3.1',
+          version: packageMetadata.version,
           mode: 'backend',
           platform: 'node',
         },
