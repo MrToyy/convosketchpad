@@ -27,6 +27,9 @@ server.log
 agent-log.json
 *.log
 
+# Local runtime wrappers
+/start.sh
+
 # Environment
 .env
 .env.tmp

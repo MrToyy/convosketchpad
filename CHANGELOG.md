@@ -4,6 +4,10 @@ ConvoSketchpad 的重要变更均记录在此文件中。格式遵循 [Keep a Ch
 
 ## [Unreleased]
 
+### 新增
+
+- 新增安全的服务注销脚本与 `npm run uninstall` 入口，支持预览并精确清理当前安装的 launchd/systemd 注册，同时保留程序目录、用户数据及外部 OpenClaw/Tailscale 状态。
+
 ## [0.3.1] - 2026-07-30
 
 ### 发布摘要

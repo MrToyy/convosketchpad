@@ -40,6 +40,12 @@ Agent、预期头节点和“每 Branch 一个预留”在服务端事务中检�
 - 路径经过规范化、`realpath` 和允许根目录检查。
 - Gateway 凭据只发送给配置的 Gateway。
 
+## 卸载边界
+
+`uninstall.sh` 只注销经路径校验、且明确指向当前安装目录的 launchd 或 systemd 服务。它不会删除程序目录、`.env`、Canvas SQLite、附件、Artifact、`CONVOSKETCHPAD_DATA_DIR`、更新器快照或外部服务状态。
+
+同名服务如果指向其他安装，或 macOS `start.sh` 不再完全匹配安装器生成模板，脚本会保留对应文件并输出警告。OpenClaw 设备撤销和 Tailscale Serve 清理必须由操作者通过各自原生工具显式完成，卸载脚本不会推断这些共享外部资源的所有权。
+
 ## 部署检查
 
 1. 远程访问通过反向代理或 Tailscale Serve 使用 HTTPS；不要依赖应用内置 TLS。
