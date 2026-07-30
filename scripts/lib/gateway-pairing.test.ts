@@ -102,7 +102,7 @@ describe('native Gateway pairing probe', () => {
       client: {
         id: 'gateway-client',
         displayName: 'ConvoSketchpad',
-        version: '0.3.0',
+        version: '0.3.1',
         mode: 'backend',
       },
       device: { id: 'convosketchpad-device' },

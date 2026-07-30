@@ -176,7 +176,7 @@ describe('gateway-rpc (persistent WebSocket)', () => {
       expect(lastConnectParams).toMatchObject({
         client: {
           id: 'gateway-client',
-          version: '0.3.0',
+          version: '0.3.1',
           mode: 'backend',
           platform: 'node',
         },

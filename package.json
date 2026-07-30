@@ -1,6 +1,6 @@
 {
   "name": "convosketchpad",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "A visual branching workspace for OpenClaw — fork conversations with context, attachments, and artifacts intact",
   "license": "MIT",
   "engines": {

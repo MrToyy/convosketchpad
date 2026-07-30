@@ -4,6 +4,8 @@ ConvoSketchpad 的重要变更均记录在此文件中。格式遵循 [Keep a Ch
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-07-30
+
 ### 发布摘要
 
 ConvoSketchpad v0.3.1 是继 v0.3.0 架构升级后的推荐补丁版本。对于已经安装 v0.3.0 的用户，本版本修复离线迁移 CLI 记录错误应用版本的问题；为了让新用户完整了解当前产品，本说明同时汇总 v0.3.0 引入的主要体验、安全性和运维改进。
@@ -128,6 +130,7 @@ npm run update -- --version v0.3.1
 
 ConvoSketchpad 源自 OpenClaw Nerve。更早的上游版本历史仍可在 [OpenClaw Nerve 更新日志](https://github.com/daggerhashimoto/openclaw-nerve/blob/master/CHANGELOG.md)中查看。
 
-[Unreleased]: https://github.com/MrToyy/convosketchpad/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/MrToyy/convosketchpad/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/MrToyy/convosketchpad/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/MrToyy/convosketchpad/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/MrToyy/convosketchpad/releases/tag/v0.2.0
