@@ -4,9 +4,37 @@ ConvoSketchpad 的重要变更均记录在此文件中。格式遵循 [Keep a Ch
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-07-30
+
+### 发布摘要
+
+ConvoSketchpad v0.3.2 增加安全、可预览的服务注销流程，让用户能够移除 launchd 或 systemd 集成，同时明确保留程序目录、Canvas 数据、附件、Artifact、Gateway 凭据和更新器快照。该版本不改变 Canvas、OpenClaw 集成或数据库语义。
+
 ### 新增
 
-- 新增安全的服务注销脚本与 `npm run uninstall` 入口，支持预览并精确清理当前安装的 launchd/systemd 注册，同时保留程序目录、用户数据及外部 OpenClaw/Tailscale 状态。
+- 新增 `./uninstall.sh` 与 `npm run uninstall` 入口，支持 `--dry-run`，并通过工作目录、启动命令和生成模板校验，精确注销属于当前安装的 launchd/systemd 服务。
+- 注销完成后列出 `.env`、Canvas SQLite、附件与 Artifact、Gateway 凭据和更新器状态的位置，提供明确警告的手动程序目录删除命令。
+- 提供固定当前版本、复用现有配置的安装器命令，用于重新注册并启动已经注销的受管服务。
+
+### 变更
+
+- macOS 安装器生成的根目录 `start.sh` 作为本地运行文件被 Git 忽略，避免自动生成的 launchd wrapper 阻塞后续原生更新。
+
+### 安装与升级
+
+新用户需要先安装并运行可访问的 OpenClaw Gateway，然后执行：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/MrToyy/convosketchpad/main/install.sh | bash
+```
+
+已经安装 v0.3.0 或更高版本的用户可以在发布后运行：
+
+```bash
+npm run update -- --version v0.3.2
+```
+
+从 v0.2.0 升级仍必须先按[升级文档](https://github.com/MrToyy/convosketchpad/blob/main/docs/UPDATING.md)完成一次性 v0.3.0 桥接。升级前应停止服务，并把 `.env`、`database/` 和 `artifacts/` 一起备份到仓库外。
 
 ## [0.3.1] - 2026-07-30
 
@@ -134,7 +162,8 @@ npm run update -- --version v0.3.1
 
 ConvoSketchpad 源自 OpenClaw Nerve。更早的上游版本历史仍可在 [OpenClaw Nerve 更新日志](https://github.com/daggerhashimoto/openclaw-nerve/blob/master/CHANGELOG.md)中查看。
 
-[Unreleased]: https://github.com/MrToyy/convosketchpad/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/MrToyy/convosketchpad/compare/v0.3.2...HEAD
+[0.3.2]: https://github.com/MrToyy/convosketchpad/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/MrToyy/convosketchpad/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/MrToyy/convosketchpad/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/MrToyy/convosketchpad/releases/tag/v0.2.0

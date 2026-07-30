@@ -48,7 +48,7 @@ function createInstallation(): TestInstallation {
   mkdirSync(mockBin, { recursive: true });
   writeFileSync(join(installRoot, 'package.json'), JSON.stringify({
     name: 'convosketchpad',
-    version: '0.3.1',
+    version: '1.2.3',
   }));
   writeFileSync(join(installRoot, '.env'), 'CONVOSKETCHPAD_DATA_DIR=/tmp/convosketchpad-state\n');
   writeFileSync(join(installRoot, 'database', 'canvas.sqlite'), 'database');
@@ -206,7 +206,7 @@ describe('uninstall.sh', () => {
     expect(readFileSync(installation.mockLog, 'utf8')).toContain('launchctl bootout');
     expect(result.stdout).toContain('User data was not deleted');
     expect(result.stdout).toContain('rm -rf --');
-    expect(result.stdout).toContain('--version v0.3.1 --skip-setup');
+    expect(result.stdout).toContain('--version v1.2.3 --skip-setup');
     expect(result.stdout).toContain('register and start the managed service again');
   });
 
@@ -238,7 +238,7 @@ describe('uninstall.sh', () => {
     expect(existsSync(installation.mockLog)).toBe(false);
     expect(result.stdout).toContain('Would boot out');
     expect(result.stdout).toContain('Dry run complete');
-    expect(result.stdout).toContain('--version v0.3.1 --skip-setup');
+    expect(result.stdout).toContain('--version v1.2.3 --skip-setup');
   });
 
   it('preserves launchd resources that belong to another installation', () => {
