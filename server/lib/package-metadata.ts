@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { dirname, parse, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export interface PackageMetadata {
@@ -11,23 +11,33 @@ export interface PackageMetadata {
 const fallback: PackageMetadata = {
   name: 'convosketchpad',
   version: '0.0.0',
-  description: 'A branching AI workspace for visual thinkers',
+  description:
+    'A visual branching workspace for OpenClaw — fork conversations with context, attachments, and artifacts intact',
 };
 
-const moduleDir = dirname(fileURLToPath(import.meta.url));
-const packagePath = resolve(moduleDir, '../../package.json');
+export function readPackageMetadata(moduleUrl = import.meta.url): PackageMetadata {
+  let currentDir = dirname(fileURLToPath(moduleUrl));
+  const rootDir = parse(currentDir).root;
 
-export function readPackageMetadata(): PackageMetadata {
-  try {
-    const pkg = JSON.parse(readFileSync(packagePath, 'utf-8')) as Partial<PackageMetadata>;
-    return {
-      name: pkg.name || fallback.name,
-      version: pkg.version || fallback.version,
-      description: pkg.description || fallback.description,
-    };
-  } catch {
-    return fallback;
+  while (currentDir !== rootDir) {
+    try {
+      const pkg = JSON.parse(
+        readFileSync(resolve(currentDir, 'package.json'), 'utf-8'),
+      ) as Partial<PackageMetadata>;
+      if (pkg.name === fallback.name) {
+        return {
+          name: pkg.name,
+          version: pkg.version || fallback.version,
+          description: pkg.description || fallback.description,
+        };
+      }
+    } catch {
+      // The module is emitted at different depths in server-dist and bin-dist.
+    }
+    currentDir = dirname(currentDir);
   }
+
+  return fallback;
 }
 
 export const packageMetadata = readPackageMetadata();
