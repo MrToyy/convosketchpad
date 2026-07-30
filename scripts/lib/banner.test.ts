@@ -13,6 +13,8 @@ describe('setup banner', () => {
 
     const output = log.mock.calls.flat().join(' ');
     expect(output).toContain('ConvoSketchpad v0.3.0');
-    expect(output).toContain('A branching AI workspace for visual thinkers');
+    expect(output).toContain(
+      'A visual branching workspace for OpenClaw — fork conversations with context, attachments, and artifacts intact',
+    );
   });
 });

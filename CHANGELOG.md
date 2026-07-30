@@ -4,9 +4,40 @@ ConvoSketchpad 的重要变更均记录在此文件中。格式遵循 [Keep a Ch
 
 ## [Unreleased]
 
+### 发布摘要
+
+ConvoSketchpad v0.3.1 是继 v0.3.0 架构升级后的推荐补丁版本。对于已经安装 v0.3.0 的用户，本版本修复离线迁移 CLI 记录错误应用版本的问题；为了让新用户完整了解当前产品，本说明同时汇总 v0.3.0 引入的主要体验、安全性和运维改进。
+
+ConvoSketchpad 是 OpenClaw 可视化分支工作台：你可以从任意已完成的对话节点携带当时的上下文、附件与生成物继续探索，让不同方向各自延伸，同时保持任务主线清晰。
+
+### 当前版本亮点
+
+- **真正的上下文分支**：从任意已完成的 Interaction 创建分支，完整保留历史文本及可用附件、Artifact 的逻辑位置；也可以继续当前方向或原样重试任意 Interaction。
+- **可靠的发送与恢复**：后端统一协调发送、幂等重试、Gateway 重连和终态收敛；Session 被替换或移除后，通过规范快照恢复 Branch 上下文。
+- **持久化的可视化工作区**：Canvas 拓扑、节点位置、用户尺寸和视口都会保存；“重新排列”可以按真实节点尺寸恢复清晰的从左到右布局。
+- **附件与生成物归档**：原始附件保持不可变，生成 Artifact 按 Canvas 和所有者持久化；图片缩略图与投递副本由后端统一生成和缓存。
+- **更安全的 OpenClaw 集成**：浏览器只连接 ConvoSketchpad 同源 HTTP/SSE，Gateway Token 和设备 Token 只存在于服务端；远程访问支持精确 Origin、受管用户认证和 Tailscale/反向代理拓扑。
+- **一致的安装与更新体验**：Setup 统一支持 Local、LAN、Tailscale IP、Tailscale Serve 和 Custom；从 v0.3.0 开始，更新器提供停服迁移、SQLite 快照、完整性校验和失败回滚。
+
 ### 修复
 
 - 修复离线迁移 CLI 从 `bin-dist` 运行时无法定位根 `package.json`、导致迁移账本把实际应用版本记录为 `0.0.0` 的问题。
+
+### 安装与升级
+
+新用户需要先安装并运行可访问的 OpenClaw Gateway，然后执行：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/MrToyy/convosketchpad/main/install.sh | bash
+```
+
+已经安装 v0.3.0 的用户可以在发布后运行：
+
+```bash
+npm run update -- --version v0.3.1
+```
+
+从 v0.2.0 升级仍必须先按[升级文档](https://github.com/MrToyy/convosketchpad/blob/main/docs/UPDATING.md)完成一次性 v0.3.0 桥接，再升级到 v0.3.1。升级前应停止服务，并把 `.env`、`database/` 和 `artifacts/` 一起备份到仓库外。
 
 ## [0.3.0] - 2026-07-29
 

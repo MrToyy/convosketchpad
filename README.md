@@ -5,9 +5,9 @@
 
 **让想法自由分支**
 
-**面向创作者的 OpenClaw 分支工作台**
+**OpenClaw 可视化分支工作台——从任意对话节点携带上下文、附件与生成物继续探索**
 
-**A branching OpenClaw workspace for creators**
+**A visual branching workspace for OpenClaw — fork conversations with context, attachments, and artifacts intact**
 
 [![GitHub stars](https://img.shields.io/github/stars/MrToyy/convosketchpad?style=for-the-badge&logo=github&label=Star%20ConvoSketchpad&color=0f172a)](https://github.com/MrToyy/convosketchpad)
 [![MIT License](https://img.shields.io/badge/license-MIT-blue?style=for-the-badge)](LICENSE)
@@ -25,7 +25,7 @@
 
 ## 中文
 
-ConvoSketchpad 是面向内容创作者和知识工作者的 OpenClaw 可视化分支工作台。它把 AI 工作过程组织成可缩放的空间画布，让不同思路各自延伸，同时保持任务主线清晰。
+ConvoSketchpad 是 OpenClaw 可视化分支工作台，让你从任意对话节点携带当时的上下文、附件与生成物继续探索。它把 AI 工作过程组织成可缩放的空间画布，让不同思路各自延伸，同时保持任务主线清晰。
 
 > [!IMPORTANT]
 > ConvoSketchpad **不是独立的 Agent 运行环境**，也不负责运行模型、工具或 Agent。使用它必须连接到可访问的 [OpenClaw](https://github.com/openclaw/openclaw) Gateway；Agent、工具调用、Session 和对话记录均由 OpenClaw 提供。
@@ -191,7 +191,7 @@ PORT=4000 npm run dev
 
 ## English
 
-ConvoSketchpad is a visual, branching OpenClaw workspace for content creators and knowledge workers. It organizes AI work on a zoomable spatial Canvas, so different ideas can develop independently while the primary task stays focused.
+ConvoSketchpad is a visual branching workspace for OpenClaw: fork any conversation with its context, attachments, and artifacts intact. It organizes AI work on a zoomable spatial Canvas, so different ideas can develop independently while the primary task stays focused.
 
 > [!IMPORTANT]
 > ConvoSketchpad is **not a standalone Agent runtime** and does not run models, tools, or Agents by itself. It requires a reachable [OpenClaw](https://github.com/openclaw/openclaw) Gateway. OpenClaw provides the Agents, tool execution, Sessions, and transcripts.
