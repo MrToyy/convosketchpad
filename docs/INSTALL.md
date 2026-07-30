@@ -118,6 +118,31 @@ launchctl start com.mrtoyy.convosketchpad
 
 ConvoSketchpad 依赖可访问的 OpenClaw Gateway。应尽量复用现有 Gateway。安装 OpenClaw、修改远程 Gateway 配置或扩大网络暴露范围，都必须由运维人员明确决定。
 
+## 注销服务
+
+从安装目录运行卸载脚本，可以停止并注销指向当前 ConvoSketchpad 安装的 launchd 或 systemd 服务：
+
+```bash
+# 先预览，不修改服务或文件
+./uninstall.sh --dry-run
+
+# 注销服务
+./uninstall.sh
+
+# 等价的 npm 入口
+npm run uninstall
+```
+
+脚本会校验服务的工作目录和启动命令，只删除匹配当前安装的 launchd plist、systemd unit，以及未被用户修改的 macOS `start.sh`。同名但指向其他安装的服务保持不变；没有受管服务时可以安全重复运行。
+
+卸载脚本**不会删除程序目录或用户数据**，也不会修改 Tailscale Serve、OpenClaw 配对或 Gateway 配置。结束时会列出 `.env`、Canvas SQLite、附件与 Artifact、Gateway 凭据和更新器状态的实际位置，并输出一条仅供用户自行执行的程序目录删除命令。该命令会同时删除仍在程序目录内的数据，执行前必须先核对输出路径并自行备份。
+
+只要尚未手工删除程序目录，就可以用脚本最后输出的命令重新注册并启动受管服务。命令会固定使用当前版本并复用已有配置，不会重新运行 setup：
+
+```bash
+./install.sh --dir <当前安装目录> --version v<当前版本> --skip-setup
+```
+
 ## 选择部署方式
 
 根据浏览器、ConvoSketchpad 服务端和 Gateway 的运行位置选择拓扑：

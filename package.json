@@ -1,6 +1,6 @@
 {
   "name": "convosketchpad",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "A visual branching workspace for OpenClaw — fork conversations with context, attachments, and artifacts intact",
   "license": "MIT",
   "engines": {
@@ -30,6 +30,7 @@
     "build": "npm run clean && tsc -b && vite build && npm run build:server",
     "build:server": "tsc -p config/tsconfig.server.json --outDir server-dist --noEmit false --declaration false && tsc -p config/tsconfig.bin.json",
     "update": "node bin-dist/bin/convosketchpad-update.js",
+    "uninstall": "bash uninstall.sh",
     "migrate": "node bin-dist/bin/convosketchpad-migrate.js",
     "users": "node bin-dist/bin/convosketchpad-users.js",
     "lint": "eslint .",
