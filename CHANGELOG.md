@@ -4,6 +4,10 @@ ConvoSketchpad 的重要变更均记录在此文件中。格式遵循 [Keep a Ch
 
 ## [Unreleased]
 
+### 修复
+
+- 修复离线迁移 CLI 从 `bin-dist` 运行时无法定位根 `package.json`、导致迁移账本把实际应用版本记录为 `0.0.0` 的问题。
+
 ## [0.3.0] - 2026-07-29
 
 ### 变更
