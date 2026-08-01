@@ -1,22 +1,57 @@
 # 架构与运行时数据流
 
-ConvoSketchpad 是 OpenClaw 之上的可视化 Canvas。运行时严格采用单链条：
+ConvoSketchpad 是 Agent Backend 之上的可视化 Canvas。目标运行时采用单一领域链条和可替换的后端适配器：
 
 ```text
 浏览器（React）
   ⇅ 同源 HTTP / SSE
 ConvoSketchpad（Hono、SQLite、文件存储、发送协调器）
-  ⇅ 单一持久 Gateway WebSocket
-OpenClaw Gateway
+  ⇅ AgentBackend（统一 Handles、Capabilities、事件、审批和恢复）
+  ├─ OpenClaw Adapter ⇄ 单一持久 Gateway WebSocket
+  └─ Codex Adapter    ⇄ 本地 app-server stdio（第二阶段）
 ```
 
-浏览器不实现 OpenClaw 握手，不调用 Gateway RPC，不保存 Gateway URL、Gateway Token 或设备 Token。服务端是唯一的 OpenClaw 通信方。
+当前 Release 尚未完成该抽象，只实现了 OpenClaw Gateway 链路；Codex Adapter 也尚不存在。已确认的迁移设计和两个功能提交边界见 [`AGENT-BACKEND-MIGRATION.md`](AGENT-BACKEND-MIGRATION.md)。在第一阶段完成前，本文件后续出现的 OpenClaw 专有流程仍描述当前运行事实；标注为“目标”的内容不得作为已发布能力。
 
-浏览器先读取带持久 `cursor` 的 Graph 快照，再连接当前 Canvas 的 SSE。持久更新以完整实体 upsert 发送；流式文本使用不持久化的 `node.preview`，断线即丢弃。Gateway 全局连接状态与 Canvas 数据同步是两条独立产品契约，浏览器不接收或解释 OpenClaw 原始事件。
+浏览器不实现 Backend 握手，不调用 Gateway RPC 或 Codex App Server，不保存 Backend URL、Token、设备凭据或本地运行时凭据。服务端是唯一的 Agent Backend 通信方。
+
+浏览器先读取带持久 `cursor` 的 Graph 快照，再连接当前 Canvas 的 SSE。持久更新以完整实体 upsert 发送；流式文本使用不持久化的 `node.preview`，断线即丢弃。Backend 全局连接状态与 Canvas 数据同步是两条独立产品契约，浏览器不接收或解释 OpenClaw/Codex 原始事件。
+
+## Agent Backend 目标边界
+
+Canvas 通用层只使用以下语义：
+
+- `AgentProfile`：ConvoSketchpad 稳定的执行配置；
+- `ConversationHandle`、`TurnHandle`、`ArtifactHandle`、`ApprovalHandle`：带 Backend 归属和版本的不透明、可持久化引用；
+- `BackendCapabilities`：Conversation、输入、输出、执行、可靠性和用量等语义能力；
+- `dispatchTurn` 与 `reconcileDispatch`：明确区分 accepted、rejected 和 outcome unknown；
+- `BackendEvent`：归一化文本、Artifact、用量、审批、补充输入、终态和连接事件；
+- `resolveApproval`：以统一决定响应 Backend 审批，不由 Route 调用原始审批 RPC。
+
+统一事件至少覆盖：
+
+```text
+turn.accepted
+output.text.delta
+output.message.completed
+artifact.available
+usage.updated
+approval.required
+approval.resolved
+input.required
+turn.completed | turn.failed | turn.interrupted
+backend.disconnected
+```
+
+`approval.required` 必须带不透明 Approval Handle、所属 Conversation/Turn、审批类别、可展示摘要和允许的决定；`approval.resolved` 记录最终决定及来源。审批和终态信号使用统一持久化 Inbox 去重。第一阶段只建立服务端领域、适配和持久化边界，不新增 Canvas 审批 UI 或 HTTP 契约。
+
+OpenClaw Adapter 独占 `gateway-rpc.ts`、Gateway 方法名、Session Reset Policy 和原始 Gateway 事件投影。计划中的 Codex Adapter 独占 app-server 子进程、JSONL、Thread/Turn/Item、审批请求和本地 Workspace。Canvas Route、Service、Worker、Coordinator、Reconciler、Context Snapshot 和 Artifact 逻辑不得根据 Backend 类型增加协议分支。
+
+目标持久化模型为 Canvas 保存 Backend 归属和不透明引用，而不是把某个协议的标识符提升为产品字段：Canvas 绑定 `backend_id + agent_profile_id`，Branch 保存版本化 Conversation Handle，Interaction 保存 Turn Handle，Artifact 保存 Backend Artifact Handle，Send Reservation 保存派发与恢复引用。终态和审批信号进入 `backend_event_inbox`。第一阶段以增量列和回填迁移实现，旧 `agent_id`、`session_key`、`run_id`、`gateway_artifact_id` 与 `gateway_signal_inbox` 暂时作为 OpenClaw 回滚兼容数据保留，但通用运行路径不再依赖它们。
 
 ## 职责边界
 
-OpenClaw 负责 Agent、工具、执行、Session、原生事件和权威对话记录。ConvoSketchpad 负责：
+所选 Agent Backend 负责 Agent、模型与工具执行、Conversation、原生事件和权威运行记录。ConvoSketchpad 负责：
 
 - Canvas、Branch、Interaction 的拓扑与布局；
 - 发送预留、幂等派发、Branch 锁和恢复元数据；
@@ -31,20 +66,20 @@ Interaction 的 `executionState`（`running | completed | failed | unconfirmed`�
 ## 产品模型与不变量
 
 ```text
-Canvas（绑定一个 Agent）
+Canvas（绑定一个 Agent Profile 和 Backend）
   ├─ Branch → Interaction → Interaction
   ├─ 从历史 Interaction 创建的可编辑 Branch
   └─ 从目标 Interaction 上一节点直接提交复制输入的普通 Branch
 ```
 
-1. Branch 使用稳定的 OpenClaw Session key，并最多有一个头部 Interaction。
+1. Branch 使用稳定、不透明的 Backend Conversation Handle，并最多有一个头部 Interaction；当前 OpenClaw 兼容投影仍公开 Session key。
 2. 继续 Branch 时，`expectedHeadInteractionId` 必须等于数据库中的头节点。
 3. 一个 Branch 同时最多有一个 `prepared` 发送预留。
 4. `reserved`、`dispatching`、`ambiguous` 状态都保持 Branch 锁定。
-5. `ambiguous` 表示请求可能已经写入 Gateway；只能用同一预留 ID 作为幂等键重试，不能按超时解锁或取消。
-6. Gateway 明确接受发送后，服务端在事务中创建 Interaction、推进 Branch 头节点并记录 `runId`。
+5. `ambiguous` 表示请求可能已经写入 Backend；只能按 Backend 声明的可靠性能力安全重试或先执行 `reconcileDispatch`，不能按超时解锁、取消或猜测。
+6. Backend 明确接受发送后，服务端在事务中创建 Interaction、推进 Branch 头节点并记录不透明 Turn Handle；当前 OpenClaw 兼容投影仍记录 `runId`。
 7. 从用户视角看 Interaction 只追加，不改写历史。
-8. Gateway 信号优先按 `runId` 关联；Session key 只在恰好存在一个候选节点时作为恢复后备，不允许猜测节点。
+8. Backend 事件优先按 Turn Handle 关联；Conversation Handle 只在恰好存在一个候选节点时作为恢复后备，不允许猜测节点。
 9. UI 中的“重试”不是持久化实体：原 Interaction 和原执行保持不变，新结果只表现为一个普通 Root/Fork Branch。
 10. Layout 中的节点尺寸只表示用户显式缩放；内容自然测量不持久化。重新排列使用这些尺寸计算间距，但只更新位置。
 
@@ -54,11 +89,11 @@ Canvas（绑定一个 Agent）
 reserved
   → dispatching
     → acknowledged
-    → ambiguous ──同一 idempotencyKey──→ dispatching
+    → ambiguous ──安全重试或 reconcileDispatch──→ dispatching
     → failed
 ```
 
-连接尚未就绪或确认没有写出 Frame 时回到 `reserved`。Frame 已写出后超时或断线进入 `ambiguous`。明确的 Gateway 拒绝进入 `failed`。重试间隔依次为 1、3、10、30 秒，之后每 60 秒持续重试。发送协调器不做固定频率数据库扫描：新预留和 Gateway 重连会主动唤醒；已有任务只按最早的 `next_attempt_at` 设置一次计时器，空闲时不保留扫描计时器。
+连接尚未就绪或确认没有写出请求时回到 `reserved`。请求可能写出后超时或断线进入 `ambiguous`。明确的 Backend 拒绝进入 `failed`。OpenClaw 可以使用同一 Reservation ID 作为 `idempotencyKey` 重试；Codex 在没有明确幂等保证前必须先读取 Thread 并核对 `clientUserMessageId` 和前一 Turn 位置。重试间隔依次为 1、3、10、30 秒，之后每 60 秒持续重试。发送协调器不做固定频率数据库扫描：新预留和 Backend 重连会主动唤醒；已有任务只按最早的 `next_attempt_at` 设置一次计时器，空闲时不保留扫描计时器。
 
 服务启动和 Gateway 重连时都会扫描可派发预留。Graph 的 `pendingSends` 让刷新后的浏览器继续显示锁定状态。
 
