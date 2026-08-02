@@ -4,13 +4,13 @@ import {
   CONVOSKETCHPAD_OPERATOR_SCOPES,
   createDeviceBlock,
   storeDeviceAuth,
-} from '../../server/lib/device-identity.js';
+} from '../../server/lib/agent-backends/adapters/openclaw/device-identity.js';
 import { packageMetadata } from './package-metadata.js';
 import {
   CONVOSKETCHPAD_GATEWAY_CLIENT_ID,
   CONVOSKETCHPAD_GATEWAY_CLIENT_MODE,
   CONVOSKETCHPAD_GATEWAY_CLIENT_PLATFORM,
-} from '../../server/lib/gateway-client-identity.js';
+} from '../../server/lib/agent-backends/adapters/openclaw/gateway-client-identity.js';
 
 const PAIRING_TIMEOUT_MS = 12_000;
 

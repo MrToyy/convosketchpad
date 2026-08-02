@@ -4,38 +4,30 @@ import { renderWithSettings } from '@/test/render-with-settings';
 import { SystemSettings } from './SystemSettings';
 
 describe('SystemSettings', () => {
-  it('groups OpenClaw Gateway controls separately from ConvoSketchpad updates', () => {
-    const onReconnect = vi.fn();
-    const onGatewayRestart = vi.fn();
-    renderWithSettings(
-      <SystemSettings
-        connectionState="connected"
-        gatewayRestartSupported
-        onReconnect={onReconnect}
-        onGatewayRestart={onGatewayRestart}
-      />,
-    );
-
-    expect(screen.getByRole('heading', { name: 'OpenClaw 网关' })).toBeInTheDocument();
+  it('lists every configured Backend separately from application updates', () => {
+    const onRestart = vi.fn();
+    renderWithSettings(<SystemSettings
+      backendStatuses={{
+        openclaw: { backendId: 'openclaw', state: 'connected', restartSupported: true },
+        codex: { backendId: 'codex', state: 'disconnected', error: 'offline' },
+      }}
+      onRefreshStatus={vi.fn()}
+      onBackendRestart={onRestart}
+    />);
+    expect(screen.getByRole('heading', { name: 'Agent Backends' })).toBeInTheDocument();
+    expect(screen.getByText('openclaw')).toBeInTheDocument();
+    expect(screen.getByText('codex')).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'ConvoSketchpad' })).toBeInTheDocument();
-    expect(screen.getByText('连接状态')).toBeInTheDocument();
-    expect(screen.getByText('重启 OpenClaw 网关')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '重启' }));
-    expect(onGatewayRestart).toHaveBeenCalledOnce();
+    expect(onRestart).toHaveBeenCalledWith('openclaw');
   });
 
-  it('replaces the restart action with host-management guidance for a remote Gateway', () => {
-    renderWithSettings(
-      <SystemSettings
-        connectionState="connected"
-        gatewayRestartSupported={false}
-        onReconnect={vi.fn()}
-        onGatewayRestart={vi.fn()}
-      />,
-    );
-
+  it('does not offer restart when an Adapter reports it unsupported', () => {
+    renderWithSettings(<SystemSettings
+      backendStatuses={{ openclaw: { backendId: 'openclaw', state: 'connected', restartSupported: false } }}
+      onRefreshStatus={vi.fn()}
+      onBackendRestart={vi.fn()}
+    />);
     expect(screen.queryByRole('button', { name: '重启' })).not.toBeInTheDocument();
-    expect(screen.getByText('在网关主机上管理')).toBeInTheDocument();
-    expect(screen.getByText(/远程 OpenClaw 网关/)).toBeInTheDocument();
   });
 });

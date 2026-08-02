@@ -3,7 +3,7 @@ import {
   latestDailyResetBoundary,
   resolveOpenClawResetPolicy,
   sessionWillResetBeforeSend,
-} from './openclaw-session-policy.js';
+} from './session-policy.js';
 
 describe('OpenClaw session reset policy', () => {
   it('matches OpenClaw defaults and legacy idle behavior', () => {

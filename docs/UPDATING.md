@@ -134,15 +134,23 @@ npm run update
 
 从 `0.2.0` 升级到本版本时，数据迁移标识为 `0.2.0_to_0.3.0_v1`。它只读取现有 SQLite 数据，不依赖 Gateway 在线、Session 历史或某个特定数据库实例；迁移成功后通过 `schema_migrations` 账本保证不会在后续启动中重复扫描历史节点。
 
-媒体回填标识为 `0.3.0_media_derivatives_v1`。它读取 Canvas 本地文件，为所有历史上传附件和 Agent Artifact
+`0.3.0 → 0.3.2` 小版本维护迁移的历史标识为 `0.3.0_media_derivatives_v1`。它读取 Canvas 本地文件，为所有历史上传附件和 Agent Artifact
 计算真实内容哈希，并为其中的图片生成缩略图，不修改原件。更新器允许该停服步骤最长运行 60 分钟；单个损坏或不支持的图片
 会记录警告并继续，存储或数据库系统性错误会触发回滚。迁移账本存在后，后续更新和服务启动都不会重复全量扫描。
 需要诊断性地复查历史媒体时，停止服务后显式运行 `npm run migrate -- --rescan-media`。
 
+`0.4.0` 的 Agent Backend 结构迁移标识为 `0.3.2_to_0.4.0_agent_backend_v1`。所有 `0.3.x` 数据库会在目标版本迁移流程中补齐上述维护迁移和该结构步骤；`0.2.0` 数据库还会先完成结构桥接。Agent Backend 结构迁移会重建核心表、写入通用 Handle 和事件数据，并按最早 Send Reservation、最早 Interaction 的优先级回填旧 Canvas 的 Agent 锁定时间；已完成通用 Schema 但缺失锁定时间的数据库会在下次迁移检查中自动修复。校验外键与完整性后才记录完成标识。由于媒体维护代码依赖目标结构，实际执行时允许先完成目标 Schema、再处理媒体；统一清单表达的是发布边界和最终必备项，而不是数据库事务的调用先后。
+
+截至 `0.4.0`，统一迁移清单中仅有以上三项，版本边界连续为 `0.2.0 → 0.3.0 → 0.3.2 → 0.4.0`。结构迁移会在数据库打开时幂等执行，并删除未进入任何正式 Release 的 `0.2.0_to_single_chain_v1` 与 `0.3.0_to_0.4.0_agent_backend_v1` 开发态账本记录；显式迁移器随后完成媒体维护，并在最终外键和完整性检查后确认三个迁移 ID 全部存在，否则更新失败并触发回滚。
+
 如果没有检测到受支持的服务管理器，更新器不会假设手动启动的进程已经停止，也不会在线执行显式迁移。目标服务下次手动启动时会先自动迁移数据库。
 
+Agent Backend Schema 迁移会把旧 OpenClaw 顶层列转换为通用 Backend/Profile、Conversation/Turn/Artifact Handle 和 `backend_event_inbox`，随后物理删除旧列及 `gateway_signal_inbox`，不会双写。该迁移本身不可由新版本“降级反向执行”；安全回滚依赖更新器在停服后创建的整库 SQLite 快照。不要绕过快照直接用旧版本打开已经迁移的数据库。
+
+重新运行 `npm run setup` 同样会自动迁移：检测到受管服务时执行停服、SQLite 一致性快照、迁移、失败恢复和按原运行状态重启；没有受管服务时直接执行事务化迁移。服务启动仍会幂等检查并完成尚未应用的迁移。
+
 从 `0.3.0` 开始，目标 Release 必须保留基线之后的全部迁移步骤；更新器直接安装所选目标版本，并由目标版本
-顺序执行尚未记录在 `schema_migrations` 中的迁移。迁移 ID 发布后不得修改或删除。大型、可延后的历史数据处理
+按依赖补齐尚未记录在 `schema_migrations` 中的迁移。迁移 ID 发布后不得修改或删除。大型、可延后的历史数据处理
 应设计成幂等维护迁移或按需生成，不应让普通服务启动长期不可用。
 
 ## CLI 参数
@@ -310,5 +318,5 @@ sudo systemctl restart convosketchpad.service
 npm run migrate
 ```
 
-成功输出应包含 `0.2.0_to_0.3.0_v1 applied` 和 `0.3.0_media_derivatives_v1 applied`。若手动替换数据库，
+成功输出应按统一清单包含 `0.2.0_to_0.3.0_v1 verified`、`0.3.0_media_derivatives_v1 verified` 和 `0.3.2_to_0.4.0_agent_backend_v1 verified`。若手动替换数据库，
 请同时移除同名 `-wal`、`-shm` 文件，或优先使用更新器的 `--rollback`。

@@ -4,7 +4,7 @@
 
 ConvoSketchpad 是可连接 Agent Backend 的可视化分支工作台，让用户从任意对话节点携带当时的上下文、附件与生成物继续探索，而不是把所有方向压缩到一条线性对话中。一个 Canvas 可以同时呈现不同思路，保留每个方向的演进过程，并把对应的提示词、输出、参考资料、附件和生成结果组织在一起。
 
-当前 Release 只支持 OpenClaw Gateway。产品目标架构将在 Canvas 领域模型与具体运行时之间提供统一 Agent Backend 边界：OpenClaw 继续作为默认 Backend，后续可以直接接入本地 Codex，并为其他 Backend 保留一致的扩展方式。迁移期间的决策和两个功能提交边界记录在 [`AGENT-BACKEND-MIGRATION.md`](AGENT-BACKEND-MIGRATION.md)。
+当前已发布 Release 只支持 OpenClaw Gateway；开发分支已在 Canvas 领域模型与具体运行时之间实现统一 Agent Backend 边界，Registry 目前仍只注册 OpenClaw。后续可以直接接入本地 Codex，并为其他 Backend 保留一致的扩展方式。迁移期间的决策和两个功能提交边界记录在 [`AGENT-BACKEND-MIGRATION.md`](AGENT-BACKEND-MIGRATION.md)。
 
 ## 产品由来
 
@@ -27,7 +27,8 @@ ConvoSketchpad 让用户从任意已完成的 Interaction 携带当时上下文�
 - 对任意 Interaction 原样重试：保留原节点和原执行，从它的上一节点创建普通分支并重新提交相同输入。
 - 在工作过程中移动、缩放和排列节点，并在再次访问时恢复位置、用户尺寸和视口。
 - 持久化保存源附件和生成的 Artifact，并关联到正确的 Interaction。
-- 在工作开始前选择 Agent Profile，此后在整个 Canvas 生命周期中保持 Backend 和执行归属稳定。
+- setup 配置需要连接的 Backend；其 Profile 在产品中组成一个平权 Agent 目录。新建 Canvas 自动选择第一个可用 Agent，不弹窗；首次提交前可在 Canvas 顶部更换，首次持久发送预留后保持 Backend 和执行归属稳定。
+- Agent 请求权限时，在对应 Interaction 节点内查看已净化的风险、权限与作用域并批准或拒绝；持久授权需要额外确认。
 
 ## 产品原则
 
@@ -44,6 +45,8 @@ Canvas 拓扑和布局不是临时展示状态。节点位置、用户调整后�
 所选 Agent Backend 负责 Agent、模型与工具执行、Conversation、原生事件和原始运行记录。ConvoSketchpad 后端通过统一 Agent Backend 边界与具体运行时通信，并保存 Canvas 拓扑、对话内容副本、上传附件、尽力持久化的生成 Artifact、发送状态、恢复元数据和受管用户隔离。前端只负责呈现、上传原始附件与提交用户指令；发送用图片压缩、缩略图和历史媒体处理统一由后端完成。
 
 ConvoSketchpad 不是独立的 Agent 运行环境，至少需要一个可用的 Agent Backend。当前 Release 仍必须连接到可访问的 OpenClaw Gateway；目标架构还允许通过受监督的本地 Codex App Server 直接执行，但不会把 Codex 嵌入 OpenClaw。
+
+配置多个 Backend 后不存在“切换 Backend”模式：每个 Backend 提供的 Agent 都进入同一目录并平权可用。全局连接状态按 Backend 聚合并保留故障明细；账户用量与 Provider 额度按 Backend 分组，只有所有已配置 Backend 在线、所有声明支持费用的 Backend 都成功返回数据，且币种、周期和可加性都一致时才显示合计。当前 Canvas 的 Branch、工作中数量和上下文仍只描述当前工作区，不做账户级求和。
 
 统一边界使用 Agent Profile、Conversation、Turn、Artifact、Capabilities 和归一化事件等产品语义，不把 `chat.send`、`sessionKey`、`runId` 或 Codex `threadId` 等协议字段暴露给 Canvas 通用层。统一事件从第一阶段起包含审批请求、审批结果和补充输入请求；具体 Backend 负责把原生审批协议转换为统一事件并接收统一审批决定。
 

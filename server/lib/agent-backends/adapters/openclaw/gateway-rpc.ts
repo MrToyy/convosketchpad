@@ -10,7 +10,7 @@
 
 import { randomUUID } from 'node:crypto';
 import { WebSocket } from 'ws';
-import { config } from './config.js';
+import { config } from '../../../config.js';
 import {
   clearStoredDeviceAuth,
   CONVOSKETCHPAD_OPERATOR_SCOPES,
@@ -18,7 +18,7 @@ import {
   getStoredDeviceAuth,
   storeDeviceAuth,
 } from './device-identity.js';
-import { packageMetadata } from './package-metadata.js';
+import { packageMetadata } from '../../../package-metadata.js';
 import {
   CONVOSKETCHPAD_GATEWAY_CLIENT_ID,
   CONVOSKETCHPAD_GATEWAY_CLIENT_MODE,

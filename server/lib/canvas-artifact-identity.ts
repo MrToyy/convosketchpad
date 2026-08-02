@@ -1,5 +1,5 @@
 export interface ArtifactIdentityShape {
-  gatewayArtifactId?: string;
+  backendArtifactId?: string;
   sourceUri?: string;
   uri: string;
   storage?: 'canvas' | 'external' | 'source';
@@ -16,7 +16,7 @@ export function canonicalArtifactSource(value: string): string {
     }
     if (url.protocol === 'file:') return `file:${decodeURIComponent(url.pathname)}`;
   } catch {
-    // Preserve opaque OpenClaw source identifiers.
+    // Preserve opaque Backend source identifiers.
   }
   if (value.startsWith('/') && !value.startsWith('/api/')) return `file:${value}`;
   return value;
@@ -31,8 +31,8 @@ function artifactPreference(artifact: ArtifactIdentityShape): number {
 export function mergeEquivalentArtifacts<T extends ArtifactIdentityShape>(artifacts: T[]): T[] {
   const merged = new Map<string, T>();
   for (const artifact of artifacts) {
-    const key = artifact.gatewayArtifactId
-      ? `gateway:${artifact.gatewayArtifactId}`
+    const key = artifact.backendArtifactId
+      ? `backend:${artifact.backendArtifactId}`
       : canonicalArtifactSource(artifact.sourceUri || artifact.uri);
     const existing = merged.get(key);
     if (!existing || artifactPreference(artifact) > artifactPreference(existing)) {

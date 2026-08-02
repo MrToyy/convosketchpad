@@ -1,4 +1,5 @@
-import { subscribeGatewayEvents, subscribeGatewayStatus } from './gateway-rpc.js';
+import { agentBackendRegistry } from './agent-backends/registry.js';
+import { publicAggregatedBackendStatus } from './agent-backends/catalog.js';
 import {
   getCanvasStore,
   type InteractionRecord,
@@ -11,7 +12,7 @@ import {
   canvasSendWorkerHasActiveDispatches,
   canvasSendWorkerIsActive,
   clearCanvasSendWorkerState,
-  consumeCanvasGatewayEvent,
+  consumeCanvasBackendEvent,
   runCanvasSendWorker,
 } from './canvas-send-worker.js';
 
@@ -20,8 +21,16 @@ let retryTimerAt: number | null = null;
 let retryScanRunning = false;
 let retryScanRequested = false;
 let started = false;
-let unsubscribeEvents: (() => void) | null = null;
-let unsubscribeStatus: (() => void) | null = null;
+let unsubscribeBackendSubscriptions: Array<() => void> = [];
+
+function publishBackendStatuses(): void {
+  publishRuntimeEvent({
+    type: 'runtime.backend_status_changed',
+    payload: publicAggregatedBackendStatus(
+      agentBackendRegistry.list().map((backend) => backend.getStatus()),
+    ) as unknown as Record<string, unknown>,
+  });
+}
 
 export async function dispatchCanvasSend(reservationId: string): Promise<SendReservation | InteractionRecord> {
   try {
@@ -85,14 +94,17 @@ function scheduleNextRetryScan(): void {
 export function startCanvasSendCoordinator(): void {
   if (started) return;
   started = true;
-  unsubscribeEvents = subscribeGatewayEvents(consumeCanvasGatewayEvent);
-  unsubscribeStatus = subscribeGatewayStatus((status) => {
-    publishRuntimeEvent({ type: 'runtime.connection_changed', payload: { ...status } });
-    if (status.state === 'connected') {
-      rescanCanvasReconciliationCandidates();
-      void retryDueSends();
-    }
-  });
+  unsubscribeBackendSubscriptions = agentBackendRegistry.list().flatMap((backend) => [
+    backend.subscribeEvents(consumeCanvasBackendEvent),
+    backend.subscribeStatus((status) => {
+      publishBackendStatuses();
+      if (status.state === 'connected') {
+        rescanCanvasReconciliationCandidates();
+        void retryDueSends();
+      }
+    }),
+  ]);
+  publishBackendStatuses();
   void retryDueSends();
 }
 
@@ -104,8 +116,6 @@ export function stopCanvasSendCoordinator(): void {
   retryScanRunning = false;
   retryScanRequested = false;
   clearCanvasSendWorkerState();
-  unsubscribeEvents?.();
-  unsubscribeStatus?.();
-  unsubscribeEvents = null;
-  unsubscribeStatus = null;
+  for (const unsubscribe of unsubscribeBackendSubscriptions) unsubscribe();
+  unsubscribeBackendSubscriptions = [];
 }

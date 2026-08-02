@@ -16,8 +16,8 @@ const {
   storeDeviceAuthMock: vi.fn(),
 }));
 
-vi.mock('../../server/lib/device-identity.js', () => ({
-  CONVOSKETCHPAD_OPERATOR_SCOPES: ['operator.read', 'operator.write'],
+vi.mock('../../server/lib/agent-backends/adapters/openclaw/device-identity.js', () => ({
+  CONVOSKETCHPAD_OPERATOR_SCOPES: ['operator.read', 'operator.write', 'operator.approvals'],
   createDeviceBlock: createDeviceBlockMock,
   storeDeviceAuth: storeDeviceAuthMock,
 }));
@@ -98,7 +98,7 @@ describe('native Gateway pairing probe', () => {
       minProtocol: 4,
       maxProtocol: 4,
       role: 'operator',
-      scopes: ['operator.read', 'operator.write'],
+      scopes: ['operator.read', 'operator.write', 'operator.approvals'],
       auth: { token: 'shared-gateway-token' },
       client: {
         id: 'gateway-client',
@@ -112,7 +112,7 @@ describe('native Gateway pairing probe', () => {
       clientId: 'gateway-client',
       clientMode: 'backend',
       role: 'operator',
-      scopes: ['operator.read', 'operator.write'],
+      scopes: ['operator.read', 'operator.write', 'operator.approvals'],
       token: 'shared-gateway-token',
       nonce: 'pairing-nonce',
     });

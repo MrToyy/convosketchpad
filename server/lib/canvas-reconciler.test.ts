@@ -17,7 +17,7 @@ function interaction(overrides: Partial<InteractionRecord> = {}): InteractionRec
     version: 1,
     branchId: 'branch-1',
     parentInteractionId: null,
-    runId: 'run-1',
+    backendTurnId: 'run-1',
     userInput: '请生成图片',
     agentOutput: '',
     status: 'streaming',
@@ -27,7 +27,7 @@ function interaction(overrides: Partial<InteractionRecord> = {}): InteractionRec
     error: null,
     attachments: [],
     artifacts: [],
-    sessionMetadata: {},
+    executionMetadata: {},
     createdAt: 1_000,
     updatedAt: 1_000,
     ...overrides,
@@ -145,7 +145,7 @@ describe('Canvas transcript reconciliation', () => {
     const before = interaction({
       status: 'completed',
       agentOutput: 'done',
-      sessionMetadata: {
+      executionMetadata: {
         reconciliation: {
           phase: 'pending',
           artifactSync: 'pending',
@@ -155,7 +155,7 @@ describe('Canvas transcript reconciliation', () => {
     });
     const heartbeatOnly = {
       ...before,
-      sessionMetadata: {
+      executionMetadata: {
         reconciliation: {
           phase: 'pending',
           artifactSync: 'pending',
@@ -170,7 +170,7 @@ describe('Canvas transcript reconciliation', () => {
     })).toMatchObject({ artifactChanged: true, graphChanged: true });
     expect(compareReconciledInteractions(before, {
       ...heartbeatOnly,
-      sessionMetadata: {
+      executionMetadata: {
         reconciliation: { phase: 'synced', artifactSync: 'synced' },
       },
     })).toMatchObject({ reconciliationChanged: true, graphChanged: false });
@@ -182,19 +182,19 @@ describe('Canvas transcript reconciliation', () => {
       status: 'completed',
       executionState: 'completed',
       artifactSyncState: 'observing',
-      sessionMetadata: { reconciliation: { artifactSync: 'pending' } },
+      executionMetadata: { reconciliation: { artifactSync: 'pending' } },
     }))).toBe(true);
     expect(interactionHasPendingUpdates(interaction({
       status: 'completed',
       executionState: 'completed',
       artifactSyncState: 'synced',
-      sessionMetadata: { reconciliation: { artifactSync: 'synced' } },
+      executionMetadata: { reconciliation: { artifactSync: 'synced' } },
     }))).toBe(false);
     expect(interactionHasPendingUpdates(interaction({
       status: 'completed',
       executionState: 'completed',
       artifactSyncState: 'degraded',
-      sessionMetadata: { reconciliation: { artifactSync: 'degraded' } },
+      executionMetadata: { reconciliation: { artifactSync: 'degraded' } },
     }))).toBe(false);
   });
 

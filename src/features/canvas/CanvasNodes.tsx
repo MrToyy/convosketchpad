@@ -19,6 +19,7 @@ import {
   Paperclip,
   Plus,
   RotateCcw,
+  ShieldAlert,
   Sparkles,
   X,
 } from 'lucide-react';
@@ -27,7 +28,7 @@ import { Button } from '@/components/ui/button';
 import { ImageLightbox } from '@/features/chat/ImageLightbox';
 import { MarkdownRenderer } from '@/features/markdown/MarkdownRenderer';
 import { useSettings } from '@/contexts/SettingsContext';
-import { canvasArtifactUrl } from './api';
+import { canvasApi, canvasArtifactUrl } from './api';
 import { CanvasSendButton } from './CanvasSendButton';
 import { MAX_CANVAS_ATTACHMENTS } from './constants';
 import {
@@ -43,7 +44,7 @@ import {
   type CanvasNodeBounds,
 } from './layout';
 import { getCanvasCopy, type CanvasCopy } from './messages';
-import type { CanvasBranch, CanvasDraft, CanvasInteraction } from './types';
+import type { CanvasBranch, CanvasDraft, CanvasInteraction, InteractionApproval } from './types';
 
 interface InteractionNodeData extends Record<string, unknown> {
   interaction: CanvasInteraction;
@@ -54,6 +55,7 @@ interface InteractionNodeData extends Record<string, unknown> {
   resizeEnabled: boolean;
   onAdd: (interaction: CanvasInteraction) => void;
   onResubmit: (interaction: CanvasInteraction) => void;
+  onApprovalChanged: () => void;
 }
 
 interface ComposerNodeData extends Record<string, unknown> {
@@ -162,6 +164,82 @@ function CanvasNodeResizeHandle({
   );
 }
 
+function ApprovalCard({ approval, onChanged }: {
+  approval: InteractionApproval;
+  onChanged: () => void;
+}) {
+  const { language } = useSettings();
+  const [selectedPermissions, setSelectedPermissions] = useState(
+    () => new Set(approval.permissions.map((permission) => permission.id)),
+  );
+  const [submittingChoice, setSubmittingChoice] = useState<string | null>(null);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const pending = approval.status === 'pending';
+  const riskClass = approval.risk === 'high'
+    ? 'border-destructive/50 bg-destructive/10'
+    : approval.risk === 'medium'
+      ? 'border-orange/45 bg-orange/10'
+      : 'border-border/60 bg-background/45';
+  const statusLabel = language === 'zh-CN'
+    ? ({ pending: '等待审批', resolving: '正在提交', resolved: '已允许', denied: '已拒绝', expired: '已过期', unconfirmed: '结果待确认' } as const)[approval.status]
+    : ({ pending: 'Approval required', resolving: 'Submitting', resolved: 'Allowed', denied: 'Denied', expired: 'Expired', unconfirmed: 'Result unconfirmed' } as const)[approval.status];
+
+  const resolve = async (choice: InteractionApproval['choices'][number]) => {
+    if (choice.requiresConfirmation) {
+      const confirmed = window.confirm(language === 'zh-CN'
+        ? `“${choice.label}”会在 ${choice.scope} 范围内持续授权。确认继续吗？`
+        : `“${choice.label}” grants access for the ${choice.scope} scope. Continue?`);
+      if (!confirmed) return;
+    }
+    setSubmittingChoice(choice.id);
+    setSubmitError(null);
+    try {
+      await canvasApi.resolveApproval(approval.id, {
+        choiceId: choice.id,
+        ...(choice.intent === 'grant' ? { grantedPermissionIds: [...selectedPermissions] } : {}),
+      });
+      onChanged();
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : 'Approval failed');
+      onChanged();
+    } finally {
+      setSubmittingChoice(null);
+    }
+  };
+
+  return <section className={`nodrag mt-3 rounded-2xl border px-3 py-3 ${riskClass}`} aria-label={approval.title}>
+    <div className="flex items-start gap-2">
+      <ShieldAlert size={15} className="mt-0.5 shrink-0" aria-hidden="true" />
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <h3 className="text-xs font-semibold text-foreground">{approval.title}</h3>
+          <span className="rounded-full border border-current/20 px-1.5 py-0.5 text-[0.6rem] uppercase">{approval.risk}</span>
+          <span role="status" aria-live="polite" className="text-[0.667rem] text-muted-foreground">{statusLabel}</span>
+        </div>
+        {approval.description && <p className="mt-2 whitespace-pre-wrap break-words rounded-lg bg-background/55 p-2 font-mono text-[0.667rem] text-muted-foreground">{approval.description}</p>}
+        {approval.permissions.length > 0 && <fieldset className="mt-2 space-y-1" disabled={!pending || submittingChoice !== null}>
+          <legend className="text-[0.667rem] font-medium text-muted-foreground">{language === 'zh-CN' ? '请求的权限' : 'Requested permissions'}</legend>
+          {approval.permissions.map((permission) => <label key={permission.id} className="flex items-start gap-2 text-[0.667rem] text-foreground">
+            <input type="checkbox" checked={selectedPermissions.has(permission.id)} onChange={(event) => setSelectedPermissions((current) => {
+              const next = new Set(current);
+              if (event.target.checked) next.add(permission.id); else next.delete(permission.id);
+              return next;
+            })} />
+            <span><span className="font-medium">{permission.label}</span>{permission.description && <span className="block text-muted-foreground">{permission.description}</span>}</span>
+          </label>)}
+        </fieldset>}
+        {approval.expiresAt && pending && <p className="mt-2 text-[0.667rem] text-muted-foreground">{language === 'zh-CN' ? '过期时间' : 'Expires'}: {new Date(approval.expiresAt).toLocaleString(language)}</p>}
+        {pending && <div className="mt-3 flex flex-wrap gap-2">
+          {approval.choices.map((choice) => <Button key={choice.id} type="button" size="sm" variant={choice.intent === 'deny' || choice.scope === 'persistent' ? 'outline' : 'default'} disabled={submittingChoice !== null || (choice.intent === 'grant' && selectedPermissions.size === 0)} onClick={() => void resolve(choice)}>
+            {submittingChoice === choice.id && <Loader2 size={12} className="animate-spin" />}{choice.label}
+          </Button>)}
+        </div>}
+        {(submitError || approval.error) && <p role="alert" className="mt-2 text-[0.667rem] text-destructive">{submitError || approval.error}</p>}
+      </div>
+    </div>
+  </section>;
+}
+
 function InteractionNode({ data }: NodeProps<InteractionFlowNode>) {
   const { language } = useSettings();
   const copy = getCanvasCopy(language);
@@ -174,11 +252,12 @@ function InteractionNode({ data }: NodeProps<InteractionFlowNode>) {
     resizeEnabled,
     onAdd,
     onResubmit,
+    onApprovalChanged,
   } = data;
   const visibleOutput = interaction.agentOutput || preview;
   const running = interaction.executionState === 'running';
-  const bootstrapWarnings = Array.isArray(interaction.sessionMetadata.bootstrapWarnings)
-    ? interaction.sessionMetadata.bootstrapWarnings.filter((item): item is string => typeof item === 'string')
+  const bootstrapWarnings = Array.isArray(interaction.executionMetadata.bootstrapWarnings)
+    ? interaction.executionMetadata.bootstrapWarnings.filter((item): item is string => typeof item === 'string')
     : [];
   const imageAttachments = interaction.attachments.filter((item) =>
     item.mimeType.startsWith('image/') && Boolean(item.thumbnailUri));
@@ -256,6 +335,8 @@ function InteractionNode({ data }: NodeProps<InteractionFlowNode>) {
           <p translate="no" className="notranslate py-3 text-muted-foreground">{copy.noResponse}</p>
         )}
       </div>
+
+      {(interaction.approvals || []).map((approval) => <ApprovalCard key={approval.id} approval={approval} onChanged={onApprovalChanged} />)}
 
       {interaction.artifactSyncState === 'observing' && (
         <div className="nodrag mt-3 flex items-center gap-2 text-xs text-muted-foreground">

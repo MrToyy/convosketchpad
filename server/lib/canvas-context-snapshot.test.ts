@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { backendHandle } from './agent-backends/contract.js';
 import {
   captureInteractionCompletionSession,
   captureInteractionContextSnapshot,
@@ -6,127 +7,78 @@ import {
 
 const SESSION_KEY = 'agent:main:canvas:branch-1';
 const SESSION_ID = 'session-1';
+const conversationRef = backendHandle('openclaw', { sessionKey: SESSION_KEY });
+
+function inspector(input: {
+  exists?: boolean;
+  instanceId?: string;
+  context?: { usedTokens: number; contextLimit: number; model?: string; provider?: string; compactionCount?: number };
+}) {
+  return {
+    inspectConversation: vi.fn(async () => ({
+      exists: input.exists !== false,
+      conversationRef,
+      ...(input.instanceId ? { instanceId: input.instanceId } : {}),
+      ...(input.context ? { context: input.context } : {}),
+    })),
+  };
+}
 
 describe('Interaction context snapshots', () => {
-  it('captures a fresh exact-session snapshot through sessions.describe', async () => {
-    const call = vi.fn(async () => ({
-      session: {
-        key: SESSION_KEY,
-        sessionId: SESSION_ID,
-        totalTokens: 12_345,
-        totalTokensFresh: true,
-        contextTokens: 100_000,
-        modelProvider: 'openai',
+  it('captures a fresh exact-conversation snapshot through the Backend', async () => {
+    const backend = inspector({
+      instanceId: SESSION_ID,
+      context: {
+        usedTokens: 12_345,
+        contextLimit: 100_000,
+        provider: 'openai',
         model: 'gpt',
         compactionCount: 2,
       },
-    }));
-    const result = await captureInteractionContextSnapshot(SESSION_KEY, SESSION_ID, {
-      call,
-      supports: vi.fn(() => true),
-    }, 123);
+    });
+    const result = await captureInteractionContextSnapshot(conversationRef, SESSION_ID, backend, 123);
 
-    expect(call).toHaveBeenCalledWith('sessions.describe', { key: SESSION_KEY }, 3_000);
-    expect(result).toEqual({
+    expect(backend.inspectConversation).toHaveBeenCalledWith(conversationRef);
+    expect(result).toMatchObject({
       usedTokens: 12_345,
       contextLimit: 100_000,
-      sessionKey: SESSION_KEY,
-      sessionId: SESSION_ID,
+      conversationInstanceId: SESSION_ID,
       provider: 'openai',
       model: 'gpt',
       compactionCount: 2,
       capturedAt: 123,
-      source: 'openclaw-session',
+      source: 'agent-backend',
+      backendId: 'openclaw',
     });
   });
 
-  it('rejects a stale snapshot or a different physical session', async () => {
-    const stale = await captureInteractionContextSnapshot(SESSION_KEY, SESSION_ID, {
-      call: vi.fn(async () => ({
-        session: {
-          key: SESSION_KEY,
-          sessionId: SESSION_ID,
-          totalTokens: 100,
-          totalTokensFresh: false,
-          contextTokens: 1_000,
-        },
-      })),
-      supports: vi.fn(() => true),
-    });
-    const drifted = await captureInteractionContextSnapshot(SESSION_KEY, SESSION_ID, {
-      call: vi.fn(async () => ({
-        session: {
-          key: SESSION_KEY,
-          sessionId: 'session-2',
-          totalTokens: 100,
-          totalTokensFresh: true,
-          contextTokens: 1_000,
-        },
-      })),
-      supports: vi.fn(() => true),
-    });
-
-    expect(stale).toBeNull();
-    expect(drifted).toBeNull();
+  it('rejects a missing or different physical Conversation instance', async () => {
+    await expect(captureInteractionContextSnapshot(
+      conversationRef,
+      SESSION_ID,
+      inspector({ exists: false }),
+    )).resolves.toBeNull();
+    await expect(captureInteractionContextSnapshot(
+      conversationRef,
+      SESSION_ID,
+      inspector({ instanceId: 'session-2', context: { usedTokens: 1, contextLimit: 10 } }),
+    )).resolves.toBeNull();
   });
 
-  it('retains exact Session identity when token context is stale', async () => {
-    const result = await captureInteractionCompletionSession(SESSION_KEY, SESSION_ID, {
-      call: vi.fn(async () => ({
-        session: {
-          key: SESSION_KEY,
-          sessionId: SESSION_ID,
-          totalTokens: 100,
-          totalTokensFresh: false,
-          contextTokens: 1_000,
-        },
-      })),
-      supports: vi.fn(() => true),
-    });
-
-    expect(result).toEqual({
-      sessionId: SESSION_ID,
-      contextSnapshot: null,
-    });
+  it('retains exact Conversation identity when context usage is unavailable', async () => {
+    await expect(captureInteractionCompletionSession(
+      conversationRef,
+      SESSION_ID,
+      inspector({ instanceId: SESSION_ID }),
+    )).resolves.toEqual({ conversationInstanceId: SESSION_ID, contextSnapshot: null });
   });
 
-  it('accepts the exact-key physical session when no prior Session ID was observable', async () => {
-    const result = await captureInteractionContextSnapshot(SESSION_KEY, undefined, {
-      call: vi.fn(async () => ({
-        session: {
-          key: SESSION_KEY,
-          sessionId: SESSION_ID,
-          totalTokens: 100,
-          totalTokensFresh: true,
-          contextTokens: 1_000,
-        },
-      })),
-      supports: vi.fn(() => true),
-    });
-
-    expect(result).toMatchObject({
-      sessionKey: SESSION_KEY,
-      sessionId: SESSION_ID,
-      usedTokens: 100,
-    });
-  });
-
-  it('falls back to a bounded exact-key search', async () => {
-    const call = vi.fn(async () => ({
-      sessions: [
-        { key: `${SESSION_KEY}:other`, sessionId: SESSION_ID, totalTokens: 99, totalTokensFresh: true, contextTokens: 100 },
-        { key: SESSION_KEY, sessionId: SESSION_ID, totalTokens: 25, totalTokensFresh: true, contextTokens: 200 },
-      ],
-    }));
-    const result = await captureInteractionContextSnapshot(SESSION_KEY, SESSION_ID, {
-      call,
-      supports: vi.fn(() => false),
-    });
-
-    expect(call).toHaveBeenCalledWith('sessions.list', {
-      search: SESSION_KEY,
-      limit: 20,
-    }, 3_000);
-    expect(result).toMatchObject({ usedTokens: 25, contextLimit: 200 });
+  it('accepts an exact physical instance when no prior instance was observed', async () => {
+    const result = await captureInteractionContextSnapshot(
+      conversationRef,
+      undefined,
+      inspector({ instanceId: SESSION_ID, context: { usedTokens: 100, contextLimit: 1_000 } }),
+    );
+    expect(result).toMatchObject({ conversationInstanceId: SESSION_ID, usedTokens: 100 });
   });
 });

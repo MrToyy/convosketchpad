@@ -34,7 +34,7 @@ export interface CanvasCopy {
   loadCanvasListFailed: string;
   loadCanvasFailed: string;
   loadingCanvas: string;
-  refreshOpenClawFailed: string;
+  refreshBackendFailed: string;
   currentCanvasMissing: string;
   secureReadUrlMissing: string;
   readFailedWithStatus: (status: number) => string;
@@ -42,7 +42,7 @@ export interface CanvasCopy {
   resourceWarning: (name: string, reason: string) => string;
   prepareAttachmentFailed: string;
   messageSendFailed: string;
-  openClawRunFailed: string;
+  backendRunFailed: string;
   forkFailed: string;
   createBranch: string;
   newSession: string;
@@ -57,7 +57,7 @@ export interface CanvasCopy {
   createSessionFailed: string;
   deleteCanvasConfirm: (name: string) => string;
   canvasList: string;
-  agentLabel: (agentId: string) => string;
+  agentLabel: (agentName: string) => string;
   selectAgent: string;
   retryAgentList: string;
   hideCanvasList: string;
@@ -112,7 +112,7 @@ const knownErrors = {
     unknown_agent: '所选智能体不存在',
     agent_locked: '首次交互已经提交，无法再修改智能体',
     agent_changed: '智能体已在其他页面中修改，请重新发送',
-    agent_catalog_unavailable: '暂时无法读取 OpenClaw 智能体列表',
+    agent_catalog_unavailable: '暂时无法读取智能体目录',
   },
   en: {
     not_found: 'The requested item was not found.',
@@ -141,7 +141,7 @@ const knownErrors = {
     unknown_agent: 'The selected agent does not exist.',
     agent_locked: 'The first interaction has been submitted, so the agent is locked.',
     agent_changed: 'The agent changed in another tab. Send again.',
-    agent_catalog_unavailable: 'The OpenClaw agent list is temporarily unavailable.',
+    agent_catalog_unavailable: 'The agent catalog is temporarily unavailable.',
   },
 } satisfies Record<Language, Record<string, string>>;
 
@@ -152,7 +152,7 @@ export const canvasCopy = {
     knownErrors: knownErrors['zh-CN'],
     userInput: '用户输入',
     attachmentsOnly: '（仅包含附件）',
-    waitingForResponse: '正在等待 OpenClaw 响应…',
+    waitingForResponse: '正在等待智能体响应…',
     noResponse: '暂无响应内容。',
     partialHistoryResources: '部分历史资源未能继承',
     artifactUnavailable: 'Artifact 暂不可用',
@@ -165,17 +165,17 @@ export const canvasCopy = {
     resubmitFailed: '无法重试此节点',
     closeComposer: '关闭输入框',
     resizeNode: '拖动调整节点大小',
-    composerPlaceholder: '接下来希望 OpenClaw 做什么？',
+    composerPlaceholder: '接下来希望智能体做什么？',
     addAttachment: '添加附件',
     removeAttachment: '移除附件',
     send: '发送',
     attachmentReadFailed: (name) => `无法读取附件：${name}`,
-    attachmentTooLarge: (name) => `附件“${name}”超过 20 MB，无法发送给 OpenClaw`,
-    imageCompressionFailed: (name) => `图片“${name}”无法压缩到 OpenClaw 可直接识别的大小`,
+    attachmentTooLarge: (name) => `附件“${name}”超过 20 MB，无法发送给智能体`,
+    imageCompressionFailed: (name) => `图片“${name}”无法压缩到 Agent Backend 可接收的大小`,
     loadCanvasListFailed: '无法加载画布列表',
     loadCanvasFailed: '无法加载画布',
     loadingCanvas: '正在加载画布…',
-    refreshOpenClawFailed: '无法刷新 OpenClaw 状态',
+    refreshBackendFailed: '无法刷新 Agent Backend 状态',
     currentCanvasMissing: '未找到当前画布',
     secureReadUrlMissing: '缺少安全读取地址',
     readFailedWithStatus: (status) => `读取失败（${status}）`,
@@ -183,7 +183,7 @@ export const canvasCopy = {
     resourceWarning: (name, reason) => `${name}：${reason}`,
     prepareAttachmentFailed: '无法准备附件',
     messageSendFailed: '消息发送失败',
-    openClawRunFailed: 'OpenClaw 运行失败',
+    backendRunFailed: '智能体运行失败',
     forkFailed: '无法创建新分支',
     createBranch: '创建分支',
     newSession: '新建主分支',
@@ -196,9 +196,9 @@ export const canvasCopy = {
     renameCanvasFailed: '无法重命名画布',
     changeAgentFailed: '无法修改智能体',
     createSessionFailed: '无法创建主分支',
-    deleteCanvasConfirm: (name) => `确定删除“${name}”及其画布数据吗？OpenClaw 原始会话记录不会被修改。`,
+    deleteCanvasConfirm: (name) => `确定删除“${name}”及其画布数据吗？Agent Backend 的原始会话记录不会被修改。`,
     canvasList: '画布列表',
-    agentLabel: (agentId) => `智能体：${agentId}`,
+    agentLabel: (agentName) => `智能体：${agentName}`,
     selectAgent: '选择智能体',
     retryAgentList: '重新加载智能体列表',
     hideCanvasList: '隐藏画布列表',
@@ -213,7 +213,7 @@ export const canvasCopy = {
     fitView: '适应视图',
     toggleInteractive: '切换节点交互',
     minimap: '画布缩略图',
-    emptyTitle: '开始使用 OpenClaw 画布',
+    emptyTitle: '开始使用 ConvoSketchpad',
     emptyDescription: '创建画布后，你可以开始多个主分支，并从历史交互继续派生新的分支。',
     previewDialog: (name) => `图片预览：${name}`,
     closeImagePreview: '关闭图片预览',
@@ -225,7 +225,7 @@ export const canvasCopy = {
     knownErrors: knownErrors.en,
     userInput: 'User input',
     attachmentsOnly: '(attachments only)',
-    waitingForResponse: 'Waiting for OpenClaw…',
+    waitingForResponse: 'Waiting for the agent…',
     noResponse: 'No response content.',
     partialHistoryResources: 'Some historical resources could not be inherited',
     artifactUnavailable: 'Artifact unavailable',
@@ -238,17 +238,17 @@ export const canvasCopy = {
     resubmitFailed: 'Unable to retry this node',
     closeComposer: 'Close composer',
     resizeNode: 'Drag to resize node',
-    composerPlaceholder: 'What should OpenClaw do next?',
+    composerPlaceholder: 'What should the agent do next?',
     addAttachment: 'Add attachment',
     removeAttachment: 'Remove attachment',
     send: 'Send',
     attachmentReadFailed: (name) => `Unable to read attachment: ${name}`,
-    attachmentTooLarge: (name) => `Attachment “${name}” exceeds 20 MB and cannot be sent to OpenClaw`,
-    imageCompressionFailed: (name) => `Image “${name}” could not be compressed to a size OpenClaw can process`,
+    attachmentTooLarge: (name) => `Attachment “${name}” exceeds 20 MB and cannot be sent to the agent`,
+    imageCompressionFailed: (name) => `Image “${name}” could not be compressed to a size the Agent Backend accepts`,
     loadCanvasListFailed: 'Unable to load the Canvas list',
     loadCanvasFailed: 'Unable to load the Canvas',
     loadingCanvas: 'Loading Canvas…',
-    refreshOpenClawFailed: 'Unable to refresh OpenClaw status',
+    refreshBackendFailed: 'Unable to refresh Agent Backend status',
     currentCanvasMissing: 'The current Canvas was not found',
     secureReadUrlMissing: 'Secure read URL is missing',
     readFailedWithStatus: (status) => `Read failed (${status})`,
@@ -256,7 +256,7 @@ export const canvasCopy = {
     resourceWarning: (name, reason) => `${name}: ${reason}`,
     prepareAttachmentFailed: 'Unable to prepare attachment',
     messageSendFailed: 'Message failed to send',
-    openClawRunFailed: 'OpenClaw run failed',
+    backendRunFailed: 'Agent run failed',
     forkFailed: 'Unable to create branch',
     createBranch: 'Create branch',
     newSession: 'New root branch',
@@ -269,9 +269,9 @@ export const canvasCopy = {
     renameCanvasFailed: 'Unable to rename Canvas',
     changeAgentFailed: 'Unable to change agent',
     createSessionFailed: 'Unable to create a root branch',
-    deleteCanvasConfirm: (name) => `Delete “${name}” and its Canvas data? The original OpenClaw session history will not be modified.`,
+    deleteCanvasConfirm: (name) => `Delete “${name}” and its Canvas data? The Agent Backend's original conversation history will not be modified.`,
     canvasList: 'Canvas list',
-    agentLabel: (agentId) => `Agent: ${agentId}`,
+    agentLabel: (agentName) => `Agent: ${agentName}`,
     selectAgent: 'Select agent',
     retryAgentList: 'Reload agent list',
     hideCanvasList: 'Hide Canvas list',

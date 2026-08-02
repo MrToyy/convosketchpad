@@ -26,7 +26,7 @@ curl -fsS http://127.0.0.1:18789/health
 curl -fsS http://127.0.0.1:3080/health
 ```
 
-loopback Gateway 使用共享 `GATEWAY_TOKEN` 直连，不需要设备配对。旧 `gateway-auth.json` 中即使存在该地址的设备 Token，也会被忽略。
+loopback Gateway 使用共享 `OPENCLAW_GATEWAY_TOKEN` 直连，不需要设备配对。旧 `gateway-auth.json` 中即使存在该地址的设备 Token，也会被忽略。
 
 <a id="local-ui-with-a-remote-gateway"></a>
 
@@ -39,12 +39,13 @@ loopback Gateway 使用共享 `GATEWAY_TOKEN` 直连，不需要设备配对。�
 建议通过 Tailscale、WireGuard 或 SSH 隧道连接 Gateway。配置：
 
 ```bash
-GATEWAY_URL=https://gateway.example.internal
-GATEWAY_TOKEN=<token>
-CONVOSKETCHPAD_GATEWAY_TIMEZONE=Asia/Shanghai
+AGENT_BACKENDS=openclaw
+OPENCLAW_GATEWAY_URL=https://gateway.example.internal
+OPENCLAW_GATEWAY_TOKEN=<token>
+OPENCLAW_GATEWAY_TIMEZONE=Asia/Shanghai
 ```
 
-不需要 `WS_ALLOWED_HOSTS`，也不需要把浏览器 Origin 加入 OpenClaw `gateway.controlUi.allowedOrigins`。setup 会发起 ConvoSketchpad backend 设备请求；在 Gateway 宿主机审批，并在 repair 后确认最终 Token 只有 read/write。共享 `GATEWAY_TOKEN` 仍需保留，用于 Gateway HTTP 接口和配对 bootstrap。
+不需要 `WS_ALLOWED_HOSTS`，也不需要把浏览器 Origin 加入 OpenClaw `gateway.controlUi.allowedOrigins`。setup 会发起 ConvoSketchpad backend 设备请求；在 Gateway 宿主机审批，并在 repair 后确认最终 Token 只有 read/write/approvals。共享 `OPENCLAW_GATEWAY_TOKEN` 仍需保留，用于 Gateway HTTP 接口和配对 bootstrap。
 
 <a id="remote-browser-access"></a>
 
@@ -61,7 +62,7 @@ HOST=0.0.0.0
 CONVOSKETCHPAD_AUTH=true
 CONVOSKETCHPAD_SESSION_SECRET=<stable-random-secret>
 ALLOWED_ORIGINS=https://canvas.example.com
-GATEWAY_URL=http://127.0.0.1:18789
+OPENCLAW_GATEWAY_URL=http://127.0.0.1:18789
 ```
 
 通过 Caddy、Nginx、Traefik 或 Tailscale Serve 提供 HTTPS；反向代理到 `http://127.0.0.1:3080` 或私网 HTTP 地址。只有在确实可信时才把与 ConvoSketchpad 直接建立 TCP 连接的代理 IP 配入 `TRUSTED_PROXIES`。`ALLOWED_ORIGINS` 必须是浏览器地址栏中的精确 Origin，只控制 ConvoSketchpad API/SSE。

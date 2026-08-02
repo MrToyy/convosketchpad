@@ -7,13 +7,8 @@ import { SettingsDrawer } from './SettingsDrawer';
 const drawerProps = {
   open: true,
   onClose: vi.fn(),
-  gatewayUrl: 'ws://localhost:18789',
-  gatewayToken: '',
-  onUrlChange: vi.fn(),
-  onTokenChange: vi.fn(),
-  onReconnect: vi.fn(),
-  connectionState: 'connected' as const,
-  gatewayRestartSupported: true,
+  onRefreshStatus: vi.fn(),
+  backendStatuses: { openclaw: { backendId: 'openclaw', state: 'connected' as const } },
   onLogout: vi.fn(),
 };
 
@@ -48,7 +43,7 @@ describe('SettingsDrawer interface language', () => {
     expect(localStorage.getItem(LANGUAGE_STORAGE_KEY)).toBe('en');
 
     fireEvent.click(screen.getByRole('tab', { name: 'System' }));
-    expect(screen.getByRole('heading', { name: 'OpenClaw Gateway' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Agent Backends' })).toBeInTheDocument();
     expect(screen.getByText('Current version vtest')).toBeInTheDocument();
   });
 });

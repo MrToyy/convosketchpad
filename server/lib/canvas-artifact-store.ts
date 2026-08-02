@@ -1,14 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
-import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { getAgentBackend } from './agent-backends/registry.js';
 import { config } from './config.js';
-import {
-  gatewayRpcCall,
-  gatewaySupports,
-  getGatewaySharedHttpAuthToken,
-} from './gateway-rpc.js';
 import type { CanvasArtifact, CanvasAttachment, OwnedInteractionRecord } from './canvas-db.js';
 
 export const CANVAS_ARTIFACT_MAX_BYTES = 25 * 1024 * 1024;
@@ -18,11 +12,6 @@ export interface MaterializedCanvasArtifacts {
   artifacts: CanvasArtifact[];
   complete: boolean;
   warnings: string[];
-}
-
-function isWithin(candidate: string, root: string): boolean {
-  const relative = path.relative(root, candidate);
-  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
 }
 
 function ownerDirectory(ownerId: string): string {
@@ -135,148 +124,26 @@ function externalUri(uri: string): boolean {
   return /^https?:\/\//i.test(uri);
 }
 
-function gatewayMediaUrl(uri: string): URL | null {
-  if (!uri.startsWith('/api/chat/media/outgoing/')) return null;
-  const gatewayHttpUrl = config.gatewayUrl
-    .replace(/^ws:/, 'http:')
-    .replace(/^wss:/, 'https:')
-    .replace(/\/ws\/?$/, '');
-  return new URL(uri, gatewayHttpUrl.endsWith('/') ? gatewayHttpUrl : `${gatewayHttpUrl}/`);
-}
-
-async function responseBytes(response: Response): Promise<Uint8Array> {
-  const declaredLength = Number(response.headers.get('content-length') || 0);
-  if (declaredLength > CANVAS_ARTIFACT_MAX_BYTES) throw new Error('Artifact exceeds the 25 MiB persistence limit');
-  if (!response.body) throw new Error('Artifact response has no body');
-
-  const reader = response.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    total += value.byteLength;
-    if (total > CANVAS_ARTIFACT_MAX_BYTES) {
-      await reader.cancel();
-      throw new Error('Artifact exceeds the 25 MiB persistence limit');
-    }
-    chunks.push(value);
-  }
-  const bytes = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return bytes;
-}
-
-async function nativeWorkspaceRoot(agentId: string): Promise<string | null> {
-  if (!gatewaySupports('agents.list')) return null;
-  const result = await gatewayRpcCall('agents.list', {}, 15_000).catch(() => null) as {
-    agents?: Array<{ id?: unknown; workspace?: unknown }>;
-  } | null;
-  const workspace = result?.agents?.find((agent) => agent.id === agentId)?.workspace;
-  return typeof workspace === 'string' && path.isAbsolute(workspace) ? path.resolve(workspace) : null;
-}
-
-function decodeWorkspaceContent(result: unknown): { bytes: Uint8Array; mimeType?: string } | null {
-  const record = result && typeof result === 'object' ? result as Record<string, unknown> : null;
-  const file = record?.file && typeof record.file === 'object'
-    ? record.file as Record<string, unknown>
-    : record;
-  if (!file) return null;
-  const content = typeof file.content === 'string'
-    ? file.content
-    : typeof file.data === 'string'
-      ? file.data
-      : null;
-  if (content === null) return null;
-  const encoding = typeof file.encoding === 'string' ? file.encoding.toLowerCase() : 'utf8';
-  const bytes = encoding === 'base64' ? Buffer.from(content, 'base64') : Buffer.from(content, 'utf8');
-  return {
-    bytes,
-    ...(typeof file.mimeType === 'string' ? { mimeType: file.mimeType } : {}),
-  };
-}
-
-async function secureLocalPath(uri: string, agentId: string): Promise<string | null> {
-  let candidate: string | null = null;
-  try {
-    if (uri.startsWith('file://')) candidate = fileURLToPath(uri);
-    else if (path.isAbsolute(uri)) candidate = uri;
-  } catch {
-    return null;
-  }
-  if (!candidate) return null;
-
-  const workspaceRoot = await nativeWorkspaceRoot(agentId);
-  const allowedRoots = [
-    ...(workspaceRoot ? [workspaceRoot] : []),
-    path.resolve(os.tmpdir()),
-  ];
-  const resolved = path.resolve(candidate);
-  if (!allowedRoots.some((root) => isWithin(resolved, root))) return null;
-  const realPath = await fs.realpath(resolved).catch(() => null);
-  if (!realPath) return null;
-  const realAllowedRoots = await Promise.all(allowedRoots.map((root) => fs.realpath(root).catch(() => root)));
-  if (!realAllowedRoots.some((root) => isWithin(realPath, root))) return null;
-  const stat = await fs.stat(realPath).catch(() => null);
-  if (!stat?.isFile()) return null;
-  if (stat.size > CANVAS_ARTIFACT_MAX_BYTES) throw new Error('Artifact exceeds the 25 MiB persistence limit');
-  return realPath;
-}
-
 async function loadSourceBytes(
   interaction: OwnedInteractionRecord,
   artifact: CanvasArtifact,
 ): Promise<{ bytes: Uint8Array; mimeType?: string }> {
   const uri = artifactSourceUri(artifact);
-  const mediaUrl = gatewayMediaUrl(uri);
-  if (mediaUrl) {
-    const match = uri.match(/^\/api\/chat\/media\/outgoing\/([^/]+)\//);
-    let sessionKey = '';
-    try { sessionKey = match ? decodeURIComponent(match[1]) : ''; } catch { /* invalid encoding */ }
-    if (sessionKey !== interaction.sessionKey) throw new Error('Artifact media session does not match the Interaction');
-    const token = getGatewaySharedHttpAuthToken();
-    const response = await fetch(mediaUrl, {
-      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-      signal: AbortSignal.timeout(30_000),
-    });
-    if (!response.ok) throw new Error(`OpenClaw Artifact returned HTTP ${response.status}`);
-    return {
-      bytes: await responseBytes(response),
-      mimeType: artifact.mimeType || response.headers.get('content-type') || undefined,
-    };
+  const backendId = interaction.backendId;
+  const backend = getAgentBackend(backendId);
+  if (!interaction.conversationRef) throw new Error('Interaction has no Backend conversation reference');
+  const handle = artifact.backendArtifactRef || backend.createArtifactHandle({
+    sourceUri: uri,
+    profile: { backendId, profileId: interaction.agentProfileId },
+    conversationRef: interaction.conversationRef,
+    ...(artifact.mimeType ? { mimeType: artifact.mimeType } : {}),
+  });
+  const materialized = await backend.materializeArtifact(handle);
+  if (!materialized.bytes) throw new Error('Agent Backend returned no persistable Artifact bytes');
+  if (materialized.bytes.byteLength > CANVAS_ARTIFACT_MAX_BYTES) {
+    throw new Error('Artifact exceeds the 25 MiB persistence limit');
   }
-
-  if (uri.startsWith('data:')) {
-    const match = uri.match(/^data:([^;,]+)(?:;[^,]*)?;base64,(.+)$/s);
-    if (!match) throw new Error('Unsupported Artifact data URI');
-    const bytes = Buffer.from(match[2], 'base64');
-    if (bytes.byteLength > CANVAS_ARTIFACT_MAX_BYTES) throw new Error('Artifact exceeds the 25 MiB persistence limit');
-    return { bytes, mimeType: artifact.mimeType || match[1] };
-  }
-
-  if (!path.isAbsolute(uri) && !uri.startsWith('file:') && !/^[a-z][a-z0-9+.-]*:/i.test(uri)) {
-    if (!gatewaySupports('agents.workspace.get')) {
-      throw new Error('Gateway does not provide agents.workspace.get for relative Artifact paths');
-    }
-    const result = await gatewayRpcCall('agents.workspace.get', {
-      agentId: interaction.agentId,
-      path: uri,
-    }, 15_000);
-    const decoded = decodeWorkspaceContent(result);
-    if (!decoded) throw new Error('Gateway returned an unsupported workspace file payload');
-    if (decoded.bytes.byteLength > CANVAS_ARTIFACT_MAX_BYTES) {
-      throw new Error('Artifact exceeds the 25 MiB persistence limit');
-    }
-    return { bytes: decoded.bytes, mimeType: artifact.mimeType || decoded.mimeType };
-  }
-
-  const localPath = await secureLocalPath(uri, interaction.agentId);
-  if (!localPath) throw new Error('Artifact source is not an allowed OpenClaw local file');
-  return { bytes: await fs.readFile(localPath), mimeType: artifact.mimeType };
+  return { bytes: materialized.bytes, mimeType: artifact.mimeType || materialized.mimeType };
 }
 
 async function persistBytes(

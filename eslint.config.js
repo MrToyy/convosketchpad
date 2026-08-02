@@ -46,4 +46,38 @@ export default defineConfig([
       globals: globals.node,
     },
   },
+  {
+    files: [
+      'server/routes/canvas.ts',
+      'server/lib/canvas-send-service.ts',
+      'server/lib/canvas-send-worker.ts',
+      'server/lib/canvas-send-coordinator.ts',
+      'server/lib/canvas-backend-events.ts',
+      'server/lib/canvas-reconciler.ts',
+      'server/lib/canvas-context-snapshot.ts',
+      'server/lib/canvas-artifact-store.ts',
+    ],
+    rules: {
+      'no-restricted-imports': ['error', {
+        paths: [
+          {
+            name: './gateway-rpc.js',
+            message: 'Canvas business modules must use AgentBackend instead of the OpenClaw transport.',
+          },
+          {
+            name: '../lib/gateway-rpc.js',
+            message: 'Canvas routes must use AgentBackend instead of the OpenClaw transport.',
+          },
+          {
+            name: './openclaw-agent-backend.js',
+            message: 'Resolve AgentBackend through the registry; do not bind Canvas to OpenClaw.',
+          },
+          {
+            name: '../lib/openclaw-agent-backend.js',
+            message: 'Resolve AgentBackend through the registry; do not bind Canvas to OpenClaw.',
+          },
+        ],
+      }],
+    },
+  },
 ])

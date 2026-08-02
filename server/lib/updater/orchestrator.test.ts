@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   acquireLock: vi.fn(),
@@ -98,21 +98,69 @@ describe('updater orchestration around database migration', () => {
       isClean: true,
     });
     mocks.resolveVersion.mockResolvedValue({
-      tag: 'v0.3.0',
-      version: '0.3.0',
-      current: '0.2.0',
+      tag: 'v0.4.0',
+      version: '0.4.0',
+      current: '0.3.2',
       isUpToDate: false,
       source: 'release',
     });
     mocks.createSnapshot.mockReturnValue({
       ref: '0123456789abcdef',
-      version: '0.2.0',
+      version: '0.3.2',
       timestamp: 1,
       envHash: '',
       databaseExisted: true,
       databaseBackupPath: '/snapshot/canvas.sqlite',
     });
-    mocks.rollback.mockResolvedValue({ success: true, snapshot: { version: '0.2.0' } });
+    mocks.checkHealth.mockResolvedValue({
+      healthy: true,
+      versionMatch: true,
+      reportedVersion: '0.4.0',
+    });
+    mocks.rollback.mockResolvedValue({ success: true, snapshot: { version: '0.3.2' } });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('upgrades v0.3.2 through the target migration before restart and version health check', async () => {
+    vi.useFakeTimers();
+    const serviceManager = makeServiceManager();
+    mocks.detectServiceManager.mockReturnValue(serviceManager);
+
+    const update = orchestrate(makeOptions(), makeReporter());
+    await vi.runAllTimersAsync();
+    const result = await update;
+
+    expect(result).toBe(EXIT_CODES.SUCCESS);
+    expect(mocks.gitFetchAndCheckout).toHaveBeenCalledWith('/project', 'v0.4.0');
+    expect(mocks.migrateDatabase).toHaveBeenCalledWith('/project');
+    expect(mocks.checkHealth).toHaveBeenCalledWith('/project', '0.4.0');
+    expect(mocks.createSnapshot.mock.invocationCallOrder[0])
+      .toBeLessThan(mocks.gitFetchAndCheckout.mock.invocationCallOrder[0]);
+    expect(mocks.gitFetchAndCheckout.mock.invocationCallOrder[0])
+      .toBeLessThan(mocks.migrateDatabase.mock.invocationCallOrder[0]);
+    expect(mocks.migrateDatabase.mock.invocationCallOrder[0])
+      .toBeLessThan(vi.mocked(serviceManager.restart).mock.invocationCallOrder[0]);
+    expect(vi.mocked(serviceManager.restart).mock.invocationCallOrder[0])
+      .toBeLessThan(mocks.checkHealth.mock.invocationCallOrder[0]);
+    expect(mocks.rollback).not.toHaveBeenCalled();
+  });
+
+  it('restores the v0.3.2 snapshot when the v0.4.0 migration fails', async () => {
+    const serviceManager = makeServiceManager();
+    mocks.detectServiceManager.mockReturnValue(serviceManager);
+    mocks.migrateDatabase.mockImplementation(() => {
+      throw new UpdateError('migration failed', 'migrate', EXIT_CODES.MIGRATION);
+    });
+
+    const result = await orchestrate(makeOptions(), makeReporter());
+
+    expect(result).toBe(EXIT_CODES.MIGRATION);
+    expect(mocks.rollback).toHaveBeenCalledWith('/project', serviceManager, expect.any(Object));
+    expect(serviceManager.restart).not.toHaveBeenCalled();
+    expect(mocks.checkHealth).not.toHaveBeenCalled();
   });
 
   it('stops a managed service before taking the database snapshot', async () => {

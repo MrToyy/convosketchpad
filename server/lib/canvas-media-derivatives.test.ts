@@ -27,7 +27,7 @@ async function setup() {
   const media = await import('./canvas-media-derivatives.js');
   const store = new db.CanvasStore(path.join(tempRoot, 'canvas.sqlite'));
   store.ensureUser('owner-a', 'Owner A');
-  const canvas = store.createCanvas('owner-a', 'Media', 'main');
+  const canvas = store.createCanvas('owner-a', 'Media', { backendId: 'openclaw', profileId: 'main' });
   return { store, canvas, files, media };
 }
 

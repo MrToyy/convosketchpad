@@ -12,7 +12,7 @@ interface MockStoredDeviceAuth {
 
 // Mock config to point at our test server
 let testPort: number;
-vi.mock('./config.js', () => ({
+vi.mock('../../../config.js', () => ({
   get config() {
     return {
       gatewayUrl: `http://127.0.0.1:${testPort}`,
@@ -53,7 +53,7 @@ vi.mock('./gateway-client-identity.js', () => ({
 
 vi.mock('./device-identity.js', () => ({
   clearStoredDeviceAuth: clearStoredDeviceAuthMock,
-  CONVOSKETCHPAD_OPERATOR_SCOPES: ['operator.read', 'operator.write'],
+  CONVOSKETCHPAD_OPERATOR_SCOPES: ['operator.read', 'operator.write', 'operator.approvals'],
   createDeviceBlock: createDeviceBlockMock,
   getStoredDeviceAuth: getStoredDeviceAuthMock,
   storeDeviceAuth: storeDeviceAuthMock,
@@ -64,7 +64,7 @@ import {
   gatewayDispatchCall,
   getGatewayRuntimeStatus,
 } from './gateway-rpc.js';
-import { packageMetadata } from './package-metadata.js';
+import { packageMetadata } from '../../../package-metadata.js';
 
 let wss: WebSocketServer;
 
@@ -202,7 +202,7 @@ describe('gateway-rpc (persistent WebSocket)', () => {
       getStoredDeviceAuthMock.mockReturnValue({
         deviceId: 'device-123',
         role: 'operator',
-        scopes: ['operator.read', 'operator.write'],
+        scopes: ['operator.read', 'operator.write', 'operator.approvals'],
         token: 'stored-device-token',
         updatedAt: new Date().toISOString(),
       });
@@ -214,7 +214,7 @@ describe('gateway-rpc (persistent WebSocket)', () => {
       expect(lastConnectParams).toMatchObject({
         auth: { token: 'test-token' },
         role: 'operator',
-        scopes: ['operator.read', 'operator.write'],
+        scopes: ['operator.read', 'operator.write', 'operator.approvals'],
       });
       expect(getStoredDeviceAuthMock).not.toHaveBeenCalled();
       expect(createDeviceBlockMock).not.toHaveBeenCalled();
@@ -225,7 +225,7 @@ describe('gateway-rpc (persistent WebSocket)', () => {
       getStoredDeviceAuthMock.mockReturnValue({
         deviceId: 'device-123',
         role: 'operator',
-        scopes: ['operator.read', 'operator.write'],
+        scopes: ['operator.read', 'operator.write', 'operator.approvals'],
         token: 'stored-device-token',
         updatedAt: new Date().toISOString(),
       });
@@ -237,7 +237,7 @@ describe('gateway-rpc (persistent WebSocket)', () => {
       expect(lastConnectParams).toMatchObject({
         auth: { token: 'stored-device-token' },
         role: 'operator',
-        scopes: ['operator.read', 'operator.write'],
+        scopes: ['operator.read', 'operator.write', 'operator.approvals'],
         device: {
           id: 'device-123',
           publicKey: 'pubkey-123',
@@ -250,7 +250,7 @@ describe('gateway-rpc (persistent WebSocket)', () => {
       expect(createDeviceBlockMock).toHaveBeenCalledWith(expect.objectContaining({
         token: 'stored-device-token',
         role: 'operator',
-        scopes: ['operator.read', 'operator.write'],
+        scopes: ['operator.read', 'operator.write', 'operator.approvals'],
       }));
     });
 
@@ -275,7 +275,7 @@ describe('gateway-rpc (persistent WebSocket)', () => {
         auth: {
           deviceToken: 'issued-device-token',
           role: 'operator',
-          scopes: ['operator.read', 'operator.write'],
+          scopes: ['operator.read', 'operator.write', 'operator.approvals'],
         },
       };
       rpcHandler = () => ({ ok: true });
@@ -291,7 +291,7 @@ describe('gateway-rpc (persistent WebSocket)', () => {
       expect(storeDeviceAuthMock).toHaveBeenCalledWith(expect.objectContaining({
         token: 'issued-device-token',
         role: 'operator',
-        scopes: ['operator.read', 'operator.write'],
+        scopes: ['operator.read', 'operator.write', 'operator.approvals'],
       }));
     });
 
@@ -300,7 +300,7 @@ describe('gateway-rpc (persistent WebSocket)', () => {
       getStoredDeviceAuthMock.mockReturnValue({
         deviceId: 'device-123',
         role: 'operator',
-        scopes: ['operator.read', 'operator.write'],
+        scopes: ['operator.read', 'operator.write', 'operator.approvals'],
         token: 'stored-device-token',
         updatedAt: new Date().toISOString(),
       });

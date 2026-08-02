@@ -35,9 +35,9 @@ export interface CanonicalCanvasSnapshot {
 
 export interface CanvasSendBranchState {
   kind: 'root' | 'fork';
-  sessionState: 'draft' | 'active';
+  conversationState: 'draft' | 'active';
   headInteractionId: string | null;
-  sessionIntegrity: 'unknown' | 'healthy' | 'drifted';
+  conversationIntegrity: 'unknown' | 'healthy' | 'drifted';
 }
 
 export interface CanvasSendPlanDecision {
@@ -63,14 +63,14 @@ export function decideCanvasSendPlan(input: {
   forceSessionRecovery?: boolean;
 }): CanvasSendPlanDecision {
   const { branch } = input;
-  if (branch.sessionState === 'draft' && branch.kind === 'root' && !branch.headInteractionId) {
+  if (branch.conversationState === 'draft' && branch.kind === 'root' && !branch.headInteractionId) {
     return {
       materialization: 'lazy-root',
       expectedHeadInteractionId: null,
       requiresCanonicalSnapshot: false,
     };
   }
-  if (branch.sessionState === 'draft' && branch.kind === 'fork' && !branch.headInteractionId) {
+  if (branch.conversationState === 'draft' && branch.kind === 'fork' && !branch.headInteractionId) {
     return {
       materialization: 'canonical-replay',
       expectedHeadInteractionId: null,
@@ -79,11 +79,11 @@ export function decideCanvasSendPlan(input: {
     };
   }
   if (
-    branch.sessionState === 'active'
+    branch.conversationState === 'active'
     && branch.headInteractionId
     && input.expectedHeadInteractionId === branch.headInteractionId
   ) {
-    const recovery = branch.sessionIntegrity === 'drifted' || input.forceSessionRecovery;
+    const recovery = branch.conversationIntegrity === 'drifted' || input.forceSessionRecovery;
     return recovery
       ? {
         materialization: 'session-recovery',

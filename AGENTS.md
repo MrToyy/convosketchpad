@@ -20,6 +20,7 @@
 | 产品目标、体验或职责边界 | [`docs/PRODUCT.md`](docs/PRODUCT.md) | 产品原则和 OpenClaw/ConvoSketchpad 分工 |
 | 架构、Session、数据流或持久化 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | 运行时模型、发送、恢复和文件流 |
 | Agent Backend 抽象、OpenClaw/Codex 边界或两阶段迁移 | [`docs/AGENT-BACKEND-MIGRATION.md`](docs/AGENT-BACKEND-MIGRATION.md) | 临时设计决策、统一事件/审批与提交边界 |
+| 新增或修改 Agent Backend Adapter | [`docs/agent-backends/ADAPTER-DEVELOPMENT.md`](docs/agent-backends/ADAPTER-DEVELOPMENT.md) | 目录、Port、聚合、审批、迁移、安全与测试规范 |
 | Canvas 页面、节点、布局、Branch、Interaction、附件或 Artifact | [`docs/canvas/CANVAS-CODE-MAP.md`](docs/canvas/CANVAS-CODE-MAP.md) | Canvas 不变量、前后端入口与测试 |
 | 登录、用户 Token、隔离、限流、Cookie 或 WS 鉴权 | [`docs/canvas/AUTH-CODE-MAP.md`](docs/canvas/AUTH-CODE-MAP.md) | 认证链路、CLI、SQLite 与会话撤销 |
 | HTTP 路由或接口契约 | [`docs/API.md`](docs/API.md) | Canvas、认证、文件和遥测 API |

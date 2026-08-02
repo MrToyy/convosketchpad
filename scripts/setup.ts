@@ -12,7 +12,7 @@
 // Show token in prompts so users can verify what they entered
 
 import { existsSync } from 'node:fs';
-import { execSync } from 'node:child_process';
+import { execFileSync, execSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { networkInterfaces } from 'node:os';
@@ -56,6 +56,8 @@ import {
   isValidIanaTimezone,
   localIanaTimezone,
 } from './lib/gateway-timezone.js';
+import { createSnapshot, restoreSnapshotDatabase } from '../server/lib/updater/snapshot.js';
+import { detectServiceManager } from '../server/lib/updater/service-manager.js';
 
 const PROJECT_ROOT = resolve(process.cwd());
 const ENV_PATH = resolve(PROJECT_ROOT, '.env');
@@ -114,14 +116,14 @@ function sleep(ms: number): Promise<void> {
 async function configureNativePairing(
   config: EnvConfig,
 ): Promise<string | null> {
-  const gatewayUrl = config.GATEWAY_URL || DEFAULTS.GATEWAY_URL;
+  const gatewayUrl = config.OPENCLAW_GATEWAY_URL || DEFAULTS.OPENCLAW_GATEWAY_URL;
   if (!isRemoteGatewayUrl(gatewayUrl)) {
     success('Local Gateway uses shared-token backend authentication; device pairing is not required.');
     return null;
   }
   const probe = await requestGatewayPairing({
     gatewayUrl,
-    gatewayToken: config.GATEWAY_TOKEN || '',
+    gatewayToken: config.OPENCLAW_GATEWAY_TOKEN || '',
   });
   if (probe.status === 'connected') {
     success(probe.message);
@@ -135,6 +137,43 @@ async function configureNativePairing(
   const requestLabel = probe.requestId || '<requestId>';
   warn(`Native OpenClaw pairing is pending: ${requestLabel}`);
   return `On the remote Gateway host, verify and approve the ConvoSketchpad backend request: openclaw devices approve ${requestLabel}`;
+}
+
+async function migrateDatabaseAfterSetup(): Promise<void> {
+  const serviceManager = detectServiceManager();
+  const wasActive = serviceManager ? await serviceManager.isActive() : false;
+  if (serviceManager && wasActive) {
+    info(`Stopping ConvoSketchpad via ${serviceManager.name} before database migration`);
+    await serviceManager.stop();
+  }
+
+  let snapshot: ReturnType<typeof createSnapshot> | null = null;
+  try {
+    snapshot = createSnapshot(PROJECT_ROOT);
+    execFileSync(process.execPath, [
+      '--import',
+      'tsx',
+      resolve(PROJECT_ROOT, 'bin/convosketchpad-migrate.ts'),
+    ], {
+      cwd: PROJECT_ROOT,
+      stdio: 'pipe',
+      timeout: 120_000,
+    });
+    success('Database schema is up to date');
+  } catch (error) {
+    if (snapshot) restoreSnapshotDatabase(PROJECT_ROOT, snapshot);
+    throw new Error(
+      `Database migration failed${snapshot ? ' and the pre-setup database was restored' : ''}: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+      { cause: error },
+    );
+  } finally {
+    if (serviceManager && wasActive) {
+      await serviceManager.restart();
+      info(`ConvoSketchpad restarted via ${serviceManager.name}`);
+    }
+  }
 }
 
 // ── Ctrl+C handler ───────────────────────────────────────────────────
@@ -224,7 +263,7 @@ async function main(): Promise<void> {
 
   // If .env exists, ask whether to update or start fresh
   // (Skip this when called from install.sh — the installer already asked)
-  if (hasExisting && existing.GATEWAY_TOKEN && !process.env.CONVOSKETCHPAD_INSTALLER) {
+  if (hasExisting && existing.OPENCLAW_GATEWAY_TOKEN && !process.env.CONVOSKETCHPAD_INSTALLER) {
     const action = await select({
     theme: promptTheme,
       message: 'What would you like to do?',
@@ -255,6 +294,7 @@ async function main(): Promise<void> {
 
   console.log('');
   success('Configuration written to .env');
+  await migrateDatabaseAfterSetup();
 
   printSummary(config);
 
@@ -284,13 +324,13 @@ async function collectInteractive(
   const detected = detectGatewayConfig();
   const envToken = getEnvGatewayToken();
   const tokenChoice = chooseSetupGatewayToken({
-    existingToken: existing.GATEWAY_TOKEN,
+    existingToken: existing.OPENCLAW_GATEWAY_TOKEN,
     detectedToken: detected.token,
     envToken,
   });
 
   const defaultToken = tokenChoice.token || '';
-  const defaultUrl = existing.GATEWAY_URL || detected.url || DEFAULTS.GATEWAY_URL;
+  const defaultUrl = existing.OPENCLAW_GATEWAY_URL || detected.url || DEFAULTS.OPENCLAW_GATEWAY_URL;
 
   if (tokenChoice.source === 'detected') {
     success('Auto-detected gateway token from local gateway config');
@@ -299,7 +339,7 @@ async function collectInteractive(
     success('Found OPENCLAW_GATEWAY_TOKEN in environment');
   }
 
-  config.GATEWAY_URL = await input({
+  config.OPENCLAW_GATEWAY_URL = await input({
     theme: promptTheme,
     message: 'Gateway URL',
     default: defaultUrl,
@@ -310,7 +350,7 @@ async function collectInteractive(
   });
 
   // If we have an auto-detected token, offer to use it
-  if (defaultToken && !existing.GATEWAY_TOKEN) {
+  if (defaultToken && !existing.OPENCLAW_GATEWAY_TOKEN) {
     const tokenLabel = tokenChoice.source === 'env' ? 'environment token' : 'detected token';
     const useDetected = await confirm({
       theme: promptTheme,
@@ -318,9 +358,9 @@ async function collectInteractive(
       default: true,
     });
     if (useDetected) {
-      config.GATEWAY_TOKEN = defaultToken;
+      config.OPENCLAW_GATEWAY_TOKEN = defaultToken;
     } else {
-      config.GATEWAY_TOKEN = await password({
+      config.OPENCLAW_GATEWAY_TOKEN = await password({
     theme: promptTheme,
         message: 'Gateway Auth Token (required)',
         validate: (val) => {
@@ -329,7 +369,7 @@ async function collectInteractive(
         },
       });
     }
-  } else if (existing.GATEWAY_TOKEN) {
+  } else if (existing.OPENCLAW_GATEWAY_TOKEN) {
     // Existing token — offer to keep it
     const keepExisting = await confirm({
       theme: promptTheme,
@@ -337,9 +377,9 @@ async function collectInteractive(
       default: true,
     });
     if (keepExisting) {
-      config.GATEWAY_TOKEN = existing.GATEWAY_TOKEN;
+      config.OPENCLAW_GATEWAY_TOKEN = existing.OPENCLAW_GATEWAY_TOKEN;
     } else {
-      config.GATEWAY_TOKEN = await password({
+      config.OPENCLAW_GATEWAY_TOKEN = await password({
     theme: promptTheme,
         message: 'Gateway Auth Token (required)',
         validate: (val) => {
@@ -350,7 +390,7 @@ async function collectInteractive(
     }
   } else {
     dim('Provide the Gateway token explicitly, or inspect it with: openclaw config get gateway.auth.token');
-    config.GATEWAY_TOKEN = await password({
+    config.OPENCLAW_GATEWAY_TOKEN = await password({
     theme: promptTheme,
       message: 'Gateway Auth Token (required)',
       validate: (val) => {
@@ -364,7 +404,7 @@ async function collectInteractive(
   const rail = `  \x1b[2m│\x1b[0m`;
   const testPrefix = process.env.CONVOSKETCHPAD_INSTALLER ? `${rail}  ` : '  ';
   process.stdout.write(`${testPrefix}Testing connection... `);
-  const gwTest = await testGatewayConnection(config.GATEWAY_URL!, config.GATEWAY_TOKEN);
+  const gwTest = await testGatewayConnection(config.OPENCLAW_GATEWAY_URL!, config.OPENCLAW_GATEWAY_TOKEN);
   if (gwTest.ok) {
     console.log(`\x1b[32m✓\x1b[0m ${gwTest.message}`);
   } else {
@@ -375,17 +415,17 @@ async function collectInteractive(
   }
 
   if (requestedGatewayTimezone) {
-    config.CONVOSKETCHPAD_GATEWAY_TIMEZONE = requestedGatewayTimezone;
+    config.OPENCLAW_GATEWAY_TIMEZONE = requestedGatewayTimezone;
   }
-  if (isRemoteGatewayUrl(config.GATEWAY_URL!)) {
+  if (isRemoteGatewayUrl(config.OPENCLAW_GATEWAY_URL!)) {
     console.log('');
     dim('Canvas uses the Gateway timezone to predict OpenClaw daily session resets.');
-    config.CONVOSKETCHPAD_GATEWAY_TIMEZONE = (await input({
+    config.OPENCLAW_GATEWAY_TIMEZONE = (await input({
       theme: promptTheme,
       message: 'Gateway timezone',
       default:
         requestedGatewayTimezone ||
-        existing.CONVOSKETCHPAD_GATEWAY_TIMEZONE ||
+        existing.OPENCLAW_GATEWAY_TIMEZONE ||
         localIanaTimezone(),
       validate: (value) =>
         isValidIanaTimezone(value)
@@ -745,7 +785,7 @@ async function collectInteractive(
 // ── Summary and next steps ───────────────────────────────────────────
 
 function printSummary(config: EnvConfig): void {
-  const gwUrl = config.GATEWAY_URL || DEFAULTS.GATEWAY_URL;
+  const gwUrl = config.OPENCLAW_GATEWAY_URL || DEFAULTS.OPENCLAW_GATEWAY_URL;
   const port = config.PORT || DEFAULTS.PORT;
   const host = config.HOST || DEFAULTS.HOST;
   const primaryOrigin = config.ALLOWED_ORIGINS?.split(',')[0]?.trim()
@@ -753,7 +793,7 @@ function printSummary(config: EnvConfig): void {
 
   const hostLabel = host === '127.0.0.1' ? '127.0.0.1 (local only)' : `${host} (network)`;
   const authLabel = config.CONVOSKETCHPAD_AUTH === 'true' ? '🔒 Enabled' : 'Disabled';
-  const gatewayTimezone = config.CONVOSKETCHPAD_GATEWAY_TIMEZONE;
+  const gatewayTimezone = config.OPENCLAW_GATEWAY_TIMEZONE;
 
   if (process.env.CONVOSKETCHPAD_INSTALLER) {
     // Rail-style summary — stays inside the installer's visual flow
@@ -806,21 +846,21 @@ async function runCheck(config: EnvConfig): Promise<void> {
   let errors = 0;
 
   // Gateway token
-  if (config.GATEWAY_TOKEN) {
-    success('GATEWAY_TOKEN is set');
+  if (config.OPENCLAW_GATEWAY_TOKEN) {
+    success('OPENCLAW_GATEWAY_TOKEN is set');
   } else {
-    fail('GATEWAY_TOKEN is missing (required)');
+    fail('OPENCLAW_GATEWAY_TOKEN is missing (required)');
     errors++;
   }
 
   // Gateway URL
-  const gwUrl = config.GATEWAY_URL || DEFAULTS.GATEWAY_URL;
+  const gwUrl = config.OPENCLAW_GATEWAY_URL || DEFAULTS.OPENCLAW_GATEWAY_URL;
   if (isValidUrl(gwUrl)) {
-    success(`GATEWAY_URL is valid: ${gwUrl}`);
+    success(`OPENCLAW_GATEWAY_URL is valid: ${gwUrl}`);
 
     // Test connectivity and token validity
     process.stdout.write('  Testing gateway connection... ');
-    const gwTest = await testGatewayConnection(gwUrl, config.GATEWAY_TOKEN);
+    const gwTest = await testGatewayConnection(gwUrl, config.OPENCLAW_GATEWAY_TOKEN);
     if (gwTest.ok) {
       console.log(`\x1b[32m✓\x1b[0m ${gwTest.message}`);
     } else {
@@ -828,19 +868,19 @@ async function runCheck(config: EnvConfig): Promise<void> {
       errors++;
     }
   } else {
-    fail(`GATEWAY_URL is invalid: ${gwUrl}`);
+    fail(`OPENCLAW_GATEWAY_URL is invalid: ${gwUrl}`);
     errors++;
   }
 
-  if (config.CONVOSKETCHPAD_GATEWAY_TIMEZONE) {
-    if (isValidIanaTimezone(config.CONVOSKETCHPAD_GATEWAY_TIMEZONE)) {
-      success(`Gateway timezone is valid: ${config.CONVOSKETCHPAD_GATEWAY_TIMEZONE}`);
+  if (config.OPENCLAW_GATEWAY_TIMEZONE) {
+    if (isValidIanaTimezone(config.OPENCLAW_GATEWAY_TIMEZONE)) {
+      success(`Gateway timezone is valid: ${config.OPENCLAW_GATEWAY_TIMEZONE}`);
     } else {
-      fail(`CONVOSKETCHPAD_GATEWAY_TIMEZONE is invalid: ${config.CONVOSKETCHPAD_GATEWAY_TIMEZONE}`);
+      fail(`OPENCLAW_GATEWAY_TIMEZONE is invalid: ${config.OPENCLAW_GATEWAY_TIMEZONE}`);
       errors++;
     }
   } else if (isRemoteGatewayUrl(gwUrl)) {
-    warn(`CONVOSKETCHPAD_GATEWAY_TIMEZONE is not set; using this host's timezone (${localIanaTimezone()})`);
+    warn(`OPENCLAW_GATEWAY_TIMEZONE is not set; using this host's timezone (${localIanaTimezone()})`);
     dim('Set it to the timezone used by the remote OpenClaw Gateway.');
   }
 
@@ -922,7 +962,7 @@ async function runDefaults(existing: EnvConfig, prereqs: PrereqResult): Promise<
   }
 
   // Try to auto-detect gateway token
-  if (!config.GATEWAY_TOKEN) {
+  if (!config.OPENCLAW_GATEWAY_TOKEN) {
     const detected = detectGatewayConfig();
     const envToken = getEnvGatewayToken();
     const tokenChoice = chooseSetupGatewayToken({
@@ -931,32 +971,32 @@ async function runDefaults(existing: EnvConfig, prereqs: PrereqResult): Promise<
     });
 
     if (tokenChoice.token) {
-      config.GATEWAY_TOKEN = tokenChoice.token;
+      config.OPENCLAW_GATEWAY_TOKEN = tokenChoice.token;
       success(`Auto-detected gateway token${tokenChoice.source === 'env' ? ' from environment' : ''}`);
     } else {
-      fail('GATEWAY_TOKEN is required but could not be auto-detected');
+      fail('OPENCLAW_GATEWAY_TOKEN is required but could not be auto-detected');
       console.log('  Set OPENCLAW_GATEWAY_TOKEN in your environment, or run setup interactively.');
       console.log('');
       process.exit(1);
     }
   }
 
-  if (!config.GATEWAY_URL) config.GATEWAY_URL = DEFAULTS.GATEWAY_URL;
+  if (!config.OPENCLAW_GATEWAY_URL) config.OPENCLAW_GATEWAY_URL = DEFAULTS.OPENCLAW_GATEWAY_URL;
   if (requestedGatewayTimezone) {
-    config.CONVOSKETCHPAD_GATEWAY_TIMEZONE = requestedGatewayTimezone;
+    config.OPENCLAW_GATEWAY_TIMEZONE = requestedGatewayTimezone;
   } else if (
-    isRemoteGatewayUrl(config.GATEWAY_URL) &&
-    !config.CONVOSKETCHPAD_GATEWAY_TIMEZONE
+    isRemoteGatewayUrl(config.OPENCLAW_GATEWAY_URL) &&
+    !config.OPENCLAW_GATEWAY_TIMEZONE
   ) {
-    config.CONVOSKETCHPAD_GATEWAY_TIMEZONE = localIanaTimezone();
-    warn(`Remote Gateway detected; using Gateway timezone ${config.CONVOSKETCHPAD_GATEWAY_TIMEZONE}`);
+    config.OPENCLAW_GATEWAY_TIMEZONE = localIanaTimezone();
+    warn(`Remote Gateway detected; using Gateway timezone ${config.OPENCLAW_GATEWAY_TIMEZONE}`);
     dim('Override with --gateway-timezone <IANA timezone> when the Gateway uses another timezone.');
   }
   if (
-    config.CONVOSKETCHPAD_GATEWAY_TIMEZONE &&
-    !isValidIanaTimezone(config.CONVOSKETCHPAD_GATEWAY_TIMEZONE)
+    config.OPENCLAW_GATEWAY_TIMEZONE &&
+    !isValidIanaTimezone(config.OPENCLAW_GATEWAY_TIMEZONE)
   ) {
-    fail(`CONVOSKETCHPAD_GATEWAY_TIMEZONE is invalid: ${config.CONVOSKETCHPAD_GATEWAY_TIMEZONE}`);
+    fail(`OPENCLAW_GATEWAY_TIMEZONE is invalid: ${config.OPENCLAW_GATEWAY_TIMEZONE}`);
     process.exit(1);
   }
   if (!config.PORT) config.PORT = DEFAULTS.PORT;
@@ -1030,7 +1070,7 @@ async function runDefaults(existing: EnvConfig, prereqs: PrereqResult): Promise<
   }
 
   process.stdout.write('  Testing gateway connection... ');
-  const gwTest = await testGatewayConnection(config.GATEWAY_URL!, config.GATEWAY_TOKEN);
+  const gwTest = await testGatewayConnection(config.OPENCLAW_GATEWAY_URL!, config.OPENCLAW_GATEWAY_TOKEN);
   if (gwTest.ok) {
     console.log(`\x1b[32m✓\x1b[0m ${gwTest.message}`);
   } else {
@@ -1047,6 +1087,7 @@ async function runDefaults(existing: EnvConfig, prereqs: PrereqResult): Promise<
   writeEnvFile(ENV_PATH, config);
 
   success('Configuration written to .env');
+  await migrateDatabaseAfterSetup();
 
   printSummary(config);
   if (shouldPrintDeploymentGuides({ invokedFromInstaller: process.env.CONVOSKETCHPAD_INSTALLER === '1', defaultsMode: true })) {

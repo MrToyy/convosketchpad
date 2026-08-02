@@ -1,11 +1,18 @@
 import { Hono } from 'hono';
+import { agentBackendRegistry } from '../lib/agent-backends/registry.js';
+import { publicAggregatedBackendStatus } from '../lib/agent-backends/catalog.js';
 import { getCanvasIdentity } from '../lib/canvas-auth.js';
-import { getGatewayRuntimeStatus } from '../lib/gateway-rpc.js';
 import { subscribeRuntimeEvents } from '../lib/runtime-events.js';
 import { rateLimitGeneral } from '../middleware/rate-limit.js';
 
 const app = new Hono();
 const encoder = new TextEncoder();
+
+function publicRuntimeStatus() {
+  return publicAggregatedBackendStatus(
+    agentBackendRegistry.list().map((backend) => backend.getStatus()),
+  );
+}
 
 function sseFrame(event: string, data: unknown, id?: string): Uint8Array {
   return encoder.encode(`${id ? `id: ${id}\n` : ''}event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
@@ -14,7 +21,7 @@ function sseFrame(event: string, data: unknown, id?: string): Uint8Array {
 app.get('/api/runtime/status', rateLimitGeneral, (c) => {
   const identity = getCanvasIdentity(c);
   if (!identity) return c.json({ error: 'Authentication required' }, 401);
-  return c.json(getGatewayRuntimeStatus());
+  return c.json(publicRuntimeStatus());
 });
 
 app.get('/api/runtime/events', (c) => {
@@ -34,13 +41,13 @@ app.get('/api/runtime/events', (c) => {
         try { controller.close(); } catch { /* stream already closed */ }
       };
       try {
-        controller.enqueue(sseFrame('runtime.connection_changed', getGatewayRuntimeStatus()));
+        controller.enqueue(sseFrame('runtime.backend_status_changed', publicRuntimeStatus()));
       } catch {
         close();
         return;
       }
       unsubscribe = subscribeRuntimeEvents((event) => {
-        if (event.type !== 'runtime.connection_changed') return;
+        if (event.type !== 'runtime.backend_status_changed') return;
         if (event.ownerId && event.ownerId !== identity.userId) return;
         try {
           controller.enqueue(sseFrame(event.type, event, event.id));

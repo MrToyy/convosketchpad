@@ -4,13 +4,15 @@ import { useSettings } from '@/contexts/SettingsContext';
 import { AppearanceSettings } from './AppearanceSettings';
 import { SystemSettings } from './SystemSettings';
 import { getSettingsCopy } from './messages';
+import type { BackendRuntimeStatus } from '@/hooks/useRuntimeEvents';
 
 interface SettingsDrawerProps {
   open: boolean; onClose: () => void;
-  onReconnect: () => void;
-  connectionState: 'disconnected' | 'connecting' | 'connected' | 'reconnecting';
-  gatewayRestartSupported: boolean;
-  onLogout?: () => void; onGatewayRestart?: () => void; gatewayRestarting?: boolean;
+  onRefreshStatus: () => void;
+  backendStatuses: Record<string, BackendRuntimeStatus>;
+  onLogout?: () => void;
+  onBackendRestart?: (backendId: string) => void;
+  backendRestarting?: boolean;
 }
 
 export function SettingsDrawer(props: SettingsDrawerProps) {
@@ -34,7 +36,7 @@ export function SettingsDrawer(props: SettingsDrawerProps) {
         <button type="button" role="tab" aria-selected={category === 'appearance'} className="shell-chip flex-1 justify-center" data-active={category === 'appearance'} onClick={() => setCategory('appearance')}><Monitor size={13} />{copy.drawer.categories.appearance}</button>
         <button type="button" role="tab" aria-selected={category === 'system'} className="shell-chip flex-1 justify-center" data-active={category === 'system'} onClick={() => setCategory('system')}><ServerCog size={13} />{copy.drawer.categories.system}</button>
       </div>
-      <div className="flex-1 overflow-y-auto p-4">{category === 'appearance' ? <AppearanceSettings /> : <SystemSettings onReconnect={props.onReconnect} connectionState={props.connectionState} gatewayRestartSupported={props.gatewayRestartSupported} onGatewayRestart={props.onGatewayRestart} gatewayRestarting={props.gatewayRestarting} />}</div>
+      <div className="flex-1 overflow-y-auto p-4">{category === 'appearance' ? <AppearanceSettings /> : <SystemSettings onRefreshStatus={props.onRefreshStatus} backendStatuses={props.backendStatuses} onBackendRestart={props.onBackendRestart} backendRestarting={props.backendRestarting} />}</div>
       {props.onLogout && <div className="border-t border-border/70 p-4"><button onClick={props.onLogout} className="cockpit-toolbar-button w-full justify-center" data-tone="danger"><LogOut size={14} />{copy.drawer.signOut}</button></div>}
     </div>
   </>;

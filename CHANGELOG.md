@@ -2,7 +2,57 @@
 
 ConvoSketchpad 的重要变更均记录在此文件中。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
-## [Unreleased]
+## [0.4.0] - 2026-08-02
+
+### 发布摘要
+
+ConvoSketchpad v0.4.0 将 OpenClaw 从产品内部的固定运行时重构为首个标准 Agent Backend Adapter，为后续直接接入 Codex 等 Backend 建立稳定边界。现有 Canvas 交互保持不变，同时新增节点内审批、平权 Agent 目录和按 Backend 分组的运行状态与用量。
+
+本版本包含不可逆的数据库结构升级。setup、更新器和服务启动会自动执行迁移；更新器和 setup 会在迁移前创建一致性 SQLite 快照，以便失败时恢复。
+
+### 当前版本亮点
+
+- 新建 Canvas 仍然一键完成，自动选择首个可用 Agent，并允许在第一次提交前更换。
+- OpenClaw Agent、未来 Codex Agent 和其他 Backend Agent 使用同一目录与 Canvas 模型，不需要切换 Backend 模式。
+- 原生执行或插件审批直接出现在所属 Interaction 节点中，支持权限子集和持久授权确认。
+- 设置、状态栏和用量面板按 Backend 聚合；不完整或不可比较的数据不会被错误相加。
+- OpenClaw 协议与凭据边界收敛到独立 Adapter，新增 Backend 可遵循统一开发规范。
+
+### 新增
+
+- 新增统一 `AgentBackend` 契约、Backend Registry、语义化 Capabilities 和版本化不透明 Conversation/Turn/Artifact/Approval Handle；当前只注册 OpenClaw，尚未接入 Codex。
+- 统一 Backend 事件从首阶段覆盖终态、流式输出、Artifact、用量和审批 required/resolved，并用 `backend_event_inbox` 持久化、去重终态、审批与断线信号。
+- Interaction 节点内新增审批卡片，展示已净化的风险、权限、作用域、到期和解析状态；支持权限子集选择、持久授权二次确认及统一审批 HTTP API。
+- 新增 Backend 配置/聚合目录：新建 Canvas 自动选择第一个可用 Agent，首次发送预留前可更换；各 Backend 的 Agent 平权展示，不提供 Backend 切换模式。
+- 新增 Adapter 开发规范和 `server/lib/agent-backends/adapters/<backend-id>/` 目录约束。
+
+### 变更
+
+- Canvas Route、发送 Service/Worker/Coordinator、事件消费、Reconciler、上下文快照、Artifact 物化、运行状态、用量和 Provider 配额改为通过统一 Backend Port 调用；OpenClaw Gateway 方法名、Session Policy、Transcript 与 Artifact 下载收敛到独立 Adapter 目录。
+- 导航栏/设置聚合所有 Backend 的连接状态；账户用量和额度按 Backend 分组，仅在币种、周期与可加性一致时显示费用合计。Canvas Branch、工作中和上下文仍保持当前 Canvas 局部语义。
+- SQLite 将旧 OpenClaw 顶层字段彻底迁移为 Backend/Profile、Conversation/Turn/Artifact Handle、审批和通用事件 Inbox；旧列及 `gateway_signal_inbox` 成功后物理移除，不双写。setup、更新器和服务启动均自动执行安全迁移。
+- 数据库迁移链收敛为且仅为三项：`0.2.0_to_0.3.0_v1`、`0.3.0_media_derivatives_v1` 和 `0.3.2_to_0.4.0_agent_backend_v1`。`npm run migrate` 在外键与完整性检查后显式验证三项均已落账，并清理未发布开发版本留下的迁移标识；`0.3.x` 可直接升级，`0.2.0` 数据仍由目标迁移代码完整支持，但安装流程必须先完成既有的 `v0.3.0` 更新器桥接。
+- Agent Backend Schema 迁移会根据最早 Send Reservation 回填旧 Canvas 的 Agent 锁定时间，并以最早 Interaction 兜底；已经迁移但锁定字段缺失的数据库会被幂等修复，服务端同时拒绝对任何已有 Reservation 或 Interaction 的 Canvas 更换 Agent。
+
+### 安全
+
+- OpenClaw 远程设备权限增加精确的 `operator.approvals` scope，以便统一审批 Port 能真实响应原生审批；已有 read/write 设备需要重新配对或完成 scope upgrade。审批事件持久化前会移除命令环境等敏感原始数据。
+
+### 安装与升级
+
+新安装仍需先准备可访问的 OpenClaw Gateway，然后运行：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/MrToyy/convosketchpad/main/install.sh | bash
+```
+
+已经安装 `v0.3.0` 或更高版本的用户可运行：
+
+```bash
+npm run update -- --version v0.4.0
+```
+
+从 `v0.2.0` 升级必须先按[升级文档](https://github.com/MrToyy/convosketchpad/blob/main/docs/UPDATING.md)固定升级到 `v0.3.0`，获得停服迁移、SQLite 快照和失败回滚能力后，再升级到 `v0.4.0`。不要用旧版本直接打开已经完成 `0.4.0` 结构迁移的数据库。
 
 ## [0.3.2] - 2026-07-30
 
@@ -162,7 +212,8 @@ npm run update -- --version v0.3.1
 
 ConvoSketchpad 源自 OpenClaw Nerve。更早的上游版本历史仍可在 [OpenClaw Nerve 更新日志](https://github.com/daggerhashimoto/openclaw-nerve/blob/master/CHANGELOG.md)中查看。
 
-[Unreleased]: https://github.com/MrToyy/convosketchpad/compare/v0.3.2...HEAD
+[Unreleased]: https://github.com/MrToyy/convosketchpad/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/MrToyy/convosketchpad/compare/v0.3.2...v0.4.0
 [0.3.2]: https://github.com/MrToyy/convosketchpad/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/MrToyy/convosketchpad/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/MrToyy/convosketchpad/compare/v0.2.0...v0.3.0

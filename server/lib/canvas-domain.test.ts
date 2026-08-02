@@ -7,9 +7,9 @@ import {
 
 const rootDraft: CanvasSendBranchState = {
   kind: 'root',
-  sessionState: 'draft',
+  conversationState: 'draft',
   headInteractionId: null,
-  sessionIntegrity: 'unknown',
+  conversationIntegrity: 'unknown',
 };
 
 describe('Canvas send plan decision', () => {
@@ -29,9 +29,9 @@ describe('Canvas send plan decision', () => {
     expect(decideCanvasSendPlan({
       branch: {
         ...rootDraft,
-        sessionState: 'active',
+        conversationState: 'active',
         headInteractionId: 'interaction-1',
-        sessionIntegrity: 'healthy',
+        conversationIntegrity: 'healthy',
       },
       expectedHeadInteractionId: 'interaction-1',
     })).toMatchObject({
@@ -44,9 +44,9 @@ describe('Canvas send plan decision', () => {
   it('uses the same canonical recovery path for drift and proactive reset', () => {
     const active: CanvasSendBranchState = {
       ...rootDraft,
-      sessionState: 'active',
+      conversationState: 'active',
       headInteractionId: 'interaction-1',
-      sessionIntegrity: 'drifted',
+      conversationIntegrity: 'drifted',
     };
     expect(decideCanvasSendPlan({
       branch: active,
@@ -56,7 +56,7 @@ describe('Canvas send plan decision', () => {
       replayReason: 'session-recovery',
     });
     expect(decideCanvasSendPlan({
-      branch: { ...active, sessionIntegrity: 'healthy' },
+      branch: { ...active, conversationIntegrity: 'healthy' },
       expectedHeadInteractionId: 'interaction-1',
       forceSessionRecovery: true,
     })).toMatchObject({ materialization: 'session-recovery' });
@@ -66,7 +66,7 @@ describe('Canvas send plan decision', () => {
     expect(() => decideCanvasSendPlan({
       branch: {
         ...rootDraft,
-        sessionState: 'active',
+        conversationState: 'active',
         headInteractionId: 'interaction-1',
       },
       expectedHeadInteractionId: 'stale',
@@ -75,7 +75,7 @@ describe('Canvas send plan decision', () => {
       decideCanvasSendPlan({
         branch: {
           ...rootDraft,
-          sessionState: 'active',
+          conversationState: 'active',
           headInteractionId: 'interaction-1',
         },
         expectedHeadInteractionId: 'stale',

@@ -3,9 +3,8 @@ import type { OwnedInteractionRecord } from './canvas-db.js';
 
 const gatewayRpcCall = vi.fn();
 const supported = new Set<string>();
-const persistCanvasArtifactBytes = vi.fn();
 
-vi.mock('./gateway-rpc.js', () => ({
+vi.mock('./agent-backends/adapters/openclaw/gateway-rpc.js', () => ({
   gatewayRpcCall,
   gatewaySupports: (method: string) => supported.has(method),
   GatewayRpcError: class GatewayRpcError extends Error {
@@ -25,10 +24,9 @@ vi.mock('./canvas-artifact-store.js', () => ({
     complete: true,
     warnings: [],
   })),
-  persistCanvasArtifactBytes,
 }));
 vi.mock('./canvas-db.js', () => ({
-  getCanvasStore: () => ({ observeBranchSession: vi.fn() }),
+  getCanvasStore: () => ({ observeBranchConversation: vi.fn() }),
 }));
 vi.mock('./config.js', () => ({
   config: { gatewayUrl: 'http://127.0.0.1:18789', gatewayToken: 'bootstrap-token' },
@@ -39,33 +37,40 @@ function interaction(): OwnedInteractionRecord {
     id: 'interaction-1',
     branchId: 'branch-1',
     parentInteractionId: null,
-    runId: 'run-1',
+    backendTurnId: 'run-1',
+    turnRef: { backendId: 'openclaw', schemaVersion: 1, opaque: { runId: 'run-1' } },
     userInput: 'create image',
     agentOutput: '',
     status: 'completed',
     attachments: [],
     artifacts: [],
-    sessionMetadata: {},
+    approvals: [],
+    executionMetadata: {},
     createdAt: 1,
     updatedAt: 1,
     ownerId: 'owner-1',
     canvasId: 'canvas-1',
-    sessionKey: 'agent:main:canvas:branch-1',
-    agentId: 'main',
-    openClawSessionId: null,
-    observedSessionId: null,
-    sessionIntegrity: 'unknown',
+    conversationId: 'agent:main:canvas:branch-1',
+    backendId: 'openclaw',
+    agentProfileId: 'main',
+    conversationRef: {
+      backendId: 'openclaw',
+      schemaVersion: 1,
+      opaque: { sessionKey: 'agent:main:canvas:branch-1' },
+    },
+    conversationInstanceId: null,
+    observedConversationInstanceId: null,
+    conversationIntegrity: 'unknown',
   };
 }
 
 describe('Gateway-native Canvas Artifact reconciliation', () => {
   beforeEach(() => {
     gatewayRpcCall.mockReset();
-    persistCanvasArtifactBytes.mockReset();
     supported.clear();
   });
 
-  it('downloads native Artifact bytes and persists them in Canvas storage', async () => {
+  it('returns native Artifact handles for generic Canvas materialization', async () => {
     supported.add('artifacts.list');
     supported.add('artifacts.download');
     gatewayRpcCall.mockImplementation(async (method: string) => {
@@ -85,14 +90,6 @@ describe('Gateway-native Canvas Artifact reconciliation', () => {
       }
       return {};
     });
-    persistCanvasArtifactBytes.mockImplementation(async (_interaction, artifact, _sourceKey, bytes) => ({
-      ...artifact,
-      id: 'a'.repeat(40),
-      uri: `/api/canvas/artifacts/canvas-1/interaction-1/${'a'.repeat(40)}`,
-      storage: 'canvas',
-      available: true,
-      sizeBytes: bytes.byteLength,
-    }));
     const { reconcileTranscriptSnapshot } = await import('./canvas-reconciler.js');
     const snapshot = await reconcileTranscriptSnapshot(interaction());
 
@@ -100,18 +97,13 @@ describe('Gateway-native Canvas Artifact reconciliation', () => {
     expect(snapshot.artifactPersistenceComplete).toBe(true);
     expect(snapshot.artifacts).toEqual([
       expect.objectContaining({
-        gatewayArtifactId: 'artifact_native',
-        storage: 'canvas',
-        available: true,
+        backendArtifactRef: expect.objectContaining({
+          backendId: 'openclaw',
+          opaque: expect.objectContaining({ artifactId: 'artifact_native', kind: 'native' }),
+        }),
       }),
     ]);
-    expect(persistCanvasArtifactBytes).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({ gatewayArtifactId: 'artifact_native' }),
-      'openclaw-artifact:main:artifact_native',
-      Buffer.from([1, 2, 3]),
-      'image/png',
-    );
+    expect(gatewayRpcCall).not.toHaveBeenCalledWith('artifacts.download', expect.anything(), expect.anything());
   });
 
   it('keeps text but marks Artifact sync degraded when native methods are absent', async () => {
@@ -173,7 +165,7 @@ describe('Gateway-native Canvas Artifact reconciliation', () => {
     ]);
     expect(gatewayRpcCall).not.toHaveBeenCalledWith(
       'artifacts.list',
-      expect.objectContaining({ sessionKey: expect.any(String) }),
+      expect.objectContaining({ conversationId: expect.any(String) }),
       expect.any(Number),
     );
   });

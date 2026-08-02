@@ -1,8 +1,16 @@
 import type { CSSProperties, ReactNode } from 'react';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { canvasNodeTypes } from './CanvasNodes';
 import { EMPTY_CANVAS_DRAFT } from './constants';
+
+const { resolveApproval } = vi.hoisted(() => ({
+  resolveApproval: vi.fn(async () => ({})),
+}));
+vi.mock('./api', () => ({
+  canvasApi: { resolveApproval },
+  canvasArtifactUrl: (uri: string) => uri,
+}));
 
 vi.mock('@xyflow/react', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@xyflow/react')>();
@@ -87,7 +95,7 @@ describe('Canvas node resize controls', () => {
             version: 1,
             branchId: 'branch-1',
             parentInteractionId: null,
-            runId: 'run-1',
+            backendTurnId: 'run-1',
             userInput: 'hello',
             agentOutput: 'done',
             status: 'completed',
@@ -97,7 +105,8 @@ describe('Canvas node resize controls', () => {
             error: null,
             attachments: [],
             artifacts: [],
-            sessionMetadata: {},
+            approvals: [],
+            executionMetadata: {},
             contextSnapshot: null,
             createdAt: 1,
             updatedAt: 1,
@@ -165,7 +174,7 @@ describe('Canvas node resize controls', () => {
             version: 1,
             branchId: 'branch-1',
             parentInteractionId: null,
-            runId: 'run-1',
+            backendTurnId: 'run-1',
             userInput: 'hello',
             agentOutput: 'done',
             status: 'completed',
@@ -175,7 +184,8 @@ describe('Canvas node resize controls', () => {
             error: null,
             attachments: [],
             artifacts: [],
-            sessionMetadata: {},
+            approvals: [],
+            executionMetadata: {},
             contextSnapshot: null,
             createdAt: 1,
             updatedAt: 1,
@@ -211,11 +221,11 @@ describe('Canvas node resize controls', () => {
             kind: 'root',
             parentBranchId: null,
             forkedFromInteractionId: null,
-            sessionKey: 'session-1',
-            openClawSessionId: null,
-            observedSessionId: null,
-            sessionIntegrity: 'unknown',
-            sessionState: 'draft',
+            conversationId: 'session-1',
+            conversationInstanceId: null,
+            observedConversationInstanceId: null,
+            conversationIntegrity: 'unknown',
+            conversationState: 'draft',
             creationMode: 'composer',
             headInteractionId: null,
             createdAt: 1,
@@ -238,5 +248,43 @@ describe('Canvas node resize controls', () => {
     expect(screen.getByTestId('node-resize-control')).toBeInTheDocument();
     expect(screen.getByRole('textbox')).toHaveClass('resize-none');
     expect(screen.getAllByTestId('node-resize-control')).toHaveLength(1);
+  });
+
+  it('renders approval controls inline on the Interaction and submits the selected permission scope', async () => {
+    resolveApproval.mockClear();
+    const onApprovalChanged = vi.fn();
+    const InteractionNode = canvasNodeTypes.interaction;
+    render(<InteractionNode
+      {...commonNodeProps}
+      id="interaction-approval"
+      type="interaction"
+      data={{
+        interaction: {
+          id: 'interaction-approval', version: 1, branchId: 'branch-1', parentInteractionId: null,
+          userInput: 'run command', agentOutput: '', status: 'streaming', executionState: 'running',
+          artifactSyncState: 'not_started', terminalAt: null, error: null, attachments: [], artifacts: [],
+          executionMetadata: {}, contextSnapshot: null, createdAt: 1, updatedAt: 1,
+          approvals: [{
+            id: 'approval-1', category: 'command', title: 'Execute command', description: 'npm test',
+            risk: 'high', permissions: [{ id: 'execute', label: 'Execute command', risk: 'high' }],
+            choices: [
+              { id: 'allow-once', intent: 'grant', scope: 'item', label: 'Allow once', requiresConfirmation: false },
+              { id: 'deny', intent: 'deny', scope: 'item', label: 'Deny', requiresConfirmation: false },
+            ],
+            expiresAt: null, status: 'pending', resolution: null, resolvedBy: null, resolvedAt: null,
+            error: null, createdAt: 1, updatedAt: 1,
+          }],
+        },
+        preview: '', composerOpen: false, canAdd: false, resubmitting: false, resizeEnabled: true,
+        onAdd: vi.fn(), onResubmit: vi.fn(), onApprovalChanged,
+      }}
+    />);
+    expect(screen.getByRole('region', { name: 'Execute command' })).toBeInTheDocument();
+    expect(screen.getByText('npm test')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Allow once' }));
+    await waitFor(() => expect(resolveApproval).toHaveBeenCalledWith('approval-1', {
+      choiceId: 'allow-once', grantedPermissionIds: ['execute'],
+    }));
+    expect(onApprovalChanged).toHaveBeenCalledOnce();
   });
 });

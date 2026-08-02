@@ -2,6 +2,16 @@ import { randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import {
+  type BackendEvent,
+  type BackendHandle,
+  type AgentProfileRef,
+  type ApprovalChoice,
+  type ApprovalPermission,
+  type ApprovalResolution,
+  type ApprovalSummary,
+} from './agent-backends/contract.js';
+import { getAgentBackend } from './agent-backends/registry.js';
 import { buildCanvasReplayPlan } from './canvas-replay-plan.js';
 import {
   decideCanvasSendPlan,
@@ -14,15 +24,16 @@ import { assembleCanonicalCanvasSnapshot } from './canvas-history-snapshot.js';
 import { config } from './config.js';
 import { applySingleChainSchemaMigration } from './canvas-migrations.js';
 import { packageMetadata } from './package-metadata.js';
+import { ensureGenericAgentBackendSchema } from './canvas-agent-backend-schema.js';
 
 export type BranchKind = 'root' | 'fork';
-export type BranchSessionState = 'draft' | 'active';
+export type BranchConversationState = 'draft' | 'active';
 export type BranchCreationMode = 'composer' | 'direct-submit';
 export type InteractionStatus = 'streaming' | 'completed' | 'failed';
 export type InteractionExecutionState = 'running' | 'completed' | 'failed' | 'unconfirmed';
 export type ArtifactSyncState = 'not_started' | 'observing' | 'synced' | 'degraded';
 export type { CanvasContextResource, SendDispatchState, SendMaterialization } from './canvas-domain.js';
-export type BranchSessionIntegrity = 'unknown' | 'healthy' | 'drifted';
+export type BranchConversationIntegrity = 'unknown' | 'healthy' | 'drifted';
 export type CanvasUserStatus = 'active' | 'disabled' | 'unmanaged';
 
 export interface CanvasUserRecord {
@@ -39,7 +50,8 @@ export interface CanvasUserRecord {
 export interface CanvasRecord {
   id: string;
   name: string;
-  agentId: string;
+  agentRef: AgentProfileRef;
+  agentMutable: boolean;
   createdAt: number;
   updatedAt: number;
 }
@@ -50,11 +62,11 @@ export interface BranchRecord {
   kind: BranchKind;
   parentBranchId: string | null;
   forkedFromInteractionId: string | null;
-  sessionKey: string;
-  openClawSessionId: string | null;
-  observedSessionId: string | null;
-  sessionIntegrity: BranchSessionIntegrity;
-  sessionState: BranchSessionState;
+  conversationId: string;
+  conversationInstanceId: string | null;
+  observedConversationInstanceId: string | null;
+  conversationIntegrity: BranchConversationIntegrity;
+  conversationState: BranchConversationState;
   creationMode: BranchCreationMode;
   headInteractionId: string | null;
   createdAt: number;
@@ -64,13 +76,14 @@ export interface BranchRecord {
 export interface InteractionContextSnapshot {
   usedTokens: number;
   contextLimit: number;
-  sessionKey: string;
-  sessionId: string;
+  conversationInstanceId: string;
   model?: string;
   provider?: string;
   compactionCount?: number;
   capturedAt: number;
-  source: 'openclaw-session';
+  source: 'agent-backend';
+  backendId: string;
+  conversationRef?: BackendHandle;
 }
 
 export interface InteractionRecord {
@@ -78,7 +91,8 @@ export interface InteractionRecord {
   version: number;
   branchId: string;
   parentInteractionId: string | null;
-  runId: string | null;
+  backendTurnId: string | null;
+  turnRef?: BackendHandle | null;
   userInput: string;
   agentOutput: string;
   status: InteractionStatus;
@@ -88,8 +102,38 @@ export interface InteractionRecord {
   error: string | null;
   attachments: CanvasAttachment[];
   artifacts: CanvasArtifact[];
-  sessionMetadata: Record<string, unknown>;
+  approvals: InteractionApprovalRecord[];
+  executionMetadata: Record<string, unknown>;
   contextSnapshot: InteractionContextSnapshot | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export type InteractionApprovalStatus =
+  | 'pending'
+  | 'resolving'
+  | 'resolved'
+  | 'denied'
+  | 'expired'
+  | 'unconfirmed';
+
+export interface InteractionApprovalRecord {
+  id: string;
+  interactionId: string;
+  backendId: string;
+  approvalRef: BackendHandle;
+  category: ApprovalSummary['category'];
+  title: string;
+  description?: string;
+  risk: ApprovalSummary['risk'];
+  permissions: ApprovalPermission[];
+  choices: ApprovalChoice[];
+  expiresAt: number | null;
+  status: InteractionApprovalStatus;
+  resolution: ApprovalResolution | null;
+  resolvedBy: string | null;
+  resolvedAt: number | null;
+  error: string | null;
   createdAt: number;
   updatedAt: number;
 }
@@ -97,11 +141,13 @@ export interface InteractionRecord {
 export interface OwnedInteractionRecord extends InteractionRecord {
   ownerId: string;
   canvasId: string;
-  sessionKey: string;
-  agentId: string;
-  openClawSessionId: string | null;
-  observedSessionId: string | null;
-  sessionIntegrity: BranchSessionIntegrity;
+  conversationId: string;
+  backendId: string;
+  agentProfileId: string;
+  conversationRef?: BackendHandle;
+  conversationInstanceId: string | null;
+  observedConversationInstanceId: string | null;
+  conversationIntegrity: BranchConversationIntegrity;
 }
 
 export interface CanvasAttachment {
@@ -121,7 +167,8 @@ export interface CanvasAttachment {
 export interface CanvasArtifact {
   id?: string;
   contentHash?: string;
-  gatewayArtifactId?: string;
+  backendArtifactId?: string;
+  backendArtifactRef?: BackendHandle;
   name: string;
   mimeType?: string;
   sizeBytes?: number;
@@ -164,12 +211,12 @@ export interface CanvasSyncBatch {
   };
 }
 
-export interface StoredGatewaySignal {
+export interface StoredBackendEvent {
   eventKey: string;
-  runId: string | null;
-  sessionKey: string | null;
-  event: string;
-  payload: unknown;
+  backendId: string;
+  conversationRef: BackendHandle | null;
+  turnRef: BackendHandle | null;
+  event: BackendEvent;
   createdAt: number;
 }
 
@@ -180,7 +227,10 @@ export interface SendReservation {
   userInput: string;
   attachments: CanvasAttachment[];
   materialization: SendMaterialization;
-  sessionKey: string;
+  conversationId: string;
+  backendId: string;
+  conversationRef?: BackendHandle;
+  dispatchRecoveryRef?: BackendHandle | null;
   outgoingMessage: string;
   snapshotVersion?: number;
   bootstrapResources: CanvasContextResource[];
@@ -198,7 +248,7 @@ export interface SendReservation {
 export interface DispatchableSendReservation extends SendReservation {
   ownerId: string;
   canvasId: string;
-  agentId: string;
+  agentProfileId: string;
 }
 
 export type CanvasMediaDerivativePurpose = 'delivery' | 'thumbnail';
@@ -228,9 +278,19 @@ export interface CanvasMediaBackfillSource {
   contentHash?: string;
 }
 
-export interface BranchSessionLifecycle {
-  sessionStartedAt: number | null;
-  observedSessionStartedAt: number | null;
+export interface BranchConversationLifecycle {
+  conversationStartedAt: number | null;
+  observedConversationStartedAt: number | null;
+  lastInteractionAt: number | null;
+}
+
+export interface BranchBackendContext {
+  backendId: string;
+  agentProfileId: string;
+  conversationRef: BackendHandle;
+  observedConversationRef: BackendHandle | null;
+  conversationStartedAt: number | null;
+  observedConversationStartedAt: number | null;
   lastInteractionAt: number | null;
 }
 
@@ -253,6 +313,16 @@ function parseJson<T>(value: unknown, fallback: T): T {
   try { return JSON.parse(value) as T; } catch { return fallback; }
 }
 
+function parseBackendHandle(value: unknown): BackendHandle | null {
+  const handle = parseJson<BackendHandle | null>(value, null);
+  if (!handle || typeof handle !== 'object' || Array.isArray(handle)) return null;
+  if (typeof handle.backendId !== 'string' || !handle.backendId) return null;
+  if (typeof handle.schemaVersion !== 'number' || !Number.isInteger(handle.schemaVersion)) return null;
+  if (!handle.opaque || typeof handle.opaque !== 'object' || Array.isArray(handle.opaque)) return null;
+  if (Object.values(handle.opaque).some((entry) => typeof entry !== 'string')) return null;
+  return handle;
+}
+
 function parseInteractionContextSnapshot(value: unknown): InteractionContextSnapshot | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const snapshot = value as Record<string, unknown>;
@@ -263,13 +333,11 @@ function parseInteractionContextSnapshot(value: unknown): InteractionContextSnap
     || typeof snapshot.contextLimit !== 'number'
     || !Number.isFinite(snapshot.contextLimit)
     || snapshot.contextLimit <= 0
-    || typeof snapshot.sessionKey !== 'string'
-    || !snapshot.sessionKey
-    || typeof snapshot.sessionId !== 'string'
-    || !snapshot.sessionId
+    || typeof snapshot.conversationInstanceId !== 'string'
+    || !snapshot.conversationInstanceId
     || typeof snapshot.capturedAt !== 'number'
     || !Number.isFinite(snapshot.capturedAt)
-    || snapshot.source !== 'openclaw-session'
+    || snapshot.source !== 'agent-backend'
   ) {
     return null;
   }
@@ -280,7 +348,11 @@ function mapCanvas(row: SqlRow): CanvasRecord {
   return {
     id: asString(row.id),
     name: asString(row.name),
-    agentId: asString(row.agent_id),
+    agentRef: {
+      backendId: asString(row.backend_id),
+      profileId: asString(row.agent_profile_id),
+    },
+    agentMutable: row.agent_locked_at == null,
     createdAt: asNumber(row.created_at),
     updatedAt: asNumber(row.updated_at),
   };
@@ -306,11 +378,11 @@ function mapBranch(row: SqlRow): BranchRecord {
     kind: asString(row.kind) as BranchKind,
     parentBranchId: asNullableString(row.parent_branch_id),
     forkedFromInteractionId: asNullableString(row.forked_from_interaction_id),
-    sessionKey: asString(row.session_key),
-    openClawSessionId: asNullableString(row.openclaw_session_id),
-    observedSessionId: asNullableString(row.observed_session_id),
-    sessionIntegrity: (asString(row.session_integrity) || 'unknown') as BranchSessionIntegrity,
-    sessionState: asString(row.session_state) as BranchSessionState,
+    conversationId: asString(row.conversation_id),
+    conversationInstanceId: asNullableString(row.conversation_instance_id),
+    observedConversationInstanceId: asNullableString(row.observed_conversation_instance_id),
+    conversationIntegrity: (asString(row.conversation_integrity) || 'unknown') as BranchConversationIntegrity,
+    conversationState: asString(row.conversation_state) as BranchConversationState,
     creationMode: (asString(row.creation_mode) || 'composer') as BranchCreationMode,
     headInteractionId: asNullableString(row.head_interaction_id),
     createdAt: asNumber(row.created_at),
@@ -319,14 +391,16 @@ function mapBranch(row: SqlRow): BranchRecord {
 }
 
 function mapInteraction(row: SqlRow): InteractionRecord {
-  const sessionMetadata = parseJson<Record<string, unknown>>(row.session_metadata_json, {});
-  const contextSnapshot = parseInteractionContextSnapshot(sessionMetadata.contextSnapshot);
+  const executionMetadata = parseJson<Record<string, unknown>>(row.execution_metadata_json, {});
+  const contextSnapshot = parseInteractionContextSnapshot(executionMetadata.contextSnapshot);
+  const backendTurnId = asNullableString(row.backend_turn_id);
   return {
     id: asString(row.id),
     version: Math.max(1, asNumber(row.version) || 1),
     branchId: asString(row.branch_id),
     parentInteractionId: asNullableString(row.parent_interaction_id),
-    runId: asNullableString(row.run_id),
+    backendTurnId,
+    turnRef: parseBackendHandle(row.turn_ref_json),
     userInput: asString(row.user_input),
     agentOutput: asString(row.agent_output),
     status: asString(row.status) as InteractionStatus,
@@ -337,23 +411,52 @@ function mapInteraction(row: SqlRow): InteractionRecord {
     error: asNullableString(row.error),
     attachments: parseJson<CanvasAttachment[]>(row.attachments_json, []),
     artifacts: parseJson<CanvasArtifact[]>(row.artifacts_json, []),
-    sessionMetadata,
+    approvals: [],
+    executionMetadata,
     contextSnapshot,
     createdAt: asNumber(row.created_at),
     updatedAt: asNumber(row.updated_at),
   };
 }
 
+function mapInteractionApproval(row: SqlRow): InteractionApprovalRecord {
+  const approvalRef = parseBackendHandle(row.approval_ref_json);
+  if (!approvalRef) throw new Error('Stored approval has an invalid Backend handle');
+  return {
+    id: asString(row.id),
+    interactionId: asString(row.interaction_id),
+    backendId: asString(row.backend_id),
+    approvalRef,
+    category: asString(row.category) as ApprovalSummary['category'],
+    title: asString(row.title),
+    ...(asNullableString(row.description) ? { description: asString(row.description) } : {}),
+    risk: asString(row.risk) as ApprovalSummary['risk'],
+    permissions: parseJson<ApprovalPermission[]>(row.permissions_json, []),
+    choices: parseJson<ApprovalChoice[]>(row.choices_json, []),
+    expiresAt: row.expires_at == null ? null : asNumber(row.expires_at),
+    status: asString(row.status) as InteractionApprovalStatus,
+    resolution: parseJson<ApprovalResolution | null>(row.resolution_json, null),
+    resolvedBy: asNullableString(row.resolved_by),
+    resolvedAt: row.resolved_at == null ? null : asNumber(row.resolved_at),
+    error: asNullableString(row.error),
+    createdAt: asNumber(row.created_at),
+    updatedAt: asNumber(row.updated_at),
+  };
+}
+
 function mapOwnedInteraction(row: SqlRow): OwnedInteractionRecord {
+  const conversationId = asString(row.conversation_id);
   return {
     ...mapInteraction(row),
     ownerId: asString(row.owner_id),
     canvasId: asString(row.canvas_id),
-    sessionKey: asString(row.session_key),
-    agentId: asString(row.agent_id),
-    openClawSessionId: asNullableString(row.openclaw_session_id),
-    observedSessionId: asNullableString(row.observed_session_id),
-    sessionIntegrity: (asString(row.session_integrity) || 'unknown') as BranchSessionIntegrity,
+    conversationId,
+    backendId: asString(row.backend_id),
+    agentProfileId: asString(row.agent_profile_id),
+    conversationRef: parseBackendHandle(row.conversation_ref_json) || undefined,
+    conversationInstanceId: asNullableString(row.conversation_instance_id),
+    observedConversationInstanceId: asNullableString(row.observed_conversation_instance_id),
+    conversationIntegrity: (asString(row.conversation_integrity) || 'unknown') as BranchConversationIntegrity,
   };
 }
 
@@ -372,6 +475,14 @@ export class CanvasStore {
   }
 
   private migrate(): void {
+    const existingCanvasColumns = this.db.prepare('PRAGMA table_info(canvases)').all() as SqlRow[];
+    if (
+      existingCanvasColumns.length > 0
+      && !existingCanvasColumns.some((column) => asString(column.name) === 'agent_id')
+    ) {
+      ensureGenericAgentBackendSchema(this.db, packageMetadata.version);
+      return;
+    }
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS canvas_users (
         id TEXT PRIMARY KEY,
@@ -384,6 +495,9 @@ export class CanvasStore {
         owner_id TEXT NOT NULL REFERENCES canvas_users(id),
         name TEXT NOT NULL,
         agent_id TEXT NOT NULL,
+        backend_id TEXT NOT NULL DEFAULT 'openclaw',
+        agent_profile_id TEXT,
+        agent_locked_at INTEGER,
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL
       );
@@ -394,6 +508,8 @@ export class CanvasStore {
         parent_branch_id TEXT REFERENCES branches(id) ON DELETE SET NULL,
         forked_from_interaction_id TEXT,
         session_key TEXT NOT NULL UNIQUE,
+        conversation_ref_json TEXT,
+        observed_conversation_ref_json TEXT,
         openclaw_session_id TEXT,
         openclaw_session_started_at INTEGER,
         observed_session_id TEXT,
@@ -413,6 +529,7 @@ export class CanvasStore {
         branch_id TEXT NOT NULL REFERENCES branches(id) ON DELETE CASCADE,
         parent_interaction_id TEXT,
         run_id TEXT,
+        turn_ref_json TEXT,
         user_input TEXT NOT NULL,
         agent_output TEXT NOT NULL DEFAULT '',
         status TEXT NOT NULL CHECK(status IN ('streaming', 'completed', 'failed')),
@@ -450,6 +567,9 @@ export class CanvasStore {
         attachments_json TEXT NOT NULL DEFAULT '[]',
         materialization TEXT NOT NULL,
         session_key TEXT NOT NULL,
+        backend_id TEXT NOT NULL DEFAULT 'openclaw',
+        conversation_ref_json TEXT,
+        dispatch_recovery_ref_json TEXT,
         outgoing_message TEXT NOT NULL,
         status TEXT NOT NULL CHECK(status IN ('prepared', 'acknowledged', 'failed')),
         run_id TEXT,
@@ -463,6 +583,7 @@ export class CanvasStore {
         id TEXT NOT NULL,
         content_hash TEXT,
         gateway_artifact_id TEXT,
+        backend_artifact_ref_json TEXT,
         name TEXT NOT NULL,
         mime_type TEXT,
         size_bytes INTEGER,
@@ -514,6 +635,37 @@ export class CanvasStore {
         created_at INTEGER NOT NULL,
         processed_at INTEGER
       );
+      CREATE TABLE IF NOT EXISTS backend_event_inbox (
+        event_key TEXT PRIMARY KEY,
+        backend_id TEXT NOT NULL,
+        conversation_ref_json TEXT,
+        turn_ref_json TEXT,
+        event_type TEXT NOT NULL,
+        payload_json TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        processed_at INTEGER
+      );
+      CREATE TABLE IF NOT EXISTS interaction_approvals (
+        id TEXT PRIMARY KEY,
+        interaction_id TEXT NOT NULL REFERENCES interactions(id) ON DELETE CASCADE,
+        backend_id TEXT NOT NULL,
+        approval_ref_json TEXT NOT NULL,
+        category TEXT NOT NULL,
+        title TEXT NOT NULL,
+        description TEXT,
+        risk TEXT NOT NULL CHECK(risk IN ('low', 'medium', 'high')),
+        permissions_json TEXT NOT NULL,
+        choices_json TEXT NOT NULL,
+        expires_at INTEGER,
+        status TEXT NOT NULL CHECK(status IN ('pending', 'resolving', 'resolved', 'denied', 'expired', 'unconfirmed')),
+        resolution_json TEXT,
+        resolved_by TEXT,
+        resolved_at INTEGER,
+        error TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        UNIQUE(backend_id, approval_ref_json)
+      );
       CREATE TABLE IF NOT EXISTS schema_migrations (
         id TEXT PRIMARY KEY,
         applied_at INTEGER NOT NULL,
@@ -526,6 +678,12 @@ export class CanvasStore {
       CREATE INDEX IF NOT EXISTS canvas_changes_canvas_seq ON canvas_changes(canvas_id, seq);
       CREATE INDEX IF NOT EXISTS gateway_signal_pending_run ON gateway_signal_inbox(run_id, processed_at);
       CREATE INDEX IF NOT EXISTS gateway_signal_pending_session ON gateway_signal_inbox(session_key, processed_at);
+      CREATE INDEX IF NOT EXISTS backend_event_pending_turn
+        ON backend_event_inbox(backend_id, turn_ref_json, processed_at);
+      CREATE INDEX IF NOT EXISTS backend_event_pending_conversation
+        ON backend_event_inbox(backend_id, conversation_ref_json, processed_at);
+      CREATE INDEX IF NOT EXISTS interaction_approvals_interaction
+        ON interaction_approvals(interaction_id, created_at);
     `);
     const reservationColumns = this.db.prepare('PRAGMA table_info(send_reservations)').all() as SqlRow[];
     this.db.exec('BEGIN');
@@ -551,6 +709,15 @@ export class CanvasStore {
       if (!reservationColumns.some((column) => asString(column.name) === 'next_attempt_at')) {
         this.db.exec('ALTER TABLE send_reservations ADD COLUMN next_attempt_at INTEGER');
       }
+      if (!reservationColumns.some((column) => asString(column.name) === 'backend_id')) {
+        this.db.exec("ALTER TABLE send_reservations ADD COLUMN backend_id TEXT NOT NULL DEFAULT 'openclaw'");
+      }
+      if (!reservationColumns.some((column) => asString(column.name) === 'conversation_ref_json')) {
+        this.db.exec('ALTER TABLE send_reservations ADD COLUMN conversation_ref_json TEXT');
+      }
+      if (!reservationColumns.some((column) => asString(column.name) === 'dispatch_recovery_ref_json')) {
+        this.db.exec('ALTER TABLE send_reservations ADD COLUMN dispatch_recovery_ref_json TEXT');
+      }
       this.db.exec('COMMIT');
     } catch (error) {
       this.db.exec('ROLLBACK');
@@ -574,6 +741,19 @@ export class CanvasStore {
     if (!artifactColumns.some((column) => asString(column.name) === 'content_hash')) {
       this.db.exec('ALTER TABLE interaction_artifacts ADD COLUMN content_hash TEXT');
     }
+    if (!artifactColumns.some((column) => asString(column.name) === 'backend_artifact_ref_json')) {
+      this.db.exec('ALTER TABLE interaction_artifacts ADD COLUMN backend_artifact_ref_json TEXT');
+    }
+    const canvasColumns = this.db.prepare('PRAGMA table_info(canvases)').all() as SqlRow[];
+    if (!canvasColumns.some((column) => asString(column.name) === 'backend_id')) {
+      this.db.exec("ALTER TABLE canvases ADD COLUMN backend_id TEXT NOT NULL DEFAULT 'openclaw'");
+    }
+    if (!canvasColumns.some((column) => asString(column.name) === 'agent_profile_id')) {
+      this.db.exec('ALTER TABLE canvases ADD COLUMN agent_profile_id TEXT');
+    }
+    if (!canvasColumns.some((column) => asString(column.name) === 'agent_locked_at')) {
+      this.db.exec('ALTER TABLE canvases ADD COLUMN agent_locked_at INTEGER');
+    }
     const branchColumns = this.db.prepare('PRAGMA table_info(branches)').all() as SqlRow[];
     if (!branchColumns.some((column) => asString(column.name) === 'openclaw_session_id')) {
       this.db.exec('ALTER TABLE branches ADD COLUMN openclaw_session_id TEXT');
@@ -592,6 +772,12 @@ export class CanvasStore {
     }
     if (!branchColumns.some((column) => asString(column.name) === 'creation_mode')) {
       this.db.exec("ALTER TABLE branches ADD COLUMN creation_mode TEXT NOT NULL DEFAULT 'composer'");
+    }
+    if (!branchColumns.some((column) => asString(column.name) === 'conversation_ref_json')) {
+      this.db.exec('ALTER TABLE branches ADD COLUMN conversation_ref_json TEXT');
+    }
+    if (!branchColumns.some((column) => asString(column.name) === 'observed_conversation_ref_json')) {
+      this.db.exec('ALTER TABLE branches ADD COLUMN observed_conversation_ref_json TEXT');
     }
     this.db.exec(`
       DROP INDEX IF EXISTS one_draft_root_per_canvas;
@@ -621,7 +807,35 @@ export class CanvasStore {
       if (!interactionColumns.some((column) => asString(column.name) === 'error')) {
         this.db.exec('ALTER TABLE interactions ADD COLUMN error TEXT');
       }
+      if (!interactionColumns.some((column) => asString(column.name) === 'turn_ref_json')) {
+        this.db.exec('ALTER TABLE interactions ADD COLUMN turn_ref_json TEXT');
+      }
       applySingleChainSchemaMigration(this.db, packageMetadata.version);
+      this.db.exec(`
+        UPDATE canvases SET backend_id = 'openclaw' WHERE backend_id IS NULL OR backend_id = '';
+        UPDATE canvases SET agent_profile_id = agent_id WHERE agent_profile_id IS NULL OR agent_profile_id = '';
+        UPDATE branches SET conversation_ref_json = json_object(
+          'backendId', 'openclaw', 'schemaVersion', 1,
+          'opaque', json_object('sessionKey', session_key)
+        ) WHERE conversation_ref_json IS NULL;
+        UPDATE branches SET observed_conversation_ref_json = json_object(
+          'backendId', 'openclaw', 'schemaVersion', 1,
+          'opaque', json_object('sessionKey', session_key, 'sessionId', observed_session_id)
+        ) WHERE observed_conversation_ref_json IS NULL AND observed_session_id IS NOT NULL;
+        UPDATE interactions SET turn_ref_json = json_object(
+          'backendId', 'openclaw', 'schemaVersion', 1,
+          'opaque', json_object('runId', run_id)
+        ) WHERE turn_ref_json IS NULL AND run_id IS NOT NULL;
+        UPDATE send_reservations SET backend_id = 'openclaw' WHERE backend_id IS NULL OR backend_id = '';
+        UPDATE send_reservations SET conversation_ref_json = json_object(
+          'backendId', 'openclaw', 'schemaVersion', 1,
+          'opaque', json_object('sessionKey', session_key)
+        ) WHERE conversation_ref_json IS NULL;
+        UPDATE interaction_artifacts SET backend_artifact_ref_json = json_object(
+          'backendId', 'openclaw', 'schemaVersion', 1,
+          'opaque', json_object('artifactId', gateway_artifact_id)
+        ) WHERE backend_artifact_ref_json IS NULL AND gateway_artifact_id IS NOT NULL;
+      `);
       this.db.exec('COMMIT');
     } catch (error) {
       this.db.exec('ROLLBACK');
@@ -683,6 +897,19 @@ export class CanvasStore {
         INSERT INTO canvas_changes(canvas_id, entity_type, entity_id, operation, created_at)
         VALUES (NEW.id, 'canvas', NEW.id, 'upsert', CAST(unixepoch('subsec') * 1000 AS INTEGER));
       END;
+      CREATE TRIGGER IF NOT EXISTS approval_insert_visible_v1
+      AFTER INSERT ON interaction_approvals
+      BEGIN
+        UPDATE interactions SET version = version + 1, updated_at = NEW.updated_at
+        WHERE id = NEW.interaction_id;
+      END;
+      CREATE TRIGGER IF NOT EXISTS approval_update_visible_v1
+      AFTER UPDATE OF status, resolution_json, resolved_by, resolved_at, error
+      ON interaction_approvals
+      BEGIN
+        UPDATE interactions SET version = version + 1, updated_at = NEW.updated_at
+        WHERE id = NEW.interaction_id;
+      END;
     `);
     this.db.exec(`
       UPDATE branches
@@ -700,6 +927,7 @@ export class CanvasStore {
       WHERE observed_session_id IS NOT NULL
         AND observed_session_started_at IS NULL;
     `);
+    ensureGenericAgentBackendSchema(this.db, packageMetadata.version);
   }
 
   transaction<T>(fn: () => T): T {
@@ -720,7 +948,10 @@ export class CanvasStore {
     return rows.map((row) => ({
       id: asString(row.id),
       ...(asNullableString(row.content_hash) ? { contentHash: asString(row.content_hash) } : {}),
-      ...(asNullableString(row.gateway_artifact_id) ? { gatewayArtifactId: asString(row.gateway_artifact_id) } : {}),
+      ...(asNullableString(row.backend_artifact_id) ? { backendArtifactId: asString(row.backend_artifact_id) } : {}),
+      ...(parseBackendHandle(row.backend_artifact_ref_json)
+        ? { backendArtifactRef: parseBackendHandle(row.backend_artifact_ref_json)! }
+        : {}),
       name: asString(row.name),
       ...(asNullableString(row.mime_type) ? { mimeType: asString(row.mime_type) } : {}),
       ...(row.size_bytes == null ? {} : { sizeBytes: asNumber(row.size_bytes) }),
@@ -733,18 +964,33 @@ export class CanvasStore {
   }
 
   private hydrateInteraction(record: InteractionRecord): InteractionRecord {
-    return { ...record, artifacts: this.listInteractionArtifacts(record.id) };
+    return {
+      ...record,
+      artifacts: this.listInteractionArtifacts(record.id),
+      approvals: this.listInteractionApprovals(record.id),
+    };
   }
 
   private hydrateOwnedInteraction(record: OwnedInteractionRecord): OwnedInteractionRecord {
-    return { ...record, artifacts: this.listInteractionArtifacts(record.id) };
+    return {
+      ...record,
+      artifacts: this.listInteractionArtifacts(record.id),
+      approvals: this.listInteractionApprovals(record.id),
+    };
+  }
+
+  private listInteractionApprovals(interactionId: string): InteractionApprovalRecord[] {
+    return (this.db.prepare(`SELECT * FROM interaction_approvals
+      WHERE interaction_id = ? ORDER BY created_at, id`).all(interactionId) as SqlRow[])
+      .map(mapInteractionApproval);
   }
 
   private normalizeInteractionArtifacts(interactionId: string, artifacts: CanvasArtifact[]): CanvasArtifact[] {
     return artifacts.map((artifact, index) => ({
       id: artifact.id || `${interactionId}:artifact:${index}`,
       ...(artifact.contentHash ? { contentHash: artifact.contentHash } : {}),
-      ...(artifact.gatewayArtifactId ? { gatewayArtifactId: artifact.gatewayArtifactId } : {}),
+      ...(artifact.backendArtifactId ? { backendArtifactId: artifact.backendArtifactId } : {}),
+      ...(artifact.backendArtifactRef ? { backendArtifactRef: artifact.backendArtifactRef } : {}),
       name: artifact.name,
       ...(artifact.mimeType ? { mimeType: artifact.mimeType } : {}),
       ...(artifact.sizeBytes === undefined ? {} : { sizeBytes: artifact.sizeBytes }),
@@ -759,15 +1005,16 @@ export class CanvasStore {
   private replaceInteractionArtifacts(interactionId: string, artifacts: CanvasArtifact[], now: number): void {
     this.db.prepare('DELETE FROM interaction_artifacts WHERE interaction_id = ?').run(interactionId);
     const insert = this.db.prepare(`INSERT INTO interaction_artifacts
-      (interaction_id, id, content_hash, gateway_artifact_id, name, mime_type, size_bytes, uri,
+      (interaction_id, id, content_hash, backend_artifact_id, backend_artifact_ref_json, name, mime_type, size_bytes, uri,
         source_uri, storage, available, warning, ordinal, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
     this.normalizeInteractionArtifacts(interactionId, artifacts).forEach((artifact, index) => {
       insert.run(
         interactionId,
         artifact.id || `${interactionId}:artifact:${index}`,
         artifact.contentHash || null,
-        artifact.gatewayArtifactId || null,
+        artifact.backendArtifactId || null,
+        artifact.backendArtifactRef ? JSON.stringify(artifact.backendArtifactRef) : null,
         artifact.name,
         artifact.mimeType || null,
         artifact.sizeBytes ?? null,
@@ -861,11 +1108,20 @@ export class CanvasStore {
     return (this.db.prepare('SELECT * FROM canvases WHERE owner_id = ? ORDER BY updated_at DESC').all(ownerId) as SqlRow[]).map(mapCanvas);
   }
 
-  createCanvas(ownerId: string, name: string, agentId: string): CanvasRecord {
+  createCanvas(ownerId: string, name: string, agentRef: AgentProfileRef): CanvasRecord {
     const now = Date.now();
     const id = randomUUID();
-    this.db.prepare('INSERT INTO canvases(id, owner_id, name, agent_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
-      .run(id, ownerId, name, agentId, now, now);
+    this.db.prepare(`INSERT INTO canvases
+      (id, owner_id, name, backend_id, agent_profile_id, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)`).run(
+        id,
+        ownerId,
+        name,
+        agentRef.backendId,
+        agentRef.profileId,
+        now,
+        now,
+      );
     return this.getCanvas(ownerId, id)!;
   }
 
@@ -883,32 +1139,47 @@ export class CanvasStore {
     return this.getCanvas(ownerId, id);
   }
 
-  updateCanvasAgentBeforeFirstInteraction(ownerId: string, id: string, agentId: string): CanvasRecord | null {
+  updateCanvasAgentBeforeFirstInteraction(ownerId: string, id: string, agentRef: AgentProfileRef): CanvasRecord | null {
     return this.transaction(() => {
       const canvas = this.getCanvas(ownerId, id);
       if (!canvas) return null;
-      if (canvas.agentId === agentId) return canvas;
+      if (
+        canvas.agentRef.backendId === agentRef.backendId
+        && canvas.agentRef.profileId === agentRef.profileId
+      ) return canvas;
 
-      const locked = this.db.prepare(`SELECT 1
-        FROM branches b
-        LEFT JOIN interactions i ON i.branch_id = b.id
-        LEFT JOIN send_reservations r ON r.branch_id = b.id AND r.status = 'prepared'
-        WHERE b.canvas_id = ? AND (i.id IS NOT NULL OR r.id IS NOT NULL)
+      if (!canvas.agentMutable) throw new Error('agent_locked');
+      const hasAgentLockingActivity = this.db.prepare(`SELECT 1
+        FROM branches AS branch
+        WHERE branch.canvas_id = ?
+          AND (
+            EXISTS (SELECT 1 FROM send_reservations AS reservation
+              WHERE reservation.branch_id = branch.id)
+            OR EXISTS (SELECT 1 FROM interactions AS interaction
+              WHERE interaction.branch_id = branch.id)
+          )
         LIMIT 1`).get(id);
-      if (locked) throw new Error('agent_locked');
+      if (hasAgentLockingActivity) throw new Error('agent_locked');
 
       const now = Date.now();
-      this.db.prepare('UPDATE canvases SET agent_id = ?, updated_at = ? WHERE id = ? AND owner_id = ?')
-        .run(agentId, now, id, ownerId);
+      this.db.prepare(`UPDATE canvases SET backend_id = ?, agent_profile_id = ?, updated_at = ?
+        WHERE id = ? AND owner_id = ?`)
+        .run(agentRef.backendId, agentRef.profileId, now, id, ownerId);
       const draftBranches = this.db.prepare(
-        "SELECT id FROM branches WHERE canvas_id = ? AND session_state = 'draft'",
+        "SELECT id FROM branches WHERE canvas_id = ? AND conversation_state = 'draft'",
       ).all(id) as SqlRow[];
       const updateBranch = this.db.prepare(
-        "UPDATE branches SET session_key = ?, updated_at = ? WHERE id = ? AND session_state = 'draft'",
+        `UPDATE branches SET conversation_id = ?, conversation_ref_json = ?, updated_at = ?
+          WHERE id = ? AND conversation_state = 'draft'`,
       );
       for (const branch of draftBranches) {
         const branchId = asString(branch.id);
-        updateBranch.run(`agent:${agentId}:canvas:${branchId}`, now, branchId);
+        const conversationRef = getAgentBackend(agentRef.backendId).createConversationHandle({
+          profile: agentRef,
+          localConversationId: branchId,
+        });
+        const conversationId = branchId;
+        updateBranch.run(conversationId, JSON.stringify(conversationRef), now, branchId);
       }
       return this.getCanvas(ownerId, id);
     });
@@ -923,9 +1194,9 @@ export class CanvasStore {
     if (!canvas) throw new Error('not_found');
     const existing = this.db.prepare(`SELECT b.* FROM branches b JOIN canvases c ON c.id = b.canvas_id
       WHERE b.canvas_id = ? AND c.owner_id = ? AND b.kind = 'root'
-        AND b.session_state = 'draft' AND b.creation_mode = 'composer'`).get(canvasId, ownerId) as SqlRow | undefined;
+        AND b.conversation_state = 'draft' AND b.creation_mode = 'composer'`).get(canvasId, ownerId) as SqlRow | undefined;
     if (existing) return mapBranch(existing);
-    return this.insertBranch(canvasId, 'root', null, null, null, canvas.agentId);
+    return this.insertBranch(canvasId, 'root', null, null, null, canvas.agentRef);
   }
 
   private insertBranch(
@@ -934,23 +1205,28 @@ export class CanvasStore {
     parentBranchId: string | null,
     forkedFromInteractionId: string | null,
     snapshot: unknown,
-    agentId: string,
+    agentRef: AgentProfileRef,
     creationMode: BranchCreationMode = 'composer',
   ): BranchRecord {
     const id = randomUUID();
     const now = Date.now();
-    const sessionKey = `agent:${agentId}:canvas:${id}`;
+    const conversationRef = getAgentBackend(agentRef.backendId).createConversationHandle({
+      profile: agentRef,
+      localConversationId: id,
+    });
+    const conversationId = id;
     this.db.prepare(`INSERT INTO branches
-      (id, canvas_id, kind, parent_branch_id, forked_from_interaction_id, session_key,
-        session_state, creation_mode, snapshot_json, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?)`)
+      (id, canvas_id, kind, parent_branch_id, forked_from_interaction_id, conversation_id,
+        conversation_ref_json, conversation_state, creation_mode, snapshot_json, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?)`)
       .run(
         id,
         canvasId,
         kind,
         parentBranchId,
         forkedFromInteractionId,
-        sessionKey,
+        conversationId,
+        JSON.stringify(conversationRef),
         creationMode,
         snapshot == null ? null : JSON.stringify(snapshot),
         now,
@@ -970,10 +1246,10 @@ export class CanvasStore {
     return row ? mapBranch(row) : null;
   }
 
-  getOwnedBranchSessionLifecycle(ownerId: string, branchId: string): BranchSessionLifecycle | null {
+  getOwnedBranchConversationLifecycle(ownerId: string, branchId: string): BranchConversationLifecycle | null {
     const row = this.db.prepare(`SELECT
-        b.openclaw_session_started_at,
-        b.observed_session_started_at,
+        b.conversation_started_at,
+        b.observed_conversation_started_at,
         (SELECT i.created_at FROM interactions i
           WHERE i.id = b.head_interaction_id) AS last_interaction_at
       FROM branches b JOIN canvases c ON c.id = b.canvas_id
@@ -982,75 +1258,123 @@ export class CanvasStore {
     const nullableNumber = (value: unknown): number | null =>
       value === null || value === undefined ? null : asNumber(value);
     return {
-      sessionStartedAt: nullableNumber(row.openclaw_session_started_at),
-      observedSessionStartedAt: nullableNumber(row.observed_session_started_at),
+      conversationStartedAt: nullableNumber(row.conversation_started_at),
+      observedConversationStartedAt: nullableNumber(row.observed_conversation_started_at),
       lastInteractionAt: nullableNumber(row.last_interaction_at),
     };
   }
 
-  observeBranchSession(branchId: string, sessionId: string, observedAt = Date.now()): BranchRecord | null {
-    const normalized = sessionId.trim();
-    if (!normalized) return this.getBranchById(branchId);
+  getOwnedBranchBackendContext(ownerId: string, branchId: string): BranchBackendContext | null {
+    const row = this.db.prepare(`SELECT b.conversation_id, b.conversation_ref_json,
+        b.observed_conversation_ref_json, b.conversation_started_at,
+        b.observed_conversation_started_at, c.backend_id, c.agent_profile_id,
+        (SELECT i.created_at FROM interactions i WHERE i.id = b.head_interaction_id) AS last_interaction_at
+      FROM branches b JOIN canvases c ON c.id = b.canvas_id
+      WHERE b.id = ? AND c.owner_id = ?`).get(branchId, ownerId) as SqlRow | undefined;
+    if (!row) return null;
+    const nullableNumber = (value: unknown): number | null =>
+      value === null || value === undefined ? null : asNumber(value);
+    const conversationRef = parseBackendHandle(row.conversation_ref_json);
+    if (!conversationRef) return null;
+    return {
+      backendId: asString(row.backend_id),
+      agentProfileId: asString(row.agent_profile_id),
+      conversationRef,
+      observedConversationRef: parseBackendHandle(row.observed_conversation_ref_json),
+      conversationStartedAt: nullableNumber(row.conversation_started_at),
+      observedConversationStartedAt: nullableNumber(row.observed_conversation_started_at),
+      lastInteractionAt: nullableNumber(row.last_interaction_at),
+    };
+  }
+
+  observeBranchConversation(
+    branchId: string,
+    conversationRef: BackendHandle,
+    instanceId?: string,
+    observedAt = Date.now(),
+  ): BranchRecord | null {
     const branch = this.getBranchById(branchId);
     if (!branch) return null;
-    if (!branch.openClawSessionId) {
+    const normalizedInstanceId = instanceId?.trim();
+    if (!normalizedInstanceId) {
+      this.db.prepare(`UPDATE branches SET observed_conversation_ref_json = ?, updated_at = ?
+        WHERE id = ?`).run(JSON.stringify(conversationRef), observedAt, branchId);
+      return this.getBranchById(branchId);
+    }
+    if (!branch.conversationInstanceId) {
       this.db.prepare(`UPDATE branches
-        SET openclaw_session_id = ?, openclaw_session_started_at = ?,
-          observed_session_id = ?, observed_session_started_at = ?,
-          session_integrity = 'healthy', updated_at = ?
-        WHERE id = ?`).run(normalized, observedAt, normalized, observedAt, observedAt, branchId);
-    } else if (branch.openClawSessionId === normalized) {
+        SET conversation_instance_id = ?, conversation_started_at = ?,
+          observed_conversation_instance_id = ?, observed_conversation_started_at = ?,
+          conversation_ref_json = ?, observed_conversation_ref_json = ?,
+          conversation_integrity = 'healthy', updated_at = ?
+        WHERE id = ?`).run(
+          normalizedInstanceId, observedAt, normalizedInstanceId, observedAt,
+          JSON.stringify(conversationRef), JSON.stringify(conversationRef),
+          observedAt, branchId,
+        );
+    } else if (branch.conversationInstanceId === normalizedInstanceId) {
       this.db.prepare(`UPDATE branches
-        SET openclaw_session_started_at = COALESCE(openclaw_session_started_at, ?),
-          observed_session_id = ?,
-          observed_session_started_at = COALESCE(openclaw_session_started_at, ?),
-          session_integrity = 'healthy', updated_at = ?
-        WHERE id = ?`).run(observedAt, normalized, observedAt, observedAt, branchId);
+        SET conversation_started_at = COALESCE(conversation_started_at, ?),
+          observed_conversation_instance_id = ?,
+          observed_conversation_started_at = COALESCE(conversation_started_at, ?),
+          conversation_ref_json = ?, observed_conversation_ref_json = ?,
+          conversation_integrity = 'healthy', updated_at = ?
+        WHERE id = ?`).run(
+          observedAt, normalizedInstanceId, observedAt,
+          JSON.stringify(conversationRef), JSON.stringify(conversationRef),
+          observedAt, branchId,
+        );
     } else {
       this.db.prepare(`UPDATE branches
-        SET observed_session_started_at = CASE
-          WHEN observed_session_id = ? THEN observed_session_started_at
+        SET observed_conversation_started_at = CASE
+          WHEN observed_conversation_instance_id = ? THEN observed_conversation_started_at
           ELSE ? END,
-          observed_session_id = ?, session_integrity = 'drifted', updated_at = ?
-        WHERE id = ?`).run(normalized, observedAt, normalized, observedAt, branchId);
+          observed_conversation_instance_id = ?, observed_conversation_ref_json = ?,
+          conversation_integrity = 'drifted', updated_at = ?
+        WHERE id = ?`).run(
+          normalizedInstanceId, observedAt, normalizedInstanceId,
+          JSON.stringify(conversationRef), observedAt, branchId,
+        );
     }
     return this.getBranchById(branchId);
   }
 
-  markBranchSessionMissing(branchId: string): BranchRecord | null {
+  markBranchConversationMissing(branchId: string): BranchRecord | null {
     const branch = this.getBranchById(branchId);
-    if (!branch?.openClawSessionId) return branch;
+    if (!branch) return null;
     this.db.prepare(`UPDATE branches
-      SET observed_session_id = NULL, observed_session_started_at = NULL,
-        session_integrity = 'drifted', updated_at = ?
+      SET observed_conversation_instance_id = NULL, observed_conversation_started_at = NULL,
+        observed_conversation_ref_json = NULL,
+        conversation_integrity = 'drifted', updated_at = ?
       WHERE id = ?`).run(Date.now(), branchId);
     return this.getBranchById(branchId);
   }
 
-  adoptRecoveredInteractionSession(
+  adoptRecoveredInteractionConversation(
     interactionId: string,
     sessionId: string,
     observedAt = Date.now(),
   ): BranchRecord | null {
     const normalized = sessionId.trim();
     if (!normalized) return null;
-    const row = this.db.prepare(`SELECT i.branch_id, i.execution_state, i.session_metadata_json
+    const row = this.db.prepare(`SELECT i.branch_id, i.execution_state, i.execution_metadata_json
       FROM interactions i WHERE i.id = ?`).get(interactionId) as SqlRow | undefined;
     if (!row || asString(row.execution_state) !== 'completed') return null;
-    const metadata = parseJson<Record<string, unknown>>(row.session_metadata_json, {});
+    const metadata = parseJson<Record<string, unknown>>(row.execution_metadata_json, {});
     if (metadata.materialization !== 'session-recovery') return null;
     const branchId = asString(row.branch_id);
     this.db.prepare(`UPDATE branches
-      SET openclaw_session_id = ?, openclaw_session_started_at = ?,
-        observed_session_id = ?, observed_session_started_at = ?,
-        session_integrity = 'healthy', updated_at = ?
+      SET conversation_instance_id = ?, conversation_started_at = ?,
+        observed_conversation_instance_id = ?, observed_conversation_started_at = ?,
+        conversation_integrity = 'healthy', updated_at = ?
       WHERE id = ?`)
       .run(normalized, observedAt, normalized, observedAt, observedAt, branchId);
     return this.getBranchById(branchId);
   }
 
   forkInteraction(ownerId: string, interactionId: string): BranchRecord {
-    const sourceRow = this.db.prepare(`SELECT i.*, b.canvas_id, b.head_interaction_id, c.agent_id, c.owner_id
+    const sourceRow = this.db.prepare(`SELECT i.*, b.canvas_id, b.head_interaction_id,
+        c.backend_id, c.agent_profile_id, c.owner_id
       FROM interactions i JOIN branches b ON b.id = i.branch_id JOIN canvases c ON c.id = b.canvas_id
       WHERE i.id = ? AND c.owner_id = ?`).get(interactionId, ownerId) as SqlRow | undefined;
     if (!sourceRow) throw new Error('not_found');
@@ -1058,7 +1382,7 @@ export class CanvasStore {
     if (asNullableString(sourceRow.head_interaction_id) === interactionId) throw new Error('cannot_fork_branch_head');
 
     const existing = this.db.prepare(`SELECT * FROM branches
-      WHERE forked_from_interaction_id = ? AND session_state = 'draft'
+      WHERE forked_from_interaction_id = ? AND conversation_state = 'draft'
         AND creation_mode = 'composer'`)
       .get(interactionId) as SqlRow | undefined;
     if (existing) return mapBranch(existing);
@@ -1070,7 +1394,10 @@ export class CanvasStore {
       asString(sourceRow.branch_id),
       interactionId,
       snapshot,
-      asString(sourceRow.agent_id),
+      {
+        backendId: asString(sourceRow.backend_id),
+        profileId: asString(sourceRow.agent_profile_id),
+      },
     );
   }
 
@@ -1111,18 +1438,24 @@ export class CanvasStore {
 
   prepareInteractionResubmission(ownerId: string, input: {
     interactionId: string;
-    expectedAgentId: string;
+    expectedAgentRef: AgentProfileRef;
     attachments: CanvasAttachment[];
   }): SendReservation {
     return this.transaction(() => {
-      const source = this.db.prepare(`SELECT i.*, b.canvas_id, c.agent_id
+      const source = this.db.prepare(`SELECT i.*, b.canvas_id, c.backend_id, c.agent_profile_id
         FROM interactions i
         JOIN branches b ON b.id = i.branch_id
         JOIN canvases c ON c.id = b.canvas_id
         WHERE i.id = ? AND c.owner_id = ?`).get(input.interactionId, ownerId) as SqlRow | undefined;
       if (!source) throw new Error('not_found');
-      const agentId = asString(source.agent_id);
-      if (agentId !== input.expectedAgentId) throw new Error('agent_changed');
+      const agentRef = {
+        backendId: asString(source.backend_id),
+        profileId: asString(source.agent_profile_id),
+      };
+      if (
+        agentRef.backendId !== input.expectedAgentRef.backendId
+        || agentRef.profileId !== input.expectedAgentRef.profileId
+      ) throw new Error('agent_changed');
 
       const sourceAttachments = parseJson<CanvasAttachment[]>(source.attachments_json, []);
       const sourceAttachmentIds = sourceAttachments
@@ -1151,7 +1484,7 @@ export class CanvasStore {
           asString(parent.branch_id),
           parentInteractionId,
           this.buildCanonicalSnapshot(parentInteractionId),
-          agentId,
+          agentRef,
           'direct-submit',
         );
       } else {
@@ -1161,7 +1494,7 @@ export class CanvasStore {
           null,
           null,
           null,
-          agentId,
+          agentRef,
           'direct-submit',
         );
       }
@@ -1184,9 +1517,14 @@ export class CanvasStore {
   }): SendReservation {
     const branch = this.getOwnedBranch(ownerId, input.branchId);
     if (!branch) throw new Error('not_found');
+    const backendContext = this.getOwnedBranchBackendContext(ownerId, input.branchId);
+    if (!backendContext) throw new Error('not_found');
     const existing = this.db.prepare(`SELECT * FROM send_reservations
       WHERE branch_id = ? AND status = 'prepared'`).get(branch.id) as SqlRow | undefined;
     if (existing) throw new Error('send_in_progress');
+
+    this.db.prepare(`UPDATE canvases SET agent_locked_at = COALESCE(agent_locked_at, ?)
+      WHERE id = ? AND owner_id = ?`).run(Date.now(), branch.canvasId, ownerId);
 
     const decision = decideCanvasSendPlan({
       branch,
@@ -1219,9 +1557,10 @@ export class CanvasStore {
     const now = Date.now();
     this.db.prepare(`INSERT INTO send_reservations
       (id, branch_id, expected_head_interaction_id, user_input, attachments_json,
-        materialization, session_key, outgoing_message, bootstrap_resources_json,
+        materialization, conversation_id, backend_id, conversation_ref_json,
+        outgoing_message, bootstrap_resources_json,
         status, dispatch_state, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'prepared', 'reserved', ?, ?)`)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'prepared', 'reserved', ?, ?)`)
       .run(
         id,
         branch.id,
@@ -1229,7 +1568,9 @@ export class CanvasStore {
         input.userInput,
         JSON.stringify(input.attachments),
         materialization,
-        branch.sessionKey,
+        branch.conversationId,
+        backendContext.backendId,
+        JSON.stringify(backendContext.conversationRef),
         outgoingMessage,
         JSON.stringify(bootstrapResources),
         now,
@@ -1242,6 +1583,7 @@ export class CanvasStore {
     const row = this.db.prepare('SELECT * FROM send_reservations WHERE id = ?').get(id) as SqlRow | undefined;
     if (!row) return null;
     const bootstrapResources = parseJson<CanvasContextResource[]>(row.bootstrap_resources_json, []);
+    const conversationId = asString(row.conversation_id);
     return {
       id: asString(row.id),
       branchId: asString(row.branch_id),
@@ -1249,7 +1591,10 @@ export class CanvasStore {
       userInput: asString(row.user_input),
       attachments: parseJson<CanvasAttachment[]>(row.attachments_json, []),
       materialization: asString(row.materialization) as SendMaterialization,
-      sessionKey: asString(row.session_key),
+      conversationId,
+      backendId: asString(row.backend_id),
+      conversationRef: parseBackendHandle(row.conversation_ref_json) || undefined,
+      dispatchRecoveryRef: parseBackendHandle(row.dispatch_recovery_ref_json),
       outgoingMessage: asString(row.outgoing_message),
       snapshotVersion: ['canonical-replay', 'session-recovery'].includes(asString(row.materialization)) ? 2 : undefined,
       bootstrapResources,
@@ -1274,7 +1619,8 @@ export class CanvasStore {
   }
 
   getDispatchableReservation(id: string): DispatchableSendReservation | null {
-    const row = this.db.prepare(`SELECT r.id, c.owner_id, c.id AS canvas_id, c.agent_id
+    const row = this.db.prepare(`SELECT r.id, c.owner_id, c.id AS canvas_id, c.agent_profile_id,
+        c.backend_id, c.agent_profile_id
       FROM send_reservations r
       JOIN branches b ON b.id = r.branch_id
       JOIN canvases c ON c.id = b.canvas_id
@@ -1284,7 +1630,8 @@ export class CanvasStore {
       ...reservation,
       ownerId: asString(row.owner_id),
       canvasId: asString(row.canvas_id),
-      agentId: asString(row.agent_id),
+      backendId: asString(row.backend_id) || reservation.backendId,
+      agentProfileId: asString(row.agent_profile_id),
     } : null;
   }
 
@@ -1340,20 +1687,26 @@ export class CanvasStore {
   getOwnedReservationSessionTarget(
     ownerId: string,
     reservationId: string,
-  ): { branchId: string; sessionKey: string } | null {
-    const row = this.db.prepare(`SELECT r.branch_id, r.session_key
+  ): { branchId: string; conversationId: string } | null {
+    const row = this.db.prepare(`SELECT r.branch_id, r.conversation_id
       FROM send_reservations r
       JOIN branches b ON b.id = r.branch_id
       JOIN canvases c ON c.id = b.canvas_id
       WHERE r.id = ? AND c.owner_id = ?`).get(reservationId, ownerId) as SqlRow | undefined;
     return row
-      ? { branchId: asString(row.branch_id), sessionKey: asString(row.session_key) }
+      ? { branchId: asString(row.branch_id), conversationId: asString(row.conversation_id) }
       : null;
   }
 
-  acknowledgeSend(ownerId: string, reservationId: string, runId: string | null, bootstrapWarnings: string[] = []): InteractionRecord {
+  acknowledgeSend(
+    ownerId: string,
+    reservationId: string,
+    backendTurnId: string | null,
+    bootstrapWarnings: string[] = [],
+    turnRef: BackendHandle | null = null,
+  ): InteractionRecord {
     return this.transaction(() => {
-      const row = this.db.prepare(`SELECT r.*, b.canvas_id, b.kind, b.session_state, b.head_interaction_id, b.forked_from_interaction_id
+      const row = this.db.prepare(`SELECT r.*, b.canvas_id, b.kind, b.conversation_state, b.head_interaction_id, b.forked_from_interaction_id
         FROM send_reservations r JOIN branches b ON b.id = r.branch_id JOIN canvases c ON c.id = b.canvas_id
         WHERE r.id = ? AND c.owner_id = ?`).get(reservationId, ownerId) as SqlRow | undefined;
       if (!row) throw new Error('not_found');
@@ -1370,19 +1723,21 @@ export class CanvasStore {
       const id = randomUUID();
       const now = Date.now();
       this.db.prepare(`INSERT INTO interactions
-        (id, branch_id, parent_interaction_id, run_id, user_input, status, attachments_json, session_metadata_json, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, 'streaming', ?, ?, ?, ?)`)
-        .run(id, asString(row.branch_id), parentId, runId, asString(row.user_input), asString(row.attachments_json), JSON.stringify({
+        (id, branch_id, parent_interaction_id, backend_turn_id, turn_ref_json, user_input,
+          status, attachments_json, execution_metadata_json, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, 'streaming', ?, ?, ?, ?)`)
+        .run(id, asString(row.branch_id), parentId, backendTurnId, turnRef ? JSON.stringify(turnRef) : null,
+          asString(row.user_input), asString(row.attachments_json), JSON.stringify({
           materialization: row.materialization,
-          sessionKey: row.session_key,
+          conversationId: row.conversation_id,
           ...(bootstrapWarnings.length ? { bootstrapWarnings } : {}),
         }), now, now);
-      this.db.prepare(`UPDATE branches SET session_state = 'active', head_interaction_id = ?,
-        openclaw_session_id = CASE WHEN ? = 'session-recovery' THEN observed_session_id ELSE openclaw_session_id END,
-        openclaw_session_started_at = CASE WHEN ? = 'session-recovery'
-          THEN observed_session_started_at ELSE openclaw_session_started_at END,
-        session_integrity = CASE WHEN ? = 'session-recovery' AND observed_session_id IS NOT NULL THEN 'healthy'
-          WHEN ? = 'session-recovery' THEN 'unknown' ELSE session_integrity END,
+      this.db.prepare(`UPDATE branches SET conversation_state = 'active', head_interaction_id = ?,
+        conversation_instance_id = CASE WHEN ? = 'session-recovery' THEN observed_conversation_instance_id ELSE conversation_instance_id END,
+        conversation_started_at = CASE WHEN ? = 'session-recovery'
+          THEN observed_conversation_started_at ELSE conversation_started_at END,
+        conversation_integrity = CASE WHEN ? = 'session-recovery' AND observed_conversation_instance_id IS NOT NULL THEN 'healthy'
+          WHEN ? = 'session-recovery' THEN 'unknown' ELSE conversation_integrity END,
         updated_at = ? WHERE id = ?`)
         .run(
           id,
@@ -1394,8 +1749,9 @@ export class CanvasStore {
           asString(row.branch_id),
         );
       this.db.prepare(`UPDATE send_reservations SET status = 'acknowledged', dispatch_state = 'acknowledged',
-        run_id = ?, interaction_id = ?, next_attempt_at = NULL, error = NULL, updated_at = ? WHERE id = ?`)
-        .run(runId, id, now, reservationId);
+        backend_turn_id = ?, dispatch_recovery_ref_json = ?, interaction_id = ?, next_attempt_at = NULL,
+        error = NULL, updated_at = ? WHERE id = ?`)
+        .run(backendTurnId, turnRef ? JSON.stringify(turnRef) : null, id, now, reservationId);
       this.db.prepare('UPDATE canvases SET updated_at = ? WHERE id = ?').run(now, asString(row.canvas_id));
       return this.hydrateInteraction(mapInteraction(this.db.prepare('SELECT * FROM interactions WHERE id = ?').get(id) as SqlRow));
     });
@@ -1598,21 +1954,27 @@ export class CanvasStore {
   }
 
   getOwnedInteraction(ownerId: string, interactionId: string): OwnedInteractionRecord | null {
-    const row = this.db.prepare(`SELECT i.*, b.canvas_id, b.session_key, b.openclaw_session_id, b.observed_session_id, b.session_integrity, c.owner_id, c.agent_id
+    const row = this.db.prepare(`SELECT i.*, b.canvas_id, b.conversation_id, b.conversation_ref_json,
+        b.conversation_instance_id, b.observed_conversation_instance_id, b.conversation_integrity,
+        c.owner_id, c.agent_profile_id, c.backend_id, c.agent_profile_id
       FROM interactions i JOIN branches b ON b.id = i.branch_id JOIN canvases c ON c.id = b.canvas_id
       WHERE i.id = ? AND c.owner_id = ?`).get(interactionId, ownerId) as SqlRow | undefined;
     return row ? this.hydrateOwnedInteraction(mapOwnedInteraction(row)) : null;
   }
 
   getInteractionForReconciliation(interactionId: string): OwnedInteractionRecord | null {
-    const row = this.db.prepare(`SELECT i.*, b.canvas_id, b.session_key, b.openclaw_session_id, b.observed_session_id, b.session_integrity, c.owner_id, c.agent_id
+    const row = this.db.prepare(`SELECT i.*, b.canvas_id, b.conversation_id, b.conversation_ref_json,
+        b.conversation_instance_id, b.observed_conversation_instance_id, b.conversation_integrity,
+        c.owner_id, c.agent_profile_id, c.backend_id, c.agent_profile_id
       FROM interactions i JOIN branches b ON b.id = i.branch_id JOIN canvases c ON c.id = b.canvas_id
       WHERE i.id = ?`).get(interactionId) as SqlRow | undefined;
     return row ? this.hydrateOwnedInteraction(mapOwnedInteraction(row)) : null;
   }
 
   listReconciliationCandidates(limit = 500, offset = 0): OwnedInteractionRecord[] {
-    const rows = this.db.prepare(`SELECT i.*, b.canvas_id, b.session_key, b.openclaw_session_id, b.observed_session_id, b.session_integrity, c.owner_id, c.agent_id
+    const rows = this.db.prepare(`SELECT i.*, b.canvas_id, b.conversation_id, b.conversation_ref_json,
+        b.conversation_instance_id, b.observed_conversation_instance_id, b.conversation_integrity,
+        c.owner_id, c.agent_profile_id, c.backend_id, c.agent_profile_id
       FROM interactions i JOIN branches b ON b.id = i.branch_id JOIN canvases c ON c.id = b.canvas_id
       WHERE i.execution_state IN ('running', 'unconfirmed')
          OR EXISTS (
@@ -1651,13 +2013,13 @@ export class CanvasStore {
     return this.transaction(() => {
       const row = this.db.prepare('SELECT * FROM interactions WHERE id = ?').get(interactionId) as SqlRow | undefined;
       if (!row) return null;
-      const metadata = parseJson<Record<string, unknown>>(row.session_metadata_json, {});
+      const metadata = parseJson<Record<string, unknown>>(row.execution_metadata_json, {});
       const previous = metadata.reconciliation && typeof metadata.reconciliation === 'object'
         ? metadata.reconciliation as Record<string, unknown>
         : {};
       const nextMetadata = { ...metadata, reconciliation: { ...previous, ...patch } };
       const now = Date.now();
-      this.db.prepare('UPDATE interactions SET session_metadata_json = ?, updated_at = ? WHERE id = ?')
+      this.db.prepare('UPDATE interactions SET execution_metadata_json = ?, updated_at = ? WHERE id = ?')
         .run(JSON.stringify(nextMetadata), now, interactionId);
       const updated = this.db.prepare('SELECT * FROM interactions WHERE id = ?').get(interactionId) as SqlRow;
       return this.hydrateInteraction(mapInteraction(updated));
@@ -1728,7 +2090,7 @@ export class CanvasStore {
     return this.transaction(() => {
       const row = this.db.prepare('SELECT * FROM interactions WHERE id = ?').get(interactionId) as SqlRow | undefined;
       if (!row) return null;
-      const metadata = parseJson<Record<string, unknown>>(row.session_metadata_json, {});
+      const metadata = parseJson<Record<string, unknown>>(row.execution_metadata_json, {});
       const previous = metadata.reconciliation && typeof metadata.reconciliation === 'object'
         ? metadata.reconciliation as Record<string, unknown>
         : {};
@@ -1747,7 +2109,7 @@ export class CanvasStore {
         ?? artifactSyncState === 'observing';
       const now = Date.now();
       const terminalAt = input.terminalAt ?? (row.terminal_at == null ? now : asNumber(row.terminal_at));
-      const nextError = input.error ?? (input.status === 'failed' ? input.agentOutput || 'OpenClaw run failed' : null);
+      const nextError = input.error ?? (input.status === 'failed' ? input.agentOutput || 'Agent Backend turn failed' : null);
       const currentArtifacts = this.listInteractionArtifacts(interactionId);
       const normalizedArtifacts = this.normalizeInteractionArtifacts(interactionId, input.artifacts);
       const artifactsChanged = JSON.stringify(currentArtifacts) !== JSON.stringify(normalizedArtifacts);
@@ -1762,7 +2124,7 @@ export class CanvasStore {
       if (visibleChanged) {
         this.db.prepare(`UPDATE interactions
           SET status = ?, execution_state = ?, artifact_sync_state = ?, agent_output = ?,
-            terminal_at = ?, error = ?, session_metadata_json = ?, updated_at = ?
+            terminal_at = ?, error = ?, execution_metadata_json = ?, updated_at = ?
           WHERE id = ?`)
           .run(
             input.status,
@@ -1777,7 +2139,7 @@ export class CanvasStore {
           );
         if (artifactsChanged) this.replaceInteractionArtifacts(interactionId, normalizedArtifacts, now);
       } else {
-        this.db.prepare('UPDATE interactions SET session_metadata_json = ?, updated_at = ? WHERE id = ?')
+        this.db.prepare('UPDATE interactions SET execution_metadata_json = ?, updated_at = ? WHERE id = ?')
           .run(JSON.stringify(nextMetadata), now, interactionId);
       }
       if (artifactObservationPending) {
@@ -1858,60 +2220,206 @@ export class CanvasStore {
     };
   }
 
-  findInteractionByGatewayCorrelation(runId: string, sessionKey: string): OwnedInteractionRecord | null {
-    if (runId) {
-      const row = this.db.prepare(`SELECT i.*, b.canvas_id, b.session_key, b.openclaw_session_id,
-          b.observed_session_id, b.session_integrity, c.owner_id, c.agent_id
+  findInteractionByBackendCorrelation(
+    backendId: string,
+    turnRef: BackendHandle | null,
+    conversationRef: BackendHandle | null,
+  ): OwnedInteractionRecord | null {
+    if (turnRef) {
+      const row = this.db.prepare(`SELECT i.*, b.canvas_id, b.conversation_id, b.conversation_ref_json,
+          b.conversation_instance_id, b.observed_conversation_instance_id, b.conversation_integrity,
+          c.owner_id, c.agent_profile_id, c.backend_id, c.agent_profile_id
         FROM interactions i
         JOIN branches b ON b.id = i.branch_id
         JOIN canvases c ON c.id = b.canvas_id
-        WHERE i.run_id = ? AND i.execution_state IN ('running', 'unconfirmed')
-        ORDER BY i.created_at DESC LIMIT 1`).get(runId) as SqlRow | undefined;
+        WHERE c.backend_id = ? AND i.turn_ref_json = ?
+          AND i.execution_state IN ('running', 'unconfirmed')
+        ORDER BY i.created_at DESC LIMIT 1`).get(backendId, JSON.stringify(turnRef)) as SqlRow | undefined;
       if (row) return this.hydrateOwnedInteraction(mapOwnedInteraction(row));
     }
-    if (!sessionKey) return null;
-    const rows = this.db.prepare(`SELECT i.*, b.canvas_id, b.session_key, b.openclaw_session_id,
-        b.observed_session_id, b.session_integrity, c.owner_id, c.agent_id
+    if (!conversationRef) return null;
+    const rows = this.db.prepare(`SELECT i.*, b.canvas_id, b.conversation_id, b.conversation_ref_json,
+        b.conversation_instance_id, b.observed_conversation_instance_id, b.conversation_integrity,
+        c.owner_id, c.agent_profile_id, c.backend_id, c.agent_profile_id
       FROM interactions i
       JOIN branches b ON b.id = i.branch_id
       JOIN canvases c ON c.id = b.canvas_id
-      WHERE b.session_key = ? AND i.execution_state IN ('running', 'unconfirmed')
-      ORDER BY i.created_at DESC LIMIT 2`).all(sessionKey) as SqlRow[];
+      WHERE c.backend_id = ? AND b.conversation_ref_json = ?
+        AND i.execution_state IN ('running', 'unconfirmed')
+      ORDER BY i.created_at DESC LIMIT 2`).all(backendId, JSON.stringify(conversationRef)) as SqlRow[];
     return rows.length === 1 ? this.hydrateOwnedInteraction(mapOwnedInteraction(rows[0])) : null;
   }
 
-  recordGatewaySignal(input: StoredGatewaySignal): boolean {
-    const result = this.db.prepare(`INSERT OR IGNORE INTO gateway_signal_inbox
-      (event_key, run_id, session_key, event, payload_json, created_at)
-      VALUES (?, ?, ?, ?, ?, ?)`).run(
+  recordInteractionApproval(
+    interactionId: string,
+    backendId: string,
+    approvalRef: BackendHandle,
+    approval: ApprovalSummary,
+    createdAt = Date.now(),
+  ): InteractionApprovalRecord | null {
+    const id = randomUUID();
+    this.db.prepare(`INSERT OR IGNORE INTO interaction_approvals
+      (id, interaction_id, backend_id, approval_ref_json, category, title, description,
+        risk, permissions_json, choices_json, expires_at, status, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`).run(
+      id,
+      interactionId,
+      backendId,
+      JSON.stringify(approvalRef),
+      approval.category,
+      approval.title,
+      approval.description || null,
+      approval.risk,
+      JSON.stringify(approval.permissions),
+      JSON.stringify(approval.choices),
+      approval.expiresAt || null,
+      createdAt,
+      createdAt,
+    );
+    const row = this.db.prepare(`SELECT * FROM interaction_approvals
+      WHERE backend_id = ? AND approval_ref_json = ?`)
+      .get(backendId, JSON.stringify(approvalRef)) as SqlRow | undefined;
+    return row ? mapInteractionApproval(row) : null;
+  }
+
+  applyInteractionApprovalResolution(
+    backendId: string,
+    approvalRef: BackendHandle,
+    resolution: ApprovalResolution,
+    resolvedBy?: string,
+  ): InteractionApprovalRecord | null {
+    const row = this.db.prepare(`SELECT * FROM interaction_approvals
+      WHERE backend_id = ? AND approval_ref_json = ?`)
+      .get(backendId, JSON.stringify(approvalRef)) as SqlRow | undefined;
+    if (!row) return null;
+    const approval = mapInteractionApproval(row);
+    const choice = approval.choices.find((candidate) => candidate.id === resolution.choiceId);
+    const status: InteractionApprovalStatus = choice?.intent === 'deny' ? 'denied' : 'resolved';
+    const now = Date.now();
+    this.db.prepare(`UPDATE interaction_approvals SET status = ?, resolution_json = ?,
+      resolved_by = ?, resolved_at = ?, error = NULL, updated_at = ? WHERE id = ?`).run(
+      status,
+      JSON.stringify(resolution),
+      resolvedBy || null,
+      now,
+      now,
+      approval.id,
+    );
+    return mapInteractionApproval(this.db.prepare('SELECT * FROM interaction_approvals WHERE id = ?').get(approval.id) as SqlRow);
+  }
+
+  getOwnedInteractionApproval(ownerId: string, approvalId: string): InteractionApprovalRecord | null {
+    const row = this.db.prepare(`SELECT a.* FROM interaction_approvals a
+      JOIN interactions i ON i.id = a.interaction_id
+      JOIN branches b ON b.id = i.branch_id
+      JOIN canvases c ON c.id = b.canvas_id
+      WHERE a.id = ? AND c.owner_id = ?`).get(approvalId, ownerId) as SqlRow | undefined;
+    return row ? mapInteractionApproval(row) : null;
+  }
+
+  claimInteractionApproval(
+    ownerId: string,
+    approvalId: string,
+    resolution: ApprovalResolution,
+  ): InteractionApprovalRecord {
+    return this.transaction(() => {
+      const approval = this.getOwnedInteractionApproval(ownerId, approvalId);
+      if (!approval) throw new Error('not_found');
+      if (approval.status !== 'pending') throw new Error('approval_not_pending');
+      if (approval.expiresAt !== null && approval.expiresAt <= Date.now()) {
+        this.db.prepare(`UPDATE interaction_approvals SET status = 'expired', updated_at = ? WHERE id = ?`)
+          .run(Date.now(), approval.id);
+        throw new Error('approval_expired');
+      }
+      const choice = approval.choices.find((candidate) => candidate.id === resolution.choiceId);
+      if (!choice) throw new Error('approval_choice_invalid');
+      const requested = new Set(approval.permissions.map((permission) => permission.id));
+      const granted = resolution.grantedPermissionIds || (choice.intent === 'grant' ? [...requested] : []);
+      if (granted.some((permissionId) => !requested.has(permissionId))) {
+        throw new Error('approval_permissions_invalid');
+      }
+      if (choice.intent === 'deny' && granted.length > 0) throw new Error('approval_permissions_invalid');
+      const normalized = { ...resolution, ...(granted.length ? { grantedPermissionIds: granted } : {}) };
+      this.db.prepare(`UPDATE interaction_approvals SET status = 'resolving', resolution_json = ?,
+        error = NULL, updated_at = ? WHERE id = ? AND status = 'pending'`)
+        .run(JSON.stringify(normalized), Date.now(), approval.id);
+      return mapInteractionApproval(this.db.prepare('SELECT * FROM interaction_approvals WHERE id = ?').get(approval.id) as SqlRow);
+    });
+  }
+
+  finishInteractionApproval(
+    approvalId: string,
+    outcome: 'accepted' | 'rejected' | 'unknown',
+    error?: string,
+  ): InteractionApprovalRecord | null {
+    const row = this.db.prepare('SELECT * FROM interaction_approvals WHERE id = ?').get(approvalId) as SqlRow | undefined;
+    if (!row) return null;
+    const approval = mapInteractionApproval(row);
+    const choice = approval.resolution
+      ? approval.choices.find((candidate) => candidate.id === approval.resolution?.choiceId)
+      : null;
+    const status: InteractionApprovalStatus = outcome === 'accepted'
+      ? choice?.intent === 'deny' ? 'denied' : 'resolved'
+      : outcome === 'unknown' ? 'unconfirmed' : 'pending';
+    const now = Date.now();
+    this.db.prepare(`UPDATE interaction_approvals SET status = ?,
+      resolved_by = CASE WHEN ? = 'accepted' THEN 'user' ELSE resolved_by END,
+      resolved_at = CASE WHEN ? = 'accepted' THEN ? ELSE resolved_at END,
+      error = ?, updated_at = ? WHERE id = ?`).run(
+      status,
+      outcome,
+      outcome,
+      now,
+      error || null,
+      now,
+      approvalId,
+    );
+    return mapInteractionApproval(this.db.prepare('SELECT * FROM interaction_approvals WHERE id = ?').get(approvalId) as SqlRow);
+  }
+
+  recordBackendEvent(input: StoredBackendEvent): boolean {
+    const result = this.db.prepare(`INSERT OR IGNORE INTO backend_event_inbox
+      (event_key, backend_id, conversation_ref_json, turn_ref_json, event_type, payload_json, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)`).run(
       input.eventKey,
-      input.runId,
-      input.sessionKey,
-      input.event,
-      JSON.stringify(input.payload ?? null),
+      input.backendId,
+      input.conversationRef ? JSON.stringify(input.conversationRef) : null,
+      input.turnRef ? JSON.stringify(input.turnRef) : null,
+      input.event.type,
+      JSON.stringify(input.event),
       input.createdAt,
     );
     return Number(result.changes) > 0;
   }
 
-  listPendingGatewaySignals(runId: string, sessionKey: string): StoredGatewaySignal[] {
-    const rows = this.db.prepare(`SELECT * FROM gateway_signal_inbox
-      WHERE processed_at IS NULL
-        AND ((? != '' AND run_id = ?) OR (? != '' AND session_key = ?))
-      ORDER BY created_at, event_key`).all(runId, runId, sessionKey, sessionKey) as SqlRow[];
-    return rows.map((row) => ({
-      eventKey: asString(row.event_key),
-      runId: asNullableString(row.run_id),
-      sessionKey: asNullableString(row.session_key),
-      event: asString(row.event),
-      payload: parseJson(row.payload_json, null),
-      createdAt: asNumber(row.created_at),
-    }));
+  listPendingBackendEvents(
+    backendId: string,
+    turnRef: BackendHandle | null,
+    conversationRef: BackendHandle,
+  ): StoredBackendEvent[] {
+    const turnJson = turnRef ? JSON.stringify(turnRef) : '';
+    const conversationJson = JSON.stringify(conversationRef);
+    const rows = this.db.prepare(`SELECT * FROM backend_event_inbox
+      WHERE backend_id = ? AND processed_at IS NULL
+        AND ((? != '' AND turn_ref_json = ?) OR conversation_ref_json = ?)
+      ORDER BY created_at, event_key`).all(backendId, turnJson, turnJson, conversationJson) as SqlRow[];
+    return rows.flatMap((row) => {
+      const event = parseJson<BackendEvent | null>(row.payload_json, null);
+      if (!event) return [];
+      return [{
+        eventKey: asString(row.event_key),
+        backendId: asString(row.backend_id),
+        conversationRef: parseBackendHandle(row.conversation_ref_json),
+        turnRef: parseBackendHandle(row.turn_ref_json),
+        event,
+        createdAt: asNumber(row.created_at),
+      }];
+    });
   }
 
-  markGatewaySignalProcessed(eventKey: string): void {
-    this.db.prepare('UPDATE gateway_signal_inbox SET processed_at = ? WHERE event_key = ? AND processed_at IS NULL')
-      .run(Date.now(), eventKey);
+  markBackendEventProcessed(eventKey: string): void {
+    this.db.prepare(`UPDATE backend_event_inbox SET processed_at = ?
+      WHERE event_key = ? AND processed_at IS NULL`).run(Date.now(), eventKey);
   }
 
   getGraph(ownerId: string, canvasId: string): CanvasGraph | null {
@@ -1934,7 +2442,7 @@ export class CanvasStore {
       FROM send_reservations r
       JOIN branches b ON b.id = r.branch_id
       WHERE b.canvas_id = ?
-        AND b.session_state = 'draft'
+        AND b.conversation_state = 'draft'
         AND r.status = 'failed'
         AND r.rowid = (
           SELECT newer.rowid FROM send_reservations newer

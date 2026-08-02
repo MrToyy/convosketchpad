@@ -11,7 +11,7 @@ function operation(overrides: Partial<SendReservation> = {}): SendReservation {
     userInput: 'hello',
     attachments: [],
     materialization: 'lazy-root',
-    sessionKey: 'agent:main:canvas:branch-1',
+    conversationId: 'agent:main:canvas:branch-1',
     status: 'prepared',
     dispatchState: 'reserved',
     attemptCount: 0,

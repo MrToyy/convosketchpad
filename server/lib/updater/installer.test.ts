@@ -18,14 +18,14 @@ describe('updater installer', () => {
     vi.clearAllMocks();
     execFileSyncMock.mockImplementation((command: string, args: string[]) => {
       if (command === 'git' && args[0] === 'show') {
-        return Buffer.from(JSON.stringify({ name: 'convosketchpad', version: '0.2.0' }));
+        return Buffer.from(JSON.stringify({ name: 'convosketchpad', version: '0.4.0' }));
       }
       return Buffer.from('');
     });
   });
 
   it('fetches only the selected tag, validates it, and checks out the internal ref', () => {
-    gitFetchAndCheckout('/project', 'v0.2.0');
+    gitFetchAndCheckout('/project', 'v0.4.0');
 
     expect(execFileSyncMock).toHaveBeenNthCalledWith(
       1,
@@ -34,20 +34,20 @@ describe('updater installer', () => {
         'fetch',
         '--no-tags',
         'origin',
-        'refs/tags/v0.2.0:refs/convosketchpad/releases/v0.2.0',
+        'refs/tags/v0.4.0:refs/convosketchpad/releases/v0.4.0',
       ],
       expect.objectContaining({ cwd: '/project' }),
     );
     expect(execFileSyncMock).toHaveBeenNthCalledWith(
       2,
       'git',
-      ['show', 'refs/convosketchpad/releases/v0.2.0:package.json'],
+      ['show', 'refs/convosketchpad/releases/v0.4.0:package.json'],
       expect.objectContaining({ cwd: '/project' }),
     );
     expect(execFileSyncMock).toHaveBeenNthCalledWith(
       3,
       'git',
-      ['checkout', '--force', '--detach', 'refs/convosketchpad/releases/v0.2.0'],
+      ['checkout', '--force', '--detach', 'refs/convosketchpad/releases/v0.4.0'],
       expect.objectContaining({ cwd: '/project' }),
     );
   });

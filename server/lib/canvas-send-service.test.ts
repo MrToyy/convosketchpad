@@ -7,7 +7,6 @@ import {
   CanvasSendApplicationError,
   CanvasSendService,
 } from './canvas-send-service.js';
-import type { OpenClawCanvasPort } from './openclaw-canvas.js';
 
 const cleanups: Array<() => void> = [];
 
@@ -15,31 +14,13 @@ function fixture() {
   const dir = mkdtempSync(path.join(tmpdir(), 'convosketchpad-send-service-'));
   const store = new CanvasStore(path.join(dir, 'canvas.sqlite'));
   store.ensureUser('owner-a', 'Owner A');
-  const canvas = store.createCanvas('owner-a', 'Canvas', 'main');
+  const canvas = store.createCanvas('owner-a', 'Canvas', { backendId: 'openclaw', profileId: 'main' });
   const branch = store.createRootBranch('owner-a', canvas.id);
   cleanups.push(() => {
     store.close();
     rmSync(dir, { recursive: true, force: true });
   });
   return { store, canvas, branch };
-}
-
-function gateway(): OpenClawCanvasPort {
-  return {
-    listAgents: vi.fn(),
-    inspectSession: vi.fn(async () => ({ listed: true, sessionId: null })),
-    getResetPolicy: vi.fn(async () => ({
-      available: true,
-      policy: { mode: 'daily', atHour: 4, idleMinutes: null },
-    })),
-    send: vi.fn(),
-    supports: vi.fn(() => true),
-    runtimeStatus: vi.fn(() => ({
-      state: 'connected',
-      gatewayRestartSupported: true,
-      methods: ['chat.send'],
-    })),
-  };
 }
 
 afterEach(() => {
@@ -51,13 +32,12 @@ describe('CanvasSendService', () => {
     const { store, branch } = fixture();
     const service = new CanvasSendService({
       store,
-      gateway: gateway(),
       dispatch: vi.fn(async (reservationId: string) =>
         store.acknowledgeSend('owner-a', reservationId, 'run-1')),
     });
     const result = await service.submit('owner-a', {
       branchId: branch.id,
-      expectedAgentId: 'main',
+      expectedAgentRef: { backendId: 'openclaw', profileId: 'main' },
       userInput: 'hello',
       attachmentIds: [],
     });
@@ -66,7 +46,7 @@ describe('CanvasSendService', () => {
       interaction: {
         branchId: branch.id,
         userInput: 'hello',
-        runId: 'run-1',
+        backendTurnId: 'run-1',
       },
     });
     expect(store.getOwnedBranch('owner-a', branch.id)?.headInteractionId).toBe(
@@ -78,12 +58,11 @@ describe('CanvasSendService', () => {
     const { store, branch } = fixture();
     const service = new CanvasSendService({
       store,
-      gateway: gateway(),
       dispatch: vi.fn(async (reservationId: string) => store.getReservation(reservationId)!),
     });
     const result = await service.submit('owner-a', {
       branchId: branch.id,
-      expectedAgentId: 'main',
+      expectedAgentRef: { backendId: 'openclaw', profileId: 'main' },
       userInput: 'queued',
       attachmentIds: [],
     });
@@ -99,10 +78,10 @@ describe('CanvasSendService', () => {
 
   it('keeps ownership, Agent, and attachment validation in the application boundary', async () => {
     const { store, branch } = fixture();
-    const service = new CanvasSendService({ store, gateway: gateway() });
+    const service = new CanvasSendService({ store });
     await expect(service.submit('owner-a', {
       branchId: branch.id,
-      expectedAgentId: 'other',
+      expectedAgentRef: { backendId: 'openclaw', profileId: 'other' },
       userInput: 'hello',
       attachmentIds: [],
     })).rejects.toMatchObject({
@@ -111,7 +90,7 @@ describe('CanvasSendService', () => {
     });
     await expect(service.submit('owner-a', {
       branchId: branch.id,
-      expectedAgentId: 'main',
+      expectedAgentRef: { backendId: 'openclaw', profileId: 'main' },
       userInput: 'hello',
       attachmentIds: ['a'.repeat(40)],
     })).rejects.toBeInstanceOf(CanvasSendApplicationError);
@@ -128,13 +107,12 @@ describe('CanvasSendService', () => {
     const manualRoot = store.createRootBranch('owner-a', canvas.id);
     const service = new CanvasSendService({
       store,
-      gateway: gateway(),
       dispatch: vi.fn(async (reservationId: string) => store.getReservation(reservationId)!),
     });
 
     const result = await service.resubmit('owner-a', {
       interactionId: source.id,
-      expectedAgentId: 'main',
+      expectedAgentRef: { backendId: 'openclaw', profileId: 'main' },
     });
 
     expect(result).toMatchObject({
@@ -194,13 +172,12 @@ describe('CanvasSendService', () => {
     const source = store.acknowledgeSend('owner-a', secondReservation.id, 'run-2');
     const service = new CanvasSendService({
       store,
-      gateway: gateway(),
       dispatch: vi.fn(async (reservationId: string) => store.getReservation(reservationId)!),
     });
 
     const result = await service.resubmit('owner-a', {
       interactionId: source.id,
-      expectedAgentId: 'main',
+      expectedAgentRef: { backendId: 'openclaw', profileId: 'main' },
     });
     expect(result).toMatchObject({
       kind: 'operation',
@@ -244,10 +221,9 @@ describe('CanvasSendService', () => {
 
     await expect(new CanvasSendService({
       store,
-      gateway: gateway(),
     }).resubmit('owner-a', {
       interactionId: source.id,
-      expectedAgentId: 'main',
+      expectedAgentRef: { backendId: 'openclaw', profileId: 'main' },
     })).rejects.toMatchObject({
       code: 'source_attachment_unavailable',
       status: 422,

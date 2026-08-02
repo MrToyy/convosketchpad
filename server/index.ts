@@ -9,9 +9,9 @@
 
 import { serve } from '@hono/node-server';
 import app from './app.js';
-import { config, validateConfig, printStartupBanner, probeGateway } from './lib/config.js';
+import { agentBackendRegistry } from './lib/agent-backends/registry.js';
+import { config, validateConfig, printStartupBanner } from './lib/config.js';
 import { startCanvasReconciler, stopCanvasReconciler } from './lib/canvas-reconciler.js';
-import { closeGatewayRpc } from './lib/gateway-rpc.js';
 import { startCanvasSendCoordinator, stopCanvasSendCoordinator } from './lib/canvas-send-coordinator.js';
 import { getCanvasStore } from './lib/canvas-db.js';
 import { runCanvasMediaBackfillMigration } from './lib/canvas-media-derivatives.js';
@@ -65,8 +65,6 @@ const httpServer = serve(
   throw err;
 });
 
-// Non-blocking gateway health check
-probeGateway();
 startCanvasReconciler();
 startCanvasSendCoordinator();
 
@@ -77,7 +75,7 @@ function shutdown(signal: string) {
 
   stopCanvasReconciler();
   stopCanvasSendCoordinator();
-  closeGatewayRpc();
+  agentBackendRegistry.close();
 
   httpServer.close(() => {
     console.log('[convosketchpad] HTTP server closed');

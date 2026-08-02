@@ -1,10 +1,14 @@
 /* eslint-disable react-refresh/only-export-components -- provider and hook intentionally co-located */
 import { createContext, useCallback, useContext, useMemo, type ReactNode } from 'react';
-import { useRuntimeEvents } from '@/hooks/useRuntimeEvents';
+import {
+  useRuntimeEvents,
+  type BackendRuntimeStatus,
+  type OverallBackendState,
+} from '@/hooks/useRuntimeEvents';
 
 interface RuntimeContextValue {
-  connectionState: 'disconnected' | 'connecting' | 'connected' | 'reconnecting';
-  gatewayRestartSupported: boolean;
+  overallState: OverallBackendState;
+  backendStatuses: Record<string, BackendRuntimeStatus>;
   connect: () => Promise<void>;
 }
 
@@ -12,18 +16,18 @@ const RuntimeContext = createContext<RuntimeContextValue | null>(null);
 
 export function RuntimeProvider({ children }: { children: ReactNode }) {
   const {
-    connectionState,
-    gatewayRestartSupported,
+    overallState,
+    backendStatuses,
     connect: connectRuntime,
   } = useRuntimeEvents();
   const connect = useCallback(async () => {
     await connectRuntime();
   }, [connectRuntime]);
   const value = useMemo<RuntimeContextValue>(() => ({
-    connectionState,
-    gatewayRestartSupported,
+    overallState,
+    backendStatuses,
     connect,
-  }), [connect, connectionState, gatewayRestartSupported]);
+  }), [backendStatuses, connect, overallState]);
   return <RuntimeContext.Provider value={value}>{children}</RuntimeContext.Provider>;
 }
 

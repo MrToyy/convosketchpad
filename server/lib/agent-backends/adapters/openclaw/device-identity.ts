@@ -2,7 +2,7 @@
  * Device identity for remote OpenClaw Gateway WebSocket authentication.
  *
  * Remote Gateway clients use a stable Ed25519 identity and signed challenge
- * to receive `operator.read` / `operator.write` scopes. Direct-loopback
+ * to receive read, write, and approval scopes. Direct-loopback
  * `gateway-client/backend` connections use the shared Gateway token without
  * loading this identity.
  *
@@ -15,7 +15,11 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
-export const CONVOSKETCHPAD_OPERATOR_SCOPES = ['operator.read', 'operator.write'] as const;
+export const CONVOSKETCHPAD_OPERATOR_SCOPES = [
+  'operator.read',
+  'operator.write',
+  'operator.approvals',
+] as const;
 
 interface DeviceIdentity {
   deviceId: string;

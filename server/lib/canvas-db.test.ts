@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { afterEach, describe, expect, it } from 'vitest';
+import { backendHandle } from './agent-backends/contract.js';
 import { CanvasStore, type CanvasArtifact } from './canvas-db.js';
 
 const cleanups: Array<() => void> = [];
@@ -24,7 +25,26 @@ function createStore(): CanvasStore {
 
 function seedUser(store: CanvasStore, id = 'user-a') {
   store.ensureUser(id, id);
-  return store.createCanvas(id, 'Test Canvas', 'main');
+  return store.createCanvas(id, 'Test Canvas', { backendId: 'openclaw', profileId: 'main' });
+}
+
+function observeConversationInstance(
+  store: CanvasStore,
+  branchId: string,
+  instanceId: string,
+  observedAt?: number,
+) {
+  const context = store.getOwnedBranchBackendContext('user-a', branchId);
+  if (!context) throw new Error('test Backend context not found');
+  return store.observeBranchConversation(
+    branchId,
+    {
+      ...context.conversationRef,
+      opaque: { ...context.conversationRef.opaque, sessionId: instanceId },
+    },
+    instanceId,
+    observedAt,
+  );
 }
 
 function completeInteractionForTest(
@@ -209,10 +229,29 @@ describe('CanvasStore', () => {
     expect(store.getGraph('user-a', 'canvas-1')?.branches).toEqual([
       expect.objectContaining({ id: 'branch-1', creationMode: 'composer' }),
     ]);
+    expect(store.getCanvas('user-a', 'canvas-1')).toMatchObject({ agentMutable: false });
+    expect(store.db.prepare('SELECT agent_locked_at FROM canvases WHERE id = ?')
+      .get('canvas-1')).toMatchObject({ agent_locked_at: 50 });
     expect(store.getOwnedCanvasAttachments('user-a', 'canvas-1', ['attachment-1'])).toHaveLength(1);
     expect(store.getReservation('send-1')).toMatchObject({ dispatchState: 'ambiguous' });
     expect(store.db.prepare(`SELECT COUNT(*) AS count FROM schema_migrations
       WHERE id = '0.2.0_to_0.3.0_v1'`).get()).toMatchObject({ count: 1 });
+    expect(store.db.prepare(`SELECT app_version FROM schema_migrations
+      WHERE id = '0.3.2_to_0.4.0_agent_backend_v1'`).get()).toMatchObject({
+      app_version: '0.4.0',
+    });
+    const columnNames = (table: string) => (store.db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>)
+      .map((column) => column.name);
+    expect(columnNames('canvases')).not.toContain('agent_id');
+    expect(columnNames('branches')).not.toEqual(expect.arrayContaining([
+      'session_key', 'session_state', 'openclaw_session_id', 'observed_session_id',
+    ]));
+    expect(columnNames('interactions')).not.toEqual(expect.arrayContaining([
+      'run_id', 'session_metadata_json',
+    ]));
+    expect(columnNames('interaction_artifacts')).not.toContain('gateway_artifact_id');
+    expect(store.db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'gateway_signal_inbox'").get())
+      .toBeUndefined();
 
     const before = store.db.prepare(`SELECT
       (SELECT COUNT(*) FROM interaction_artifacts) AS artifacts,
@@ -285,6 +324,10 @@ describe('CanvasStore', () => {
       WHERE id = '0.2.0_to_0.3.0_v1'`).get()).toMatchObject({
       app_version: expect.any(String),
     });
+    expect(store.db.prepare(`SELECT app_version FROM schema_migrations
+      WHERE id = '0.3.2_to_0.4.0_agent_backend_v1'`).get()).toMatchObject({
+      app_version: '0.4.0',
+    });
 
     store.applyReconciledInteraction('interaction-1', {
       status: 'completed',
@@ -320,7 +363,7 @@ describe('CanvasStore', () => {
     const canvas = seedUser(store);
     const branch = store.createRootBranch('user-a', canvas.id);
 
-    expect(branch.sessionState).toBe('draft');
+    expect(branch.conversationState).toBe('draft');
     expect(branch.headInteractionId).toBeNull();
 
     const reservation = store.prepareSend('user-a', {
@@ -333,7 +376,7 @@ describe('CanvasStore', () => {
     const interaction = store.acknowledgeSend('user-a', reservation.id, 'run-1');
     expect(interaction.status).toBe('streaming');
     const graph = store.getGraph('user-a', canvas.id)!;
-    expect(graph.branches[0].sessionState).toBe('active');
+    expect(graph.branches[0].conversationState).toBe('active');
     expect(graph.branches[0].headInteractionId).toBe(interaction.id);
   });
 
@@ -472,11 +515,14 @@ describe('CanvasStore', () => {
     const canvas = seedUser(store);
     const root = store.createRootBranch('user-a', canvas.id);
 
-    const updated = store.updateCanvasAgentBeforeFirstInteraction('user-a', canvas.id, 'designer');
+    const updated = store.updateCanvasAgentBeforeFirstInteraction('user-a', canvas.id, {
+      backendId: 'openclaw',
+      profileId: 'designer',
+    });
 
-    expect(updated?.agentId).toBe('designer');
+    expect(updated?.agentRef).toEqual({ backendId: 'openclaw', profileId: 'designer' });
     expect(store.getGraph('user-a', canvas.id)?.branches).toEqual([
-      expect.objectContaining({ id: root.id, sessionKey: `agent:designer:canvas:${root.id}`, sessionState: 'draft' }),
+      expect.objectContaining({ id: root.id, conversationId: root.id, conversationState: 'draft' }),
     ]);
   });
 
@@ -486,14 +532,51 @@ describe('CanvasStore', () => {
     const preparedBranch = store.createRootBranch('user-a', preparedCanvas.id);
     store.prepareSend('user-a', { branchId: preparedBranch.id, userInput: 'hello', attachments: [] });
 
-    expect(() => store.updateCanvasAgentBeforeFirstInteraction('user-a', preparedCanvas.id, 'designer')).toThrow('agent_locked');
+    expect(() => store.updateCanvasAgentBeforeFirstInteraction('user-a', preparedCanvas.id, {
+      backendId: 'openclaw', profileId: 'designer',
+    })).toThrow('agent_locked');
 
-    const activeCanvas = store.createCanvas('user-a', 'Active Canvas', 'main');
+    store.db.prepare('UPDATE canvases SET agent_locked_at = NULL WHERE id = ?').run(preparedCanvas.id);
+    expect(() => store.updateCanvasAgentBeforeFirstInteraction('user-a', preparedCanvas.id, {
+      backendId: 'openclaw', profileId: 'designer',
+    })).toThrow('agent_locked');
+
+    const activeCanvas = store.createCanvas('user-a', 'Active Canvas', {
+      backendId: 'openclaw', profileId: 'main',
+    });
     const activeBranch = store.createRootBranch('user-a', activeCanvas.id);
     const reservation = store.prepareSend('user-a', { branchId: activeBranch.id, userInput: 'hello', attachments: [] });
     store.acknowledgeSend('user-a', reservation.id, 'run-active');
 
-    expect(() => store.updateCanvasAgentBeforeFirstInteraction('user-a', activeCanvas.id, 'designer')).toThrow('agent_locked');
+    expect(() => store.updateCanvasAgentBeforeFirstInteraction('user-a', activeCanvas.id, {
+      backendId: 'openclaw', profileId: 'designer',
+    })).toThrow('agent_locked');
+  });
+
+  it('repairs missing migrated Agent locks and removes obsolete development ledger entries', () => {
+    const { store, databasePath } = createStoreFixture();
+    const canvas = seedUser(store);
+    const branch = store.createRootBranch('user-a', canvas.id);
+    const reservation = store.prepareSend('user-a', {
+      branchId: branch.id,
+      userInput: 'hello',
+      attachments: [],
+    });
+    store.db.prepare('UPDATE canvases SET agent_locked_at = NULL WHERE id = ?').run(canvas.id);
+    const insertMigration = store.db.prepare(`INSERT INTO schema_migrations(id, applied_at, app_version)
+      VALUES (?, ?, ?)`);
+    insertMigration.run('0.2.0_to_single_chain_v1', 1, '0.2.0');
+    insertMigration.run('0.3.0_to_0.4.0_agent_backend_v1', 2, '0.4.0');
+
+    const reopened = new CanvasStore(databasePath);
+    cleanups.push(() => reopened.close());
+
+    expect(reopened.getCanvas('user-a', canvas.id)).toMatchObject({ agentMutable: false });
+    expect(reopened.db.prepare('SELECT agent_locked_at FROM canvases WHERE id = ?')
+      .get(canvas.id)).toMatchObject({ agent_locked_at: reservation.createdAt });
+    expect(reopened.db.prepare(`SELECT COUNT(*) AS count FROM schema_migrations
+      WHERE id IN ('0.2.0_to_single_chain_v1', '0.3.0_to_0.4.0_agent_backend_v1')`)
+      .get()).toMatchObject({ count: 0 });
   });
 
   it('continues the current session only when the expected head matches', () => {
@@ -518,7 +601,7 @@ describe('CanvasStore', () => {
       attachments: [],
     });
     expect(next.materialization).toBe('continue-existing');
-    expect(next.sessionKey).toBe(branch.sessionKey);
+    expect(next.conversationId).toBe(branch.conversationId);
   });
 
   it('recovers canonical branch context when OpenClaw replaces the session behind a stable key', () => {
@@ -529,8 +612,8 @@ describe('CanvasStore', () => {
     const first = store.acknowledgeSend('user-a', firstReservation.id, 'run-1');
     completeInteractionForTest(store, 'user-a', first.id, { status: 'completed', agentOutput: 'answer one', artifacts: [] });
 
-    expect(store.observeBranchSession(branch.id, 'session-1')?.sessionIntegrity).toBe('healthy');
-    expect(store.observeBranchSession(branch.id, 'session-2')?.sessionIntegrity).toBe('drifted');
+    expect(observeConversationInstance(store, branch.id, 'session-1')?.conversationIntegrity).toBe('healthy');
+    expect(observeConversationInstance(store, branch.id, 'session-2')?.conversationIntegrity).toBe('drifted');
 
     const recovery = store.prepareSend('user-a', {
       branchId: branch.id,
@@ -545,9 +628,9 @@ describe('CanvasStore', () => {
     store.acknowledgeSend('user-a', recovery.id, 'run-2');
     const recoveredBranch = store.getGraph('user-a', canvas.id)!.branches[0];
     expect(recoveredBranch).toMatchObject({
-      openClawSessionId: 'session-2',
-      observedSessionId: 'session-2',
-      sessionIntegrity: 'healthy',
+      conversationInstanceId: 'session-2',
+      observedConversationInstanceId: 'session-2',
+      conversationIntegrity: 'healthy',
     });
   });
 
@@ -567,11 +650,11 @@ describe('CanvasStore', () => {
       artifacts: [],
     });
 
-    store.observeBranchSession(branch.id, 'session-1', 1_000);
-    store.observeBranchSession(branch.id, 'session-1', 2_000);
-    expect(store.getOwnedBranchSessionLifecycle('user-a', branch.id)).toMatchObject({
-      sessionStartedAt: 1_000,
-      observedSessionStartedAt: 1_000,
+    observeConversationInstance(store, branch.id, 'session-1', 1_000);
+    observeConversationInstance(store, branch.id, 'session-1', 2_000);
+    expect(store.getOwnedBranchConversationLifecycle('user-a', branch.id)).toMatchObject({
+      conversationStartedAt: 1_000,
+      observedConversationStartedAt: 1_000,
     });
 
     const recovery = store.prepareSend('user-a', {
@@ -583,21 +666,21 @@ describe('CanvasStore', () => {
     });
     expect(recovery.materialization).toBe('session-recovery');
 
-    store.observeBranchSession(branch.id, 'session-2', 3_000);
+    observeConversationInstance(store, branch.id, 'session-2', 3_000);
     expect(store.getOwnedReservationSessionTarget('user-a', recovery.id)).toEqual({
       branchId: branch.id,
-      sessionKey: branch.sessionKey,
+      conversationId: branch.conversationId,
     });
     expect(store.getOwnedReservationSessionTarget('user-b', recovery.id)).toBeNull();
 
     store.acknowledgeSend('user-a', recovery.id, 'run-2');
-    expect(store.getOwnedBranchSessionLifecycle('user-a', branch.id)).toMatchObject({
-      sessionStartedAt: 3_000,
-      observedSessionStartedAt: 3_000,
+    expect(store.getOwnedBranchConversationLifecycle('user-a', branch.id)).toMatchObject({
+      conversationStartedAt: 3_000,
+      observedConversationStartedAt: 3_000,
     });
     expect(store.getGraph('user-a', canvas.id)!.branches[0]).toMatchObject({
-      openClawSessionId: 'session-2',
-      sessionIntegrity: 'healthy',
+      conversationInstanceId: 'session-2',
+      conversationIntegrity: 'healthy',
     });
   });
 
@@ -608,9 +691,9 @@ describe('CanvasStore', () => {
     const firstReservation = store.prepareSend('user-a', { branchId: branch.id, userInput: 'one', attachments: [] });
     const first = store.acknowledgeSend('user-a', firstReservation.id, 'run-1');
     completeInteractionForTest(store, 'user-a', first.id, { status: 'completed', agentOutput: 'answer one', artifacts: [] });
-    store.observeBranchSession(branch.id, 'session-1');
+    observeConversationInstance(store, branch.id, 'session-1');
 
-    expect(store.markBranchSessionMissing(branch.id)?.sessionIntegrity).toBe('drifted');
+    expect(store.markBranchConversationMissing(branch.id)?.conversationIntegrity).toBe('drifted');
     const recovery = store.prepareSend('user-a', {
       branchId: branch.id,
       expectedHeadInteractionId: first.id,
@@ -622,9 +705,9 @@ describe('CanvasStore', () => {
 
     store.acknowledgeSend('user-a', recovery.id, 'run-2');
     expect(store.getGraph('user-a', canvas.id)!.branches[0]).toMatchObject({
-      openClawSessionId: null,
-      observedSessionId: null,
-      sessionIntegrity: 'unknown',
+      conversationInstanceId: null,
+      observedConversationInstanceId: null,
+      conversationIntegrity: 'unknown',
     });
   });
 
@@ -770,8 +853,8 @@ describe('CanvasStore', () => {
       agentOutput: 'answer one',
       artifacts: [],
     });
-    store.observeBranchSession(branch.id, 'session-old');
-    store.markBranchSessionMissing(branch.id);
+    observeConversationInstance(store, branch.id, 'session-old');
+    store.markBranchConversationMissing(branch.id);
 
     const recovery = store.prepareSend('user-a', {
       branchId: branch.id,
@@ -780,7 +863,7 @@ describe('CanvasStore', () => {
       attachments: [],
     });
     const recovering = store.acknowledgeSend('user-a', recovery.id, 'run-2');
-    expect(store.getOwnedBranch('user-a', branch.id)?.sessionIntegrity).toBe('unknown');
+    expect(store.getOwnedBranch('user-a', branch.id)?.conversationIntegrity).toBe('unknown');
 
     store.applyReconciledInteraction(recovering.id, {
       status: 'completed',
@@ -788,14 +871,14 @@ describe('CanvasStore', () => {
       artifacts: [],
       reconciliation: { phase: 'synced', artifactSync: 'synced' },
     });
-    expect(store.adoptRecoveredInteractionSession(recovering.id, 'session-new', 5_000)).toMatchObject({
-      openClawSessionId: 'session-new',
-      observedSessionId: 'session-new',
-      sessionIntegrity: 'healthy',
+    expect(store.adoptRecoveredInteractionConversation(recovering.id, 'session-new', 5_000)).toMatchObject({
+      conversationInstanceId: 'session-new',
+      observedConversationInstanceId: 'session-new',
+      conversationIntegrity: 'healthy',
     });
-    expect(store.getOwnedBranchSessionLifecycle('user-a', branch.id)).toMatchObject({
-      sessionStartedAt: 5_000,
-      observedSessionStartedAt: 5_000,
+    expect(store.getOwnedBranchConversationLifecycle('user-a', branch.id)).toMatchObject({
+      conversationStartedAt: 5_000,
+      observedConversationStartedAt: 5_000,
     });
   });
 
@@ -814,7 +897,7 @@ describe('CanvasStore', () => {
     const reservation = store.prepareSend('user-a', { branchId: fork.id, userInput: 'alternative', attachments: [] });
     const interaction = store.acknowledgeSend('user-a', reservation.id, 'run-fork', ['source.png：读取失败']);
 
-    expect(interaction.sessionMetadata.bootstrapWarnings).toEqual(['source.png：读取失败']);
+    expect(interaction.executionMetadata.bootstrapWarnings).toEqual(['source.png：读取失败']);
   });
 
   it('deduplicates unresolved root and fork composers', () => {
@@ -839,14 +922,20 @@ describe('CanvasStore', () => {
     const canvas = seedUser(store);
     const branch = store.createRootBranch('user-a', canvas.id);
     const reservation = store.prepareSend('user-a', { branchId: branch.id, userInput: 'one', attachments: [] });
-    const current = store.acknowledgeSend('user-a', reservation.id, 'run-1');
+    const current = store.acknowledgeSend(
+      'user-a',
+      reservation.id,
+      'run-1',
+      [],
+      backendHandle('openclaw', { runId: 'run-1' }),
+    );
 
     store.updateReconciliationMetadata(current.id, { phase: 'settling', artifactSync: 'pending' });
     const updated = store.getOwnedInteraction('user-a', current.id)!;
 
-    expect(updated.sessionMetadata.materialization).toBe('lazy-root');
-    expect(updated.sessionMetadata.sessionKey).toBe(branch.sessionKey);
-    expect(updated.sessionMetadata.reconciliation).toMatchObject({ phase: 'settling', artifactSync: 'pending' });
+    expect(updated.executionMetadata.materialization).toBe('lazy-root');
+    expect(updated.executionMetadata.conversationId).toBe(branch.conversationId);
+    expect(updated.executionMetadata.reconciliation).toMatchObject({ phase: 'settling', artifactSync: 'pending' });
     expect(store.getOwnedInteraction('user-b', current.id)).toBeNull();
   });
 
@@ -859,14 +948,20 @@ describe('CanvasStore', () => {
       userInput: 'one',
       attachments: [],
     });
-    const current = store.acknowledgeSend('user-a', reservation.id, 'run-1');
+    const current = store.acknowledgeSend(
+      'user-a',
+      reservation.id,
+      'run-1',
+      [],
+      backendHandle('openclaw', { runId: 'run-1' }),
+    );
     const firstSnapshot = {
       usedTokens: 12_000,
       contextLimit: 100_000,
-      sessionKey: branch.sessionKey,
-      sessionId: 'session-1',
+      conversationInstanceId: 'session-1',
       capturedAt: 123,
-      source: 'openclaw-session' as const,
+      source: 'agent-backend' as const,
+      backendId: 'openclaw',
     };
 
     store.applyReconciledInteraction(current.id, {
@@ -890,7 +985,7 @@ describe('CanvasStore', () => {
 
     const updated = store.getOwnedInteraction('user-a', current.id)!;
     expect(updated.contextSnapshot).toEqual(firstSnapshot);
-    expect(updated.sessionMetadata.contextSnapshot).toEqual(firstSnapshot);
+    expect(updated.executionMetadata.contextSnapshot).toEqual(firstSnapshot);
   });
 
   it('finds unfinished, silently observed, and legacy interactions without reopening terminal records', () => {
@@ -1024,7 +1119,7 @@ describe('CanvasStore', () => {
     expect(store.getCanvasCursor(canvas.id)).toBe(terminalCursor);
   });
 
-  it('correlates Gateway signals by durable run identity and stores terminal signals idempotently', () => {
+  it('correlates Backend events by durable handles and stores them idempotently', () => {
     const store = createStore();
     const canvas = seedUser(store);
     const branch = store.createRootBranch('user-a', canvas.id);
@@ -1033,24 +1128,151 @@ describe('CanvasStore', () => {
       userInput: 'one',
       attachments: [],
     });
-    const current = store.acknowledgeSend('user-a', reservation.id, 'run-1');
-    expect(store.findInteractionByGatewayCorrelation('run-1', '')?.id).toBe(current.id);
-    expect(store.findInteractionByGatewayCorrelation('', branch.sessionKey)?.id).toBe(current.id);
+    const current = store.acknowledgeSend(
+      'user-a',
+      reservation.id,
+      'run-1',
+      [],
+      backendHandle('openclaw', { runId: 'run-1' }),
+    );
+    const owned = store.getOwnedInteraction('user-a', current.id)!;
+    expect(store.findInteractionByBackendCorrelation('openclaw', owned.turnRef || null, null)?.id)
+      .toBe(current.id);
+    expect(store.findInteractionByBackendCorrelation('openclaw', null, owned.conversationRef || null)?.id)
+      .toBe(current.id);
 
-    const signal = {
+    const event = {
       eventKey: 'chat:1',
-      runId: 'run-1',
-      sessionKey: branch.sessionKey,
-      event: 'chat',
-      payload: { state: 'final' },
+      backendId: 'openclaw',
+      turnRef: owned.turnRef || null,
+      conversationRef: owned.conversationRef || null,
+      event: {
+        backendId: 'openclaw',
+        eventId: 'chat:1',
+        type: 'turn.completed' as const,
+        turnRef: owned.turnRef || undefined,
+        conversationRef: owned.conversationRef || undefined,
+        createdAt: Date.now(),
+      },
       createdAt: Date.now(),
     };
-    expect(store.recordGatewaySignal(signal)).toBe(true);
-    expect(store.recordGatewaySignal(signal)).toBe(false);
-    expect(store.listPendingGatewaySignals('run-1', '')).toEqual([
-      expect.objectContaining({ eventKey: 'chat:1', payload: { state: 'final' } }),
+    expect(store.recordBackendEvent(event)).toBe(true);
+    expect(store.recordBackendEvent(event)).toBe(false);
+    expect(store.listPendingBackendEvents('openclaw', owned.turnRef || null, owned.conversationRef!)).toEqual([
+      expect.objectContaining({ eventKey: 'chat:1', event: expect.objectContaining({ type: 'turn.completed' }) }),
     ]);
-    store.markGatewaySignalProcessed('chat:1');
-    expect(store.listPendingGatewaySignals('run-1', '')).toEqual([]);
+    store.markBackendEventProcessed('chat:1');
+    expect(store.listPendingBackendEvents('openclaw', owned.turnRef || null, owned.conversationRef!)).toEqual([]);
+  });
+
+  it('persists protocol-neutral Backend bindings and durable events', () => {
+    const store = createStore();
+    const canvas = seedUser(store);
+    const branch = store.createRootBranch('user-a', canvas.id);
+    const reservation = store.prepareSend('user-a', {
+      branchId: branch.id,
+      userInput: 'one',
+      attachments: [],
+    });
+    expect(reservation).toMatchObject({
+      backendId: 'openclaw',
+      conversationRef: {
+        backendId: 'openclaw',
+        schemaVersion: 1,
+        opaque: { sessionKey: `agent:main:canvas:${branch.id}` },
+      },
+    });
+    const current = store.acknowledgeSend(
+      'user-a',
+      reservation.id,
+      'run-1',
+      [],
+      backendHandle('openclaw', { runId: 'run-1' }),
+    );
+    const owned = store.getOwnedInteraction('user-a', current.id)!;
+    expect(owned).toMatchObject({
+      backendId: 'openclaw',
+      agentProfileId: 'main',
+      turnRef: { backendId: 'openclaw', opaque: { runId: 'run-1' } },
+      conversationRef: { backendId: 'openclaw', opaque: { sessionKey: `agent:main:canvas:${branch.id}` } },
+    });
+    expect(store.findInteractionByBackendCorrelation(
+      'openclaw',
+      owned.turnRef || null,
+      owned.conversationRef || null,
+    )?.id).toBe(current.id);
+
+    const event = {
+      backendId: 'openclaw',
+      eventId: 'openclaw:chat:1',
+      type: 'turn.completed' as const,
+      conversationRef: owned.conversationRef,
+      turnRef: owned.turnRef || undefined,
+      text: 'done',
+      createdAt: Date.now(),
+    };
+    expect(store.recordBackendEvent({
+      eventKey: event.eventId,
+      backendId: event.backendId,
+      conversationRef: event.conversationRef || null,
+      turnRef: event.turnRef || null,
+      event,
+      createdAt: event.createdAt,
+    })).toBe(true);
+    expect(store.recordBackendEvent({
+      eventKey: event.eventId,
+      backendId: event.backendId,
+      conversationRef: event.conversationRef || null,
+      turnRef: event.turnRef || null,
+      event,
+      createdAt: event.createdAt,
+    })).toBe(false);
+    expect(store.listPendingBackendEvents(
+      'openclaw',
+      owned.turnRef || null,
+      owned.conversationRef!,
+    )).toEqual([expect.objectContaining({ eventKey: event.eventId, event })]);
+    store.markBackendEventProcessed(event.eventId);
+    expect(store.listPendingBackendEvents(
+      'openclaw',
+      owned.turnRef || null,
+      owned.conversationRef!,
+    )).toEqual([]);
+  });
+
+  it('persists, validates, and resolves unified Interaction approvals', () => {
+    const store = createStore();
+    const canvas = seedUser(store);
+    const branch = store.createRootBranch('user-a', canvas.id);
+    const reservation = store.prepareSend('user-a', { branchId: branch.id, userInput: 'run it', attachments: [] });
+    const interaction = store.acknowledgeSend('user-a', reservation.id, 'run-approval');
+    const approvalRef = {
+      backendId: 'openclaw', schemaVersion: 1, opaque: { approvalId: 'approval-1', approvalKind: 'exec' },
+    };
+    const approval = store.recordInteractionApproval(interaction.id, 'openclaw', approvalRef, {
+      category: 'command',
+      title: 'Execute command',
+      description: 'npm test',
+      risk: 'high',
+      permissions: [{ id: 'execute', label: 'Execute command', risk: 'high' }],
+      choices: [
+        { id: 'allow-once', intent: 'grant', scope: 'item', label: 'Allow once', requiresConfirmation: false },
+        { id: 'deny', intent: 'deny', scope: 'item', label: 'Deny', requiresConfirmation: false },
+      ],
+    });
+    expect(approval).toMatchObject({ status: 'pending', backendId: 'openclaw' });
+    expect(store.getGraph('user-a', canvas.id)?.interactions[0].approvals).toEqual([
+      expect.objectContaining({ id: approval?.id, status: 'pending', title: 'Execute command' }),
+    ]);
+    expect(() => store.claimInteractionApproval('user-a', approval!.id, {
+      choiceId: 'allow-once', grantedPermissionIds: ['unknown'],
+    })).toThrow('approval_permissions_invalid');
+    expect(store.claimInteractionApproval('user-a', approval!.id, {
+      choiceId: 'allow-once', grantedPermissionIds: ['execute'],
+    })).toMatchObject({ status: 'resolving' });
+    expect(store.finishInteractionApproval(approval!.id, 'accepted')).toMatchObject({
+      status: 'resolved',
+      resolution: { choiceId: 'allow-once', grantedPermissionIds: ['execute'] },
+    });
   });
 });

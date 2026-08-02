@@ -9,10 +9,14 @@ ConvoSketchpad 用户可以调用所选 OpenClaw Agent 已获准的工具和工�
 - 浏览器只访问同源 HTTP/SSE，不连接 OpenClaw WebSocket。
 - 浏览器不接收或保存 Gateway URL、Gateway Token、设备私钥或设备 Token。
 - CSP `connect-src` 为 `'self'`。
-- 服务端使用唯一 `gateway-client/backend/node` 连接；loopback 使用共享 Token且不发送设备身份，远程连接只申请 `operator.read`、`operator.write` 的设备权限。
+- 服务端使用唯一 `gateway-client/backend/node` 连接；loopback 使用共享 Token且不发送设备身份，远程连接只申请 `operator.read`、`operator.write`、`operator.approvals` 的设备权限。
 - Node 连接不发送浏览器 Origin；`gateway.controlUi.allowedOrigins` 不属于 ConvoSketchpad 配置。
 
-远程 Gateway 的设备凭据以 `0600` 权限保存在 `CONVOSKETCHPAD_DATA_DIR`，配对状态由 OpenClaw 管理；loopback 模式会忽略这些凭据。设备 Token 只用于远程 WebSocket，Gateway HTTP 路由只接收共享 `GATEWAY_TOKEN`。最终保存的 ConvoSketchpad 设备 Token 必须精确为 read/write。
+远程 Gateway 的设备凭据以 `0600` 权限保存在 `CONVOSKETCHPAD_DATA_DIR`，配对状态由 OpenClaw 管理；loopback 模式会忽略这些凭据。设备 Token 只用于远程 WebSocket，Gateway HTTP 路由只接收共享 `OPENCLAW_GATEWAY_TOKEN`。最终保存的 ConvoSketchpad 设备 Token 必须精确为 read/write/approvals；已有远程设备缺少 `operator.approvals` 时必须重新配对或完成 scope upgrade，不能继续使用权限不足的旧 Token。
+
+统一审批只持久化已净化的类别、摘要、风险、权限、选择、作用域和结果；原始环境、凭据与 Backend Approval Handle 不返回浏览器。所有审批写入口执行所有者检查、选择/权限子集验证、到期检查和并发 claim；持久授权必须由 UI 二次确认。Backend 返回结果未知时保持 `unconfirmed`，不得自动重复授权。
+
+OpenClaw 审批请求和结果会先由 Adapter 归一化，再进入通用持久事件 Inbox。持久化摘要不得包含命令环境、凭据或其他未经筛选的原始审批数据。本阶段没有向浏览器公开审批读取或处理 API，审批决定只能通过服务端 `resolveApproval` Port 返回 Backend。
 
 ## 受管用户
 

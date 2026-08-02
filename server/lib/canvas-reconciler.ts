@@ -1,10 +1,9 @@
 import { createHash } from 'node:crypto';
 import {
-  CANVAS_ARTIFACT_MAX_BYTES,
   cleanupOrphanCanvasArtifacts,
   materializeCanvasArtifacts,
-  persistCanvasArtifactBytes,
 } from './canvas-artifact-store.js';
+import { getAgentBackend } from './agent-backends/registry.js';
 import { mergeEquivalentArtifacts } from './canvas-artifact-identity.js';
 import {
   evaluateArtifactWatch,
@@ -16,21 +15,14 @@ import {
 } from './canvas-reconciliation-state.js';
 import {
   captureInteractionCompletionSession,
-  type InteractionCompletionSession,
+  type InteractionCompletionConversation,
 } from './canvas-context-snapshot.js';
-import { config } from './config.js';
 import {
   getCanvasStore,
   type CanvasArtifact,
   type InteractionRecord,
   type OwnedInteractionRecord,
 } from './canvas-db.js';
-import {
-  gatewayRpcCall,
-  gatewaySupports,
-  GatewayRpcError,
-  getGatewaySharedHttpAuthToken,
-} from './gateway-rpc.js';
 import { publishCanvasChanged } from './canvas-sync.js';
 
 export const CANVAS_SETTLE_MIN_MS = 4_000;
@@ -40,13 +32,12 @@ const FOREGROUND_OFFSETS_MS = [500, 1_500, 3_000, 4_000, 6_000, 9_000, 12_000, 1
 const BACKGROUND_OFFSETS_MS = [30_000, 60_000, 120_000, 5 * 60_000, 15 * 60_000, 60 * 60_000];
 const MAX_MONITOR_AGE_MS = 24 * 60 * 60 * 1_000;
 const SLOW_MONITOR_AFTER_MS = 60 * 60 * 1_000;
-const SESSION_LIST_LIMIT = 1_000;
 
-type GatewayMessage = Record<string, unknown>;
+type BackendMessage = Record<string, unknown>;
 
-export interface GatewaySessionSummary {
+export interface BackendRunSummary {
   key?: string;
-  sessionKey?: string;
+  conversationId?: string;
   id?: string;
   sessionId?: string;
   status?: string;
@@ -112,7 +103,7 @@ function toArray(value: unknown): unknown[] {
   return value == null ? [] : [value];
 }
 
-function messageTimestamp(message: GatewayMessage): number | undefined {
+function messageTimestamp(message: BackendMessage): number | undefined {
   const value = message.timestamp ?? message.createdAt ?? message.ts;
   if (typeof value === 'number') return value;
   if (typeof value === 'string') {
@@ -135,16 +126,16 @@ function textFromContent(value: unknown): string {
   }).filter(Boolean).join('\n');
 }
 
-function getMessageText(message: GatewayMessage): string {
+function getMessageText(message: BackendMessage): string {
   return textFromContent(message.content) || asString(message.text);
 }
 
-function getMessageRole(message: GatewayMessage): string {
+function getMessageRole(message: BackendMessage): string {
   return asString(message.role).toLowerCase();
 }
 
-function getMessageRunId(message: GatewayMessage): string {
-  const direct = asString(message.runId);
+function getMessageRunId(message: BackendMessage): string {
+  const direct = asString(message.backendTurnId);
   if (direct) return direct;
   const idempotencyKey = asString(message.idempotencyKey);
   return idempotencyKey.includes(':') ? idempotencyKey.split(':')[0] : '';
@@ -234,8 +225,8 @@ function collectTextLinks(text: string, add: ReturnType<typeof artifactCollector
   }
 }
 
-function pickInteractionMessages(messages: GatewayMessage[], interaction: InteractionRecord): {
-  messages: GatewayMessage[];
+function pickInteractionMessages(messages: BackendMessage[], interaction: InteractionRecord): {
+  messages: BackendMessage[];
   matchedInteraction: boolean;
 } {
   if (messages.length === 0) return { messages: [], matchedInteraction: false };
@@ -264,9 +255,9 @@ function pickInteractionMessages(messages: GatewayMessage[], interaction: Intera
     }
   }
 
-  if (userIndex < 0 && interaction.runId) {
+  if (userIndex < 0 && interaction.backendTurnId) {
     const runIndexes = messages
-      .map((message, index) => getMessageRunId(message) === interaction.runId ? index : -1)
+      .map((message, index) => getMessageRunId(message) === interaction.backendTurnId ? index : -1)
       .filter((index) => index >= 0);
     if (runIndexes.length > 0) return {
       messages: runIndexes.map((index) => messages[index]),
@@ -285,7 +276,7 @@ function pickInteractionMessages(messages: GatewayMessage[], interaction: Intera
   return { messages: messages.slice(userIndex, endIndex), matchedInteraction: true };
 }
 
-export function extractCanvasTranscript(messages: GatewayMessage[], interaction: InteractionRecord): CanvasTranscriptSnapshot {
+export function extractCanvasTranscript(messages: BackendMessage[], interaction: InteractionRecord): CanvasTranscriptSnapshot {
   const picked = pickInteractionMessages(messages, interaction);
   const relevant = picked.messages;
   const { artifacts, add } = artifactCollector();
@@ -324,7 +315,7 @@ export function canvasTranscriptHasResponse(snapshot: CanvasTranscriptSnapshot |
 }
 
 function getReconciliation(interaction: InteractionRecord): Record<string, unknown> {
-  return asRecord(interaction.sessionMetadata.reconciliation) || {};
+  return asRecord(interaction.executionMetadata.reconciliation) || {};
 }
 
 export function interactionHasPendingUpdates(interaction: InteractionRecord): boolean {
@@ -374,11 +365,7 @@ export function compareReconciledInteractions(
   };
 }
 
-function sessionKeyOf(session: GatewaySessionSummary): string {
-  return session.sessionKey || session.key || '';
-}
-
-export function sessionIsTerminal(session: GatewaySessionSummary): boolean {
+export function sessionIsTerminal(session: BackendRunSummary): boolean {
   const status = session.status?.toLowerCase();
   if (status === 'done' || status === 'completed' || status === 'error' || status === 'failed' || status === 'aborted') return true;
   return session.agentState === 'idle' && !session.busy && !session.processing;
@@ -393,21 +380,15 @@ function timestampValue(value: unknown): number | undefined {
   return undefined;
 }
 
-function sessionTerminalAt(session: GatewaySessionSummary): number | undefined {
+function sessionTerminalAt(session: BackendRunSummary): number | undefined {
   return timestampValue(session.endedAt) ?? timestampValue(session.updatedAt);
 }
 
-export function sessionReflectsInteractionRun(session: GatewaySessionSummary, interaction: InteractionRecord): boolean {
+export function sessionReflectsInteractionRun(session: BackendRunSummary, interaction: InteractionRecord): boolean {
   const terminalAt = sessionTerminalAt(session);
   if (terminalAt !== undefined && terminalAt >= interaction.createdAt + 250) return true;
   const startedAt = timestampValue(session.startedAt);
   return startedAt !== undefined && startedAt >= interaction.createdAt - 250;
-}
-
-function sessionFailure(session: GatewaySessionSummary): string | undefined {
-  const status = session.status?.toLowerCase();
-  if (status === 'error' || status === 'failed' || status === 'aborted') return session.error || `OpenClaw Session ${status}`;
-  return undefined;
 }
 
 function trackTimer(interactionId: string, delayMs: number, fn: () => void): void {
@@ -433,221 +414,53 @@ function stopMonitor(interactionId: string): void {
   monitors.delete(interactionId);
 }
 
-interface NativeArtifactSummary {
-  id: string;
-  title?: string;
-  mimeType?: string;
-  sizeBytes?: number;
-}
-
-function nativeArtifactScopeUnavailable(error: unknown): boolean {
-  if (error instanceof GatewayRpcError && error.code === 'artifact_scope_not_found') return true;
-  const message = error instanceof Error ? error.message : String(error);
-  return message.toLowerCase().includes('no session found for artifact query');
-}
-
-function gatewayHttpBase(): URL {
-  const gatewayUrl = config.gatewayUrl
-    .replace(/^ws:/, 'http:')
-    .replace(/^wss:/, 'https:')
-    .replace(/\/ws\/?$/, '');
-  return new URL(gatewayUrl.endsWith('/') ? gatewayUrl : `${gatewayUrl}/`);
-}
-
-async function boundedResponseBytes(response: Response): Promise<Uint8Array> {
-  if (!response.body) throw new Error('Artifact response has no body');
-  const declared = Number(response.headers.get('content-length') || 0);
-  if (declared > CANVAS_ARTIFACT_MAX_BYTES) throw new Error('Artifact exceeds the 25 MiB persistence limit');
-  const reader = response.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    total += value.byteLength;
-    if (total > CANVAS_ARTIFACT_MAX_BYTES) {
-      await reader.cancel();
-      throw new Error('Artifact exceeds the 25 MiB persistence limit');
-    }
-    chunks.push(value);
-  }
-  const bytes = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return bytes;
-}
-
-async function downloadGatewayArtifactUrl(urlValue: string): Promise<{
-  bytes?: Uint8Array;
-  mimeType?: string;
-  externalUrl?: string;
-}> {
-  const base = gatewayHttpBase();
-  const target = new URL(urlValue, base);
-  if (target.origin !== base.origin) return { externalUrl: target.toString() };
-  const token = getGatewaySharedHttpAuthToken();
-  const response = await fetch(target, {
-    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-    signal: AbortSignal.timeout(30_000),
-  });
-  if (!response.ok) throw new Error(`OpenClaw Artifact returned HTTP ${response.status}`);
-  return {
-    bytes: await boundedResponseBytes(response),
-    mimeType: response.headers.get('content-type') || undefined,
-  };
-}
-
 export function mergeArtifacts(artifacts: CanvasArtifact[]): CanvasArtifact[] {
   return mergeEquivalentArtifacts(artifacts);
-}
-
-async function readNativeArtifacts(interaction: OwnedInteractionRecord): Promise<{
-  artifacts: CanvasArtifact[];
-  complete: boolean;
-  warnings: string[];
-}> {
-  if (!gatewaySupports('artifacts.list') || !gatewaySupports('artifacts.download')) {
-    return {
-      artifacts: [],
-      complete: false,
-      warnings: ['OpenClaw Gateway does not advertise artifacts.list/download; Artifact sync requires a Gateway upgrade.'],
-    };
-  }
-
-  const query = interaction.runId
-    ? { runId: interaction.runId, agentId: interaction.agentId }
-    : { sessionKey: interaction.sessionKey, agentId: interaction.agentId };
-  let summaries: NativeArtifactSummary[];
-  try {
-    const listed = await gatewayRpcCall('artifacts.list', query, 30_000) as {
-      artifacts?: NativeArtifactSummary[];
-    };
-    summaries = Array.isArray(listed.artifacts)
-      ? listed.artifacts.filter((item) => typeof item?.id === 'string')
-      : [];
-  } catch (error) {
-    // Completed runs may no longer have a Gateway run→session lookup. The
-    // Interaction-scoped transcript extractor remains the safe fallback;
-    // querying the whole Session here could attach older artifacts.
-    if (interaction.runId && nativeArtifactScopeUnavailable(error)) {
-      return {
-        artifacts: [],
-        complete: true,
-        warnings: [],
-      };
-    }
-    return {
-      artifacts: [],
-      complete: false,
-      warnings: [`OpenClaw Artifact listing failed: ${error instanceof Error ? error.message : String(error)}`],
-    };
-  }
-
-  const artifacts: CanvasArtifact[] = [];
-  const warnings: string[] = [];
-  for (const summary of summaries) {
-    const name = summary.title || summary.id;
-    const sourceKey = `openclaw-artifact:${interaction.agentId}:${summary.id}`;
-    const baseArtifact: CanvasArtifact = {
-      gatewayArtifactId: summary.id,
-      name,
-      uri: sourceKey,
-      sourceUri: sourceKey,
-      ...(summary.mimeType ? { mimeType: summary.mimeType } : {}),
-      ...(typeof summary.sizeBytes === 'number' ? { sizeBytes: summary.sizeBytes } : {}),
-    };
-    try {
-      const downloaded = await gatewayRpcCall('artifacts.download', {
-        ...query,
-        artifactId: summary.id,
-      }, 30_000) as {
-        artifact?: NativeArtifactSummary;
-        encoding?: unknown;
-        data?: unknown;
-        url?: unknown;
-      };
-      const mimeType = downloaded.artifact?.mimeType || summary.mimeType;
-      if (downloaded.encoding === 'base64' && typeof downloaded.data === 'string') {
-        artifacts.push(await persistCanvasArtifactBytes(
-          interaction,
-          baseArtifact,
-          sourceKey,
-          Buffer.from(downloaded.data, 'base64'),
-          mimeType,
-        ));
-        continue;
-      }
-      if (typeof downloaded.url === 'string') {
-        const resolved = await downloadGatewayArtifactUrl(downloaded.url);
-        if (resolved.externalUrl) {
-          artifacts.push({
-            ...baseArtifact,
-            uri: resolved.externalUrl,
-            sourceUri: resolved.externalUrl,
-            storage: 'external',
-            available: true,
-          });
-        } else if (resolved.bytes) {
-          artifacts.push(await persistCanvasArtifactBytes(
-            interaction,
-            baseArtifact,
-            sourceKey,
-            resolved.bytes,
-            mimeType || resolved.mimeType,
-          ));
-        }
-        continue;
-      }
-      throw new Error('Gateway returned an unsupported Artifact download payload');
-    } catch (error) {
-      const warning = `${name}: ${error instanceof Error ? error.message : 'Artifact download failed'}`;
-      warnings.push(warning);
-      artifacts.push({
-        ...baseArtifact,
-        storage: 'source',
-        available: false,
-        warning,
-      });
-    }
-  }
-  return { artifacts, complete: warnings.length === 0, warnings };
 }
 
 export async function reconcileTranscriptSnapshot(
   interaction: OwnedInteractionRecord,
 ): Promise<CanvasTranscriptSnapshot> {
-  const response = await gatewayRpcCall('sessions.get', {
-    key: interaction.sessionKey,
-    limit: 500,
-    includeTools: true,
-  }, 15_000) as { messages?: GatewayMessage[]; id?: string; sessionId?: string };
-  const sessionId = response.sessionId || response.id;
-  if (sessionId) getCanvasStore().observeBranchSession(interaction.branchId, sessionId);
-  const extracted = extractCanvasTranscript(Array.isArray(response.messages) ? response.messages : [], interaction);
-  const native = await readNativeArtifacts(interaction);
-  const fallbackArtifacts = extracted.artifacts.filter((artifact) => !native.artifacts.some((candidate) =>
-    candidate.name === artifact.name
-    && (!candidate.mimeType || !artifact.mimeType || candidate.mimeType === artifact.mimeType)
-    && (candidate.sizeBytes === undefined || artifact.sizeBytes === undefined || candidate.sizeBytes === artifact.sizeBytes)));
-  const extractedSources = new Set(fallbackArtifacts.map((artifact) => artifact.sourceUri || artifact.uri));
+  const backend = getAgentBackend(interaction.backendId);
+  if (!interaction.conversationRef) throw new Error('Interaction has no Backend conversation reference');
+  const extracted = await backend.readTurn({
+    profile: {
+      backendId: backend.id,
+      profileId: interaction.agentProfileId,
+    },
+    conversationRef: interaction.conversationRef,
+    turnRef: interaction.turnRef || null,
+    userInput: interaction.userInput,
+    createdAt: interaction.createdAt,
+  });
+  if (extracted.instanceId) {
+    getCanvasStore().observeBranchConversation(
+      interaction.branchId,
+      interaction.conversationRef,
+      extracted.instanceId,
+    );
+  }
+  const extractedSources = new Set(extracted.artifacts.map((artifact) => artifact.sourceUri || artifact.uri));
   const retainedArtifacts = interaction.artifacts.filter((artifact) =>
-    !extractedSources.has(artifact.sourceUri || artifact.uri)
-    && !native.artifacts.some((candidate) =>
-      candidate.gatewayArtifactId && candidate.gatewayArtifactId === artifact.gatewayArtifactId));
-  const materialized = await materializeCanvasArtifacts(interaction, [...fallbackArtifacts, ...retainedArtifacts]);
-  const artifacts = mergeArtifacts([...native.artifacts, ...materialized.artifacts]);
+    !extractedSources.has(artifact.sourceUri || artifact.uri));
+  const materialized = await materializeCanvasArtifacts(
+    interaction,
+    [...extracted.artifacts as CanvasArtifact[], ...retainedArtifacts],
+  );
+  const artifacts = mergeArtifacts(materialized.artifacts);
   const warnings = [
-    ...native.warnings,
+    ...extracted.artifactWarnings,
+    ...materialized.warnings,
     ...artifacts.flatMap((artifact) => artifact.warning ? [artifact.warning] : []),
   ];
   return {
-    ...extracted,
+    agentOutput: extracted.agentOutput,
     artifacts,
-    ...(sessionId ? { sessionId } : {}),
-    artifactPersistenceComplete: native.complete && warnings.length === 0,
+    matchedInteraction: extracted.matchedTurn,
+    ...(extracted.instanceId ? { sessionId: extracted.instanceId } : {}),
+    artifactPersistenceComplete: extracted.artifactDiscoveryComplete
+      && materialized.complete
+      && warnings.length === 0,
     artifactWarnings: warnings,
     fingerprint: createHash('sha256')
       .update(JSON.stringify({ agentOutput: extracted.agentOutput, artifacts }))
@@ -658,14 +471,14 @@ export async function reconcileTranscriptSnapshot(
 async function captureSessionBeforeCompletion(
   interaction: OwnedInteractionRecord,
   snapshot: CanvasTranscriptSnapshot | null,
-): Promise<InteractionCompletionSession | undefined> {
+): Promise<InteractionCompletionConversation | undefined> {
   if (interaction.executionState !== 'running' && interaction.executionState !== 'unconfirmed') {
     return undefined;
   }
   try {
     return await captureInteractionCompletionSession(
-      interaction.sessionKey,
-      snapshot?.sessionId || interaction.observedSessionId || interaction.openClawSessionId || undefined,
+      interaction.conversationRef!,
+      snapshot?.sessionId || interaction.observedConversationInstanceId || interaction.conversationInstanceId || undefined,
     ) || undefined;
   } catch {
     return undefined;
@@ -689,7 +502,7 @@ function finish(
   if (updated) {
     const { graphChanged } = compareReconciledInteractions(interaction, updated);
     const adopted = completionSessionId
-      ? getCanvasStore().adoptRecoveredInteractionSession(
+      ? getCanvasStore().adoptRecoveredInteractionConversation(
         interaction.id,
         completionSessionId,
         reconciliationInput.contextSnapshot?.capturedAt,
@@ -739,7 +552,7 @@ async function settlementRead(interactionId: string): Promise<void> {
     else settlement.stableReads = 1;
     settlement.previousFingerprint = snapshot.fingerprint;
   } catch (error) {
-    readError = error instanceof Error ? error.message : 'Failed to read OpenClaw Transcript';
+    readError = error instanceof Error ? error.message : 'Failed to read Agent Backend transcript';
   }
 
   const now = Date.now();
@@ -794,7 +607,7 @@ async function settlementRead(interactionId: string): Promise<void> {
         ...(completionSession?.contextSnapshot
           ? { contextSnapshot: completionSession.contextSnapshot }
           : {}),
-        ...(completionSession ? { completionSessionId: completionSession.sessionId } : {}),
+        ...(completionSession ? { completionSessionId: completionSession.conversationInstanceId } : {}),
       });
       stopMonitor(interactionId);
       return;
@@ -808,7 +621,7 @@ async function settlementRead(interactionId: string): Promise<void> {
         ...(completionSession?.contextSnapshot
           ? { contextSnapshot: completionSession.contextSnapshot }
           : {}),
-        ...(completionSession ? { completionSessionId: completionSession.sessionId } : {}),
+        ...(completionSession ? { completionSessionId: completionSession.conversationInstanceId } : {}),
       });
     }
     settlement.backgroundIndex = nextBackgroundIndex(elapsed);
@@ -829,7 +642,7 @@ async function settlementRead(interactionId: string): Promise<void> {
       ...(completionSession?.contextSnapshot
         ? { contextSnapshot: completionSession.contextSnapshot }
         : {}),
-      ...(completionSession ? { completionSessionId: completionSession.sessionId } : {}),
+      ...(completionSession ? { completionSessionId: completionSession.conversationInstanceId } : {}),
     });
     responsePersisted = true;
   }
@@ -845,7 +658,7 @@ async function settlementRead(interactionId: string): Promise<void> {
         ...(completionSession?.contextSnapshot
           ? { contextSnapshot: completionSession.contextSnapshot }
           : {}),
-        ...(completionSession ? { completionSessionId: completionSession.sessionId } : {}),
+        ...(completionSession ? { completionSessionId: completionSession.conversationInstanceId } : {}),
       });
     } else if (!canvasTranscriptHasResponse(settlement.best)) {
       getCanvasStore().updateReconciliationMetadata(interactionId, {
@@ -930,7 +743,7 @@ async function backgroundRead(interactionId: string): Promise<void> {
       finish(interaction, settlement.best, {
         artifactSync: 'degraded',
         terminalAt: settlement.terminalAt,
-        reconciliationError: error instanceof Error ? error.message : 'Failed to read OpenClaw Transcript',
+        reconciliationError: error instanceof Error ? error.message : 'Failed to read Agent Backend transcript',
       });
       stopMonitor(interactionId);
       return;
@@ -939,7 +752,7 @@ async function backgroundRead(interactionId: string): Promise<void> {
       phase: 'pending',
       artifactSync: 'pending',
       lastCheckedAt: Date.now(),
-      lastError: error instanceof Error ? error.message : 'Failed to read OpenClaw Transcript',
+      lastError: error instanceof Error ? error.message : 'Failed to read Agent Backend transcript',
     });
   }
 
@@ -1004,13 +817,13 @@ async function pollInteraction(interactionId: string): Promise<void> {
     const updated = getCanvasStore().updateInteractionCoordination(interactionId, {
       executionState: 'unconfirmed',
       artifactSyncState: 'degraded',
-      error: 'OpenClaw Session status could not be confirmed within 24 hours',
+      error: 'Agent Backend turn status could not be confirmed within 24 hours',
     });
     getCanvasStore().updateReconciliationMetadata(interactionId, {
       phase: 'status_unconfirmed',
       artifactSync: 'pending',
       lastCheckedAt: Date.now(),
-      lastError: 'OpenClaw Session status could not be confirmed within 24 hours',
+      lastError: 'Agent Backend turn status could not be confirmed within 24 hours',
     });
     if (updated) {
       publishCanvasChanged(interaction.ownerId, interaction.canvasId);
@@ -1020,24 +833,28 @@ async function pollInteraction(interactionId: string): Promise<void> {
   }
 
   try {
-    const response = await gatewayRpcCall('sessions.list', {
-      activeMinutes: 7 * 24 * 60,
-      limit: SESSION_LIST_LIMIT,
-    }) as { sessions?: GatewaySessionSummary[] };
-    const sessions = Array.isArray(response.sessions) ? response.sessions : [];
-    const session = sessions.find((candidate) => sessionKeyOf(candidate) === interaction.sessionKey);
-    const sessionId = session?.sessionId || session?.id;
-    if (sessionId) getCanvasStore().observeBranchSession(interaction.branchId, sessionId);
+    const backend = getAgentBackend(interaction.backendId);
+    if (!interaction.conversationRef) throw new Error('Interaction has no Backend conversation reference');
+    const turn = await backend.inspectTurn({
+      profile: { backendId: backend.id, profileId: interaction.agentProfileId },
+      conversationRef: interaction.conversationRef,
+      turnRef: interaction.turnRef || null,
+      userInput: interaction.userInput,
+      createdAt: interaction.createdAt,
+    });
+    if (turn.instanceId) {
+      getCanvasStore().observeBranchConversation(interaction.branchId, interaction.conversationRef, turn.instanceId);
+    }
     getCanvasStore().updateReconciliationMetadata(interactionId, {
       phase: 'monitoring',
       artifactSync: 'pending',
       lastCheckedAt: Date.now(),
       lastError: null,
     });
-    if (session && sessionIsTerminal(session) && sessionReflectsInteractionRun(session, interaction)) {
-      const terminalAt = sessionTerminalAt(session) || Date.now();
+    if (turn.found && turn.terminal && turn.reflectsTurn) {
+      const terminalAt = turn.terminalAt || Date.now();
       beginSettlement(interaction, terminalAt, {
-        failure: sessionFailure(session),
+        failure: turn.failure,
         lateRecovery: Date.now() - terminalAt > CANVAS_SETTLE_MAX_MS,
       });
       return;
@@ -1057,7 +874,7 @@ async function pollInteraction(interactionId: string): Promise<void> {
       phase: 'monitoring',
       artifactSync: 'pending',
       lastCheckedAt: Date.now(),
-      lastError: error instanceof Error ? error.message : 'Gateway unavailable',
+      lastError: error instanceof Error ? error.message : 'Agent Backend unavailable',
     });
   }
 
@@ -1071,19 +888,19 @@ export function scheduleCanvasInteractionReconciliation(interactionId: string, d
 }
 
 export function signalCanvasInteractionTerminal(interactionId: string, ownerId: string, input?: {
-  runId?: string;
+  backendTurnId?: string;
   failureHint?: string;
 }): OwnedInteractionRecord | null {
   const interaction = getCanvasStore().getOwnedInteraction(ownerId, interactionId);
   if (!interaction) return null;
-  if (input?.runId && interaction.runId && input.runId !== interaction.runId) return interaction;
+  if (input?.backendTurnId && interaction.backendTurnId && input.backendTurnId !== interaction.backendTurnId) return interaction;
   if (interaction.executionState !== 'running' && interaction.executionState !== 'unconfirmed'
     && !getCanvasStore().hasArtifactSyncJob(interaction.id)) return interaction;
   const updated = getCanvasStore().updateReconciliationMetadata(interaction.id, {
     phase: 'terminal_hint_received',
     artifactSync: 'pending',
     terminalHintAt: Date.now(),
-    terminalHintRunId: input?.runId || interaction.runId || null,
+    terminalHintRunId: input?.backendTurnId || interaction.backendTurnId || null,
     failureHint: input?.failureHint || null,
     lastCheckedAt: Date.now(),
   });

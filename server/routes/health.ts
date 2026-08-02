@@ -1,25 +1,22 @@
-/**
- * GET /health — Health check endpoint.
- * Includes optional gateway connectivity probe.
- */
-
+/** Process health plus non-sensitive Agent Backend aggregate state. */
 import { Hono } from 'hono';
-import { config } from '../lib/config.js';
+import { agentBackendRegistry } from '../lib/agent-backends/registry.js';
+import { aggregateBackendStatuses } from '../lib/agent-backends/catalog.js';
 
 const app = new Hono();
 
-app.get('/health', async (c) => {
-  let gateway: 'ok' | 'unreachable' = 'unreachable';
-  try {
-    const res = await fetch(`${config.gatewayUrl}/health`, {
-      signal: AbortSignal.timeout(3000),
-    });
-    if (res.ok) gateway = 'ok';
-  } catch {
-    // gateway unreachable — not a server failure
-  }
-
-  return c.json({ status: 'ok', uptime: process.uptime(), gateway });
+app.get('/health', (c) => {
+  const aggregate = aggregateBackendStatuses(
+    agentBackendRegistry.list().map((backend) => backend.getStatus()),
+  );
+  return c.json({
+    status: 'ok',
+    uptime: process.uptime(),
+    agentBackends: {
+      overallState: aggregate.overallState,
+      backends: aggregate.backends.map(({ backendId, state }) => ({ backendId, state })),
+    },
+  });
 });
 
 export default app;

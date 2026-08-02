@@ -24,10 +24,9 @@ import { isAllowedOrigin, resolveCorsOrigin } from './lib/origin-utils.js';
 import healthRoutes from './routes/health.js';
 import authRoutes from './routes/auth.js';
 import tokensRoutes from './routes/tokens.js';
-import providerLimitsRoutes from './routes/provider-limits.js';
 import versionRoutes from './routes/version.js';
 import versionCheckRoutes from './routes/version-check.js';
-import gatewayRoutes from './routes/gateway.js';
+import backendActionRoutes from './routes/backend-actions.js';
 import uploadReferenceRoutes from './routes/upload-reference.js';
 import canvasRoutes from './routes/canvas.js';
 import runtimeRoutes from './routes/runtime.js';
@@ -70,8 +69,8 @@ app.use('*', cacheHeaders);
 // ── API routes ───────────────────────────────────────────────────────
 
 const routes = [
-  healthRoutes, authRoutes, tokensRoutes, providerLimitsRoutes,
-  versionRoutes, versionCheckRoutes, gatewayRoutes,
+  healthRoutes, authRoutes, tokensRoutes,
+  versionRoutes, versionCheckRoutes, backendActionRoutes,
   uploadReferenceRoutes, canvasRoutes, runtimeRoutes,
 ];
 for (const route of routes) app.route('/', route);

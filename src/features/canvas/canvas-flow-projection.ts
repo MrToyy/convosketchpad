@@ -37,6 +37,7 @@ interface CanvasFlowProjectionInput {
   };
   onAdd(interaction: CanvasInteraction): void;
   onResubmit(interaction: CanvasInteraction): void;
+  onApprovalChanged(): void;
   onTextChange(branchId: string, value: string): void;
   onFiles(branchId: string, files: File[]): void;
   onRemoveFile(branchId: string, index: number): void;
@@ -64,7 +65,7 @@ export function projectCanvasFlow(input: CanvasFlowProjectionInput): {
   const headIds = new Set(graph.branches.flatMap((branch) =>
     branch.headInteractionId ? [branch.headInteractionId] : []));
   const draftForkSources = new Set(graph.branches.flatMap((branch) =>
-    branch.kind === 'fork' && branch.sessionState === 'draft' && branch.forkedFromInteractionId
+    branch.kind === 'fork' && branch.conversationState === 'draft' && branch.forkedFromInteractionId
       && branch.creationMode === 'composer'
       ? [branch.forkedFromInteractionId]
       : []));
@@ -110,6 +111,7 @@ export function projectCanvasFlow(input: CanvasFlowProjectionInput): {
         resizeEnabled: input.resizeEnabled,
         onAdd: input.onAdd,
         onResubmit: input.onResubmit,
+        onApprovalChanged: input.onApprovalChanged,
       },
     };
   });
@@ -126,9 +128,9 @@ export function projectCanvasFlow(input: CanvasFlowProjectionInput): {
   const composerNodes: CanvasFlowNode[] = [];
 
   for (const branch of graph.branches) {
-    const isInitialDraft = branch.sessionState === 'draft';
+    const isInitialDraft = branch.conversationState === 'draft';
     const head = branch.headInteractionId ? interactionById.get(branch.headInteractionId) : undefined;
-    const isContinue = branch.sessionState === 'active' && head?.executionState === 'completed';
+    const isContinue = branch.conversationState === 'active' && head?.executionState === 'completed';
     if (!isInitialDraft && !isContinue) continue;
     const source = isInitialDraft ? branch.forkedFromInteractionId : branch.headInteractionId;
     const nodeId = composerNodeId(branch.id, source);
@@ -176,9 +178,9 @@ export function projectCanvasFlow(input: CanvasFlowProjectionInput): {
         draft: pendingOperation
           ? { ...projectedDraft, sending: true }
           : projectedDraft,
-        label: branch.kind === 'fork' && branch.sessionState === 'draft'
+        label: branch.kind === 'fork' && branch.conversationState === 'draft'
           ? labels.createBranch
-          : branch.sessionState === 'draft'
+          : branch.conversationState === 'draft'
             ? labels.newSession
             : labels.continueBranch,
         resizeEnabled: input.resizeEnabled,

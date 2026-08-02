@@ -7,7 +7,7 @@ import {
 import {
   gatewayConnectionMode,
   gatewayRequiresDevicePairing,
-} from '../../server/lib/gateway-client-identity.js';
+} from '../../server/lib/agent-backends/adapters/openclaw/gateway-client-identity.js';
 
 describe('Gateway timezone setup helpers', () => {
   it.each([
@@ -39,8 +39,8 @@ describe('Gateway timezone setup helpers', () => {
 
   it('writes the configured Gateway timezone to .env', () => {
     expect(generateEnvContent({
-      GATEWAY_TOKEN: 'secret',
-      CONVOSKETCHPAD_GATEWAY_TIMEZONE: 'Asia/Shanghai',
-    })).toContain('CONVOSKETCHPAD_GATEWAY_TIMEZONE=Asia/Shanghai');
+      OPENCLAW_GATEWAY_TOKEN: 'secret',
+      OPENCLAW_GATEWAY_TIMEZONE: 'Asia/Shanghai',
+    })).toContain('OPENCLAW_GATEWAY_TIMEZONE=Asia/Shanghai');
   });
 });

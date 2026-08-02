@@ -3,7 +3,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 const canvasId = 'b75708e4-a6a8-4768-98db-8fcbe84afc20';
 const persistCanvasAttachment = vi.fn();
 
-async function buildApp(canvas: { id: string; agentId: string } | null = { id: canvasId, agentId: 'main' }) {
+async function buildApp(canvas: { id: string; agentRef: { backendId: string; profileId: string } } | null = {
+  id: canvasId,
+  agentRef: { backendId: 'openclaw', profileId: 'main' },
+}) {
   vi.resetModules();
   persistCanvasAttachment.mockImplementation(async (_ownerId, currentCanvasId, input) => ({
     id: 'a'.repeat(40),

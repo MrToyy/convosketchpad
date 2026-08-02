@@ -4,25 +4,21 @@ import type {
   InteractionRecord,
   SendReservation,
 } from './canvas-db.js';
+import type { AgentBackend, AgentProfileRef } from './agent-backends/contract.js';
+import { getAgentBackend } from './agent-backends/registry.js';
 import { dispatchCanvasSend } from './canvas-send-coordinator.js';
-import { config } from './config.js';
-import {
-  openClawCanvas,
-  type OpenClawCanvasPort,
-} from './openclaw-canvas.js';
-import { sessionWillResetBeforeSend } from './openclaw-session-policy.js';
 
 export interface SubmitCanvasSendCommand {
   branchId: string;
   expectedHeadInteractionId?: string | null;
-  expectedAgentId: string;
+  expectedAgentRef: AgentProfileRef;
   userInput: string;
   attachmentIds: string[];
 }
 
 export interface ResubmitCanvasInteractionCommand {
   interactionId: string;
-  expectedAgentId: string;
+  expectedAgentRef: AgentProfileRef;
 }
 
 export type SubmitCanvasSendResult =
@@ -51,22 +47,22 @@ export class CanvasSendApplicationError extends Error {
 
 interface CanvasSendServiceDependencies {
   store: CanvasStore;
-  gateway?: OpenClawCanvasPort;
+  backend?: AgentBackend;
+  backendResolver?: typeof getAgentBackend;
   dispatch?: typeof dispatchCanvasSend;
-  gatewayTimezone?: string;
 }
 
 export class CanvasSendService {
   private readonly store: CanvasStore;
-  private readonly gateway: OpenClawCanvasPort;
+  private readonly backend?: AgentBackend;
+  private readonly backendResolver: typeof getAgentBackend;
   private readonly dispatch: typeof dispatchCanvasSend;
-  private readonly gatewayTimezone: string;
 
   constructor(dependencies: CanvasSendServiceDependencies) {
     this.store = dependencies.store;
-    this.gateway = dependencies.gateway || openClawCanvas;
+    this.backend = dependencies.backend;
+    this.backendResolver = dependencies.backendResolver || getAgentBackend;
     this.dispatch = dependencies.dispatch || dispatchCanvasSend;
-    this.gatewayTimezone = dependencies.gatewayTimezone || config.gatewayTimezone;
   }
 
   private resolveAttachments(
@@ -85,18 +81,28 @@ export class CanvasSendService {
     return attachments;
   }
 
-  private async refreshSessionIdentity(
+  private async refreshConversationIdentity(
+    ownerId: string,
     branchId: string,
-    sessionKey: string,
   ): Promise<void> {
     try {
-      const inspection = await this.gateway.inspectSession(sessionKey);
-      if (!inspection.listed) return;
-      if (inspection.sessionId) this.store.observeBranchSession(branchId, inspection.sessionId);
-      else this.store.markBranchSessionMissing(branchId);
+      const context = this.store.getOwnedBranchBackendContext(ownerId, branchId);
+      if (!context) return;
+      const backend = this.backend || this.backendResolver(context.backendId);
+      const inspection = await backend.inspectConversation(context.conversationRef);
+      if (!inspection) return;
+      if (inspection.exists) {
+        this.store.observeBranchConversation(
+          branchId,
+          inspection.conversationRef,
+          inspection.instanceId,
+        );
+      } else {
+        this.store.markBranchConversationMissing(branchId);
+      }
     } catch (error) {
       console.warn(
-        '[canvas] Session identity preflight skipped:',
+        '[canvas] Conversation identity preflight skipped:',
         error instanceof Error ? error.message : error,
       );
     }
@@ -107,21 +113,15 @@ export class CanvasSendService {
     branchId: string,
   ): Promise<boolean> {
     const branch = this.store.getOwnedBranch(ownerId, branchId);
-    if (!branch || branch.sessionState !== 'active') return false;
-    if (branch.sessionIntegrity === 'drifted') return false;
-    const lifecycle = this.store.getOwnedBranchSessionLifecycle(ownerId, branchId);
-    const resetPolicy = await this.gateway.getResetPolicy();
-    return (
-      !resetPolicy.available
-      || !resetPolicy.policy
-      || !lifecycle
-      || sessionWillResetBeforeSend({
-        policy: resetPolicy.policy,
-        sessionStartedAt: lifecycle.sessionStartedAt,
-        lastInteractionAt: lifecycle.lastInteractionAt,
-        timeZone: this.gatewayTimezone,
-      })
-    );
+    if (!branch || branch.conversationState !== 'active') return false;
+    if (branch.conversationIntegrity === 'drifted') return false;
+    const context = this.store.getOwnedBranchBackendContext(ownerId, branchId);
+    if (!context) return true;
+    const backend = this.backend || this.backendResolver(context.backendId);
+    return backend.conversationWillExpireBeforeNextTurn(context.conversationRef, {
+      conversationStartedAt: context.conversationStartedAt,
+      lastInteractionAt: context.lastInteractionAt,
+    });
   }
 
   async submit(
@@ -132,15 +132,18 @@ export class CanvasSendService {
     if (!branch) throw new CanvasSendApplicationError('not_found', 404, 'Not found');
     const canvas = this.store.getCanvas(ownerId, branch.canvasId);
     if (!canvas) throw new CanvasSendApplicationError('not_found', 404, 'Not found');
-    if (canvas.agentId !== command.expectedAgentId) {
+    if (
+      canvas.agentRef.backendId !== command.expectedAgentRef.backendId
+      || canvas.agentRef.profileId !== command.expectedAgentRef.profileId
+    ) {
       throw new CanvasSendApplicationError('agent_changed', 409);
     }
     const attachments = this.resolveAttachments(ownerId, canvas.id, command.attachmentIds);
 
-    if (branch.sessionState === 'active') {
-      await this.refreshSessionIdentity(branch.id, branch.sessionKey);
+    if (branch.conversationState === 'active') {
+      await this.refreshConversationIdentity(ownerId, branch.id);
     }
-    const forceSessionRecovery = branch.sessionState === 'active'
+    const forceSessionRecovery = branch.conversationState === 'active'
       ? await this.shouldForceSessionRecovery(ownerId, branch.id)
       : false;
     const reservation = this.store.prepareSend(ownerId, {
@@ -159,7 +162,10 @@ export class CanvasSendService {
   ): Promise<SubmitCanvasSendResult> {
     const source = this.store.getOwnedInteraction(ownerId, command.interactionId);
     if (!source) throw new CanvasSendApplicationError('not_found', 404, 'Not found');
-    if (source.agentId !== command.expectedAgentId) {
+    if (
+      source.backendId !== command.expectedAgentRef.backendId
+      || source.agentProfileId !== command.expectedAgentRef.profileId
+    ) {
       throw new CanvasSendApplicationError('agent_changed', 409);
     }
     const attachmentIds = source.attachments.map((attachment) => attachment.id);
@@ -191,7 +197,7 @@ export class CanvasSendService {
     try {
       reservation = this.store.prepareInteractionResubmission(ownerId, {
         interactionId: source.id,
-        expectedAgentId: command.expectedAgentId,
+        expectedAgentRef: command.expectedAgentRef,
         attachments,
       });
     } catch (error) {

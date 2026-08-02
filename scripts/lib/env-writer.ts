@@ -6,9 +6,10 @@ import { readFileSync, writeFileSync, renameSync, copyFileSync, existsSync, unli
 
 /** All supported env config keys. */
 export interface EnvConfig {
-  GATEWAY_URL?: string;
-  GATEWAY_TOKEN?: string;
-  CONVOSKETCHPAD_GATEWAY_TIMEZONE?: string;
+  AGENT_BACKENDS?: string;
+  OPENCLAW_GATEWAY_URL?: string;
+  OPENCLAW_GATEWAY_TOKEN?: string;
+  OPENCLAW_GATEWAY_TIMEZONE?: string;
   OPENCLAW_CONFIG_PATH?: string;
   OPENCLAW_BIN?: string;
   PORT?: string;
@@ -28,7 +29,7 @@ export interface EnvConfig {
 
 /** Default values (matching server/lib/config.ts). */
 export const DEFAULTS: Record<string, string> = {
-  GATEWAY_URL: 'http://127.0.0.1:18789',
+  OPENCLAW_GATEWAY_URL: 'http://127.0.0.1:18789',
   PORT: '3080',
   HOST: '127.0.0.1',
 };
@@ -36,7 +37,7 @@ export const DEFAULTS: Record<string, string> = {
 /**
  * Generate a clean .env file.
  * Only writes values that differ from defaults (keeps .env minimal).
- * Always writes GATEWAY_TOKEN since it has no default.
+ * Always writes OPENCLAW_GATEWAY_TOKEN since it has no default.
  */
 export function generateEnvContent(config: EnvConfig): string {
   const lines: string[] = [
@@ -47,13 +48,15 @@ export function generateEnvContent(config: EnvConfig): string {
   ];
 
   // Gateway (always written — most important)
+  lines.push(`AGENT_BACKENDS=${config.AGENT_BACKENDS || 'openclaw'}`);
+  lines.push('');
   lines.push('# OpenClaw Gateway');
-  if (config.GATEWAY_URL && config.GATEWAY_URL !== DEFAULTS.GATEWAY_URL) {
-    lines.push(`GATEWAY_URL=${config.GATEWAY_URL}`);
+  if (config.OPENCLAW_GATEWAY_URL && config.OPENCLAW_GATEWAY_URL !== DEFAULTS.OPENCLAW_GATEWAY_URL) {
+    lines.push(`OPENCLAW_GATEWAY_URL=${config.OPENCLAW_GATEWAY_URL}`);
   }
-  lines.push(`GATEWAY_TOKEN=${config.GATEWAY_TOKEN || ''}`);
-  if (config.CONVOSKETCHPAD_GATEWAY_TIMEZONE) {
-    lines.push(`CONVOSKETCHPAD_GATEWAY_TIMEZONE=${config.CONVOSKETCHPAD_GATEWAY_TIMEZONE}`);
+  lines.push(`OPENCLAW_GATEWAY_TOKEN=${config.OPENCLAW_GATEWAY_TOKEN || ''}`);
+  if (config.OPENCLAW_GATEWAY_TIMEZONE) {
+    lines.push(`OPENCLAW_GATEWAY_TIMEZONE=${config.OPENCLAW_GATEWAY_TIMEZONE}`);
   }
   if (config.OPENCLAW_CONFIG_PATH) lines.push(`OPENCLAW_CONFIG_PATH=${config.OPENCLAW_CONFIG_PATH}`);
   if (config.OPENCLAW_BIN) lines.push(`OPENCLAW_BIN=${config.OPENCLAW_BIN}`);
@@ -136,6 +139,21 @@ export function loadExistingEnv(envPath: string): EnvConfig {
       if (value) config[key] = value;
     }
   }
+  const legacyMappings = [
+    ['GATEWAY_URL', 'OPENCLAW_GATEWAY_URL'],
+    ['GATEWAY_TOKEN', 'OPENCLAW_GATEWAY_TOKEN'],
+    ['CONVOSKETCHPAD_GATEWAY_TIMEZONE', 'OPENCLAW_GATEWAY_TIMEZONE'],
+  ] as const;
+  for (const [legacyKey, currentKey] of legacyMappings) {
+    const legacy = config[legacyKey];
+    const current = config[currentKey];
+    if (legacy && current && legacy !== current) {
+      throw new Error(`Conflicting ${legacyKey} and ${currentKey} values`);
+    }
+    if (legacy && !current) config[currentKey] = legacy;
+    delete config[legacyKey];
+  }
+  config.AGENT_BACKENDS ||= 'openclaw';
   return config as EnvConfig;
 }
 

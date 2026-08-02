@@ -66,6 +66,8 @@ import type {
   CanvasInteraction,
   CanvasSummary,
   CanvasSyncBatch,
+  AgentCatalogEntry,
+  AgentRef,
 } from './types';
 
 function nextCanvasName(canvases: CanvasSummary[], copy: CanvasCopy): string {
@@ -75,24 +77,18 @@ function nextCanvasName(canvases: CanvasSummary[], copy: CanvasCopy): string {
   return copy.defaultCanvasName(index);
 }
 
-interface GatewayAgentOption {
-  id: string;
-  name?: string;
-  identity?: { name?: string; emoji?: string };
-}
-
 function branchHasComposer(graph: CanvasGraph, branchId: string): boolean {
   const branch = graph.branches.find((candidate) => candidate.id === branchId);
   if (!branch) return false;
-  if (branch.sessionState === 'draft') return true;
+  if (branch.conversationState === 'draft') return true;
   const head = branch.headInteractionId
     ? graph.interactions.find((interaction) => interaction.id === branch.headInteractionId)
     : undefined;
-  return branch.sessionState === 'active' && head?.executionState === 'completed';
+  return branch.conversationState === 'active' && head?.executionState === 'completed';
 }
 
 export function CanvasPanel({ onStatusStatsChange }: { onStatusStatsChange?: (stats: CanvasStatusStats) => void }) {
-  const { connectionState } = useRuntime();
+  const { backendStatuses } = useRuntime();
   const { language } = useSettings();
   const copy = getCanvasCopy(language);
   const localizeError = useCallback((cause: unknown, fallback: string) => canvasErrorMessage(cause, fallback, language), [language]);
@@ -117,7 +113,7 @@ export function CanvasPanel({ onStatusStatsChange }: { onStatusStatsChange?: (st
   const [canvasListVisible, setCanvasListVisible] = useState(true);
   const [editingCanvasId, setEditingCanvasId] = useState<string | null>(null);
   const [editingCanvasName, setEditingCanvasName] = useState('');
-  const [agents, setAgents] = useState<GatewayAgentOption[]>([]);
+  const [agents, setAgents] = useState<AgentCatalogEntry[]>([]);
   const [agentCatalogError, setAgentCatalogError] = useState(false);
   const [agentCatalogLoading, setAgentCatalogLoading] = useState(false);
   const [agentChanging, setAgentChanging] = useState(false);
@@ -178,8 +174,8 @@ export function CanvasPanel({ onStatusStatsChange }: { onStatusStatsChange?: (st
     setError(localizeError(cause, copy.loadCanvasFailed));
   }, [copy.loadCanvasFailed, localizeError]);
   const handleGraphRefreshError = useCallback((cause: unknown) => {
-    setError(localizeError(cause, copy.refreshOpenClawFailed));
-  }, [copy.refreshOpenClawFailed, localizeError]);
+    setError(localizeError(cause, copy.refreshBackendFailed));
+  }, [copy.refreshBackendFailed, localizeError]);
   const {
     graph,
     setGraph,
@@ -202,19 +198,22 @@ export function CanvasPanel({ onStatusStatsChange }: { onStatusStatsChange?: (st
 
   useEffect(() => { void loadCanvases().catch((cause) => setError(localizeError(cause, copy.loadCanvasListFailed))); }, [copy.loadCanvasListFailed, loadCanvases, localizeError]);
   const loadAgents = useCallback(async () => {
-    if (connectionState !== 'connected') return;
     setAgentCatalogLoading(true);
     setAgentCatalogError(false);
     try {
       const result = await canvasApi.agents();
-      setAgents(Array.isArray(result.agents) ? result.agents.filter((agent) => typeof agent.id === 'string' && agent.id) : []);
+      setAgents(Array.isArray(result.agents) ? result.agents : []);
     } catch {
       setAgentCatalogError(true);
     } finally {
       setAgentCatalogLoading(false);
     }
-  }, [connectionState]);
-  useEffect(() => { void loadAgents(); }, [loadAgents]);
+  }, []);
+  const backendCatalogRevision = Object.values(backendStatuses)
+    .map((status) => `${status.backendId}:${status.state}:${status.version || ''}`)
+    .sort()
+    .join('|');
+  useEffect(() => { void loadAgents(); }, [backendCatalogRevision, loadAgents]);
 
   const focusComposer = useCallback((branchId: string, sourceInteractionId: string | null) => {
     setFocusedComposer({ branchId, sourceInteractionId });
@@ -271,7 +270,7 @@ export function CanvasPanel({ onStatusStatsChange }: { onStatusStatsChange?: (st
         && draft.persistedAttachments.length === 0
       )
     ) return;
-    const composerSource = branch.sessionState === 'draft'
+    const composerSource = branch.conversationState === 'draft'
       ? branch.forkedFromInteractionId
       : branch.headInteractionId;
     const composerId = composerNodeId(branch.id, composerSource);
@@ -280,17 +279,17 @@ export function CanvasPanel({ onStatusStatsChange }: { onStatusStatsChange?: (st
     const composerSize = sizesRef.current[composerId];
     markSending(branch.id);
     try {
-      const canvasAgentId = graph?.canvas.agentId;
+      const canvasAgentRef = graph?.canvas.agentRef;
       const canvasId = graph?.canvas.id;
-      if (!canvasId || !canvasAgentId) throw new CanvasLocalizedError(copy.currentCanvasMissing);
+      if (!canvasId || !canvasAgentRef) throw new CanvasLocalizedError(copy.currentCanvasMissing);
       const attachmentMeta = draft.files.length ? await persistCanvasFiles(draft.files, canvasId) : [];
       const attachmentIds = [
         ...draft.persistedAttachments.map((attachment) => attachment.id),
         ...attachmentMeta.map((attachment) => attachment.id),
       ];
       const result = await canvasApi.send(branch.id, {
-        expectedHeadInteractionId: branch.sessionState === 'active' ? branch.headInteractionId : null,
-        expectedAgentId: canvasAgentId,
+        expectedHeadInteractionId: branch.conversationState === 'active' ? branch.headInteractionId : null,
+        expectedAgentRef: canvasAgentRef,
         userInput: draft.text,
         attachmentIds,
       });
@@ -323,7 +322,7 @@ export function CanvasPanel({ onStatusStatsChange }: { onStatusStatsChange?: (st
     clearDraft,
     copy,
     drafts,
-    graph?.canvas.agentId,
+    graph?.canvas.agentRef,
     graph?.canvas.id,
     loadGraph,
     localizeError,
@@ -343,14 +342,14 @@ export function CanvasPanel({ onStatusStatsChange }: { onStatusStatsChange?: (st
 
   const resubmitInteraction = useCallback(async (interaction: CanvasInteraction) => {
     if (resubmittingInteractionIds.has(interaction.id)) return;
-    const canvasAgentId = graph?.canvas.agentId;
-    if (!canvasAgentId) {
+    const canvasAgentRef = graph?.canvas.agentRef;
+    if (!canvasAgentRef) {
       setError(copy.currentCanvasMissing);
       return;
     }
     setResubmittingInteractionIds((current) => new Set(current).add(interaction.id));
     try {
-      const result = await canvasApi.resubmit(interaction.id, canvasAgentId);
+      const result = await canvasApi.resubmit(interaction.id, canvasAgentRef);
       if (result.interaction) {
         const occupied = nodesRef.current.map((node) => canvasNodeBounds(node, node));
         const parentNode = result.interaction.parentInteractionId
@@ -385,7 +384,7 @@ export function CanvasPanel({ onStatusStatsChange }: { onStatusStatsChange?: (st
   }, [
     copy.currentCanvasMissing,
     copy.resubmitFailed,
-    graph?.canvas.agentId,
+    graph?.canvas.agentRef,
     loadGraph,
     localizeError,
     persistLayout,
@@ -406,6 +405,7 @@ export function CanvasPanel({ onStatusStatsChange }: { onStatusStatsChange?: (st
       labels: copy,
       onAdd: addFromInteraction,
       onResubmit: (interaction) => void resubmitInteraction(interaction),
+      onApprovalChanged: () => { void loadGraph(); },
       onTextChange: (branchId, value) => {
         updateDraft(branchId, (draft) => ({ ...draft, text: value, error: null }));
       },
@@ -424,6 +424,7 @@ export function CanvasPanel({ onStatusStatsChange }: { onStatusStatsChange?: (st
     drafts,
     focusComposer,
     graph,
+    loadGraph,
     previews,
     rearranging,
     removeFile,
@@ -603,15 +604,17 @@ export function CanvasPanel({ onStatusStatsChange }: { onStatusStatsChange?: (st
     } catch (cause) { setError(localizeError(cause, copy.createCanvasFailed)); }
   }, [canvases, copy, loadCanvases, localizeError]);
 
-  const agentEditable = graph !== null
-    && graph.interactions.length === 0
+  const agentEditable = graph?.canvas.agentMutable === true
     && !Object.values(drafts).some((draft) => draft.sending);
 
-  const changeAgent = useCallback(async (agentId: string) => {
-    if (!graph || !agentEditable || agentId === graph.canvas.agentId) return;
+  const changeAgent = useCallback(async (agentRef: AgentRef) => {
+    if (!graph || !agentEditable || (
+      agentRef.backendId === graph.canvas.agentRef.backendId
+      && agentRef.profileId === graph.canvas.agentRef.profileId
+    )) return;
     setAgentChanging(true);
     try {
-      const updated = await canvasApi.updateAgent(graph.canvas.id, agentId);
+      const updated = await canvasApi.updateAgent(graph.canvas.id, agentRef);
       setCanvases((current) => current.map((item) => item.id === updated.id ? updated : item));
       await loadGraph();
     } catch (cause) {
@@ -700,23 +703,31 @@ export function CanvasPanel({ onStatusStatsChange }: { onStatusStatsChange?: (st
         {selectedId && graph ? (
           <>
             <div className={`absolute top-4 z-10 flex items-center gap-3 rounded-2xl border border-border/75 bg-card/92 px-3 py-2 shadow-lg backdrop-blur ${canvasListVisible ? 'left-4' : 'left-16'}`}>
-              <Bot size={16} className={connectionState === 'connected' ? 'text-green' : 'text-muted-foreground'} />
+              <Bot size={16} className={backendStatuses[graph.canvas.agentRef.backendId]?.state === 'connected' ? 'text-green' : 'text-muted-foreground'} />
               <div className="text-sm font-semibold">{graph.canvas.name}</div>
-              {graph.interactions.length === 0 ? (
+              {graph.canvas.agentMutable ? (
                 <div className="flex items-center gap-1">
                   <select
-                    value={graph.canvas.agentId}
-                    onChange={(event) => void changeAgent(event.target.value)}
-                    disabled={!agentEditable || agentChanging || agentCatalogLoading || connectionState !== 'connected'}
+                    value={(() => {
+                      const index = agents.findIndex((agent) =>
+                        agent.agentRef.backendId === graph.canvas.agentRef.backendId
+                        && agent.agentRef.profileId === graph.canvas.agentRef.profileId);
+                      return index >= 0 ? String(index) : '__current__';
+                    })()}
+                    onChange={(event) => {
+                      const agent = agents[Number(event.target.value)];
+                      if (agent) void changeAgent(agent.agentRef);
+                    }}
+                    disabled={!agentEditable || agentChanging || agentCatalogLoading}
                     aria-label={copy.selectAgent}
                     className="max-w-48 rounded-lg border border-border bg-background px-2 py-1.5 text-xs"
                   >
-                    {!agents.some((agent) => agent.id === graph.canvas.agentId) && <option value={graph.canvas.agentId}>{graph.canvas.agentId}</option>}
-                    {agents.map((agent) => <option key={agent.id} value={agent.id}>{`${agent.identity?.emoji || ''} ${agent.identity?.name || agent.name || agent.id}`.trim()} · {agent.id}</option>)}
+                    {!agents.some((agent) => agent.agentRef.backendId === graph.canvas.agentRef.backendId && agent.agentRef.profileId === graph.canvas.agentRef.profileId) && <option value="__current__">{graph.canvas.agentRef.profileId} · {graph.canvas.agentRef.backendId}</option>}
+                    {agents.map((agent, index) => <option key={`${agent.agentRef.backendId}:${agent.agentRef.profileId}`} value={index} disabled={!agent.available}>{agent.displayName} · {agent.backendDisplayName}{agent.available ? '' : ' — unavailable'}</option>)}
                   </select>
                   {agentCatalogError && <Button size="icon" variant="ghost" onClick={() => void loadAgents()} title={copy.retryAgentList}><RefreshCw size={13} /></Button>}
                 </div>
-              ) : <span className="rounded-lg bg-secondary px-2 py-1 text-xs text-muted-foreground">{copy.agentLabel(graph.canvas.agentId)}</span>}
+              ) : <span className="rounded-lg bg-secondary px-2 py-1 text-xs text-muted-foreground">{copy.agentLabel(`${graph.canvas.agentRef.profileId} · ${graph.canvas.agentRef.backendId}`)}</span>}
               <Button size="sm" onClick={() => void createRoot()}><Plus size={14} /> {copy.newSession}</Button>
               <Button
                 size="sm"

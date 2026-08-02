@@ -353,19 +353,19 @@ describe('device-identity', () => {
         .toBe('ws://127.0.0.1:18789/ws');
     });
 
-    it('persists a read/write device token in a server-only mode-0600 file', () => {
+    it('persists a read/write/approval device token in a server-only mode-0600 file', () => {
       const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
       storeDeviceAuth({
         gatewayUrl: 'https://gateway.example.test',
         token: 'device-token-secret',
         role: 'operator',
-        scopes: ['operator.read', 'operator.write'],
+        scopes: ['operator.read', 'operator.write', 'operator.approvals'],
       });
 
       expect(getStoredDeviceAuth('wss://gateway.example.test/ws')).toMatchObject({
         token: 'device-token-secret',
         role: 'operator',
-        scopes: ['operator.read', 'operator.write'],
+        scopes: ['operator.read', 'operator.write', 'operator.approvals'],
       });
 
       const authPath = path.join(tmpDir, 'gateway-auth.json');
@@ -381,12 +381,12 @@ describe('device-identity', () => {
       storeDeviceAuth({
         gatewayUrl: 'https://one.example.test',
         token: 'token-one',
-        scopes: ['operator.read', 'operator.write'],
+        scopes: ['operator.read', 'operator.write', 'operator.approvals'],
       });
       storeDeviceAuth({
         gatewayUrl: 'https://two.example.test',
         token: 'token-two',
-        scopes: ['operator.read', 'operator.write'],
+        scopes: ['operator.read', 'operator.write', 'operator.approvals'],
       });
 
       expect(getStoredDeviceAuth('https://one.example.test')?.token).toBe('token-one');
@@ -429,7 +429,7 @@ describe('device-identity', () => {
         storeDeviceAuth({
           gatewayUrl,
           token,
-          scopes: ['operator.read', 'operator.write'],
+          scopes: ['operator.read', 'operator.write', 'operator.approvals'],
         });
       }
 

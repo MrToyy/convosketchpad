@@ -11,7 +11,7 @@ import {
 import { canvasReplayResourceFileName } from './canvas-replay-plan.js';
 import { locateCanvasResource } from './canvas-resource-locator.js';
 
-export interface OpenClawDeliveryAttachment {
+export interface BackendDeliveryAttachment {
   fileName: string;
   mimeType: string;
   content: string;
@@ -20,7 +20,7 @@ export interface OpenClawDeliveryAttachment {
 async function loadContextResource(
   reservation: DispatchableSendReservation,
   resource: CanvasContextResource,
-): Promise<OpenClawDeliveryAttachment> {
+): Promise<BackendDeliveryAttachment> {
   const store = getCanvasStore();
   const locator = locateCanvasResource(resource.uri);
   let bytes: Uint8Array | null = null;
@@ -118,11 +118,11 @@ export async function buildCanvasDelivery(
   reservation: DispatchableSendReservation,
 ): Promise<{
   message: string;
-  attachments: OpenClawDeliveryAttachment[];
+  attachments: BackendDeliveryAttachment[];
   bootstrapWarnings: string[];
 }> {
   const store = getCanvasStore();
-  const attachments: OpenClawDeliveryAttachment[] = [];
+  const attachments: BackendDeliveryAttachment[] = [];
   const bootstrapWarnings: string[] = [];
   for (const resource of reservation.bootstrapResources) {
     try {
@@ -172,21 +172,4 @@ export async function buildCanvasDelivery(
     message += `\n\nCanvas replay note: Some restored files could not be attached: ${bootstrapWarnings.join('; ')}`;
   }
   return { message, attachments, bootstrapWarnings };
-}
-
-export function assertCanvasReplayPayloadFits(
-  reservation: DispatchableSendReservation,
-  params: Record<string, unknown>,
-  maxPayload: number | undefined,
-): void {
-  if (!['canonical-replay', 'session-recovery'].includes(reservation.materialization)) return;
-  if (!maxPayload) return;
-  const estimatedBytes = Buffer.byteLength(JSON.stringify({
-    type: 'req',
-    id: reservation.id,
-    method: 'chat.send',
-    params,
-  }));
-  const safeLimit = Math.max(0, maxPayload - 8 * 1024);
-  if (estimatedBytes > safeLimit) throw new Error('replay_payload_too_large');
 }

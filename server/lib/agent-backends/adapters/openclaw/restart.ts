@@ -1,13 +1,10 @@
-/** Restart the local OpenClaw gateway and verify that it becomes reachable. */
-import { Hono } from 'hono';
 import { execFile } from 'node:child_process';
 import { Socket } from 'node:net';
 import { homedir } from 'node:os';
-import { config } from '../lib/config.js';
-import { resolveOpenclawBin } from '../lib/openclaw-bin.js';
-import { rateLimitRestart } from '../middleware/rate-limit.js';
+import { config } from '../../../config.js';
+import { resolveOpenclawBin } from '../../../openclaw-bin.js';
+import { BackendOperationError } from '../../contract.js';
 
-const app = new Hono();
 const openclawBin = resolveOpenclawBin();
 const nodeBinDir = process.execPath.replace(/\/node$/, '');
 const GATEWAY_RESTART_TIMEOUT_MS = 15_000;
@@ -27,9 +24,17 @@ function inferOpenclawHome(): string {
     || homedir();
 }
 
-function runGatewayCommand(args: string[], env: NodeJS.ProcessEnv, timeout = 5_000) {
-  return new Promise<{ ok: boolean; output: string }>((resolve) => {
-    execFile(openclawBin, args, { timeout, maxBuffer: 512 * 1024, env }, (error, stdout, stderr) => {
+function runGatewayCommand(
+  args: string[],
+  environment: NodeJS.ProcessEnv,
+  timeout = 5_000,
+): Promise<{ ok: boolean; output: string }> {
+  return new Promise((resolve) => {
+    execFile(openclawBin, args, {
+      timeout,
+      maxBuffer: 512 * 1024,
+      env: environment,
+    }, (error, stdout, stderr) => {
       const output = (stdout + stderr).trim();
       resolve({ ok: !error, output: output || error?.message || '' });
     });
@@ -48,17 +53,16 @@ function gatewayPortIsOpen(): Promise<boolean> {
   });
 }
 
-app.post('/api/gateway/restart', rateLimitRestart, async (c) => {
+export async function restartOpenClawGateway(): Promise<{ output: string }> {
   if (!gatewayIsLocal(config.gatewayUrl)) {
-    return c.json({
-      ok: false,
-      error: 'remote_gateway_restart_unsupported',
-      output: 'Restart the OpenClaw Gateway on its host. ConvoSketchpad never runs a local CLI restart for a remote Gateway.',
-    }, 409);
+    throw new BackendOperationError(
+      'unsupported',
+      'Restart the OpenClaw Gateway on its host; remote Gateway restart is not supported.',
+    );
   }
   const uid = process.getuid?.() ?? 1000;
   const runtimeDir = process.env.XDG_RUNTIME_DIR || `/run/user/${uid}`;
-  const env = {
+  const environment = {
     ...process.env,
     HOME: inferOpenclawHome(),
     PATH: `${nodeBinDir}:${process.env.PATH || '/usr/bin:/bin'}`,
@@ -66,21 +70,27 @@ app.post('/api/gateway/restart', rateLimitRestart, async (c) => {
     DBUS_SESSION_BUS_ADDRESS: process.env.DBUS_SESSION_BUS_ADDRESS || `unix:path=${runtimeDir}/bus`,
   };
 
-  const restarted = await runGatewayCommand(['gateway', 'restart'], env, GATEWAY_RESTART_TIMEOUT_MS);
-  if (!restarted.ok) return c.json(restarted, 500);
+  const restarted = await runGatewayCommand(
+    ['gateway', 'restart'],
+    environment,
+    GATEWAY_RESTART_TIMEOUT_MS,
+  );
+  if (!restarted.ok) {
+    throw new BackendOperationError('internal', restarted.output || 'Gateway restart failed');
+  }
 
   await new Promise((resolve) => setTimeout(resolve, 2_000));
   let lastStatus = '';
   for (let attempt = 0; attempt < 8; attempt += 1) {
     if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, 1_000));
-    const status = await runGatewayCommand(['gateway', 'status'], env);
+    const status = await runGatewayCommand(['gateway', 'status'], environment);
     lastStatus = status.output;
     if (status.ok && status.output.includes('Runtime: running') && await gatewayPortIsOpen()) {
-      return c.json({ ok: true, output: 'Gateway restarted successfully' });
+      return { output: 'Gateway restarted successfully' };
     }
   }
-
-  return c.json({ ok: false, output: `Gateway restarted but did not become ready.\n${lastStatus}`.trim() }, 500);
-});
-
-export default app;
+  throw new BackendOperationError(
+    'unavailable',
+    `Gateway restarted but did not become ready.\n${lastStatus}`.trim(),
+  );
+}

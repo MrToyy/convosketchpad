@@ -1,20 +1,29 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'reconnecting';
+export type OverallBackendState = 'ready' | 'degraded' | 'connecting' | 'unavailable';
+
+export interface BackendRuntimeStatus {
+  backendId: string;
+  state: 'disconnected' | 'connecting' | 'connected';
+  error?: string;
+  version?: string;
+  restartSupported?: boolean;
+}
 
 interface RuntimeStatus {
-  state: 'disconnected' | 'connecting' | 'connected';
-  gatewayRestartSupported: boolean;
+  overallState: OverallBackendState;
+  backends: BackendRuntimeStatus[];
+  updatedAt: number;
 }
 
 interface UseRuntimeEventsReturn {
-  connectionState: ConnectionState;
-  gatewayRestartSupported: boolean;
+  overallState: OverallBackendState;
+  backendStatuses: Record<string, BackendRuntimeStatus>;
   connect: () => Promise<void>;
 }
 
 const PRODUCT_EVENT_TYPES = [
-  'runtime.connection_changed',
+  'runtime.backend_status_changed',
 ] as const;
 
 /**
@@ -24,24 +33,24 @@ const PRODUCT_EVENT_TYPES = [
  * traffic is HTTP/SSE to ConvoSketchpad.
  */
 export function useRuntimeEvents(): UseRuntimeEventsReturn {
-  const [connectionState, setConnectionState] = useState<ConnectionState>('connecting');
-  const [gatewayRestartSupported, setGatewayRestartSupported] = useState(false);
+  const [overallState, setOverallState] = useState<OverallBackendState>('connecting');
+  const [backendStatuses, setBackendStatuses] = useState<Record<string, BackendRuntimeStatus>>({});
   const sourceRef = useRef<EventSource | null>(null);
 
   const applyStatus = useCallback((status: RuntimeStatus) => {
-    setConnectionState(status.state);
-    setGatewayRestartSupported(status.gatewayRestartSupported === true);
+    setOverallState(status.overallState);
+    setBackendStatuses(Object.fromEntries(status.backends.map((backend) => [backend.backendId, backend])));
   }, []);
 
   const disconnect = useCallback(() => {
     sourceRef.current?.close();
     sourceRef.current = null;
-    setConnectionState('disconnected');
+    setOverallState('unavailable');
   }, []);
 
   const connect = useCallback(async () => {
     sourceRef.current?.close();
-    setConnectionState((current) => current === 'connected' ? 'reconnecting' : 'connecting');
+    setOverallState((current) => current === 'ready' || current === 'degraded' ? current : 'connecting');
     const response = await fetch('/api/runtime/status', { credentials: 'include' });
     if (!response.ok) throw new Error(`Runtime status failed (${response.status})`);
     applyStatus(await response.json() as RuntimeStatus);
@@ -54,7 +63,7 @@ export function useRuntimeEvents(): UseRuntimeEventsReturn {
           const parsed = JSON.parse((raw as MessageEvent<string>).data) as {
             payload?: Record<string, unknown>;
           } & Record<string, unknown>;
-          if (type === 'runtime.connection_changed') {
+          if (type === 'runtime.backend_status_changed') {
             applyStatus((parsed.payload || parsed) as unknown as RuntimeStatus);
           }
         } catch {
@@ -71,7 +80,7 @@ export function useRuntimeEvents(): UseRuntimeEventsReturn {
           '[runtime] Initial status request failed:',
           error instanceof Error ? error.message : String(error),
         );
-        setConnectionState('disconnected');
+        setOverallState('unavailable');
       });
     }, 0);
     return () => {
@@ -81,8 +90,8 @@ export function useRuntimeEvents(): UseRuntimeEventsReturn {
   }, [connect, disconnect]);
 
   return {
-    connectionState,
-    gatewayRestartSupported,
+    overallState,
+    backendStatuses,
     connect,
   };
 }

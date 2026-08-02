@@ -1,16 +1,18 @@
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useDashboardData } from './useDashboardData';
-import type { TokenData } from '@/types';
+import type { RuntimeUsageData } from '@/types';
 
-function tokenData(totalCost: number): TokenData {
+function tokenData(totalCost: number): RuntimeUsageData {
   return {
-    totalCost,
-    totalInput: 10,
-    totalOutput: 20,
-    totalCacheRead: 30,
+    backends: [{
+      backendId: 'openclaw',
+      displayName: 'OpenClaw',
+      available: true,
+      usage: { totalCost, totalInput: 10, totalOutput: 20, totalCacheRead: 30, updatedAt: 123, source: 'openclaw-gateway', currency: 'USD', period: 'all-time', additive: true },
+    }],
+    comparableCostTotal: { currency: 'USD', amount: totalCost },
     updatedAt: 123,
-    source: 'openclaw-gateway',
   };
 }
 
@@ -35,7 +37,7 @@ describe('useDashboardData', () => {
 
     expect(result.current.tokenData).toEqual(tokenData(42));
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(fetchMock).toHaveBeenCalledWith('/api/tokens', expect.objectContaining({ signal: expect.any(AbortSignal) }));
+    expect(fetchMock).toHaveBeenCalledWith('/api/runtime/usage', expect.objectContaining({ signal: expect.any(AbortSignal) }));
 
     await act(async () => result.current.ensureTokens());
     expect(fetchMock).toHaveBeenCalledTimes(1);

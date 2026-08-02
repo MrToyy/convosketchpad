@@ -4,19 +4,16 @@ import {
   type SendReservation,
 } from './canvas-db.js';
 import {
-  assertCanvasReplayPayloadFits,
   buildCanvasDelivery,
 } from './canvas-send-delivery.js';
-import { handleCanvasGatewayEvent, registerCanvasInteraction } from './canvas-gateway-events.js';
+import { handleCanvasBackendEvent, registerCanvasInteraction } from './canvas/backend-events.js';
+import type { BackendEvent } from './agent-backends/contract.js';
+import { BackendOperationError } from './agent-backends/contract.js';
+import { getAgentBackend } from './agent-backends/registry.js';
 import { CANVAS_DELIVERY_MAX_BYTES } from './canvas-media-derivatives.js';
 import { scheduleCanvasInteractionReconciliation } from './canvas-reconciler.js';
 import { canvasSendRetryDelay } from './canvas-send-retry.js';
 import { publishCanvasChanged } from './canvas-sync.js';
-import {
-  GatewayDispatchError,
-  type GatewayEvent,
-} from './gateway-rpc.js';
-import { openClawCanvas } from './openclaw-canvas.js';
 
 const activeDispatches = new Set<string>();
 
@@ -32,8 +29,8 @@ export function clearCanvasSendWorkerState(): void {
   activeDispatches.clear();
 }
 
-export function consumeCanvasGatewayEvent(event: GatewayEvent): void {
-  handleCanvasGatewayEvent(event);
+export function consumeCanvasBackendEvent(event: BackendEvent): void {
+  handleCanvasBackendEvent(event);
 }
 
 export async function runCanvasSendWorker(
@@ -51,10 +48,16 @@ export async function runCanvasSendWorker(
       return store.getOwnedInteraction(reservation.ownerId, reservation.interactionId) || reservation;
     }
     if (reservation.status !== 'prepared') return reservation;
-    if (openClawCanvas.supports('chat.send') === false) {
-      const status = openClawCanvas.runtimeStatus();
+    const backend = getAgentBackend(reservation.backendId);
+    const profile = {
+      backendId: backend.id,
+      profileId: reservation.agentProfileId,
+    };
+    const capabilities = await backend.getCapabilities(profile);
+    if (!capabilities.input.text) {
+      const status = backend.getStatus();
       if (status.state === 'connected') {
-        store.failReservationById(reservation.id, 'Gateway does not advertise chat.send');
+        store.failReservationById(reservation.id, 'Agent Backend does not support text input');
         return store.getReservation(reservation.id)!;
       }
     }
@@ -62,7 +65,7 @@ export async function runCanvasSendWorker(
     const requiresMediaPreparation = [
       ...reservation.attachments,
       ...reservation.bootstrapResources,
-    ].some((item) => item.mimeType.startsWith('image/')
+    ].some((item) => item.mimeType?.startsWith('image/')
       && (item.sizeBytes || 0) > CANVAS_DELIVERY_MAX_BYTES);
     if (requiresMediaPreparation) {
       store.markReservationAwaitingMedia(reservation.id);
@@ -75,27 +78,30 @@ export async function runCanvasSendWorker(
     if (preparedReservation.status !== 'prepared') return preparedReservation;
     store.markReservationDispatching(reservation.id);
     reservation = store.getDispatchableReservation(reservation.id)!;
-    const params = {
-      sessionKey: reservation.sessionKey,
+    if (!reservation.conversationRef) throw new BackendOperationError('validation', 'Reservation has no conversation reference');
+    const dispatched = await backend.dispatchTurn({
+      profile,
+      conversationRef: reservation.conversationRef,
       message,
-      ...(attachments.length ? { attachments } : {}),
-      deliver: false,
+      attachments,
       idempotencyKey: reservation.id,
-    };
-    assertCanvasReplayPayloadFits(
-      reservation,
-      params,
-      openClawCanvas.runtimeStatus().maxPayload,
-    );
-    const raw = await openClawCanvas.send(params, 30_000);
-    const runId = typeof raw?.runId === 'string' ? raw.runId : null;
+      timeoutMs: 30_000,
+    });
+    if (dispatched.outcome === 'rejected') throw dispatched.error;
+    if (dispatched.outcome === 'unknown') {
+      const nextAttemptAt = Date.now() + canvasSendRetryDelay(reservation.attemptCount);
+      store.scheduleReservationRetry(reservation.id, 'ambiguous', dispatched.error.message, nextAttemptAt);
+      publishCanvasChanged(reservation.ownerId, reservation.canvasId);
+      return store.getReservation(reservation.id)!;
+    }
     const interaction = store.acknowledgeSend(
       reservation.ownerId,
       reservation.id,
-      runId,
+      null,
       bootstrapWarnings,
+      dispatched.turnRef,
     );
-    registerCanvasInteraction(reservation, interaction, runId);
+    registerCanvasInteraction(reservation, interaction, dispatched.turnRef);
     scheduleCanvasInteractionReconciliation(interaction.id);
     publishCanvasChanged(reservation.ownerId, reservation.canvasId);
     return interaction;
@@ -103,7 +109,8 @@ export async function runCanvasSendWorker(
     const store = getCanvasStore();
     const reservation = store.getDispatchableReservation(reservationId);
     if (!reservation) throw error;
-    if (!(error instanceof GatewayDispatchError) || error.kind === 'rejected') {
+    if (!(error instanceof BackendOperationError)
+      || ['validation', 'unsupported', 'rejected', 'conflict'].includes(error.kind)) {
       const message = error instanceof Error ? error.message : 'Send preparation failed';
       store.failReservationById(reservation.id, message);
       console.error(JSON.stringify({
@@ -118,7 +125,7 @@ export async function runCanvasSendWorker(
       }));
       publishCanvasChanged(reservation.ownerId, reservation.canvasId);
     } else {
-      const ambiguous = error.kind === 'outcome_unknown';
+      const ambiguous = error.kind === 'unknown_outcome';
       const nextAttemptAt = Date.now() + canvasSendRetryDelay(reservation.attemptCount);
       store.scheduleReservationRetry(
         reservation.id,

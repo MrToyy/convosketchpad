@@ -27,13 +27,11 @@ vi.mock('./lib/config.js', () => ({
   config: { host: '127.0.0.1', port: 3080 },
   validateConfig: vi.fn(() => mocks.events.push('config_validated')),
   printStartupBanner: vi.fn(),
-  probeGateway: vi.fn(),
 }));
 vi.mock('./lib/canvas-reconciler.js', () => ({
   startCanvasReconciler: vi.fn(),
   stopCanvasReconciler: vi.fn(),
 }));
-vi.mock('./lib/gateway-rpc.js', () => ({ closeGatewayRpc: vi.fn() }));
 vi.mock('./lib/canvas-send-coordinator.js', () => ({
   startCanvasSendCoordinator: vi.fn(),
   stopCanvasSendCoordinator: vi.fn(),

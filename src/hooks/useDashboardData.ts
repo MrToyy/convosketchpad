@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { TokenData } from '@/types';
+import type { RuntimeUsageData } from '@/types';
 
 interface DashboardData {
-  tokenData: TokenData | null;
+  tokenData: RuntimeUsageData | null;
   isLoading: boolean;
   loadError: boolean;
   ensureTokens: () => Promise<void>;
@@ -10,7 +10,7 @@ interface DashboardData {
 }
 
 export function useDashboardData(): DashboardData {
-  const [tokenData, setTokenData] = useState<TokenData | null>(null);
+  const [tokenData, setTokenData] = useState<RuntimeUsageData | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [loadError, setLoadError] = useState(false);
   const inFlightRef = useRef<Promise<void> | null>(null);
@@ -26,9 +26,9 @@ export function useDashboardData(): DashboardData {
 
     const request = (async () => {
       try {
-        const response = await fetch('/api/tokens', { signal: controller.signal });
+        const response = await fetch('/api/runtime/usage', { signal: controller.signal });
         if (!response.ok) throw new Error(`Usage request failed with HTTP ${response.status}`);
-        const nextData = await response.json() as TokenData;
+        const nextData = await response.json() as RuntimeUsageData;
         if (!controller.signal.aborted) setTokenData(nextData);
       } catch (error) {
         if (error instanceof Error && error.name !== 'AbortError') {

@@ -53,7 +53,7 @@ describe('Canvas Interaction resubmit route', () => {
     const current = await setup();
     const store = current.db.getCanvasStore();
     store.ensureUser('owner-a', 'Owner A');
-    const canvas = store.createCanvas('owner-a', 'Canvas', 'main');
+    const canvas = store.createCanvas('owner-a', 'Canvas', { backendId: 'openclaw', profileId: 'main' });
     const branch = store.createRootBranch('owner-a', canvas.id);
     const reservation = store.prepareSend('owner-a', {
       branchId: branch.id,
@@ -69,7 +69,7 @@ describe('Canvas Interaction resubmit route', () => {
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ expectedAgentId: 'main' }),
+        body: JSON.stringify({ expectedAgentRef: { backendId: 'openclaw', profileId: 'main' } }),
       },
     );
     const payload = await response.json() as {
@@ -81,12 +81,12 @@ describe('Canvas Interaction resubmit route', () => {
     expect(store.getOwnedBranch('owner-a', payload.interaction.branchId)).toMatchObject({
       kind: 'root',
       creationMode: 'direct-submit',
-      sessionState: 'active',
+      conversationState: 'active',
     });
     expect(store.getOwnedInteraction('owner-a', source.id)).toMatchObject({
       id: source.id,
       executionState: 'running',
-      runId: 'run-source',
+      backendTurnId: 'run-source',
     });
   });
 });

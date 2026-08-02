@@ -1,77 +1,95 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const gatewayRpcCall = vi.fn();
-
-vi.mock('../lib/gateway-rpc.js', () => ({
-  gatewayRpcCall,
+const list = vi.fn();
+vi.mock('../lib/agent-backends/registry.js', () => ({
+  agentBackendRegistry: { list },
 }));
 vi.mock('../middleware/rate-limit.js', () => ({
   rateLimitGeneral: async (_c: unknown, next: () => Promise<void>) => next(),
 }));
 
-describe('GET /api/tokens', () => {
-  beforeEach(() => {
-    gatewayRpcCall.mockReset();
-  });
+const capabilities = {
+  usage: { accountUsage: true, accountQuota: true },
+};
 
-  it('returns only Gateway-wide usage.cost totals', async () => {
-    gatewayRpcCall.mockResolvedValue({
-      updatedAt: 123,
-      totals: {
-        input: 10,
-        output: 20,
-        cacheRead: 3,
-        totalCost: 1.25,
-      },
-    });
-    const module = await import('./tokens.js');
-    const response = await module.default.request('/api/tokens');
-
-    expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({
-      totalCost: 1.25,
+function backend(id: string, cost: number, currency = 'USD') {
+  return {
+    id,
+    describe: vi.fn(async () => ({ id, displayName: id.toUpperCase() })),
+    getStatus: vi.fn(() => ({ backendId: id, state: 'connected', capabilities })),
+    getCapabilities: vi.fn(async () => capabilities),
+    readUsageSummary: vi.fn(async () => ({
+      totalCost: cost,
       totalInput: 10,
       totalOutput: 20,
       totalCacheRead: 3,
       updatedAt: 123,
-      source: 'openclaw-gateway',
-    });
-    expect(gatewayRpcCall).toHaveBeenCalledOnce();
-    expect(gatewayRpcCall).toHaveBeenCalledWith('usage.cost', {
-      agentScope: 'all',
-      range: 'all',
-      mode: 'gateway',
-    }, 60_000);
-  });
+      source: id,
+      currency,
+      period: 'all-time',
+      additive: true,
+    })),
+    readProviderQuotas: vi.fn(async () => ({ available: true, providers: [] })),
+  };
+}
 
-  it('normalises absent or invalid totals to zero', async () => {
-    gatewayRpcCall.mockResolvedValue({
-      updatedAt: Number.NaN,
-      totals: { input: -1, output: '20', cacheRead: null },
-    });
-    const module = await import('./tokens.js');
-    const response = await module.default.request('/api/tokens');
+describe('GET /api/runtime/usage', () => {
+  beforeEach(() => list.mockReset());
 
+  it('returns per-Backend usage and sums only comparable costs', async () => {
+    list.mockReturnValue([backend('openclaw', 1.25), backend('codex', 2)]);
+    const route = await import('./tokens.js');
+    const response = await route.default.request('/api/runtime/usage');
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual(expect.objectContaining({
-      totalCost: 0,
-      totalInput: 0,
-      totalOutput: 0,
-      totalCacheRead: 0,
-      source: 'openclaw-gateway',
-    }));
-    expect(gatewayRpcCall).toHaveBeenCalledTimes(1);
+    const json = await response.json() as Record<string, unknown>;
+    expect(json).toMatchObject({
+      comparableCostTotal: { currency: 'USD', amount: 3.25 },
+      backends: [
+        { backendId: 'openclaw', available: true },
+        { backendId: 'codex', available: true },
+      ],
+    });
   });
 
-  it('returns 503 when Gateway usage is unavailable', async () => {
-    gatewayRpcCall.mockRejectedValue(new Error('usage unavailable'));
-    const module = await import('./tokens.js');
-    const response = await module.default.request('/api/tokens');
+  it('omits a global total for incomparable currencies', async () => {
+    list.mockReturnValue([backend('openclaw', 1.25), backend('codex', 2, 'CNY')]);
+    const route = await import('./tokens.js');
+    const json = await (await route.default.request('/api/runtime/usage')).json() as Record<string, unknown>;
+    expect(json).not.toHaveProperty('comparableCostTotal');
+  });
 
-    expect(response.status).toBe(503);
-    expect(await response.json()).toEqual({
-      error: 'gateway_usage_unavailable',
-      detail: 'usage unavailable',
+  it('keeps partial data when one Backend is unavailable', async () => {
+    const unavailable = backend('codex', 0);
+    unavailable.getStatus.mockReturnValue({ backendId: 'codex', state: 'disconnected', capabilities } as never);
+    list.mockReturnValue([backend('openclaw', 1.25), unavailable]);
+    const route = await import('./tokens.js');
+    const json = await (await route.default.request('/api/runtime/usage')).json() as { backends: Array<Record<string, unknown>> };
+    expect(json.backends[0]).toMatchObject({ backendId: 'openclaw', available: true });
+    expect(json.backends[1]).toMatchObject({ backendId: 'codex', available: false });
+    expect(json).not.toHaveProperty('comparableCostTotal');
+  });
+
+  it('does not treat a connected Backend without account usage as unavailable', async () => {
+    const noUsage = backend('local-tools', 0);
+    const noUsageCapabilities = { usage: { accountUsage: false, accountQuota: false } };
+    noUsage.getStatus.mockReturnValue({
+      backendId: 'local-tools',
+      state: 'connected',
+      capabilities: noUsageCapabilities,
+    } as never);
+    noUsage.getCapabilities.mockResolvedValue(noUsageCapabilities as never);
+    list.mockReturnValue([backend('openclaw', 1.25), noUsage]);
+    const route = await import('./tokens.js');
+    const json = await (await route.default.request('/api/runtime/usage')).json() as {
+      comparableCostTotal?: unknown;
+      backends: Array<Record<string, unknown>>;
+    };
+    expect(json.backends[1]).toMatchObject({
+      backendId: 'local-tools',
+      available: true,
+      usageSupported: false,
     });
+    expect(json.comparableCostTotal).toBeDefined();
+    expect(noUsage.readUsageSummary).not.toHaveBeenCalled();
   });
 });

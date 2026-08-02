@@ -1,52 +1,27 @@
-# Agent Backend 抽象迁移工作笔记（临时）
+# Agent Backend 两阶段迁移工作笔记（临时）
 
-> 状态：设计已确认，功能尚未实现。
->
-> 本文件用于在两阶段迁移期间保存决策、边界和验收条件。第二阶段完成并把稳定内容合并进正式文档后，再删除本文件。不得把本文中的“目标状态”误认为当前 Release 已具备的能力。
+> 状态：第一阶段正在 `dev` 工作树实现并等待用户审阅，未暂存、未提交；第二阶段 Codex 尚未开始。本文件在两阶段完成、结论并入正式文档后删除。
 
-## 背景与目标
+## 目标与产品边界
 
-ConvoSketchpad 当前只通过 OpenClaw Gateway 执行 Agent 工作，而且发送、Session、事件、恢复、上下文和 Artifact 代码中仍直接存在 `chat.send`、`sessionKey`、`runId`、`gatewayArtifactId` 等 OpenClaw 协议概念。
+ConvoSketchpad 在 Canvas 领域模型和执行运行时之间建立统一 `AgentBackend` Port。OpenClaw 是第一阶段唯一 Adapter；第二阶段直接连接受监督的本地 Codex App Server，不通过 OpenClaw。未来 Backend 复用同一边界。
 
-已确认的产品方向是：ConvoSketchpad 不再把“Agent Backend”等同于 OpenClaw，而是在 Canvas 领域模型与具体运行时之间增加统一的 `AgentBackend` 边界。OpenClaw 继续作为现有、默认且必须保持行为兼容的 Backend；第二阶段再直接接入本地 Codex App Server。未来其他 Backend 也必须复用相同边界，不得继续在 Canvas Worker、Route 或 Reconciler 中增加协议分支。
+Agent、工具、执行、Conversation、原始事件和权威运行记录由 Backend 负责。ConvoSketchpad 负责 Canvas 拓扑与布局、Branch/Interaction、Send Reservation、恢复元数据、受管用户隔离、附件和 Artifact 持久化副本。
 
-目标不是让 ConvoSketchpad 自己成为 Agent 运行时。Agent、模型调用、工具执行和原始运行记录仍由所选 Agent Backend 负责；ConvoSketchpad 继续负责 Canvas 拓扑、Branch/Interaction、发送协调、规范重放、附件和 Artifact 持久化副本以及所有者隔离。
+## 已确认的产品决策
 
-## 已确认的设计结论
+- setup 配置需要启用的 Backend；当前同一 Adapter 类型最多配置一个实例。
+- 配置完成后，各 Backend 提供的 Profile 合并成一个扁平、平权的 Agent 目录，不存在产品级“切换 Backend”。
+- Agent 排序稳定：Backend 配置顺序 → 各 Backend 默认 Profile → 原生目录顺序。
+- 新建 Canvas 保持现有一键交互，不弹选择窗；自动绑定第一个可用 Agent。
+- 在首次持久 Send Reservation 前可以从 Canvas 顶部更换 Agent；预留创建后即锁定 Backend + Profile，失败或刷新也不解锁。
+- Backend 断开时最后一次发现的 Agent 可继续显示但不可选择发送；只要至少一个 Backend/Agent 可用，其他 Backend 故障不阻断创建。
+- 状态、Agent、用量和额度按 Backend 聚合；当前 Canvas 的 Branch、工作中数量和上下文不跨 Canvas/Backend 聚合。
+- 审批从第一阶段进入统一事件、持久化、HTTP 和节点内 UI，不能留到 Codex 阶段再改变契约。
 
-### 稳定的上层语义
+## 统一上层模型
 
-以下产品语义在两个阶段中保持不变：
-
-- Canvas 在首次执行前绑定一个稳定的 Agent Profile，执行后不可无提示切换。
-- Branch 和 Interaction 只追加，不改写已有历史。
-- `expectedHeadInteractionId`、单 Branch 发送锁、Send Reservation 和 `ambiguous` 不猜测原则继续成立。
-- Fork 与失效 Conversation 恢复继续以 ConvoSketchpad 的 Canonical Replay Package 为跨 Backend 基准。
-- Canvas 只持久化和公开自己管理的附件及 Artifact 副本，不把 Backend 临时路径作为产品数据。
-- 浏览器不连接 Agent Backend，也不解释 Backend 原始协议事件。
-
-“上层保持不变”指上述 Canvas 语义和现有用户流程保持稳定，不表示数据库可以继续把 OpenClaw 的标识符当成通用模型。
-
-### Agent Profile
-
-上层选择的是 ConvoSketchpad 的 `AgentProfile`，而不是某个 Backend 的原始 Agent 对象：
-
-```ts
-interface AgentProfile {
-  id: string;              // ConvoSketchpad 稳定 ID
-  backendId: string;       // Backend 实例
-  displayName: string;
-  backendProfileRef: BackendHandle;
-}
-```
-
-- OpenClaw Profile 映射到 Gateway `agentId`。
-- Codex Profile 将映射到受管配置模板，例如 model、cwd、sandbox、personality、Skills/Plugins 策略。
-- 现有 Agent 选择 API 和 UI 在第一阶段保持兼容；内部改为投影 Agent Profile。
-
-### 不透明 Backend Handle
-
-Conversation、Turn、Artifact 和 Approval 使用可持久化但对上层不透明的 Handle：
+上层使用显式 `{ backendId, profileId }` 的 Agent Profile Ref。Conversation、Turn、Artifact、Approval 使用版本化 Handle：
 
 ```ts
 interface BackendHandle {
@@ -56,188 +31,104 @@ interface BackendHandle {
 }
 ```
 
-OpenClaw Adapter 可以在 `opaque` 中保存 `sessionKey`、物理 Session ID 或 `runId`；Codex Adapter 可以保存 `threadId`、`turnId` 或 Item ID。Canvas 通用层只能保存、比较 Backend 归属并原样交还适配器，不得读取 `opaque` 中的协议字段做业务判断。
+OpenClaw 可在 `opaque` 中保存 `sessionKey`、`sessionId`、`runId`；Codex 可保存 `threadId`、`turnId`、Item ID。Canvas 通用代码不得解析这些字段。
 
-### 语义化 Capabilities
+Capabilities 以产品语义表达：Conversation resume/history/fork，文本/图片/音频/文件输入，文本流/图片生成/Artifact 输出，中断/steer/审批，幂等与未知结果核对，以及上下文、账户用量和额度。
 
-上层不得再通过 `supports("chat.send")` 等协议方法名判断能力。统一能力至少覆盖：
+## 统一事件和审批
 
-- Conversation：resume、readHistory、nativeFork；
-- Input：text、images、audio、arbitraryFiles；
-- Output：textStreaming、imageGeneration、artifacts；
-- Execution：interrupt、steer、interactiveApprovals；
-- Reliability：idempotentDispatch、inspectAfterUnknownOutcome；
-- Usage：turnTokens、contextWindow、accountQuota。
+统一事件至少包含：
 
-Capability 必须在 Backend 连接或重连后重新协商。功能降级由语义能力决定，不把某个协议的方法列表传播到 Canvas 上层。
-
-## 统一 AgentBackend 边界
-
-接口按职责可拆成多个小 Port，实现上可以由一个 Backend 对象组合提供：
-
-```ts
-interface AgentBackend {
-  describe(): Promise<BackendDescriptor>;
-  listAgentProfiles(owner: OwnerContext): Promise<AgentProfile[]>;
-  getCapabilities(profile: AgentProfileRef): Promise<BackendCapabilities>;
-
-  createConversation(input: CreateConversationInput): Promise<ConversationHandle>;
-  inspectConversation(handle: ConversationHandle): Promise<ConversationSnapshot | null>;
-
-  dispatchTurn(input: DispatchTurnInput): Promise<DispatchResult>;
-  reconcileDispatch(input: ReconcileDispatchInput): Promise<DispatchReconciliation>;
-  readTurn(input: ReadTurnInput): Promise<TurnSnapshot | null>;
-  interruptTurn(input: InterruptTurnInput): Promise<void>;
-
-  materializeArtifact(handle: BackendArtifactHandle): Promise<MaterializedArtifact>;
-  resolveApproval(input: ResolveApprovalInput): Promise<ApprovalResolution>;
-
-  subscribeEvents(listener: (event: BackendEvent) => void): () => void;
-  subscribeStatus(listener: (status: BackendStatus) => void): () => void;
-}
+```text
+turn.accepted
+output.text.delta
+output.message.completed
+artifact.available
+usage.updated
+approval.required
+approval.resolved
+input.required
+turn.completed | turn.failed | turn.interrupted
+backend.disconnected
 ```
 
-Canvas Coordinator 继续拥有 Send Reservation、Branch 锁、Interaction 生命周期和数据库事务；Backend Adapter 只返回协议事实和归一化事件，不直接推进 Canvas 头节点。
+`approval.required` 包含不透明 Handle、类别、可展示摘要、风险、细粒度权限、选择、作用域、二次确认要求和到期时间。`approval.resolved` 包含统一 Resolution 与来源。原始命令环境、Token 和凭据不得进入事件或浏览器 DTO。
 
-## 统一事件与审批
+审批 UI 位于所属 Interaction 节点内，用户可逐项取消权限；持久/会话级选择必须二次确认。审批结果使用 `accepted | rejected | unknown`：明确拒绝可重试，结果未知进入 `unconfirmed` 并等待原生 resolved 事件，不能盲目重发。
 
-统一事件从第一阶段起必须包含审批，不能等到 Codex 接入时再破坏事件契约：
+终态与审批进入 `backend_event_inbox` 持久化、去重；Preview 不持久化。
 
-```ts
-type BackendEvent =
-  | TurnAcceptedEvent
-  | TextDeltaEvent
-  | MessageCompletedEvent
-  | ArtifactAvailableEvent
-  | UsageUpdatedEvent
-  | ApprovalRequiredEvent
-  | ApprovalResolvedEvent
-  | InputRequiredEvent
-  | TurnCompletedEvent
-  | TurnFailedEvent
-  | TurnInterruptedEvent
-  | BackendDisconnectedEvent;
-```
+## 派发与恢复
 
-每个事件至少携带：
+`dispatchTurn` 必须返回 `accepted | rejected | unknown`。Canvas Coordinator 继续拥有 Reservation 和 Branch 锁。OpenClaw 用 Reservation ID 作为 `chat.send.idempotencyKey`；Codex 的 JSON-RPC ID 只用于传输关联，未知结果必须先通过 `thread/read` 和持久相关性核对。
 
-- `backendId`；
-- `conversationRef`；
-- 可选 `turnRef`；
-- 可选、可去重的 `eventId` 与顺序信息；
-- 事件类型和类型化 payload；
-- 仅供诊断或适配器恢复使用的受限 Backend 元数据。
+Fork 与失效 Conversation 恢复继续使用 Canonical Replay。原生 Fork 只有在证明附件、Artifact 和外部状态语义一致后才可作为优化。
 
-审批事件必须满足：
+## 图片与 Artifact
 
-- `approval.required` 包含不透明 `approvalRef`、所属 Conversation/Turn、审批类别、可展示摘要、允许的决定集合和到期信息；
-- `approval.resolved` 包含最终决定和解析来源，但不得包含凭据或未经过滤的命令环境；
-- 决定通过 `resolveApproval()` 返回 Backend，不允许 Route 调用 OpenClaw/Codex 原始审批方法；
-- 审批能力通过 `interactiveApprovals` 声明；不支持交互审批的部署必须采用明确的拒绝或安全自动审查策略，不能让 Turn 永久悬挂；
-- 终态和待审批信号进入通用 `backend_event_inbox` 的持久化/去重路径。第一阶段建立领域与持久化边界，但不新增 Canvas 审批 UI；UI 和 HTTP 契约若后续需要，必须作为单独、显式的产品变化评审。
+- 输入只来自 Canvas 持久化附件，由 Adapter 转换原生格式。
+- OpenClaw 通过原生 Artifact/Transcript；Codex 通过结构化 ImageGeneration/Tool/MCP Item。
+- 不扫描 Codex 或 OpenClaw 工作区猜测生成物。
+- Adapter 返回的本地路径仍需路径包含、符号链接、大小、MIME 和所有者检查，并立即复制到 Canvas Artifact 存储。
+- `imageGeneration` 是运行时 Capability；没有该能力时 UI/协调器必须明确降级。
 
-## 发送可靠性
+## 目录结构
 
-统一派发结果不能只有“成功/抛错”：
+统一代码位于 `server/lib/agent-backends/{contract,config,registry,catalog}.ts`；每个实现位于 `server/lib/agent-backends/adapters/<backend-id>/`，只由 Registry 组合。Canvas Backend 事件消费位于 `server/lib/canvas/backend-events.ts`。完整约束见 [`agent-backends/ADAPTER-DEVELOPMENT.md`](agent-backends/ADAPTER-DEVELOPMENT.md)。
 
-```ts
-type DispatchResult =
-  | { outcome: 'accepted'; turnRef: TurnHandle }
-  | { outcome: 'rejected'; error: BackendError }
-  | { outcome: 'unknown'; recoveryRef?: BackendHandle };
-```
+## 数据库迁移决策
 
-- OpenClaw：继续用 Reservation ID 作为 `chat.send.idempotencyKey`，`runId` 映射为 Turn Handle；结果未知时可以用同一幂等键重试。
-- Codex：JSON-RPC 请求 ID 只用于传输关联。`clientUserMessageId` 可用于恢复相关性，但在没有明确幂等保证前，结果未知时必须先用 `thread/read` 和持久化的前一 Turn 位置执行 `reconcileDispatch()`；无法唯一确认时保持 `ambiguous`，不得盲目重发。
+本阶段采用彻底迁移，不保留旧 OpenClaw 物理列、不双写：
 
-通用 Coordinator 根据 Backend 返回的 `accepted/rejected/unknown` 推进现有状态机，具体的安全重试和核对策略由 Adapter 实现。
+- `canvases`: `backend_id`, `agent_profile_id`, `agent_locked_at`；
+- `branches`: `conversation_id`, Handle、instance、integrity/state 字段；
+- `interactions`: `backend_turn_id`, `turn_ref_json`, `execution_metadata_json`；
+- `send_reservations`: Backend、Conversation Handle、恢复 Handle、`backend_turn_id`；
+- `interaction_artifacts`: `backend_artifact_id`, `backend_artifact_ref_json`；
+- `backend_event_inbox` 取代 `gateway_signal_inbox`；
+- `interaction_approvals` 保存已净化摘要和解析状态。
 
-## Conversation、Fork 与恢复
+已有数据一次性映射为 OpenClaw Handle，旧 `agent_id`、`session_key`、`run_id`、`gateway_artifact_id`、`session_metadata_json` 和 `gateway_signal_inbox` 在成功迁移后物理移除。公开 DTO 也使用通用 Agent/Conversation/Context/Approval 语义。
 
-- 通用模型使用 Conversation/Turn，不在上层使用 Session/Run 命名。
-- OpenClaw Adapter 负责 Session 存在性、物理 Session 漂移和 Reset Policy。
-- Codex Adapter 负责 Thread start/resume/read、Turn 读取和进程重启后的恢复。
-- Canonical Replay 是跨 Backend 的默认 Branch 语义。
-- Codex `thread/fork(lastTurnId)` 和其他 Backend 原生 Fork 只作为 `nativeFork` 能力保留；在证明与 Canonical Replay 的附件、Artifact、外部状态语义等价前，不作为默认路径。
+setup 自动停止检测到的受管服务、创建一致性 SQLite 快照、运行目标迁移、失败恢复并按原状态重启。更新器沿用停服 → 快照 → 构建 → 迁移/完整性校验 → 重启；无受管服务时由下次手动启动在监听前自动迁移。
 
-## 附件、Artifact 与图片
+截至 `0.4.0`，迁移清单固定为三项连续边界：`0.2.0_to_0.3.0_v1`、覆盖 `0.3.0 → 0.3.2` 小版本维护的历史 ID `0.3.0_media_derivatives_v1`，以及 `0.3.2_to_0.4.0_agent_backend_v1`。迁移 ID 发布后保持不变，版本边界由统一清单声明。`npm run migrate` 必须显式验证三项都已记录。发布安装流程仍要求 `0.2.0` 先固定升级到 `v0.3.0`，因为旧更新器不具备 `0.3.0` 引入的停服 SQLite 快照和失败回滚能力。
 
-- 通用输入以文本和 ConvoSketchpad 已持久化附件描述为准，由 Adapter 转换为 Backend 投递格式。
-- OpenClaw 继续使用 `chat.send.attachments`。
-- Codex 图片/音频可映射到结构化 UserInput；普通文件需要复制到按 owner/Conversation 隔离的安全 staging 目录并使用相对路径引用。
-- OpenClaw Artifact 继续通过 `artifacts.list/download` 与 Transcript fallback 获取。
-- Codex 图片生成通过 capability 检测和 `imageGeneration` 完成 Item 获取；`savedPath` 必须通过路径包含、符号链接、大小、MIME 和所有权检查后立即复制进 Canvas Artifact 存储。
-- 不扫描整个 Codex Workspace 推断 Artifact。只有结构化 ImageGeneration、明确的 Tool/MCP 输出或未来显式声明的路径可以提升为 Canvas Artifact。
+## 聚合规则
 
-## 数据迁移方向
+- Agent：扁平列表、稳定排序、局部失败隔离、最后已知目录只读展示。
+- 状态：每 Backend 明细；全部连接为 `ready`，部分连接为 `degraded`，仅连接中为 `connecting`，无连接为 `unavailable`。
+- 用量：每 Backend 分组；Token 和 Provider 额度不跨 Backend 相加。
+- 费用：只有所有 Backend 在线、所有声明支持费用的 Backend 都成功返回可加数据，且币种/周期一致时才返回 `comparableCostTotal`。
+- Canvas 状态栏：仅投影当前 Canvas 的 Branch、工作中和活跃 Composer 上下文。
 
-第一阶段采用可回滚的增量迁移，保留旧 OpenClaw 字段作为兼容别名，通用代码不再读取它们做决策：
+## 功能提交边界
 
-- `canvases`：增加 `backend_id`、`agent_profile_id`；
-- `branches`：增加 `conversation_ref_json`、通用 Conversation instance/观察字段；
-- `interactions`：增加 `turn_ref_json`；
-- `send_reservations`：增加 Backend/Conversation/派发恢复引用；
-- `interaction_artifacts`：增加 `backend_artifact_ref_json`；
-- 新建 `backend_event_inbox`，替代通用代码对 `gateway_signal_inbox` 的依赖；
-- Context Snapshot 的来源改为 Backend 标识，并把上下文 Token、窗口和账户额度分开建模。
-
-已有数据全部回填为 OpenClaw Backend。迁移期间公开 DTO 保持现有字段兼容，避免第一阶段顺带修改前端协议。
-
-## 两个功能提交的严格边界
-
-本文档修改先供评审，不计作以下功能提交。本轮不做功能开发。
-
-### 功能提交一：建立统一 AgentBackend，并迁移现有 OpenClaw
+### 提交一：统一 Backend + OpenClaw Adapter
 
 必须完成：
 
-1. 定义 Backend Descriptor、Agent Profile、Capabilities、不透明 Handles、派发结果、错误、状态和统一事件类型；统一事件包括审批 required/resolved 和 `resolveApproval()` Port。
-2. 建立 Backend Registry/选择入口；当前只注册 OpenClaw。
-3. 将现有 OpenClaw Gateway 调用收敛到 `OpenClawAgentBackend`，保持当前 Agent 目录、发送、Session 检查、Reset Policy、Transcript、上下文、Artifact、运行状态和恢复行为。
-4. 让 Canvas Route、Send Service、Worker、Coordinator、事件消费、Reconciler、Context Snapshot 和 Artifact 物化只依赖统一 Backend Port，不直接调用 Gateway RPC 或检查 OpenClaw 方法名。
-5. 增加并回填通用持久化字段与 `backend_event_inbox`；保留旧字段和公开 API 的兼容投影。
-6. OpenClaw 原始事件先由 Adapter 归一化；Canvas 层只消费 `BackendEvent`。审批事件能够被类型化、去重、持久化并通过统一 Port 响应，但本提交不新增审批 UI。
-7. 建立可复用的 Backend Contract Tests，并证明 OpenClaw Adapter 在发送确认、结果未知、重连、终态去重、恢复、Artifact 和所有者约束下保持现有行为。
-8. 同步正式架构、代码地图、迁移和必要的 API 文档。
+1. 通用契约、Capability、Handle、事件、审批、错误和派发三态。
+2. 配置、Registry、扁平 Agent 目录、聚合状态/用量。
+3. 清晰 Adapter 目录，并将所有 Gateway/Session/原生 Artifact 逻辑收敛到 OpenClaw Adapter。
+4. Canvas Route、Service、Worker、Coordinator、Reconciler、Context 和 Artifact 只依赖 Port。
+5. 新建 Canvas 默认首个可用 Agent，首次预留前可改，之后锁定。
+6. Interaction 节点内审批 UI、统一审批 API、持久化与去重。
+7. 数据库彻底迁移，setup/update/启动自动迁移与校验。
+8. Adapter 开发规范、正式产品/架构/API/配置/安装/更新/安全/排障文档和相称测试。
 
-不得包含：
+不得包含：Codex 子进程、App Server、Codex 配置/Thread/图片实现、远程 Codex，或读取本地 Provider 凭据。
 
-- Codex 子进程、Codex SDK/App Server 调用或 Codex 配置；
-- 新的 Backend 选择 UI；
-- Codex Thread/Turn、Codex 文件 staging 或 ImageGeneration；
-- 改变现有 Canvas Branch、Retry、Replay 或 Artifact 用户语义；
-- 删除旧 OpenClaw 数据列或打破回滚兼容。
+### 提交二：本地 Codex App Server Adapter
 
-提交一验收点：在只注册 OpenClaw 时，现有前端、HTTP API 和 Canvas 行为不变；服务端 Canvas 业务模块不再直接依赖 `gateway-rpc.ts`，OpenClaw 专有术语只存在于 Adapter、兼容迁移和诊断投影中。
+开始条件：提交一经用户确认并完成细节调整后明确授权。
 
-### 功能提交二：接入本地 Codex App Server
+必须完成：受监督 stdio JSONL 进程、initialize/Schema/Capability、Codex Profile、Thread/Turn/Item、未知结果核对、统一审批、owner 隔离 staging、图片输入与 ImageGeneration Artifact、用量能力（仅 App Server 正式提供的安全数据）、子进程和路径安全测试，以及对应文档。
 
-开始条件：提交一经用户审阅并完成细节修改后，明确授权开始。
+不包含：远程 Codex、经 OpenClaw 中转、读取 Codex/Claude 凭据文件、调用 CLI 猜测 Provider 额度、默认原生 Thread Fork 或 Workspace 全盘扫描。
 
-必须完成：
+## 第二阶段前待确认
 
-1. 使用受监督的本地 `codex app-server` 子进程和默认 stdio JSONL 传输；不接远程 Codex WebSocket。
-2. 完成 initialize、版本化 Schema/Capabilities、模型与 Codex Agent Profile 投影。
-3. 实现 Thread start/resume/read、Turn start/interrupt、流式 Item 事件、终态和上下文用量。
-4. 使用 `clientUserMessageId`、前一 Turn 位置和 `thread/read` 实现结果未知后的核对；不能把 JSON-RPC ID 当成幂等键。
-5. 接入统一审批事件和 `resolveApproval()`，并为不支持交互审批的运行方式设置明确安全策略。
-6. 实现按 owner 隔离的附件 staging、图片输入和安全清理。
-7. 接入运行时 imageGeneration capability、结构化 ImageGeneration Item 和 Canvas Artifact 持久化。
-8. 通过与 OpenClaw 相同的 Backend Contract Tests，并补充子进程退出、协议损坏、Thread 恢复、审批等待、路径逃逸、超限文件和多用户隔离测试。
-9. 增加所需配置、安装检查、排障、安全与产品文档。
-
-明确不包含：
-
-- 远程 Codex；
-- 把 OpenClaw 作为 Codex 的中转层；
-- 默认使用 Codex 原生 Thread Fork 代替 Canonical Replay；
-- 扫描 Codex Workspace 自动收集全部输出文件；
-- 读取 Codex 本地凭据文件，或调用 Codex CLI 查询 Provider 用量/配额。
-
-## 第二阶段开始前仍需确认
-
-- 本地 Codex Backend 的账户边界：默认只允许单操作员/本地所有者，还是允许受管用户显式共享宿主机 Codex 身份和额度。未明确前，Codex Profile 不应自动暴露给所有受管用户。
-- 审批的首个用户入口：仅建立服务端统一模型，还是同时增加 Canvas 审批 UI/API。当前两提交边界按“提交一只建统一模型，提交二接入 Codex 审批，UI 另行评审”记录。
-- Codex Agent Profile 的配置来源和允许的 cwd 根目录。
-
-以上未决项不会阻塞第一阶段的 OpenClaw 抽象迁移。
+- 宿主机 Codex 身份如何向受管用户授权；未明确前不得默认共享给所有用户。
+- Codex Profile 配置来源、允许的 cwd 根目录与 Sandbox 基线。
+- Codex App Server 当前版本对用量、图片生成和审批的实际 Capability；必须运行时协商，不能假设存在。

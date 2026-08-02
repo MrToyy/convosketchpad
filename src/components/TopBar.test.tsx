@@ -3,7 +3,7 @@ import { fireEvent, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { TopBar } from './TopBar';
 import { renderWithSettings } from '@/test/render-with-settings';
-import type { TokenData } from '@/types';
+import type { RuntimeUsageData } from '@/types';
 
 vi.mock('./ConvoSketchpadLogo', () => ({
   default: () => <div data-testid="convosketchpad-logo" />,
@@ -13,7 +13,7 @@ vi.mock('@/features/dashboard/TokenUsage', () => ({
 }));
 
 function renderTopBar(opts?: {
-  tokenData?: TokenData | null;
+  tokenData?: RuntimeUsageData | null;
   onUsageOpen?: () => void;
 }) {
   return renderWithSettings(
@@ -52,12 +52,9 @@ describe('TopBar', () => {
     renderTopBar({
       onUsageOpen,
       tokenData: {
-        totalCost: 1.25,
-        totalInput: 10,
-        totalOutput: 20,
-        totalCacheRead: 30,
+        backends: [],
+        comparableCostTotal: { currency: 'USD', amount: 1.25 },
         updatedAt: 123,
-        source: 'openclaw-gateway',
       },
     });
 
