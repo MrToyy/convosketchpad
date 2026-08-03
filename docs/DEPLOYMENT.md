@@ -39,7 +39,7 @@ loopback Gateway 使用共享 `OPENCLAW_GATEWAY_TOKEN` 直连，不需要设备�
 建议通过 Tailscale、WireGuard 或 SSH 隧道连接 Gateway。配置：
 
 ```bash
-AGENT_BACKENDS=openclaw
+AGENT_RUNTIMES=openclaw
 OPENCLAW_GATEWAY_URL=https://gateway.example.internal
 OPENCLAW_GATEWAY_TOKEN=<token>
 OPENCLAW_GATEWAY_TIMEZONE=Asia/Shanghai

@@ -13,8 +13,8 @@ function interaction(overrides: Partial<OwnedInteractionRecord> = {}): OwnedInte
     id: 'interaction-1',
     branchId: 'branch-1',
     parentInteractionId: null,
-    backendTurnId: 'run-1',
-    turnRef: { backendId: 'openclaw', schemaVersion: 1, opaque: { runId: 'run-1' } },
+    runtimeTurnId: 'run-1',
+    turnRef: { runtimeId: 'openclaw', schemaVersion: 1, opaque: { runId: 'run-1' } },
     userInput: 'create a file',
     agentOutput: '',
     status: 'completed',
@@ -27,10 +27,10 @@ function interaction(overrides: Partial<OwnedInteractionRecord> = {}): OwnedInte
     ownerId: 'owner-1',
     canvasId: 'canvas-1',
     conversationId: 'agent:main:canvas:branch-1',
-    backendId: 'openclaw',
+    runtimeId: 'openclaw',
     agentProfileId: 'main',
     conversationRef: {
-      backendId: 'openclaw',
+      runtimeId: 'openclaw',
       schemaVersion: 1,
       opaque: { sessionKey: 'agent:main:canvas:branch-1' },
     },
@@ -50,7 +50,7 @@ async function loadStore(options: { workspaceGet?: boolean } = {}) {
       gatewayToken: 'test-token',
     },
   }));
-  vi.doMock('./agent-backends/adapters/openclaw/gateway-rpc.js', () => ({
+  vi.doMock('./agent-runtimes/adapters/openclaw/gateway-rpc.js', () => ({
     gatewaySupports: (method: string) =>
       method === 'agents.list' || (options.workspaceGet === true && method === 'agents.workspace.get'),
     gatewayRpcCall: async (method: string) => {

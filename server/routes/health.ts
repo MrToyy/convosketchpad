@@ -1,20 +1,20 @@
-/** Process health plus non-sensitive Agent Backend aggregate state. */
+/** Process health plus non-sensitive Agent Runtime aggregate state. */
 import { Hono } from 'hono';
-import { agentBackendRegistry } from '../lib/agent-backends/registry.js';
-import { aggregateBackendStatuses } from '../lib/agent-backends/catalog.js';
+import { agentRuntimeRegistry } from '../lib/agent-runtimes/registry.js';
+import { aggregateRuntimeStatuses } from '../lib/agent-runtimes/catalog.js';
 
 const app = new Hono();
 
 app.get('/health', (c) => {
-  const aggregate = aggregateBackendStatuses(
-    agentBackendRegistry.list().map((backend) => backend.getStatus()),
+  const aggregate = aggregateRuntimeStatuses(
+    agentRuntimeRegistry.list().map((runtime) => runtime.getStatus()),
   );
   return c.json({
     status: 'ok',
     uptime: process.uptime(),
-    agentBackends: {
+    agentRuntimes: {
       overallState: aggregate.overallState,
-      backends: aggregate.backends.map(({ backendId, state }) => ({ backendId, state })),
+      runtimes: aggregate.runtimes.map(({ runtimeId, state }) => ({ runtimeId, state })),
     },
   });
 });

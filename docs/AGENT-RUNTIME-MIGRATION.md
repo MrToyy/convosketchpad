@@ -1,31 +1,31 @@
-# Agent Backend 两阶段迁移工作笔记（临时）
+# Agent Runtime 两阶段迁移工作笔记（临时）
 
-> 状态：第一阶段正在 `dev` 工作树实现并等待用户审阅，未暂存、未提交；第二阶段 Codex 尚未开始。本文件在两阶段完成、结论并入正式文档后删除。
+> 状态：第一阶段已在 `dev` 完成，当前命名统一为 Agent 运行端（Agent Runtime）；第二阶段 Codex 尚未开始。本文件在两阶段完成、结论并入正式文档后删除。
 
 ## 目标与产品边界
 
-ConvoSketchpad 在 Canvas 领域模型和执行运行时之间建立统一 `AgentBackend` Port。OpenClaw 是第一阶段唯一 Adapter；第二阶段直接连接受监督的本地 Codex App Server，不通过 OpenClaw。未来 Backend 复用同一边界。
+ConvoSketchpad 在 Canvas 领域模型和 Agent 运行端之间建立统一 `AgentRuntime` Port。OpenClaw 是第一阶段唯一 Adapter；第二阶段直接连接受监督的本地 Codex App Server，不通过 OpenClaw。未来运行端复用同一边界。
 
-Agent、工具、执行、Conversation、原始事件和权威运行记录由 Backend 负责。ConvoSketchpad 负责 Canvas 拓扑与布局、Branch/Interaction、Send Reservation、恢复元数据、受管用户隔离、附件和 Artifact 持久化副本。
+Agent、工具、执行、Conversation、原始事件和权威运行记录由 Runtime 负责。ConvoSketchpad 负责 Canvas 拓扑与布局、Branch/Interaction、Send Reservation、恢复元数据、受管用户隔离、附件和 Artifact 持久化副本。
 
 ## 已确认的产品决策
 
-- setup 配置需要启用的 Backend；当前同一 Adapter 类型最多配置一个实例。
-- 配置完成后，各 Backend 提供的 Profile 合并成一个扁平、平权的 Agent 目录，不存在产品级“切换 Backend”。
-- Agent 排序稳定：Backend 配置顺序 → 各 Backend 默认 Profile → 原生目录顺序。
+- setup 配置需要启用的 Runtime；当前同一 Adapter 类型最多配置一个实例。
+- 配置完成后，各 Runtime 提供的 Profile 合并成一个扁平、平权的 Agent 目录，不存在产品级“切换 Runtime”。
+- Agent 排序稳定：Runtime 配置顺序 → 各 Runtime 默认 Profile → 原生目录顺序。
 - 新建 Canvas 保持现有一键交互，不弹选择窗；自动绑定第一个可用 Agent。
-- 在首次持久 Send Reservation 前可以从 Canvas 顶部更换 Agent；预留创建后即锁定 Backend + Profile，失败或刷新也不解锁。
-- Backend 断开时最后一次发现的 Agent 可继续显示但不可选择发送；只要至少一个 Backend/Agent 可用，其他 Backend 故障不阻断创建。
-- 状态、Agent、用量和额度按 Backend 聚合；当前 Canvas 的 Branch、工作中数量和上下文不跨 Canvas/Backend 聚合。
+- 在首次持久 Send Reservation 前可以从 Canvas 顶部更换 Agent；预留创建后即锁定 Runtime + Profile，失败或刷新也不解锁。
+- Runtime 断开时最后一次发现的 Agent 可继续显示但不可选择发送；只要至少一个 Runtime/Agent 可用，其他 Runtime 故障不阻断创建。
+- 状态、Agent、用量和额度按 Runtime 聚合；当前 Canvas 的 Branch、工作中数量和上下文不跨 Canvas/Runtime 聚合。
 - 审批从第一阶段进入统一事件、持久化、HTTP 和节点内 UI，不能留到 Codex 阶段再改变契约。
 
 ## 统一上层模型
 
-上层使用显式 `{ backendId, profileId }` 的 Agent Profile Ref。Conversation、Turn、Artifact、Approval 使用版本化 Handle：
+上层使用显式 `{ runtimeId, profileId }` 的 Agent Profile Ref。Conversation、Turn、Artifact、Approval 使用版本化 Handle：
 
 ```ts
-interface BackendHandle {
-  backendId: string;
+interface RuntimeHandle {
+  runtimeId: string;
   schemaVersion: number;
   opaque: Record<string, string>;
 }
@@ -49,14 +49,14 @@ approval.required
 approval.resolved
 input.required
 turn.completed | turn.failed | turn.interrupted
-backend.disconnected
+runtime.disconnected
 ```
 
 `approval.required` 包含不透明 Handle、类别、可展示摘要、风险、细粒度权限、选择、作用域、二次确认要求和到期时间。`approval.resolved` 包含统一 Resolution 与来源。原始命令环境、Token 和凭据不得进入事件或浏览器 DTO。
 
 审批 UI 位于所属 Interaction 节点内，用户可逐项取消权限；持久/会话级选择必须二次确认。审批结果使用 `accepted | rejected | unknown`：明确拒绝可重试，结果未知进入 `unconfirmed` 并等待原生 resolved 事件，不能盲目重发。
 
-终态与审批进入 `backend_event_inbox` 持久化、去重；Preview 不持久化。
+终态与审批进入 `runtime_event_inbox` 持久化、去重；Preview 不持久化。
 
 ## 派发与恢复
 
@@ -74,37 +74,37 @@ Fork 与失效 Conversation 恢复继续使用 Canonical Replay。原生 Fork �
 
 ## 目录结构
 
-统一代码位于 `server/lib/agent-backends/{contract,config,registry,catalog}.ts`；每个实现位于 `server/lib/agent-backends/adapters/<backend-id>/`，只由 Registry 组合。Canvas Backend 事件消费位于 `server/lib/canvas/backend-events.ts`。完整约束见 [`agent-backends/ADAPTER-DEVELOPMENT.md`](agent-backends/ADAPTER-DEVELOPMENT.md)。
+统一代码位于 `server/lib/agent-runtimes/{contract,config,registry,catalog}.ts`；每个实现位于 `server/lib/agent-runtimes/adapters/<runtime-id>/`，只由 Registry 组合。Canvas Runtime 事件消费位于 `server/lib/canvas/runtime-events.ts`。完整约束见 [`agent-runtimes/ADAPTER-DEVELOPMENT.md`](agent-runtimes/ADAPTER-DEVELOPMENT.md)。
 
 ## 数据库迁移决策
 
 本阶段采用彻底迁移，不保留旧 OpenClaw 物理列、不双写：
 
-- `canvases`: `backend_id`, `agent_profile_id`, `agent_locked_at`；
+- `canvases`: `runtime_id`, `agent_profile_id`, `agent_locked_at`；
 - `branches`: `conversation_id`, Handle、instance、integrity/state 字段；
-- `interactions`: `backend_turn_id`, `turn_ref_json`, `execution_metadata_json`；
-- `send_reservations`: Backend、Conversation Handle、恢复 Handle、`backend_turn_id`；
-- `interaction_artifacts`: `backend_artifact_id`, `backend_artifact_ref_json`；
-- `backend_event_inbox` 取代 `gateway_signal_inbox`；
+- `interactions`: `runtime_turn_id`, `turn_ref_json`, `execution_metadata_json`；
+- `send_reservations`: Runtime、Conversation Handle、恢复 Handle、`runtime_turn_id`；
+- `interaction_artifacts`: `runtime_artifact_id`, `runtime_artifact_ref_json`；
+- `runtime_event_inbox` 取代 `gateway_signal_inbox`；
 - `interaction_approvals` 保存已净化摘要和解析状态。
 
 已有数据一次性映射为 OpenClaw Handle，旧 `agent_id`、`session_key`、`run_id`、`gateway_artifact_id`、`session_metadata_json` 和 `gateway_signal_inbox` 在成功迁移后物理移除。公开 DTO 也使用通用 Agent/Conversation/Context/Approval 语义。
 
 setup 自动停止检测到的受管服务、创建一致性 SQLite 快照、运行目标迁移、失败恢复并按原状态重启。更新器沿用停服 → 快照 → 构建 → 迁移/完整性校验 → 重启；无受管服务时由下次手动启动在监听前自动迁移。
 
-截至 `0.4.0`，迁移清单固定为三项连续边界：`0.2.0_to_0.3.0_v1`、覆盖 `0.3.0 → 0.3.2` 小版本维护的历史 ID `0.3.0_media_derivatives_v1`，以及 `0.3.2_to_0.4.0_agent_backend_v1`。迁移 ID 发布后保持不变，版本边界由统一清单声明。`npm run migrate` 必须显式验证三项都已记录。发布安装流程仍要求 `0.2.0` 先固定升级到 `v0.3.0`，因为旧更新器不具备 `0.3.0` 引入的停服 SQLite 快照和失败回滚能力。
+截至 `0.4.0`，迁移清单固定为三项连续边界：`0.2.0_to_0.3.0_v1`、覆盖 `0.3.0 → 0.3.2` 小版本维护的历史 ID `0.3.0_media_derivatives_v1`，以及 `0.3.2_to_0.4.0_agent_runtime_v1`。迁移 ID 发布后保持不变，版本边界由统一清单声明。`npm run migrate` 必须显式验证三项都已记录。发布安装流程仍要求 `0.2.0` 先固定升级到 `v0.3.0`，因为旧更新器不具备 `0.3.0` 引入的停服 SQLite 快照和失败回滚能力。
 
 ## 聚合规则
 
 - Agent：扁平列表、稳定排序、局部失败隔离、最后已知目录只读展示。
-- 状态：每 Backend 明细；全部连接为 `ready`，部分连接为 `degraded`，仅连接中为 `connecting`，无连接为 `unavailable`。
-- 用量：每 Backend 分组；Token 和 Provider 额度不跨 Backend 相加。
-- 费用：只有所有 Backend 在线、所有声明支持费用的 Backend 都成功返回可加数据，且币种/周期一致时才返回 `comparableCostTotal`。
+- 状态：每 Runtime 明细；全部连接为 `ready`，部分连接为 `degraded`，仅连接中为 `connecting`，无连接为 `unavailable`。
+- 用量：每 Runtime 分组；Token 和 Provider 额度不跨 Runtime 相加。
+- 费用：只有所有 Runtime 在线、所有声明支持费用的 Runtime 都成功返回可加数据，且币种/周期一致时才返回 `comparableCostTotal`。
 - Canvas 状态栏：仅投影当前 Canvas 的 Branch、工作中和活跃 Composer 上下文。
 
 ## 功能提交边界
 
-### 提交一：统一 Backend + OpenClaw Adapter
+### 提交一：统一 Runtime + OpenClaw Adapter
 
 必须完成：
 

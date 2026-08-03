@@ -3,7 +3,7 @@ import {
   cleanupOrphanCanvasArtifacts,
   materializeCanvasArtifacts,
 } from './canvas-artifact-store.js';
-import { getAgentBackend } from './agent-backends/registry.js';
+import { getAgentRuntime } from './agent-runtimes/registry.js';
 import { mergeEquivalentArtifacts } from './canvas-artifact-identity.js';
 import {
   evaluateArtifactWatch,
@@ -33,9 +33,9 @@ const BACKGROUND_OFFSETS_MS = [30_000, 60_000, 120_000, 5 * 60_000, 15 * 60_000,
 const MAX_MONITOR_AGE_MS = 24 * 60 * 60 * 1_000;
 const SLOW_MONITOR_AFTER_MS = 60 * 60 * 1_000;
 
-type BackendMessage = Record<string, unknown>;
+type RuntimeMessage = Record<string, unknown>;
 
-export interface BackendRunSummary {
+export interface RuntimeRunSummary {
   key?: string;
   conversationId?: string;
   id?: string;
@@ -103,7 +103,7 @@ function toArray(value: unknown): unknown[] {
   return value == null ? [] : [value];
 }
 
-function messageTimestamp(message: BackendMessage): number | undefined {
+function messageTimestamp(message: RuntimeMessage): number | undefined {
   const value = message.timestamp ?? message.createdAt ?? message.ts;
   if (typeof value === 'number') return value;
   if (typeof value === 'string') {
@@ -126,16 +126,16 @@ function textFromContent(value: unknown): string {
   }).filter(Boolean).join('\n');
 }
 
-function getMessageText(message: BackendMessage): string {
+function getMessageText(message: RuntimeMessage): string {
   return textFromContent(message.content) || asString(message.text);
 }
 
-function getMessageRole(message: BackendMessage): string {
+function getMessageRole(message: RuntimeMessage): string {
   return asString(message.role).toLowerCase();
 }
 
-function getMessageRunId(message: BackendMessage): string {
-  const direct = asString(message.backendTurnId);
+function getMessageRunId(message: RuntimeMessage): string {
+  const direct = asString(message.runtimeTurnId);
   if (direct) return direct;
   const idempotencyKey = asString(message.idempotencyKey);
   return idempotencyKey.includes(':') ? idempotencyKey.split(':')[0] : '';
@@ -225,8 +225,8 @@ function collectTextLinks(text: string, add: ReturnType<typeof artifactCollector
   }
 }
 
-function pickInteractionMessages(messages: BackendMessage[], interaction: InteractionRecord): {
-  messages: BackendMessage[];
+function pickInteractionMessages(messages: RuntimeMessage[], interaction: InteractionRecord): {
+  messages: RuntimeMessage[];
   matchedInteraction: boolean;
 } {
   if (messages.length === 0) return { messages: [], matchedInteraction: false };
@@ -255,9 +255,9 @@ function pickInteractionMessages(messages: BackendMessage[], interaction: Intera
     }
   }
 
-  if (userIndex < 0 && interaction.backendTurnId) {
+  if (userIndex < 0 && interaction.runtimeTurnId) {
     const runIndexes = messages
-      .map((message, index) => getMessageRunId(message) === interaction.backendTurnId ? index : -1)
+      .map((message, index) => getMessageRunId(message) === interaction.runtimeTurnId ? index : -1)
       .filter((index) => index >= 0);
     if (runIndexes.length > 0) return {
       messages: runIndexes.map((index) => messages[index]),
@@ -276,7 +276,7 @@ function pickInteractionMessages(messages: BackendMessage[], interaction: Intera
   return { messages: messages.slice(userIndex, endIndex), matchedInteraction: true };
 }
 
-export function extractCanvasTranscript(messages: BackendMessage[], interaction: InteractionRecord): CanvasTranscriptSnapshot {
+export function extractCanvasTranscript(messages: RuntimeMessage[], interaction: InteractionRecord): CanvasTranscriptSnapshot {
   const picked = pickInteractionMessages(messages, interaction);
   const relevant = picked.messages;
   const { artifacts, add } = artifactCollector();
@@ -365,7 +365,7 @@ export function compareReconciledInteractions(
   };
 }
 
-export function sessionIsTerminal(session: BackendRunSummary): boolean {
+export function sessionIsTerminal(session: RuntimeRunSummary): boolean {
   const status = session.status?.toLowerCase();
   if (status === 'done' || status === 'completed' || status === 'error' || status === 'failed' || status === 'aborted') return true;
   return session.agentState === 'idle' && !session.busy && !session.processing;
@@ -380,11 +380,11 @@ function timestampValue(value: unknown): number | undefined {
   return undefined;
 }
 
-function sessionTerminalAt(session: BackendRunSummary): number | undefined {
+function sessionTerminalAt(session: RuntimeRunSummary): number | undefined {
   return timestampValue(session.endedAt) ?? timestampValue(session.updatedAt);
 }
 
-export function sessionReflectsInteractionRun(session: BackendRunSummary, interaction: InteractionRecord): boolean {
+export function sessionReflectsInteractionRun(session: RuntimeRunSummary, interaction: InteractionRecord): boolean {
   const terminalAt = sessionTerminalAt(session);
   if (terminalAt !== undefined && terminalAt >= interaction.createdAt + 250) return true;
   const startedAt = timestampValue(session.startedAt);
@@ -421,11 +421,11 @@ export function mergeArtifacts(artifacts: CanvasArtifact[]): CanvasArtifact[] {
 export async function reconcileTranscriptSnapshot(
   interaction: OwnedInteractionRecord,
 ): Promise<CanvasTranscriptSnapshot> {
-  const backend = getAgentBackend(interaction.backendId);
-  if (!interaction.conversationRef) throw new Error('Interaction has no Backend conversation reference');
-  const extracted = await backend.readTurn({
+  const runtime = getAgentRuntime(interaction.runtimeId);
+  if (!interaction.conversationRef) throw new Error('Interaction has no Runtime conversation reference');
+  const extracted = await runtime.readTurn({
     profile: {
-      backendId: backend.id,
+      runtimeId: runtime.id,
       profileId: interaction.agentProfileId,
     },
     conversationRef: interaction.conversationRef,
@@ -552,7 +552,7 @@ async function settlementRead(interactionId: string): Promise<void> {
     else settlement.stableReads = 1;
     settlement.previousFingerprint = snapshot.fingerprint;
   } catch (error) {
-    readError = error instanceof Error ? error.message : 'Failed to read Agent Backend transcript';
+    readError = error instanceof Error ? error.message : 'Failed to read Agent Runtime transcript';
   }
 
   const now = Date.now();
@@ -743,7 +743,7 @@ async function backgroundRead(interactionId: string): Promise<void> {
       finish(interaction, settlement.best, {
         artifactSync: 'degraded',
         terminalAt: settlement.terminalAt,
-        reconciliationError: error instanceof Error ? error.message : 'Failed to read Agent Backend transcript',
+        reconciliationError: error instanceof Error ? error.message : 'Failed to read Agent Runtime transcript',
       });
       stopMonitor(interactionId);
       return;
@@ -752,7 +752,7 @@ async function backgroundRead(interactionId: string): Promise<void> {
       phase: 'pending',
       artifactSync: 'pending',
       lastCheckedAt: Date.now(),
-      lastError: error instanceof Error ? error.message : 'Failed to read Agent Backend transcript',
+      lastError: error instanceof Error ? error.message : 'Failed to read Agent Runtime transcript',
     });
   }
 
@@ -817,13 +817,13 @@ async function pollInteraction(interactionId: string): Promise<void> {
     const updated = getCanvasStore().updateInteractionCoordination(interactionId, {
       executionState: 'unconfirmed',
       artifactSyncState: 'degraded',
-      error: 'Agent Backend turn status could not be confirmed within 24 hours',
+      error: 'Agent Runtime turn status could not be confirmed within 24 hours',
     });
     getCanvasStore().updateReconciliationMetadata(interactionId, {
       phase: 'status_unconfirmed',
       artifactSync: 'pending',
       lastCheckedAt: Date.now(),
-      lastError: 'Agent Backend turn status could not be confirmed within 24 hours',
+      lastError: 'Agent Runtime turn status could not be confirmed within 24 hours',
     });
     if (updated) {
       publishCanvasChanged(interaction.ownerId, interaction.canvasId);
@@ -833,10 +833,10 @@ async function pollInteraction(interactionId: string): Promise<void> {
   }
 
   try {
-    const backend = getAgentBackend(interaction.backendId);
-    if (!interaction.conversationRef) throw new Error('Interaction has no Backend conversation reference');
-    const turn = await backend.inspectTurn({
-      profile: { backendId: backend.id, profileId: interaction.agentProfileId },
+    const runtime = getAgentRuntime(interaction.runtimeId);
+    if (!interaction.conversationRef) throw new Error('Interaction has no Runtime conversation reference');
+    const turn = await runtime.inspectTurn({
+      profile: { runtimeId: runtime.id, profileId: interaction.agentProfileId },
       conversationRef: interaction.conversationRef,
       turnRef: interaction.turnRef || null,
       userInput: interaction.userInput,
@@ -874,7 +874,7 @@ async function pollInteraction(interactionId: string): Promise<void> {
       phase: 'monitoring',
       artifactSync: 'pending',
       lastCheckedAt: Date.now(),
-      lastError: error instanceof Error ? error.message : 'Agent Backend unavailable',
+      lastError: error instanceof Error ? error.message : 'Agent Runtime unavailable',
     });
   }
 
@@ -888,19 +888,19 @@ export function scheduleCanvasInteractionReconciliation(interactionId: string, d
 }
 
 export function signalCanvasInteractionTerminal(interactionId: string, ownerId: string, input?: {
-  backendTurnId?: string;
+  runtimeTurnId?: string;
   failureHint?: string;
 }): OwnedInteractionRecord | null {
   const interaction = getCanvasStore().getOwnedInteraction(ownerId, interactionId);
   if (!interaction) return null;
-  if (input?.backendTurnId && interaction.backendTurnId && input.backendTurnId !== interaction.backendTurnId) return interaction;
+  if (input?.runtimeTurnId && interaction.runtimeTurnId && input.runtimeTurnId !== interaction.runtimeTurnId) return interaction;
   if (interaction.executionState !== 'running' && interaction.executionState !== 'unconfirmed'
     && !getCanvasStore().hasArtifactSyncJob(interaction.id)) return interaction;
   const updated = getCanvasStore().updateReconciliationMetadata(interaction.id, {
     phase: 'terminal_hint_received',
     artifactSync: 'pending',
     terminalHintAt: Date.now(),
-    terminalHintRunId: input?.backendTurnId || interaction.backendTurnId || null,
+    terminalHintRunId: input?.runtimeTurnId || interaction.runtimeTurnId || null,
     failureHint: input?.failureHint || null,
     lastCheckedAt: Date.now(),
   });

@@ -16,7 +16,7 @@ const {
   storeDeviceAuthMock: vi.fn(),
 }));
 
-vi.mock('../../server/lib/agent-backends/adapters/openclaw/device-identity.js', () => ({
+vi.mock('../../server/lib/agent-runtimes/adapters/openclaw/device-identity.js', () => ({
   CONVOSKETCHPAD_OPERATOR_SCOPES: ['operator.read', 'operator.write', 'operator.approvals'],
   createDeviceBlock: createDeviceBlockMock,
   storeDeviceAuth: storeDeviceAuthMock,

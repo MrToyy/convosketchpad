@@ -7,6 +7,7 @@ import {
   CANVAS_MIGRATION_PLAN,
 } from '../server/lib/canvas-migration-plan.js';
 import { runCanvasMediaBackfillMigration } from '../server/lib/canvas-media-derivatives.js';
+import { migrateLegacyAgentRuntimeEnv } from '../server/lib/agent-runtimes/env-migration.js';
 
 async function main(): Promise<void> {
   const store = new CanvasStore(config.canvasDatabasePath);
@@ -35,8 +36,10 @@ async function main(): Promise<void> {
     if (missingMigrations.length > 0) {
       throw new Error(`Required migration(s) not applied: ${missingMigrations.join(', ')}`);
     }
+    const migratedRuntimeEnv = migrateLegacyAgentRuntimeEnv(process.cwd());
     process.stdout.write(
       `${CANVAS_MIGRATION_PLAN.map((migration) => `${migration.id} verified`).join('\n')}\n`
+      + (migratedRuntimeEnv ? 'AGENT_RUNTIMES configuration migrated\n' : '')
       + (media
         ? `${CANVAS_MEDIA_BACKFILL_MIGRATION} details: `
           + `${media.hashed} hashed, ${media.generated} generated, `

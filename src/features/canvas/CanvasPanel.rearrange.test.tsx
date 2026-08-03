@@ -66,7 +66,7 @@ vi.mock('@xyflow/react', async (importOriginal) => {
 vi.mock('@/contexts/RuntimeContext', () => ({
   useRuntime: () => ({
     overallState: 'ready',
-    backendStatuses: { openclaw: { backendId: 'openclaw', state: 'connected' } },
+    runtimeStatuses: { openclaw: { runtimeId: 'openclaw', state: 'connected' } },
     connect: vi.fn(),
   }),
 }));
@@ -98,7 +98,7 @@ function canvasGraph(executionState: 'completed' | 'running' = 'completed'): Can
     canvas: {
       id: 'canvas-1',
       name: 'Test Canvas',
-      agentRef: { backendId: 'openclaw', profileId: 'main' },
+      agentRef: { runtimeId: 'openclaw', profileId: 'main' },
       agentMutable: false,
       createdAt: 1,
       updatedAt: 1,
@@ -125,7 +125,7 @@ function canvasGraph(executionState: 'completed' | 'running' = 'completed'): Can
       version: 1,
       branchId: 'branch-1',
       parentInteractionId: null,
-      backendTurnId: 'run-1',
+      runtimeTurnId: 'run-1',
       userInput: 'hello',
       agentOutput: executionState === 'completed' ? 'done' : '',
       status: executionState === 'completed' ? 'completed' : 'streaming',
@@ -167,7 +167,7 @@ beforeEach(() => {
   });
   apiMocks.list.mockResolvedValue([canvasGraph().canvas]);
   apiMocks.graph.mockResolvedValue(canvasGraph());
-  apiMocks.agents.mockResolvedValue({ agents: [{ agentRef: { backendId: 'openclaw', profileId: 'main' }, displayName: 'Main', backendDisplayName: 'OpenClaw', available: true }] });
+  apiMocks.agents.mockResolvedValue({ agents: [{ agentRef: { runtimeId: 'openclaw', profileId: 'main' }, displayName: 'Main', runtimeDisplayName: 'OpenClaw', available: true }] });
   apiMocks.saveLayout.mockResolvedValue(undefined);
   apiMocks.resubmit.mockResolvedValue({});
   flowMocks.getViewport
@@ -189,7 +189,7 @@ describe('Canvas rearrange action', () => {
       }
     });
 
-    await waitFor(() => expect(apiMocks.resubmit).toHaveBeenCalledWith('interaction-1', { backendId: 'openclaw', profileId: 'main' }));
+    await waitFor(() => expect(apiMocks.resubmit).toHaveBeenCalledWith('interaction-1', { runtimeId: 'openclaw', profileId: 'main' }));
     expect(apiMocks.graph).toHaveBeenCalled();
   });
 

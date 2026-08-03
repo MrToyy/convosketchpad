@@ -1,16 +1,16 @@
 import { describe, expect, it, vi } from 'vitest';
 
-vi.mock('../lib/agent-backends/registry.js', () => ({
-  agentBackendRegistry: {
+vi.mock('../lib/agent-runtimes/registry.js', () => ({
+  agentRuntimeRegistry: {
     list: () => [
-      { getStatus: () => ({ backendId: 'openclaw', state: 'connected' }) },
-      { getStatus: () => ({ backendId: 'codex', state: 'disconnected', error: 'secret detail' }) },
+      { getStatus: () => ({ runtimeId: 'openclaw', state: 'connected' }) },
+      { getStatus: () => ({ runtimeId: 'codex', state: 'disconnected', error: 'secret detail' }) },
     ],
   },
 }));
 
 describe('GET /health', () => {
-  it('reports process health and non-sensitive aggregate Backend state', async () => {
+  it('reports process health and non-sensitive aggregate Runtime state', async () => {
     const route = await import('./health.js');
     const response = await route.default.request('/health');
     expect(response.status).toBe(200);
@@ -18,11 +18,11 @@ describe('GET /health', () => {
     expect(payload).toMatchObject({
       status: 'ok',
       uptime: expect.any(Number),
-      agentBackends: {
+      agentRuntimes: {
         overallState: 'degraded',
-        backends: [
-          { backendId: 'openclaw', state: 'connected' },
-          { backendId: 'codex', state: 'disconnected' },
+        runtimes: [
+          { runtimeId: 'openclaw', state: 'connected' },
+          { runtimeId: 'codex', state: 'disconnected' },
         ],
       },
     });

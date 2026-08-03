@@ -4,8 +4,8 @@ import type {
   InteractionRecord,
   SendReservation,
 } from './canvas-db.js';
-import type { AgentBackend, AgentProfileRef } from './agent-backends/contract.js';
-import { getAgentBackend } from './agent-backends/registry.js';
+import type { AgentRuntime, AgentProfileRef } from './agent-runtimes/contract.js';
+import { getAgentRuntime } from './agent-runtimes/registry.js';
 import { dispatchCanvasSend } from './canvas-send-coordinator.js';
 
 export interface SubmitCanvasSendCommand {
@@ -47,21 +47,21 @@ export class CanvasSendApplicationError extends Error {
 
 interface CanvasSendServiceDependencies {
   store: CanvasStore;
-  backend?: AgentBackend;
-  backendResolver?: typeof getAgentBackend;
+  runtime?: AgentRuntime;
+  runtimeResolver?: typeof getAgentRuntime;
   dispatch?: typeof dispatchCanvasSend;
 }
 
 export class CanvasSendService {
   private readonly store: CanvasStore;
-  private readonly backend?: AgentBackend;
-  private readonly backendResolver: typeof getAgentBackend;
+  private readonly runtime?: AgentRuntime;
+  private readonly runtimeResolver: typeof getAgentRuntime;
   private readonly dispatch: typeof dispatchCanvasSend;
 
   constructor(dependencies: CanvasSendServiceDependencies) {
     this.store = dependencies.store;
-    this.backend = dependencies.backend;
-    this.backendResolver = dependencies.backendResolver || getAgentBackend;
+    this.runtime = dependencies.runtime;
+    this.runtimeResolver = dependencies.runtimeResolver || getAgentRuntime;
     this.dispatch = dependencies.dispatch || dispatchCanvasSend;
   }
 
@@ -86,10 +86,10 @@ export class CanvasSendService {
     branchId: string,
   ): Promise<void> {
     try {
-      const context = this.store.getOwnedBranchBackendContext(ownerId, branchId);
+      const context = this.store.getOwnedBranchRuntimeContext(ownerId, branchId);
       if (!context) return;
-      const backend = this.backend || this.backendResolver(context.backendId);
-      const inspection = await backend.inspectConversation(context.conversationRef);
+      const runtime = this.runtime || this.runtimeResolver(context.runtimeId);
+      const inspection = await runtime.inspectConversation(context.conversationRef);
       if (!inspection) return;
       if (inspection.exists) {
         this.store.observeBranchConversation(
@@ -115,10 +115,10 @@ export class CanvasSendService {
     const branch = this.store.getOwnedBranch(ownerId, branchId);
     if (!branch || branch.conversationState !== 'active') return false;
     if (branch.conversationIntegrity === 'drifted') return false;
-    const context = this.store.getOwnedBranchBackendContext(ownerId, branchId);
+    const context = this.store.getOwnedBranchRuntimeContext(ownerId, branchId);
     if (!context) return true;
-    const backend = this.backend || this.backendResolver(context.backendId);
-    return backend.conversationWillExpireBeforeNextTurn(context.conversationRef, {
+    const runtime = this.runtime || this.runtimeResolver(context.runtimeId);
+    return runtime.conversationWillExpireBeforeNextTurn(context.conversationRef, {
       conversationStartedAt: context.conversationStartedAt,
       lastInteractionAt: context.lastInteractionAt,
     });
@@ -133,7 +133,7 @@ export class CanvasSendService {
     const canvas = this.store.getCanvas(ownerId, branch.canvasId);
     if (!canvas) throw new CanvasSendApplicationError('not_found', 404, 'Not found');
     if (
-      canvas.agentRef.backendId !== command.expectedAgentRef.backendId
+      canvas.agentRef.runtimeId !== command.expectedAgentRef.runtimeId
       || canvas.agentRef.profileId !== command.expectedAgentRef.profileId
     ) {
       throw new CanvasSendApplicationError('agent_changed', 409);
@@ -163,7 +163,7 @@ export class CanvasSendService {
     const source = this.store.getOwnedInteraction(ownerId, command.interactionId);
     if (!source) throw new CanvasSendApplicationError('not_found', 404, 'Not found');
     if (
-      source.backendId !== command.expectedAgentRef.backendId
+      source.runtimeId !== command.expectedAgentRef.runtimeId
       || source.agentProfileId !== command.expectedAgentRef.profileId
     ) {
       throw new CanvasSendApplicationError('agent_changed', 409);

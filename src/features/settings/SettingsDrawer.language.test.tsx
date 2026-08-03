@@ -8,7 +8,7 @@ const drawerProps = {
   open: true,
   onClose: vi.fn(),
   onRefreshStatus: vi.fn(),
-  backendStatuses: { openclaw: { backendId: 'openclaw', state: 'connected' as const } },
+  runtimeStatuses: { openclaw: { runtimeId: 'openclaw', state: 'connected' as const } },
   onLogout: vi.fn(),
 };
 
@@ -43,7 +43,7 @@ describe('SettingsDrawer interface language', () => {
     expect(localStorage.getItem(LANGUAGE_STORAGE_KEY)).toBe('en');
 
     fireEvent.click(screen.getByRole('tab', { name: 'System' }));
-    expect(screen.getByRole('heading', { name: 'Agent Backends' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Agent Runtimes' })).toBeInTheDocument();
     expect(screen.getByText('Current version vtest')).toBeInTheDocument();
   });
 });

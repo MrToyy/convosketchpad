@@ -1,5 +1,8 @@
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { generateEnvContent, type EnvConfig } from './env-writer.js';
+import { generateEnvContent, loadExistingEnv, type EnvConfig } from './env-writer.js';
 
 describe('ConvoSketchpad env writer', () => {
   it('writes every supported branded runtime setting', () => {
@@ -53,5 +56,19 @@ describe('ConvoSketchpad env writer', () => {
     expect(content).toContain('PORT=3080');
     expect(content).not.toContain('VITE_HOST');
     expect(content).not.toContain('VITE_PORT');
+  });
+
+  it('loads the development-only Backend key as the current Runtime key', () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'convosketchpad-env-writer-'));
+    const envPath = path.join(dir, '.env');
+    writeFileSync(envPath, 'AGENT_BACKENDS=openclaw\nOPENCLAW_GATEWAY_TOKEN=token\n', 'utf8');
+    try {
+      expect(loadExistingEnv(envPath)).toMatchObject({
+        AGENT_RUNTIMES: 'openclaw',
+        OPENCLAW_GATEWAY_TOKEN: 'token',
+      });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

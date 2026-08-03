@@ -8,7 +8,7 @@ function interaction(overrides: Partial<CanvasInteraction> = {}): CanvasInteract
     version: 1,
     branchId: 'branch-1',
     parentInteractionId: null,
-    backendTurnId: 'run-1',
+    runtimeTurnId: 'run-1',
     userInput: 'hello',
     agentOutput: '',
     status: 'streaming',
@@ -52,7 +52,7 @@ function operation(overrides: Partial<SendReservation> = {}): SendReservation {
 function graph(): CanvasGraph {
   return {
     cursor: 1,
-    canvas: { id: 'canvas-1', name: 'Canvas', agentRef: { backendId: 'openclaw', profileId: 'main' }, agentMutable: false, createdAt: 1, updatedAt: 1 },
+    canvas: { id: 'canvas-1', name: 'Canvas', agentRef: { runtimeId: 'openclaw', profileId: 'main' }, agentMutable: false, createdAt: 1, updatedAt: 1 },
     hasPendingUpdates: true,
     branches: [{
       id: 'branch-1',

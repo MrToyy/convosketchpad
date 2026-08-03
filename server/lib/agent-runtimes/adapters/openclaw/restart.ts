@@ -3,7 +3,7 @@ import { Socket } from 'node:net';
 import { homedir } from 'node:os';
 import { config } from '../../../config.js';
 import { resolveOpenclawBin } from '../../../openclaw-bin.js';
-import { BackendOperationError } from '../../contract.js';
+import { RuntimeOperationError } from '../../contract.js';
 
 const openclawBin = resolveOpenclawBin();
 const nodeBinDir = process.execPath.replace(/\/node$/, '');
@@ -55,7 +55,7 @@ function gatewayPortIsOpen(): Promise<boolean> {
 
 export async function restartOpenClawGateway(): Promise<{ output: string }> {
   if (!gatewayIsLocal(config.gatewayUrl)) {
-    throw new BackendOperationError(
+    throw new RuntimeOperationError(
       'unsupported',
       'Restart the OpenClaw Gateway on its host; remote Gateway restart is not supported.',
     );
@@ -76,7 +76,7 @@ export async function restartOpenClawGateway(): Promise<{ output: string }> {
     GATEWAY_RESTART_TIMEOUT_MS,
   );
   if (!restarted.ok) {
-    throw new BackendOperationError('internal', restarted.output || 'Gateway restart failed');
+    throw new RuntimeOperationError('internal', restarted.output || 'Gateway restart failed');
   }
 
   await new Promise((resolve) => setTimeout(resolve, 2_000));
@@ -89,7 +89,7 @@ export async function restartOpenClawGateway(): Promise<{ output: string }> {
       return { output: 'Gateway restarted successfully' };
     }
   }
-  throw new BackendOperationError(
+  throw new RuntimeOperationError(
     'unavailable',
     `Gateway restarted but did not become ready.\n${lastStatus}`.trim(),
   );

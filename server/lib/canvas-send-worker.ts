@@ -6,10 +6,10 @@ import {
 import {
   buildCanvasDelivery,
 } from './canvas-send-delivery.js';
-import { handleCanvasBackendEvent, registerCanvasInteraction } from './canvas/backend-events.js';
-import type { BackendEvent } from './agent-backends/contract.js';
-import { BackendOperationError } from './agent-backends/contract.js';
-import { getAgentBackend } from './agent-backends/registry.js';
+import { handleCanvasRuntimeEvent, registerCanvasInteraction } from './canvas/runtime-events.js';
+import type { RuntimeEvent } from './agent-runtimes/contract.js';
+import { RuntimeOperationError } from './agent-runtimes/contract.js';
+import { getAgentRuntime } from './agent-runtimes/registry.js';
 import { CANVAS_DELIVERY_MAX_BYTES } from './canvas-media-derivatives.js';
 import { scheduleCanvasInteractionReconciliation } from './canvas-reconciler.js';
 import { canvasSendRetryDelay } from './canvas-send-retry.js';
@@ -29,8 +29,8 @@ export function clearCanvasSendWorkerState(): void {
   activeDispatches.clear();
 }
 
-export function consumeCanvasBackendEvent(event: BackendEvent): void {
-  handleCanvasBackendEvent(event);
+export function consumeCanvasRuntimeEvent(event: RuntimeEvent): void {
+  handleCanvasRuntimeEvent(event);
 }
 
 export async function runCanvasSendWorker(
@@ -48,16 +48,16 @@ export async function runCanvasSendWorker(
       return store.getOwnedInteraction(reservation.ownerId, reservation.interactionId) || reservation;
     }
     if (reservation.status !== 'prepared') return reservation;
-    const backend = getAgentBackend(reservation.backendId);
+    const runtime = getAgentRuntime(reservation.runtimeId);
     const profile = {
-      backendId: backend.id,
+      runtimeId: runtime.id,
       profileId: reservation.agentProfileId,
     };
-    const capabilities = await backend.getCapabilities(profile);
+    const capabilities = await runtime.getCapabilities(profile);
     if (!capabilities.input.text) {
-      const status = backend.getStatus();
+      const status = runtime.getStatus();
       if (status.state === 'connected') {
-        store.failReservationById(reservation.id, 'Agent Backend does not support text input');
+        store.failReservationById(reservation.id, 'Agent Runtime does not support text input');
         return store.getReservation(reservation.id)!;
       }
     }
@@ -78,8 +78,8 @@ export async function runCanvasSendWorker(
     if (preparedReservation.status !== 'prepared') return preparedReservation;
     store.markReservationDispatching(reservation.id);
     reservation = store.getDispatchableReservation(reservation.id)!;
-    if (!reservation.conversationRef) throw new BackendOperationError('validation', 'Reservation has no conversation reference');
-    const dispatched = await backend.dispatchTurn({
+    if (!reservation.conversationRef) throw new RuntimeOperationError('validation', 'Reservation has no conversation reference');
+    const dispatched = await runtime.dispatchTurn({
       profile,
       conversationRef: reservation.conversationRef,
       message,
@@ -109,7 +109,7 @@ export async function runCanvasSendWorker(
     const store = getCanvasStore();
     const reservation = store.getDispatchableReservation(reservationId);
     if (!reservation) throw error;
-    if (!(error instanceof BackendOperationError)
+    if (!(error instanceof RuntimeOperationError)
       || ['validation', 'unsupported', 'rejected', 'conflict'].includes(error.kind)) {
       const message = error instanceof Error ? error.message : 'Send preparation failed';
       store.failReservationById(reservation.id, message);

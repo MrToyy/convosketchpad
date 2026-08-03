@@ -5,12 +5,12 @@ const mocks = vi.hoisted(() => ({
   restartSupported: true,
 }));
 
-vi.mock('../lib/agent-backends/registry.js', () => ({
-  agentBackendRegistry: {
-    has: (backendId: string) => backendId === 'test-backend',
+vi.mock('../lib/agent-runtimes/registry.js', () => ({
+  agentRuntimeRegistry: {
+    has: (runtimeId: string) => runtimeId === 'test-runtime',
     get: () => ({
       getStatus: () => ({
-        backendId: 'test-backend',
+        runtimeId: 'test-runtime',
         state: 'connected',
         restartSupported: mocks.restartSupported,
       }),
@@ -19,17 +19,17 @@ vi.mock('../lib/agent-backends/registry.js', () => ({
   },
 }));
 
-import app from './backend-actions.js';
+import app from './runtime-actions.js';
 
 beforeEach(() => {
   mocks.restart.mockReset();
   mocks.restartSupported = true;
 });
 
-describe('Agent Backend lifecycle actions', () => {
+describe('Agent Runtime lifecycle actions', () => {
   it('delegates restart through the selected Adapter', async () => {
     mocks.restart.mockResolvedValue({ output: 'restarted' });
-    const response = await app.request('/api/runtime/backends/test-backend/restart', {
+    const response = await app.request('/api/runtime/runtimes/test-runtime/restart', {
       method: 'POST',
     });
     expect(response.status).toBe(200);
@@ -37,13 +37,13 @@ describe('Agent Backend lifecycle actions', () => {
     expect(mocks.restart).toHaveBeenCalledOnce();
   });
 
-  it('rejects unknown and unsupported Backend targets', async () => {
-    expect((await app.request('/api/runtime/backends/missing/restart', {
+  it('rejects unknown and unsupported Runtime targets', async () => {
+    expect((await app.request('/api/runtime/runtimes/missing/restart', {
       method: 'POST',
     })).status).toBe(404);
 
     mocks.restartSupported = false;
-    expect((await app.request('/api/runtime/backends/test-backend/restart', {
+    expect((await app.request('/api/runtime/runtimes/test-runtime/restart', {
       method: 'POST',
     })).status).toBe(409);
     expect(mocks.restart).not.toHaveBeenCalled();

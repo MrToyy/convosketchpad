@@ -1,4 +1,4 @@
-import type { BackendArtifactCandidate } from '../../contract.js';
+import type { RuntimeArtifactCandidate } from '../../contract.js';
 
 export type OpenClawMessage = Record<string, unknown>;
 
@@ -82,7 +82,7 @@ function inferMimeType(uri: string): string | undefined {
 }
 
 function artifactCollector() {
-  const artifacts = new Map<string, BackendArtifactCandidate>();
+  const artifacts = new Map<string, RuntimeArtifactCandidate>();
   const add = (rawUri: unknown, rawName?: unknown, rawMimeType?: unknown, rawSize?: unknown) => {
     const uri = string(rawUri).trim();
     if (!uri || artifacts.has(uri)) return;

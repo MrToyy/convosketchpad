@@ -2,13 +2,13 @@
 import { createContext, useCallback, useContext, useMemo, type ReactNode } from 'react';
 import {
   useRuntimeEvents,
-  type BackendRuntimeStatus,
-  type OverallBackendState,
+  type AgentRuntimeStatus,
+  type OverallRuntimeState,
 } from '@/hooks/useRuntimeEvents';
 
 interface RuntimeContextValue {
-  overallState: OverallBackendState;
-  backendStatuses: Record<string, BackendRuntimeStatus>;
+  overallState: OverallRuntimeState;
+  runtimeStatuses: Record<string, AgentRuntimeStatus>;
   connect: () => Promise<void>;
 }
 
@@ -17,7 +17,7 @@ const RuntimeContext = createContext<RuntimeContextValue | null>(null);
 export function RuntimeProvider({ children }: { children: ReactNode }) {
   const {
     overallState,
-    backendStatuses,
+    runtimeStatuses,
     connect: connectRuntime,
   } = useRuntimeEvents();
   const connect = useCallback(async () => {
@@ -25,9 +25,9 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
   }, [connectRuntime]);
   const value = useMemo<RuntimeContextValue>(() => ({
     overallState,
-    backendStatuses,
+    runtimeStatuses,
     connect,
-  }), [backendStatuses, connect, overallState]);
+  }), [runtimeStatuses, connect, overallState]);
   return <RuntimeContext.Provider value={value}>{children}</RuntimeContext.Provider>;
 }
 

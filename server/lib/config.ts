@@ -73,7 +73,7 @@ export const SESSION_COOKIE_NAME = `convosketchpad_session_${config.port}`;
 export function printStartupBanner(version: string, tagline: string): void {
   console.log(`\n  \x1b[33m◆ ConvoSketchpad v${version}\x1b[0m`);
   console.log(`  ${tagline}`);
-  console.log(`  Agent Backends: ${process.env.AGENT_BACKENDS || 'openclaw'}`);
+  console.log(`  Agent Runtimes: ${process.env.AGENT_RUNTIMES || 'openclaw'}`);
   if (config.auth) console.log('  \x1b[32mAuthentication enabled\x1b[0m');
 }
 

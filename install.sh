@@ -34,7 +34,7 @@ BRANCH="main"
 BRANCH_EXPLICIT=false
 VERSION=""
 REPO="https://github.com/MrToyy/convosketchpad.git"
-PRODUCT_TAGLINE="A branching AI workspace for visual thinkers"
+PRODUCT_TAGLINE="A visual branching workspace for agents — revisit any point and continue exploring."
 NODE_MIN=22
 SKIP_SETUP=false
 DRY_RUN=false
@@ -780,8 +780,9 @@ generate_env_from_gateway() {
       fi
     fi
     cat > .env <<ENVEOF
-GATEWAY_URL=${gw_url}
-GATEWAY_TOKEN=${gw_token}
+AGENT_RUNTIMES=openclaw
+OPENCLAW_GATEWAY_URL=${gw_url}
+OPENCLAW_GATEWAY_TOKEN=${gw_token}
 PORT=${convosketchpad_port}
 ENVEOF
     ok "Generated .env from OpenClaw gateway config"

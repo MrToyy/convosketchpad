@@ -23,8 +23,8 @@ import {
 } from '../lib/canvas-reconciler.js';
 import { dispatchCanvasSend } from '../lib/canvas-send-coordinator.js';
 import { subscribeCanvasSync } from '../lib/canvas-sync.js';
-import { agentBackendRegistry } from '../lib/agent-backends/registry.js';
-import { listAgentCatalog } from '../lib/agent-backends/catalog.js';
+import { agentRuntimeRegistry } from '../lib/agent-runtimes/registry.js';
+import { listAgentCatalog } from '../lib/agent-runtimes/catalog.js';
 import {
   publicCanvasInteraction as publicInteraction,
   publicCanvasSendReservation as publicSendReservation,
@@ -51,13 +51,13 @@ function sseFrame(event: string, data: unknown, id?: number): Uint8Array {
 }
 
 const agentRefSchema = z.object({
-  backendId: z.string().trim().min(1).max(120),
+  runtimeId: z.string().trim().min(1).max(120),
   profileId: z.string().trim().min(1).max(120),
 });
 
 async function availableAgentCatalog(ownerId: string) {
   try {
-    return await listAgentCatalog(agentBackendRegistry, { ownerId });
+    return await listAgentCatalog(agentRuntimeRegistry, { ownerId });
   } catch (error) {
     console.warn('[canvas] Agent profile catalog failed:', error instanceof Error ? error.message : error);
     throw new Error('agent_catalog_unavailable', { cause: error });
@@ -107,9 +107,9 @@ app.get('/api/canvas/agents', rateLimitGeneral, async (c) => {
     return c.json({
       firstAvailable: catalog.firstAvailable,
       agents: catalog.agents.map((profile) => ({
-        agentRef: { backendId: profile.backendId, profileId: profile.profileId },
+        agentRef: { runtimeId: profile.runtimeId, profileId: profile.profileId },
         displayName: profile.displayName,
-        backendDisplayName: profile.backendDisplayName,
+        runtimeDisplayName: profile.runtimeDisplayName,
         available: profile.available,
         ...(profile.unavailableReason ? { unavailableReason: profile.unavailableReason } : {}),
       })),
@@ -153,7 +153,7 @@ app.patch('/api/canvas/canvases/:id', rateLimitGeneral, async (c) => {
       const catalog = await availableAgentCatalog(identity.userId);
       const selected = catalog.agents.find((agent) =>
         agent.available
-        && agent.backendId === parsed.data.agentRef?.backendId
+        && agent.runtimeId === parsed.data.agentRef?.runtimeId
         && agent.profileId === parsed.data.agentRef?.profileId);
       if (!selected) throw new Error('unknown_agent');
       canvas = store.updateCanvasAgentBeforeFirstInteraction(identity.userId, id, parsed.data.agentRef);
@@ -454,7 +454,7 @@ app.post('/api/canvas/approvals/:id/resolve', rateLimitGeneral, async (c) => {
   const store = getCanvasStore();
   try {
     const claimed = store.claimInteractionApproval(identity.userId, routeParam(c, 'id'), parsed.data);
-    const result = await agentBackendRegistry.get(claimed.backendId).resolveApproval({
+    const result = await agentRuntimeRegistry.get(claimed.runtimeId).resolveApproval({
       approvalRef: claimed.approvalRef,
       resolution: claimed.resolution || parsed.data,
     });

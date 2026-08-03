@@ -1,19 +1,19 @@
 import { createHash } from 'node:crypto';
 import {
-  type AgentBackend,
+  type AgentRuntime,
   type AgentProfile,
   type AgentProfileRef,
   type ApprovalChoice,
-  type BackendCapabilities,
-  type BackendEvent,
-  type BackendHandle,
-  BackendOperationError,
-  type BackendProviderQuota,
-  type BackendStatus,
+  type RuntimeCapabilities,
+  type RuntimeEvent,
+  type RuntimeHandle,
+  RuntimeOperationError,
+  type RuntimeProviderQuota,
+  type RuntimeStatus,
   type ConversationHandle,
   type DispatchResult,
-  assertBackendHandle,
-  backendHandle,
+  assertRuntimeHandle,
+  runtimeHandle,
 } from '../../contract.js';
 import { config } from '../../../config.js';
 import {
@@ -34,7 +34,7 @@ import { extractOpenClawTurn, type OpenClawMessage } from './transcript.js';
 import { restartOpenClawGateway } from './restart.js';
 
 const SESSION_LIST_LIMIT = 1_000;
-const OPENCLAW_BACKEND_ID = 'openclaw';
+const OPENCLAW_RUNTIME_ID = 'openclaw';
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -51,24 +51,24 @@ function number(value: unknown): number {
 }
 
 function conversationHandle(sessionKey: string, sessionId?: string): ConversationHandle {
-  return backendHandle(OPENCLAW_BACKEND_ID, {
+  return runtimeHandle(OPENCLAW_RUNTIME_ID, {
     sessionKey,
     ...(sessionId ? { sessionId } : {}),
   });
 }
 
-function turnHandle(runId: string, sessionKey?: string): BackendHandle {
-  return backendHandle(OPENCLAW_BACKEND_ID, {
+function turnHandle(runId: string, sessionKey?: string): RuntimeHandle {
+  return runtimeHandle(OPENCLAW_RUNTIME_ID, {
     runId,
     ...(sessionKey ? { sessionKey } : {}),
   });
 }
 
-function approvalHandle(id: string, kind: 'exec' | 'plugin'): BackendHandle {
-  return backendHandle(OPENCLAW_BACKEND_ID, { approvalId: id, approvalKind: kind });
+function approvalHandle(id: string, kind: 'exec' | 'plugin'): RuntimeHandle {
+  return runtimeHandle(OPENCLAW_RUNTIME_ID, { approvalId: id, approvalKind: kind });
 }
 
-function gatewayRuntimeCapabilities(): BackendCapabilities {
+function gatewayRuntimeCapabilities(): RuntimeCapabilities {
   return {
     conversation: {
       resume: gatewaySupports('sessions.list'),
@@ -104,9 +104,9 @@ function gatewayRuntimeCapabilities(): BackendCapabilities {
   };
 }
 
-function projectStatus(status: GatewayRuntimeStatus): BackendStatus {
+function projectStatus(status: GatewayRuntimeStatus): RuntimeStatus {
   return {
-    backendId: OPENCLAW_BACKEND_ID,
+    runtimeId: OPENCLAW_RUNTIME_ID,
     state: status.state,
     ...(status.error ? { error: status.error } : {}),
     ...(status.serverVersion ? { version: status.serverVersion } : {}),
@@ -126,7 +126,7 @@ function eventText(payload: UnknownRecord): string | null {
   return content.map((block) => typeof block === 'string' ? block : string(record(block).text)).join('');
 }
 
-function eventRefs(payload: UnknownRecord): Pick<BackendEvent, 'conversationRef' | 'turnRef'> {
+function eventRefs(payload: UnknownRecord): Pick<RuntimeEvent, 'conversationRef' | 'turnRef'> {
   const sessionKey = string(payload.sessionKey || payload.session_key);
   const runId = string(payload.runId || payload.run_id);
   return {
@@ -163,7 +163,7 @@ function sanitizeApprovalDescription(value: string): string {
     .replace(/(https?:\/\/)[^/@\s]+@/gi, '$1[REDACTED]@');
 }
 
-export function projectOpenClawEvent(event: GatewayEvent): BackendEvent | null {
+export function projectOpenClawEvent(event: GatewayEvent): RuntimeEvent | null {
   const payload = record(event.payload);
   const createdAt = Date.now();
   const sourceEventId = event.seq === undefined
@@ -172,7 +172,7 @@ export function projectOpenClawEvent(event: GatewayEvent): BackendEvent | null {
       .digest('hex')
     : `openclaw:${event.event}:${event.seq}`;
   const base = {
-    backendId: OPENCLAW_BACKEND_ID,
+    runtimeId: OPENCLAW_RUNTIME_ID,
     eventId: sourceEventId,
     ...(event.seq === undefined ? {} : { sequence: event.seq }),
     createdAt,
@@ -250,7 +250,7 @@ export function projectOpenClawEvent(event: GatewayEvent): BackendEvent | null {
   return null;
 }
 
-function providerQuotas(status: unknown): BackendProviderQuota[] {
+function providerQuotas(status: unknown): RuntimeProviderQuota[] {
   const providers = record(status).providers;
   if (!Array.isArray(providers)) return [];
   return providers.flatMap((value) => {
@@ -290,13 +290,13 @@ function terminalSession(session: UnknownRecord): boolean {
   return session.agentState === 'idle' && !session.busy && !session.processing;
 }
 
-export const openClawAgentBackend: AgentBackend = {
-  id: OPENCLAW_BACKEND_ID,
+export const openClawAgentRuntime: AgentRuntime = {
+  id: OPENCLAW_RUNTIME_ID,
 
   async describe() {
     const status = getGatewayRuntimeStatus();
     return {
-      id: OPENCLAW_BACKEND_ID,
+      id: OPENCLAW_RUNTIME_ID,
       displayName: 'OpenClaw',
       ...(status.serverVersion ? { version: status.serverVersion } : {}),
     };
@@ -312,10 +312,10 @@ export const openClawAgentBackend: AgentBackend = {
       const id = string(agent.id).trim();
       if (!id) return [];
       return [{
-        backendId: OPENCLAW_BACKEND_ID,
+        runtimeId: OPENCLAW_RUNTIME_ID,
         profileId: id,
         displayName: agent.identity?.name || agent.name || id,
-        backendProfileRef: backendHandle(OPENCLAW_BACKEND_ID, { agentId: id }),
+        runtimeProfileRef: runtimeHandle(OPENCLAW_RUNTIME_ID, { agentId: id }),
         metadata: { openClawAgent: agent },
       }];
     });
@@ -324,14 +324,14 @@ export const openClawAgentBackend: AgentBackend = {
   },
 
   async getCapabilities(profile: AgentProfileRef) {
-    if (profile.backendId !== OPENCLAW_BACKEND_ID) throw new BackendOperationError('validation', 'Profile belongs to another Backend');
+    if (profile.runtimeId !== OPENCLAW_RUNTIME_ID) throw new RuntimeOperationError('validation', 'Profile belongs to another Runtime');
     return gatewayRuntimeCapabilities();
   },
 
   async inspectConversation(handle: ConversationHandle) {
-    assertBackendHandle(handle, OPENCLAW_BACKEND_ID);
+    assertRuntimeHandle(handle, OPENCLAW_RUNTIME_ID);
     const sessionKey = handle.opaque.sessionKey;
-    if (!sessionKey) throw new BackendOperationError('validation', 'OpenClaw conversation is missing sessionKey');
+    if (!sessionKey) throw new RuntimeOperationError('validation', 'OpenClaw conversation is missing sessionKey');
     let session: UnknownRecord | undefined;
     if (gatewaySupports('sessions.describe')) {
       const response = await gatewayRpcCall('sessions.describe', { key: sessionKey }, 15_000) as {
@@ -369,7 +369,7 @@ export const openClawAgentBackend: AgentBackend = {
   },
 
   async conversationWillExpireBeforeNextTurn(handle, input) {
-    assertBackendHandle(handle, OPENCLAW_BACKEND_ID);
+    assertRuntimeHandle(handle, OPENCLAW_RUNTIME_ID);
     const reset = await getCanvasSessionResetPolicy();
     return !reset.available || !reset.policy || sessionWillResetBeforeSend({
       policy: reset.policy,
@@ -380,14 +380,14 @@ export const openClawAgentBackend: AgentBackend = {
   },
 
   createConversationHandle({ profile, localConversationId }) {
-    if (profile.backendId !== OPENCLAW_BACKEND_ID) {
-      throw new BackendOperationError('validation', 'OpenClaw received a foreign Agent profile');
+    if (profile.runtimeId !== OPENCLAW_RUNTIME_ID) {
+      throw new RuntimeOperationError('validation', 'OpenClaw received a foreign Agent profile');
     }
     return conversationHandle(`agent:${profile.profileId}:canvas:${localConversationId}`);
   },
 
   async dispatchTurn(input): Promise<DispatchResult> {
-    assertBackendHandle(input.conversationRef, OPENCLAW_BACKEND_ID);
+    assertRuntimeHandle(input.conversationRef, OPENCLAW_RUNTIME_ID);
     try {
       const raw = await gatewayDispatchCall('chat.send', {
         sessionKey: input.conversationRef.opaque.sessionKey,
@@ -401,20 +401,20 @@ export const openClawAgentBackend: AgentBackend = {
     } catch (error) {
       if (error instanceof GatewayDispatchError) {
         if (error.kind === 'rejected') {
-          return { outcome: 'rejected', error: new BackendOperationError('rejected', error.message, error) };
+          return { outcome: 'rejected', error: new RuntimeOperationError('rejected', error.message, error) };
         }
         if (error.kind === 'outcome_unknown') {
-          return { outcome: 'unknown', error: new BackendOperationError('unknown_outcome', error.message, error), recoveryRef: input.conversationRef };
+          return { outcome: 'unknown', error: new RuntimeOperationError('unknown_outcome', error.message, error), recoveryRef: input.conversationRef };
         }
-        throw new BackendOperationError('unavailable', error.message, error);
+        throw new RuntimeOperationError('unavailable', error.message, error);
       }
       throw error;
     }
   },
 
   async readTurn(input) {
-    assertBackendHandle(input.conversationRef, OPENCLAW_BACKEND_ID);
-    if (input.turnRef) assertBackendHandle(input.turnRef, OPENCLAW_BACKEND_ID);
+    assertRuntimeHandle(input.conversationRef, OPENCLAW_RUNTIME_ID);
+    if (input.turnRef) assertRuntimeHandle(input.turnRef, OPENCLAW_RUNTIME_ID);
     const sessionKey = input.conversationRef.opaque.sessionKey;
     const response = await gatewayRpcCall('sessions.get', {
       key: sessionKey,
@@ -449,7 +449,7 @@ export const openClawAgentBackend: AgentBackend = {
             sourceUri: sourceKey,
             ...(artifact.mimeType ? { mimeType: artifact.mimeType } : {}),
             ...(typeof artifact.sizeBytes === 'number' ? { sizeBytes: artifact.sizeBytes } : {}),
-            backendArtifactRef: backendHandle(OPENCLAW_BACKEND_ID, {
+            runtimeArtifactRef: runtimeHandle(OPENCLAW_RUNTIME_ID, {
               kind: 'native',
               artifactId: artifact.id,
               agentId: input.profile.profileId,
@@ -478,7 +478,7 @@ export const openClawAgentBackend: AgentBackend = {
           || candidate.sizeBytes === artifact.sizeBytes)))
       .map((artifact) => ({
         ...artifact,
-        backendArtifactRef: backendHandle(OPENCLAW_BACKEND_ID, {
+        runtimeArtifactRef: runtimeHandle(OPENCLAW_RUNTIME_ID, {
           kind: 'source',
           uri: artifact.sourceUri || artifact.uri,
           agentId: input.profile.profileId,
@@ -497,7 +497,7 @@ export const openClawAgentBackend: AgentBackend = {
   },
 
   async inspectTurn(input) {
-    assertBackendHandle(input.conversationRef, OPENCLAW_BACKEND_ID);
+    assertRuntimeHandle(input.conversationRef, OPENCLAW_RUNTIME_ID);
     const sessionKey = input.conversationRef.opaque.sessionKey;
     const response = await gatewayRpcCall('sessions.list', {
       activeMinutes: 7 * 24 * 60,
@@ -524,15 +524,15 @@ export const openClawAgentBackend: AgentBackend = {
   },
 
   async resolveApproval({ approvalRef, resolution }) {
-    assertBackendHandle(approvalRef, OPENCLAW_BACKEND_ID);
+    assertRuntimeHandle(approvalRef, OPENCLAW_RUNTIME_ID);
     const id = approvalRef.opaque.approvalId;
     const kind = approvalRef.opaque.approvalKind;
-    if (!id || (kind !== 'exec' && kind !== 'plugin')) throw new BackendOperationError('validation', 'Invalid OpenClaw approval handle');
+    if (!id || (kind !== 'exec' && kind !== 'plugin')) throw new RuntimeOperationError('validation', 'Invalid OpenClaw approval handle');
     const decision = resolution.choiceId;
     if (decision !== 'allow-once' && decision !== 'allow-always' && decision !== 'deny') {
       return {
         outcome: 'rejected',
-        error: new BackendOperationError('validation', 'Unsupported OpenClaw approval choice'),
+        error: new RuntimeOperationError('validation', 'Unsupported OpenClaw approval choice'),
       };
     }
     try {
@@ -540,7 +540,7 @@ export const openClawAgentBackend: AgentBackend = {
       return { outcome: 'accepted', resolution };
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Approval resolution failed';
-      const operationError = new BackendOperationError(
+      const operationError = new RuntimeOperationError(
         /timeout|timed out|closed|disconnect/i.test(message)
           ? 'unknown_outcome'
           : /scope|permission|unauthorized/i.test(message)
@@ -560,8 +560,8 @@ export const openClawAgentBackend: AgentBackend = {
   },
 
   createArtifactHandle({ sourceUri, profile, conversationRef, mimeType }) {
-    assertBackendHandle(conversationRef, OPENCLAW_BACKEND_ID);
-    return backendHandle(OPENCLAW_BACKEND_ID, {
+    assertRuntimeHandle(conversationRef, OPENCLAW_RUNTIME_ID);
+    return runtimeHandle(OPENCLAW_RUNTIME_ID, {
       kind: 'source',
       uri: sourceUri,
       agentId: profile.profileId,

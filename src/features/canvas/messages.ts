@@ -34,7 +34,7 @@ export interface CanvasCopy {
   loadCanvasListFailed: string;
   loadCanvasFailed: string;
   loadingCanvas: string;
-  refreshBackendFailed: string;
+  refreshRuntimeFailed: string;
   currentCanvasMissing: string;
   secureReadUrlMissing: string;
   readFailedWithStatus: (status: number) => string;
@@ -42,7 +42,7 @@ export interface CanvasCopy {
   resourceWarning: (name: string, reason: string) => string;
   prepareAttachmentFailed: string;
   messageSendFailed: string;
-  backendRunFailed: string;
+  runtimeRunFailed: string;
   forkFailed: string;
   createBranch: string;
   newSession: string;
@@ -171,11 +171,11 @@ export const canvasCopy = {
     send: '发送',
     attachmentReadFailed: (name) => `无法读取附件：${name}`,
     attachmentTooLarge: (name) => `附件“${name}”超过 20 MB，无法发送给智能体`,
-    imageCompressionFailed: (name) => `图片“${name}”无法压缩到 Agent Backend 可接收的大小`,
+    imageCompressionFailed: (name) => `图片“${name}”无法压缩到 Agent 运行端可接收的大小`,
     loadCanvasListFailed: '无法加载画布列表',
     loadCanvasFailed: '无法加载画布',
     loadingCanvas: '正在加载画布…',
-    refreshBackendFailed: '无法刷新 Agent Backend 状态',
+    refreshRuntimeFailed: '无法刷新 Agent 运行端状态',
     currentCanvasMissing: '未找到当前画布',
     secureReadUrlMissing: '缺少安全读取地址',
     readFailedWithStatus: (status) => `读取失败（${status}）`,
@@ -183,7 +183,7 @@ export const canvasCopy = {
     resourceWarning: (name, reason) => `${name}：${reason}`,
     prepareAttachmentFailed: '无法准备附件',
     messageSendFailed: '消息发送失败',
-    backendRunFailed: '智能体运行失败',
+    runtimeRunFailed: '智能体运行失败',
     forkFailed: '无法创建新分支',
     createBranch: '创建分支',
     newSession: '新建主分支',
@@ -196,7 +196,7 @@ export const canvasCopy = {
     renameCanvasFailed: '无法重命名画布',
     changeAgentFailed: '无法修改智能体',
     createSessionFailed: '无法创建主分支',
-    deleteCanvasConfirm: (name) => `确定删除“${name}”及其画布数据吗？Agent Backend 的原始会话记录不会被修改。`,
+    deleteCanvasConfirm: (name) => `确定删除“${name}”及其画布数据吗？Agent 运行端的原始会话记录不会被修改。`,
     canvasList: '画布列表',
     agentLabel: (agentName) => `智能体：${agentName}`,
     selectAgent: '选择智能体',
@@ -244,11 +244,11 @@ export const canvasCopy = {
     send: 'Send',
     attachmentReadFailed: (name) => `Unable to read attachment: ${name}`,
     attachmentTooLarge: (name) => `Attachment “${name}” exceeds 20 MB and cannot be sent to the agent`,
-    imageCompressionFailed: (name) => `Image “${name}” could not be compressed to a size the Agent Backend accepts`,
+    imageCompressionFailed: (name) => `Image “${name}” could not be compressed to a size the Agent Runtime accepts`,
     loadCanvasListFailed: 'Unable to load the Canvas list',
     loadCanvasFailed: 'Unable to load the Canvas',
     loadingCanvas: 'Loading Canvas…',
-    refreshBackendFailed: 'Unable to refresh Agent Backend status',
+    refreshRuntimeFailed: 'Unable to refresh Agent Runtime status',
     currentCanvasMissing: 'The current Canvas was not found',
     secureReadUrlMissing: 'Secure read URL is missing',
     readFailedWithStatus: (status) => `Read failed (${status})`,
@@ -256,7 +256,7 @@ export const canvasCopy = {
     resourceWarning: (name, reason) => `${name}: ${reason}`,
     prepareAttachmentFailed: 'Unable to prepare attachment',
     messageSendFailed: 'Message failed to send',
-    backendRunFailed: 'Agent run failed',
+    runtimeRunFailed: 'Agent run failed',
     forkFailed: 'Unable to create branch',
     createBranch: 'Create branch',
     newSession: 'New root branch',
@@ -269,7 +269,7 @@ export const canvasCopy = {
     renameCanvasFailed: 'Unable to rename Canvas',
     changeAgentFailed: 'Unable to change agent',
     createSessionFailed: 'Unable to create a root branch',
-    deleteCanvasConfirm: (name) => `Delete “${name}” and its Canvas data? The Agent Backend's original conversation history will not be modified.`,
+    deleteCanvasConfirm: (name) => `Delete “${name}” and its Canvas data? The Agent Runtime's original conversation history will not be modified.`,
     canvasList: 'Canvas list',
     agentLabel: (agentName) => `Agent: ${agentName}`,
     selectAgent: 'Select agent',

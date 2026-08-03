@@ -18,7 +18,7 @@ describe('Canvas migration plan', () => {
         kind: 'maintenance',
       },
       {
-        id: '0.3.2_to_0.4.0_agent_backend_v1',
+        id: '0.3.2_to_0.4.0_agent_runtime_v1',
         fromVersion: '0.3.2',
         toVersion: '0.4.0',
         kind: 'schema',

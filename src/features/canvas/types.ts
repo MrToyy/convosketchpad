@@ -6,14 +6,14 @@ export type InteractionExecutionState = 'running' | 'completed' | 'failed' | 'un
 export type ArtifactSyncState = 'not_started' | 'observing' | 'synced' | 'degraded';
 
 export interface AgentRef {
-  backendId: string;
+  runtimeId: string;
   profileId: string;
 }
 
 export interface AgentCatalogEntry {
   agentRef: AgentRef;
   displayName: string;
-  backendDisplayName: string;
+  runtimeDisplayName: string;
   available: boolean;
   unavailableReason?: string;
 }
@@ -71,13 +71,13 @@ export interface CanvasArtifact {
 export interface InteractionContextSnapshot {
   usedTokens: number;
   contextLimit: number;
-  backendId: string;
+  runtimeId: string;
   conversationInstanceId: string;
   model?: string;
   provider?: string;
   compactionCount?: number;
   capturedAt: number;
-  source: 'agent-backend';
+  source: 'agent-runtime';
 }
 
 export interface InteractionApproval {

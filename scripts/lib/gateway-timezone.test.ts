@@ -7,7 +7,7 @@ import {
 import {
   gatewayConnectionMode,
   gatewayRequiresDevicePairing,
-} from '../../server/lib/agent-backends/adapters/openclaw/gateway-client-identity.js';
+} from '../../server/lib/agent-runtimes/adapters/openclaw/gateway-client-identity.js';
 
 describe('Gateway timezone setup helpers', () => {
   it.each([

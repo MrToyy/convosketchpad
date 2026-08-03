@@ -52,7 +52,7 @@ describe('TopBar', () => {
     renderTopBar({
       onUsageOpen,
       tokenData: {
-        backends: [],
+        runtimes: [],
         comparableCostTotal: { currency: 'USD', amount: 1.25 },
         updatedAt: 123,
       },

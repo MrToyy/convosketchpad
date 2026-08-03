@@ -17,7 +17,7 @@ function interaction(overrides: Partial<InteractionRecord> = {}): InteractionRec
     version: 1,
     branchId: 'branch-1',
     parentInteractionId: null,
-    backendTurnId: 'run-1',
+    runtimeTurnId: 'run-1',
     userInput: '请生成图片',
     agentOutput: '',
     status: 'streaming',

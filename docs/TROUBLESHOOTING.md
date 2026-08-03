@@ -8,7 +8,7 @@ curl -sS http://127.0.0.1:18789/health
 curl -sS http://127.0.0.1:3080/api/runtime/status
 ```
 
-确认 `AGENT_BACKENDS`、`OPENCLAW_GATEWAY_URL`、`OPENCLAW_GATEWAY_TOKEN` 和网络可达性。loopback Gateway 不需要设备配对；远程 Gateway 在 Token 轮换或客户端身份升级后重新运行 `npm run setup`，并在 Gateway 宿主机审批 backend 设备：
+确认 `AGENT_RUNTIMES`、`OPENCLAW_GATEWAY_URL`、`OPENCLAW_GATEWAY_TOKEN` 和网络可达性。loopback Gateway 不需要设备配对；远程 Gateway 在 Token 轮换或客户端身份升级后重新运行 `npm run setup`，并在 Gateway 宿主机审批 backend 设备：
 
 ```bash
 openclaw devices list --json
@@ -17,7 +17,7 @@ openclaw devices approve <requestId>
 
 ConvoSketchpad 会在首次连接失败和运行中断线后自动指数退避重连，最长间隔 30 秒；不需要依靠刷新浏览器触发。如果 Gateway 恢复超过 30 秒后 `/api/runtime/status` 仍未变为 `connected`，再检查后端服务日志中的握手或鉴权错误。远程设备必须同时具有 `operator.read`、`operator.write` 和 `operator.approvals`；升级前创建的设备缺少审批 scope 时重新运行 setup 并完成配对或 scope upgrade。
 
-不需要配置 `WS_ALLOWED_HOSTS` 或 `gateway.controlUi.allowedOrigins`。如果后端连接仍报告 `origin not allowed`，确认实际运行的是新版本且客户端身份为 `gateway-client/backend/node`；不要通过扩大浏览器 Origin 列表掩盖旧进程。
+不需要配置 `WS_ALLOWED_HOSTS` 或 `gateway.controlUi.allowedOrigins`。如果运行端连接仍报告 `origin not allowed`，确认实际运行的是新版本且客户端身份为 `gateway-client/backend/node`；不要通过扩大浏览器 Origin 列表掩盖旧进程。
 
 ## 配对提示 `missing scope: operator.admin`
 
@@ -97,11 +97,11 @@ npm run migrate
 
 如果 `/api/chat/media/outgoing/...` 返回 401，确认 `OPENCLAW_GATEWAY_TOKEN` 是当前 Gateway 的共享密钥。设备 Token 只用于远程 WebSocket，不能替代 Gateway HTTP Bearer Token。已完成 Turn 无法被 `artifacts.list` 反查 Conversation 时，后端会安全回退到当前 Interaction 的 transcript Artifact，不会扫描并导入整条 Session 的历史文件。
 
-如果 OpenClaw 已完成而节点仍显示运行中，优先检查数据库中的 `execution_state`、`turn_ref_json` 和 `backend_event_inbox`，再检查 OpenClaw Adapter 能否调用 `sessions.get/list`。不要在新 Schema 中寻找 `run_id` 或 `gateway_signal_inbox`，它们会在迁移后移除；也不要依据浏览器调试事件或手工修改节点状态。无法唯一关联的事件会保守进入协调流程。
+如果 OpenClaw 已完成而节点仍显示运行中，优先检查数据库中的 `execution_state`、`turn_ref_json` 和 `runtime_event_inbox`，再检查 OpenClaw Adapter 能否调用 `sessions.get/list`。不要在新 Schema 中寻找 `run_id` 或 `gateway_signal_inbox`，它们会在迁移后移除；也不要依据浏览器调试事件或手工修改节点状态。无法唯一关联的事件会保守进入协调流程。
 
-审批卡片未出现时，先确认对应 Backend 状态中的 `interactiveApprovals` Capability、OpenClaw 设备 Token 是否含 `operator.approvals`，以及 `backend_event_inbox` 是否记录 `approval.required`。`409` 通常表示审批已处理、选择无效或权限集合越界；`410` 表示已过期；`202` 表示结果未知，应等待原生 resolved 事件，不要反复点击。
+审批卡片未出现时，先确认对应 Runtime 状态中的 `interactiveApprovals` Capability、OpenClaw 设备 Token 是否含 `operator.approvals`，以及 `runtime_event_inbox` 是否记录 `approval.required`。`409` 通常表示审批已处理、选择无效或权限集合越界；`410` 表示已过期；`202` 表示结果未知，应等待原生 resolved 事件，不要反复点击。
 
-状态栏显示“部分可用”是正常聚合结果：在设置中查看各 Backend 错误。用量缺少全局费用合计通常表示币种/统计周期不一致、某个 Backend 未声明可加，或只返回额度而不返回费用；这不是数据丢失。
+状态栏显示“部分可用”是正常聚合结果：在设置中查看各 Runtime 错误。用量缺少全局费用合计通常表示币种/统计周期不一致、某个 Runtime 未声明可加，或只返回额度而不返回费用；这不是数据丢失。
 
 ## 图片缩略图不显示
 

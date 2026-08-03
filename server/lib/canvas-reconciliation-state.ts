@@ -37,7 +37,7 @@ export function buildReconciledInteractionUpdate(
 ) {
   const status = input.status || (interaction.executionState === 'failed' ? 'failed' : 'completed');
   const executionError = status === 'failed'
-    ? input.executionError ?? interaction.error ?? 'Agent Backend turn failed'
+    ? input.executionError ?? interaction.error ?? 'Agent Runtime turn failed'
     : null;
   const lastError = input.reconciliationError ?? executionError;
   const artifactObservationPending = input.artifactSync === 'pending';

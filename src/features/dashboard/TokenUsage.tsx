@@ -55,7 +55,7 @@ interface TokenUsageProps {
   onRefresh: () => void;
 }
 
-/** Per-Backend account usage. Values are never merged unless the server marks costs comparable. */
+/** Per-Runtime account usage. Values are never merged unless the server marks costs comparable. */
 export function TokenUsage({ data, loading, error, onRefresh }: TokenUsageProps) {
   const { language } = useSettings();
   const copy = getAppCopy(language);
@@ -73,23 +73,23 @@ export function TokenUsage({ data, loading, error, onRefresh }: TokenUsageProps)
           <div className="text-[0.667rem] uppercase tracking-[1px] text-muted-foreground">{language === 'zh-CN' ? '可比较费用合计' : 'Comparable cost total'}</div>
           <div className="mt-1 text-xl font-bold text-primary">{data.comparableCostTotal.currency === 'USD' ? '$' : `${data.comparableCostTotal.currency} `}{data.comparableCostTotal.amount.toFixed(2)}</div>
         </div>}
-        {data.backends.map((backend) => <section key={backend.backendId} className="rounded-xl border border-border/60 bg-background/40 p-3">
+        {data.runtimes.map((runtime) => <section key={runtime.runtimeId} className="rounded-xl border border-border/60 bg-background/40 p-3">
           <div className="flex items-center justify-between gap-2">
-            <div><div className="text-sm font-semibold text-foreground">{backend.displayName}</div><div className="text-[0.667rem] text-muted-foreground">{backend.backendId}</div></div>
-            <span className={`text-[0.667rem] ${backend.available ? 'text-green' : 'text-destructive'}`}>{backend.available ? (language === 'zh-CN' ? '可用' : 'Available') : (language === 'zh-CN' ? '不可用' : 'Unavailable')}</span>
+            <div><div className="text-sm font-semibold text-foreground">{runtime.displayName}</div><div className="text-[0.667rem] text-muted-foreground">{runtime.runtimeId}</div></div>
+            <span className={`text-[0.667rem] ${runtime.available ? 'text-green' : 'text-destructive'}`}>{runtime.available ? (language === 'zh-CN' ? '可用' : 'Available') : (language === 'zh-CN' ? '不可用' : 'Unavailable')}</span>
           </div>
-          {backend.usage && <div className="mt-2 border-t border-border/40 pt-2">
-            <div className="flex items-baseline gap-2"><span className="text-lg font-bold text-primary">{backend.usage.currency === 'USD' ? '$' : `${backend.usage.currency || ''} `}{backend.usage.totalCost.toFixed(2)}</span><span className="text-[0.667rem] text-muted-foreground">{backend.usage.period || 'unknown'}</span></div>
+          {runtime.usage && <div className="mt-2 border-t border-border/40 pt-2">
+            <div className="flex items-baseline gap-2"><span className="text-lg font-bold text-primary">{runtime.usage.currency === 'USD' ? '$' : `${runtime.usage.currency || ''} `}{runtime.usage.totalCost.toFixed(2)}</span><span className="text-[0.667rem] text-muted-foreground">{runtime.usage.period || 'unknown'}</span></div>
             <div className="mt-1 flex flex-wrap gap-3 text-[0.733rem] text-muted-foreground">
-              <span>↑ <AnimatedNumber value={backend.usage.totalInput} format={fmtTokens} className="text-foreground" /> {copy.usage.input}</span>
-              <span>↓ <AnimatedNumber value={backend.usage.totalOutput} format={fmtTokens} className="text-foreground" /> {copy.usage.output}</span>
-              <span>📦 <AnimatedNumber value={backend.usage.totalCacheRead} format={fmtTokens} className="text-foreground" /> {copy.usage.cached}</span>
+              <span>↑ <AnimatedNumber value={runtime.usage.totalInput} format={fmtTokens} className="text-foreground" /> {copy.usage.input}</span>
+              <span>↓ <AnimatedNumber value={runtime.usage.totalOutput} format={fmtTokens} className="text-foreground" /> {copy.usage.output}</span>
+              <span>📦 <AnimatedNumber value={runtime.usage.totalCacheRead} format={fmtTokens} className="text-foreground" /> {copy.usage.cached}</span>
             </div>
           </div>}
-          {backend.quotas?.available && <div className="mt-2 border-t border-border/40 pt-2"><ProviderQuotas providers={backend.quotas.providers} copy={copy} language={language} /></div>}
-          {!backend.usage && !backend.quotas?.available && <div className="mt-2 text-[0.733rem] text-muted-foreground/60">{backend.error || (language === 'zh-CN' ? '此后端不提供用量数据' : 'This Backend does not provide usage data')}</div>}
+          {runtime.quotas?.available && <div className="mt-2 border-t border-border/40 pt-2"><ProviderQuotas providers={runtime.quotas.providers} copy={copy} language={language} /></div>}
+          {!runtime.usage && !runtime.quotas?.available && <div className="mt-2 text-[0.733rem] text-muted-foreground/60">{runtime.error || (language === 'zh-CN' ? '此运行端不提供用量数据' : 'This Runtime does not provide usage data')}</div>}
         </section>)}
-        {data.backends.length === 0 && <div className="py-2 text-[0.733rem] text-muted-foreground">{language === 'zh-CN' ? '没有已配置的 Agent Backend' : 'No Agent Backends configured'}</div>}
+        {data.runtimes.length === 0 && <div className="py-2 text-[0.733rem] text-muted-foreground">{language === 'zh-CN' ? '没有已配置的 Agent 运行端' : 'No Agent Runtimes configured'}</div>}
       </div>}
     </div>
   </div>;

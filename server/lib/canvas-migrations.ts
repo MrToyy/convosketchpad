@@ -6,7 +6,7 @@ type SqlRow = Record<string, unknown>;
 
 interface MigratedArtifact {
   id?: string;
-  backendArtifactId?: string;
+  runtimeArtifactId?: string;
   name: string;
   mimeType?: string;
   sizeBytes?: number;
@@ -41,7 +41,7 @@ function parseJson<T>(value: unknown, fallback: T): T {
 function mapArtifactRow(row: SqlRow): MigratedArtifact {
   return {
     id: asNullableString(row.id) || undefined,
-    backendArtifactId: asNullableString(row.gateway_artifact_id) || undefined,
+    runtimeArtifactId: asNullableString(row.gateway_artifact_id) || undefined,
     name: asString(row.name) || 'artifact',
     mimeType: asNullableString(row.mime_type) || undefined,
     sizeBytes: row.size_bytes == null ? undefined : asNumber(row.size_bytes),
@@ -60,7 +60,7 @@ function normalizeLegacyArtifact(value: unknown, interactionId: string, index: n
   if (!uri) return null;
   return {
     id: asString(artifact.id) || `${interactionId}:legacy:${index}`,
-    backendArtifactId: asNullableString(artifact.backendArtifactId) || undefined,
+    runtimeArtifactId: asNullableString(artifact.runtimeArtifactId) || undefined,
     name: asString(artifact.name) || 'artifact',
     mimeType: asNullableString(artifact.mimeType) || undefined,
     sizeBytes: artifact.sizeBytes == null ? undefined : asNumber(artifact.sizeBytes),
@@ -145,7 +145,7 @@ export function applySingleChainSchemaMigration(db: DatabaseSync, appVersion: st
       insertArtifact.run(
         interactionId,
         artifact.id || `${interactionId}:artifact:${index}`,
-        artifact.backendArtifactId || null,
+        artifact.runtimeArtifactId || null,
         artifact.name,
         artifact.mimeType || null,
         artifact.sizeBytes ?? null,

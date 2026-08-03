@@ -1,19 +1,19 @@
 import type {
   AgentProfile,
   AgentProfileRef,
-  BackendStatus,
+  RuntimeStatus,
   OwnerContext,
 } from './contract.js';
-import type { AgentBackendRegistry } from './registry.js';
+import type { AgentRuntimeRegistry } from './registry.js';
 
 const lastKnownProfiles = new Map<string, AgentProfile[]>();
 
-function profileCacheKey(backendId: string, ownerId: string): string {
-  return `${backendId}\0${ownerId}`;
+function profileCacheKey(runtimeId: string, ownerId: string): string {
+  return `${runtimeId}\0${ownerId}`;
 }
 
 export interface AgentCatalogEntry extends AgentProfile {
-  backendDisplayName: string;
+  runtimeDisplayName: string;
   available: boolean;
   unavailableReason?: string;
 }
@@ -23,48 +23,48 @@ export interface AgentCatalog {
   firstAvailable: AgentProfileRef | null;
 }
 
-export type OverallBackendState = 'ready' | 'degraded' | 'connecting' | 'unavailable';
+export type OverallRuntimeState = 'ready' | 'degraded' | 'connecting' | 'unavailable';
 
-export interface AggregatedBackendStatus {
-  overallState: OverallBackendState;
-  backends: BackendStatus[];
+export interface AggregatedRuntimeStatus {
+  overallState: OverallRuntimeState;
+  runtimes: RuntimeStatus[];
   updatedAt: number;
 }
 
-export interface PublicBackendStatus {
-  backendId: string;
-  state: BackendStatus['state'];
+export interface PublicRuntimeStatus {
+  runtimeId: string;
+  state: RuntimeStatus['state'];
   error?: string;
   version?: string;
   restartSupported?: boolean;
 }
 
-export interface PublicAggregatedBackendStatus extends Omit<AggregatedBackendStatus, 'backends'> {
-  backends: PublicBackendStatus[];
+export interface PublicAggregatedRuntimeStatus extends Omit<AggregatedRuntimeStatus, 'runtimes'> {
+  runtimes: PublicRuntimeStatus[];
 }
 
-export function aggregateBackendStatuses(backends: BackendStatus[]): AggregatedBackendStatus {
-  const connected = backends.filter((status) => status.state === 'connected').length;
-  const connecting = backends.filter((status) => status.state === 'connecting').length;
-  const overallState: OverallBackendState = connected === backends.length && connected > 0
+export function aggregateRuntimeStatuses(runtimes: RuntimeStatus[]): AggregatedRuntimeStatus {
+  const connected = runtimes.filter((status) => status.state === 'connected').length;
+  const connecting = runtimes.filter((status) => status.state === 'connecting').length;
+  const overallState: OverallRuntimeState = connected === runtimes.length && connected > 0
     ? 'ready'
     : connected > 0
       ? 'degraded'
       : connecting > 0
         ? 'connecting'
         : 'unavailable';
-  return { overallState, backends, updatedAt: Date.now() };
+  return { overallState, runtimes, updatedAt: Date.now() };
 }
 
 /** Strip protocol diagnostics and capabilities before a runtime status reaches the browser. */
-export function publicAggregatedBackendStatus(
-  backends: BackendStatus[],
-): PublicAggregatedBackendStatus {
-  const aggregate = aggregateBackendStatuses(backends);
+export function publicAggregatedRuntimeStatus(
+  runtimes: RuntimeStatus[],
+): PublicAggregatedRuntimeStatus {
+  const aggregate = aggregateRuntimeStatuses(runtimes);
   return {
     ...aggregate,
-    backends: aggregate.backends.map((status) => ({
-      backendId: status.backendId,
+    runtimes: aggregate.runtimes.map((status) => ({
+      runtimeId: status.runtimeId,
       state: status.state,
       ...(status.error ? { error: status.error } : {}),
       ...(status.version ? { version: status.version } : {}),
@@ -76,32 +76,32 @@ export function publicAggregatedBackendStatus(
 }
 
 export async function listAgentCatalog(
-  registry: AgentBackendRegistry,
+  registry: AgentRuntimeRegistry,
   owner: OwnerContext,
 ): Promise<AgentCatalog> {
-  const groups = await Promise.all(registry.list().map(async (backend) => {
-    const cacheKey = profileCacheKey(backend.id, owner.ownerId);
-    const status = backend.getStatus();
-    let backendDisplayName = backend.id;
+  const groups = await Promise.all(registry.list().map(async (runtime) => {
+    const cacheKey = profileCacheKey(runtime.id, owner.ownerId);
+    const status = runtime.getStatus();
+    let runtimeDisplayName = runtime.id;
     try {
-      backendDisplayName = (await backend.describe()).displayName;
+      runtimeDisplayName = (await runtime.describe()).displayName;
     } catch {
-      // A descriptor failure must not hide healthy agents from other Backends.
+      // A descriptor failure must not hide healthy agents from other Runtimes.
     }
     if (status.state !== 'connected') {
       return {
         entries: (lastKnownProfiles.get(cacheKey) || []).map((profile) => ({
           ...profile,
-          backendDisplayName,
+          runtimeDisplayName,
           available: false,
-          unavailableReason: status.error || 'Backend unavailable',
+          unavailableReason: status.error || 'Runtime unavailable',
         })),
-        backendDisplayName,
+        runtimeDisplayName,
         status,
       };
     }
     try {
-      const catalog = await backend.listAgentProfiles(owner);
+      const catalog = await runtime.listAgentProfiles(owner);
       const ordered = catalog.defaultProfileId
         ? [
             ...catalog.profiles.filter((profile) => profile.profileId === catalog.defaultProfileId),
@@ -112,21 +112,21 @@ export async function listAgentCatalog(
       return {
         entries: ordered.map((profile) => ({
           ...profile,
-          backendDisplayName,
+          runtimeDisplayName,
           available: true,
         })),
-        backendDisplayName,
+        runtimeDisplayName,
         status,
       };
     } catch (error) {
       return {
         entries: (lastKnownProfiles.get(cacheKey) || []).map((profile) => ({
           ...profile,
-          backendDisplayName,
+          runtimeDisplayName,
           available: false,
           unavailableReason: error instanceof Error ? error.message : 'Agent catalog unavailable',
         })),
-        backendDisplayName,
+        runtimeDisplayName,
         status: {
           ...status,
           error: error instanceof Error ? error.message : 'Agent catalog unavailable',
@@ -138,6 +138,6 @@ export async function listAgentCatalog(
   const first = agents.find((agent) => agent.available);
   return {
     agents,
-    firstAvailable: first ? { backendId: first.backendId, profileId: first.profileId } : null,
+    firstAvailable: first ? { runtimeId: first.runtimeId, profileId: first.profileId } : null,
   };
 }

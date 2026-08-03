@@ -4,7 +4,7 @@ import type { OwnedInteractionRecord } from './canvas-db.js';
 const gatewayRpcCall = vi.fn();
 const supported = new Set<string>();
 
-vi.mock('./agent-backends/adapters/openclaw/gateway-rpc.js', () => ({
+vi.mock('./agent-runtimes/adapters/openclaw/gateway-rpc.js', () => ({
   gatewayRpcCall,
   gatewaySupports: (method: string) => supported.has(method),
   GatewayRpcError: class GatewayRpcError extends Error {
@@ -37,8 +37,8 @@ function interaction(): OwnedInteractionRecord {
     id: 'interaction-1',
     branchId: 'branch-1',
     parentInteractionId: null,
-    backendTurnId: 'run-1',
-    turnRef: { backendId: 'openclaw', schemaVersion: 1, opaque: { runId: 'run-1' } },
+    runtimeTurnId: 'run-1',
+    turnRef: { runtimeId: 'openclaw', schemaVersion: 1, opaque: { runId: 'run-1' } },
     userInput: 'create image',
     agentOutput: '',
     status: 'completed',
@@ -51,10 +51,10 @@ function interaction(): OwnedInteractionRecord {
     ownerId: 'owner-1',
     canvasId: 'canvas-1',
     conversationId: 'agent:main:canvas:branch-1',
-    backendId: 'openclaw',
+    runtimeId: 'openclaw',
     agentProfileId: 'main',
     conversationRef: {
-      backendId: 'openclaw',
+      runtimeId: 'openclaw',
       schemaVersion: 1,
       opaque: { sessionKey: 'agent:main:canvas:branch-1' },
     },
@@ -97,8 +97,8 @@ describe('Gateway-native Canvas Artifact reconciliation', () => {
     expect(snapshot.artifactPersistenceComplete).toBe(true);
     expect(snapshot.artifacts).toEqual([
       expect.objectContaining({
-        backendArtifactRef: expect.objectContaining({
-          backendId: 'openclaw',
+        runtimeArtifactRef: expect.objectContaining({
+          runtimeId: 'openclaw',
           opaque: expect.objectContaining({ artifactId: 'artifact_native', kind: 'native' }),
         }),
       }),

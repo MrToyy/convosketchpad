@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { backendHandle } from './agent-backends/contract.js';
+import { runtimeHandle } from './agent-runtimes/contract.js';
 import {
   captureInteractionCompletionSession,
   captureInteractionContextSnapshot,
@@ -7,7 +7,7 @@ import {
 
 const SESSION_KEY = 'agent:main:canvas:branch-1';
 const SESSION_ID = 'session-1';
-const conversationRef = backendHandle('openclaw', { sessionKey: SESSION_KEY });
+const conversationRef = runtimeHandle('openclaw', { sessionKey: SESSION_KEY });
 
 function inspector(input: {
   exists?: boolean;
@@ -25,8 +25,8 @@ function inspector(input: {
 }
 
 describe('Interaction context snapshots', () => {
-  it('captures a fresh exact-conversation snapshot through the Backend', async () => {
-    const backend = inspector({
+  it('captures a fresh exact-conversation snapshot through the Runtime', async () => {
+    const runtime = inspector({
       instanceId: SESSION_ID,
       context: {
         usedTokens: 12_345,
@@ -36,9 +36,9 @@ describe('Interaction context snapshots', () => {
         compactionCount: 2,
       },
     });
-    const result = await captureInteractionContextSnapshot(conversationRef, SESSION_ID, backend, 123);
+    const result = await captureInteractionContextSnapshot(conversationRef, SESSION_ID, runtime, 123);
 
-    expect(backend.inspectConversation).toHaveBeenCalledWith(conversationRef);
+    expect(runtime.inspectConversation).toHaveBeenCalledWith(conversationRef);
     expect(result).toMatchObject({
       usedTokens: 12_345,
       contextLimit: 100_000,
@@ -47,8 +47,8 @@ describe('Interaction context snapshots', () => {
       model: 'gpt',
       compactionCount: 2,
       capturedAt: 123,
-      source: 'agent-backend',
-      backendId: 'openclaw',
+      source: 'agent-runtime',
+      runtimeId: 'openclaw',
     });
   });
 

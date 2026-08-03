@@ -1,16 +1,86 @@
 import type { DatabaseSync } from 'node:sqlite';
-import { V032_TO_V040_AGENT_BACKEND_MIGRATION } from './canvas-migration-plan.js';
+import { V032_TO_V040_AGENT_RUNTIME_MIGRATION } from './canvas-migration-plan.js';
 
 type SqlRow = Record<string, unknown>;
 
 const OBSOLETE_DEVELOPMENT_MIGRATION_IDS = [
   '0.2.0_to_single_chain_v1',
   '0.3.0_to_0.4.0_agent_backend_v1',
+  '0.3.2_to_0.4.0_agent_backend_v1',
 ] as const;
 
 function columns(db: DatabaseSync, table: string): Set<string> {
   return new Set((db.prepare(`PRAGMA table_info(${table})`).all() as SqlRow[])
     .map((row) => String(row.name || '')));
+}
+
+function tableExists(db: DatabaseSync, table: string): boolean {
+  return Boolean(db.prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?`).get(table));
+}
+
+function replaceLegacyHandleKeys(db: DatabaseSync, table: string, column: string): void {
+  if (!columns(db, table).has(column)) return;
+  db.exec(`UPDATE ${table}
+    SET ${column} = replace(
+      replace(${column}, '"backendId":', '"runtimeId":'),
+      '"source":"agent-backend"', '"source":"agent-runtime"'
+    )
+    WHERE ${column} IS NOT NULL
+      AND (${column} LIKE '%"backendId":%' OR ${column} LIKE '%"source":"agent-backend"%')`);
+}
+
+/** Repair databases created from the unreleased development-only Backend schema. */
+function migrateDevelopmentRuntimeSchema(db: DatabaseSync): void {
+  db.exec(`
+    DROP TRIGGER IF EXISTS interaction_visible_version_v2;
+    DROP TRIGGER IF EXISTS interaction_insert_change_v2;
+    DROP TRIGGER IF EXISTS interaction_update_change_v2;
+    DROP TRIGGER IF EXISTS branch_insert_change_v2;
+    DROP TRIGGER IF EXISTS branch_update_change_v2;
+    DROP TRIGGER IF EXISTS send_insert_change_v2;
+    DROP TRIGGER IF EXISTS send_update_change_v2;
+    DROP TRIGGER IF EXISTS canvas_update_change_v2;
+    DROP TRIGGER IF EXISTS approval_insert_visible_v2;
+    DROP TRIGGER IF EXISTS approval_update_visible_v2;
+  `);
+  db.exec('PRAGMA foreign_keys = OFF;');
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    db.exec(`
+      ALTER TABLE canvases RENAME COLUMN backend_id TO runtime_id;
+      ALTER TABLE interactions RENAME COLUMN backend_turn_id TO runtime_turn_id;
+      ALTER TABLE send_reservations RENAME COLUMN backend_id TO runtime_id;
+      ALTER TABLE send_reservations RENAME COLUMN backend_turn_id TO runtime_turn_id;
+      ALTER TABLE interaction_artifacts RENAME COLUMN backend_artifact_id TO runtime_artifact_id;
+      ALTER TABLE interaction_artifacts RENAME COLUMN backend_artifact_ref_json TO runtime_artifact_ref_json;
+      ALTER TABLE interaction_approvals RENAME COLUMN backend_id TO runtime_id;
+      ALTER TABLE backend_event_inbox RENAME TO runtime_event_inbox;
+      ALTER TABLE runtime_event_inbox RENAME COLUMN backend_id TO runtime_id;
+      DROP INDEX IF EXISTS backend_event_pending_turn;
+      DROP INDEX IF EXISTS backend_event_pending_conversation;
+      CREATE INDEX IF NOT EXISTS runtime_event_pending_turn
+        ON runtime_event_inbox(runtime_id, turn_ref_json, processed_at);
+      CREATE INDEX IF NOT EXISTS runtime_event_pending_conversation
+        ON runtime_event_inbox(runtime_id, conversation_ref_json, processed_at);
+    `);
+    replaceLegacyHandleKeys(db, 'branches', 'conversation_ref_json');
+    replaceLegacyHandleKeys(db, 'branches', 'observed_conversation_ref_json');
+    replaceLegacyHandleKeys(db, 'interactions', 'turn_ref_json');
+    replaceLegacyHandleKeys(db, 'interactions', 'execution_metadata_json');
+    replaceLegacyHandleKeys(db, 'send_reservations', 'conversation_ref_json');
+    replaceLegacyHandleKeys(db, 'send_reservations', 'dispatch_recovery_ref_json');
+    replaceLegacyHandleKeys(db, 'interaction_artifacts', 'runtime_artifact_ref_json');
+    replaceLegacyHandleKeys(db, 'interaction_approvals', 'approval_ref_json');
+    replaceLegacyHandleKeys(db, 'runtime_event_inbox', 'conversation_ref_json');
+    replaceLegacyHandleKeys(db, 'runtime_event_inbox', 'turn_ref_json');
+    replaceLegacyHandleKeys(db, 'runtime_event_inbox', 'payload_json');
+    db.exec('COMMIT');
+  } catch (error) {
+    db.exec('ROLLBACK');
+    throw error;
+  } finally {
+    db.exec('PRAGMA foreign_keys = ON;');
+  }
 }
 
 function installGenericTriggers(db: DatabaseSync): void {
@@ -75,7 +145,7 @@ function installGenericTriggers(db: DatabaseSync): void {
       FROM branches b WHERE b.id = NEW.branch_id;
     END;
     CREATE TRIGGER canvas_update_change_v2
-    AFTER UPDATE OF name, backend_id, agent_profile_id, agent_locked_at ON canvases BEGIN
+    AFTER UPDATE OF name, runtime_id, agent_profile_id, agent_locked_at ON canvases BEGIN
       INSERT INTO canvas_changes(canvas_id, entity_type, entity_id, operation, created_at)
       VALUES (NEW.id, 'canvas', NEW.id, 'upsert', CAST(unixepoch('subsec') * 1000 AS INTEGER));
     END;
@@ -89,14 +159,14 @@ function installGenericTriggers(db: DatabaseSync): void {
   `);
 }
 
-function recordAgentBackendMigration(db: DatabaseSync, appVersion: string): void {
+function recordAgentRuntimeMigration(db: DatabaseSync, appVersion: string): void {
   db.exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
     id TEXT PRIMARY KEY,
     applied_at INTEGER NOT NULL,
     app_version TEXT NOT NULL
   )`);
   db.prepare(`INSERT OR IGNORE INTO schema_migrations(id, applied_at, app_version)
-    VALUES (?, ?, ?)`).run(V032_TO_V040_AGENT_BACKEND_MIGRATION, Date.now(), appVersion);
+    VALUES (?, ?, ?)`).run(V032_TO_V040_AGENT_RUNTIME_MIGRATION, Date.now(), appVersion);
 }
 
 function repairMigratedAgentLocks(db: DatabaseSync): void {
@@ -137,12 +207,12 @@ function cleanupObsoleteDevelopmentMigrationLedger(db: DatabaseSync): void {
   for (const id of OBSOLETE_DEVELOPMENT_MIGRATION_IDS) remove.run(id);
 }
 
-function finalizeAgentBackendMigration(db: DatabaseSync, appVersion: string): void {
+function finalizeAgentRuntimeMigration(db: DatabaseSync, appVersion: string): void {
   db.exec('BEGIN IMMEDIATE');
   try {
     repairMigratedAgentLocks(db);
     cleanupObsoleteDevelopmentMigrationLedger(db);
-    recordAgentBackendMigration(db, appVersion);
+    recordAgentRuntimeMigration(db, appVersion);
     db.exec('COMMIT');
   } catch (error) {
     db.exec('ROLLBACK');
@@ -150,16 +220,26 @@ function finalizeAgentBackendMigration(db: DatabaseSync, appVersion: string): vo
   }
 }
 
-export function ensureGenericAgentBackendSchema(
+export function ensureGenericAgentRuntimeSchema(
   db: DatabaseSync,
   appVersion: string,
 ): boolean {
   const canvasColumns = columns(db, 'canvases');
   if (canvasColumns.size === 0) return false;
   if (!canvasColumns.has('agent_id')) {
+    const developmentSchema = canvasColumns.has('backend_id');
+    if (developmentSchema) {
+      if (!tableExists(db, 'backend_event_inbox')) {
+        throw new Error('Development Agent Runtime schema is missing backend_event_inbox');
+      }
+      migrateDevelopmentRuntimeSchema(db);
+    }
+    if (!columns(db, 'canvases').has('runtime_id')) {
+      throw new Error('Canvas schema has neither runtime_id nor a supported migration source');
+    }
     installGenericTriggers(db);
-    finalizeAgentBackendMigration(db, appVersion);
-    return false;
+    finalizeAgentRuntimeMigration(db, appVersion);
+    return developmentSchema;
   }
 
   db.exec(`
@@ -182,16 +262,16 @@ export function ensureGenericAgentBackendSchema(
         id TEXT PRIMARY KEY,
         owner_id TEXT NOT NULL REFERENCES canvas_users(id),
         name TEXT NOT NULL,
-        backend_id TEXT NOT NULL,
+        runtime_id TEXT NOT NULL,
         agent_profile_id TEXT NOT NULL,
         agent_locked_at INTEGER,
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL
       );
       INSERT INTO canvases_v2
-        (id, owner_id, name, backend_id, agent_profile_id, agent_locked_at, created_at, updated_at)
+        (id, owner_id, name, runtime_id, agent_profile_id, agent_locked_at, created_at, updated_at)
       SELECT canvas.id, canvas.owner_id, canvas.name,
-        COALESCE(NULLIF(canvas.backend_id, ''), 'openclaw'),
+        COALESCE(NULLIF(canvas.runtime_id, ''), 'openclaw'),
         COALESCE(NULLIF(canvas.agent_profile_id, ''), canvas.agent_id),
         COALESCE(
           canvas.agent_locked_at,
@@ -243,7 +323,7 @@ export function ensureGenericAgentBackendSchema(
         version INTEGER NOT NULL DEFAULT 1,
         branch_id TEXT NOT NULL REFERENCES branches(id) ON DELETE CASCADE,
         parent_interaction_id TEXT,
-        backend_turn_id TEXT,
+        runtime_turn_id TEXT,
         turn_ref_json TEXT,
         user_input TEXT NOT NULL,
         agent_output TEXT NOT NULL DEFAULT '',
@@ -267,9 +347,9 @@ export function ensureGenericAgentBackendSchema(
               '$.contextSnapshot.sessionKey', '$.contextSnapshot.sessionId'),
             '$.contextSnapshot.conversationInstanceId',
               json_extract(session_metadata_json, '$.contextSnapshot.sessionId'),
-            '$.contextSnapshot.source', 'agent-backend',
-            '$.contextSnapshot.backendId',
-              COALESCE(json_extract(session_metadata_json, '$.contextSnapshot.backendId'), 'openclaw')
+            '$.contextSnapshot.source', 'agent-runtime',
+            '$.contextSnapshot.runtimeId',
+              COALESCE(json_extract(session_metadata_json, '$.contextSnapshot.runtimeId'), 'openclaw')
           )
         ELSE session_metadata_json END,
         created_at, updated_at FROM interactions;
@@ -282,7 +362,7 @@ export function ensureGenericAgentBackendSchema(
         attachments_json TEXT NOT NULL DEFAULT '[]',
         materialization TEXT NOT NULL,
         conversation_id TEXT NOT NULL,
-        backend_id TEXT NOT NULL,
+        runtime_id TEXT NOT NULL,
         conversation_ref_json TEXT NOT NULL,
         dispatch_recovery_ref_json TEXT,
         outgoing_message TEXT NOT NULL,
@@ -292,14 +372,14 @@ export function ensureGenericAgentBackendSchema(
         attempt_count INTEGER NOT NULL DEFAULT 0,
         last_attempt_at INTEGER,
         next_attempt_at INTEGER,
-        backend_turn_id TEXT,
+        runtime_turn_id TEXT,
         interaction_id TEXT,
         error TEXT,
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL
       );
       INSERT INTO send_reservations_v2 SELECT id, branch_id, expected_head_interaction_id,
-        user_input, attachments_json, materialization, session_key, backend_id,
+        user_input, attachments_json, materialization, session_key, runtime_id,
         conversation_ref_json, dispatch_recovery_ref_json, outgoing_message,
         bootstrap_resources_json, status, dispatch_state, attempt_count, last_attempt_at,
         next_attempt_at, run_id, interaction_id, error, created_at, updated_at FROM send_reservations;
@@ -308,8 +388,8 @@ export function ensureGenericAgentBackendSchema(
         interaction_id TEXT NOT NULL REFERENCES interactions(id) ON DELETE CASCADE,
         id TEXT NOT NULL,
         content_hash TEXT,
-        backend_artifact_id TEXT,
-        backend_artifact_ref_json TEXT,
+        runtime_artifact_id TEXT,
+        runtime_artifact_ref_json TEXT,
         name TEXT NOT NULL,
         mime_type TEXT,
         size_bytes INTEGER,
@@ -323,34 +403,34 @@ export function ensureGenericAgentBackendSchema(
         PRIMARY KEY(interaction_id, id)
       );
       INSERT INTO interaction_artifacts_v2 SELECT interaction_id, id, content_hash,
-        gateway_artifact_id, backend_artifact_ref_json, name, mime_type, size_bytes,
+        gateway_artifact_id, runtime_artifact_ref_json, name, mime_type, size_bytes,
         uri, source_uri, storage, available, warning, ordinal, updated_at FROM interaction_artifacts;
 
-      INSERT OR IGNORE INTO backend_event_inbox
-        (event_key, backend_id, conversation_ref_json, turn_ref_json, event_type,
+      INSERT OR IGNORE INTO runtime_event_inbox
+        (event_key, runtime_id, conversation_ref_json, turn_ref_json, event_type,
           payload_json, created_at, processed_at)
       SELECT event_key, 'openclaw',
         CASE WHEN session_key IS NULL THEN NULL ELSE json_object(
-          'backendId', 'openclaw', 'schemaVersion', 1,
+          'runtimeId', 'openclaw', 'schemaVersion', 1,
           'opaque', json_object('sessionKey', session_key)) END,
         CASE WHEN run_id IS NULL THEN NULL ELSE json_object(
-          'backendId', 'openclaw', 'schemaVersion', 1,
+          'runtimeId', 'openclaw', 'schemaVersion', 1,
           'opaque', json_object('runId', run_id)) END,
         CASE json_extract(payload_json, '$.state')
           WHEN 'final' THEN 'turn.completed'
           WHEN 'aborted' THEN 'turn.interrupted'
           ELSE 'turn.failed' END,
         json_object(
-          'backendId', 'openclaw', 'eventId', event_key, 'createdAt', created_at,
+          'runtimeId', 'openclaw', 'eventId', event_key, 'createdAt', created_at,
           'type', CASE json_extract(payload_json, '$.state')
             WHEN 'final' THEN 'turn.completed'
             WHEN 'aborted' THEN 'turn.interrupted'
             ELSE 'turn.failed' END,
           'conversationRef', CASE WHEN session_key IS NULL THEN NULL ELSE json_object(
-            'backendId', 'openclaw', 'schemaVersion', 1,
+            'runtimeId', 'openclaw', 'schemaVersion', 1,
             'opaque', json_object('sessionKey', session_key)) END,
           'turnRef', CASE WHEN run_id IS NULL THEN NULL ELSE json_object(
-            'backendId', 'openclaw', 'schemaVersion', 1,
+            'runtimeId', 'openclaw', 'schemaVersion', 1,
             'opaque', json_object('runId', run_id)) END,
           'text', json_extract(payload_json, '$.message'),
           'error', COALESCE(json_extract(payload_json, '$.errorMessage'), 'Agent turn failed')),
@@ -387,9 +467,9 @@ export function ensureGenericAgentBackendSchema(
   }
   installGenericTriggers(db);
   const foreignKeyViolations = db.prepare('PRAGMA foreign_key_check').all();
-  if (foreignKeyViolations.length > 0) throw new Error('Agent Backend schema migration left foreign-key violations');
+  if (foreignKeyViolations.length > 0) throw new Error('Agent Runtime schema migration left foreign-key violations');
   const integrity = db.prepare('PRAGMA integrity_check').get() as { integrity_check?: string } | undefined;
-  if (integrity?.integrity_check !== 'ok') throw new Error('Agent Backend schema migration failed integrity_check');
-  finalizeAgentBackendMigration(db, appVersion);
+  if (integrity?.integrity_check !== 'ok') throw new Error('Agent Runtime schema migration failed integrity_check');
+  finalizeAgentRuntimeMigration(db, appVersion);
   return true;
 }

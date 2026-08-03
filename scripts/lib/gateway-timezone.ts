@@ -1,4 +1,4 @@
-import { gatewayRequiresDevicePairing } from '../../server/lib/agent-backends/adapters/openclaw/gateway-client-identity.js';
+import { gatewayRequiresDevicePairing } from '../../server/lib/agent-runtimes/adapters/openclaw/gateway-client-identity.js';
 
 export function localIanaTimezone(): string {
   return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';

@@ -90,10 +90,10 @@ export function buildCanvasReplayPlan(
 
   const reasonText = reason === 'canonical-replay'
     ? 'The user forked an earlier Canvas interaction. Continue from this complete immutable prior context.'
-    : 'The Agent Backend replaced or reset this Canvas conversation. Restore this complete immutable branch context before continuing.';
+    : 'The Agent Runtime replaced or reset this Canvas conversation. Restore this complete immutable branch context before continuing.';
   const resources = [...physicalByIdentity.values()];
   const resourceNote = resources.length > 0
-    ? '\n\nRestored files are attached through the Agent Backend in F001, F002, ... order. F references in the history identify their original interaction and role.'
+    ? '\n\nRestored files are attached through the Agent Runtime in F001, F002, ... order. F references in the history identify their original interaction and role.'
     : '';
   return {
     message: `<canvas-context-snapshot>\n${reasonText}\n\n${transcript}${resourceNote}\n</canvas-context-snapshot>\n\n${userInput}`,

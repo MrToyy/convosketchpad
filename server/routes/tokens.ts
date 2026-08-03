@@ -1,53 +1,53 @@
 /**
- * GET /api/runtime/usage — per-Backend account usage and quota statistics.
+ * GET /api/runtime/usage — per-Runtime account usage and quota statistics.
  *
- * The selected Agent Backend remains the source of truth. ConvoSketchpad does
+ * The selected Agent Runtime remains the source of truth. ConvoSketchpad does
  * not scan transcripts or maintain a local high-water usage file.
  */
 
 import { Hono } from 'hono';
-import { agentBackendRegistry } from '../lib/agent-backends/registry.js';
+import { agentRuntimeRegistry } from '../lib/agent-runtimes/registry.js';
 import { rateLimitGeneral } from '../middleware/rate-limit.js';
 
 const app = new Hono();
 
 app.get('/api/runtime/usage', rateLimitGeneral, async (c) => {
-  const entries = await Promise.all(agentBackendRegistry.list().map(async (backend) => {
-    const status = backend.getStatus();
-    let displayName = backend.id;
-    try { displayName = (await backend.describe()).displayName; } catch { /* keep stable id */ }
+  const entries = await Promise.all(agentRuntimeRegistry.list().map(async (runtime) => {
+    const status = runtime.getStatus();
+    let displayName = runtime.id;
+    try { displayName = (await runtime.describe()).displayName; } catch { /* keep stable id */ }
     if (status.state !== 'connected') {
       return {
-        backendId: backend.id,
+        runtimeId: runtime.id,
         displayName,
         available: false,
         usageSupported: status.capabilities?.usage.accountUsage ?? null,
-        error: status.error || 'Backend unavailable',
+        error: status.error || 'Runtime unavailable',
       };
     }
     const capabilities = status.capabilities;
     if (!capabilities) {
       return {
-        backendId: backend.id,
+        runtimeId: runtime.id,
         displayName,
         available: true,
         usageSupported: null,
-        error: 'Backend capabilities are not available yet',
+        error: 'Runtime capabilities are not available yet',
       };
     }
     const [usage, quotas] = await Promise.all([
       capabilities.usage.accountUsage
-        ? backend.readUsageSummary().then((value) => ({ value })).catch((error) => ({ error }))
+        ? runtime.readUsageSummary().then((value) => ({ value })).catch((error) => ({ error }))
         : Promise.resolve(null),
       capabilities.usage.accountQuota
-        ? backend.readProviderQuotas().then((value) => ({ value })).catch((error) => ({ error }))
+        ? runtime.readProviderQuotas().then((value) => ({ value })).catch((error) => ({ error }))
         : Promise.resolve(null),
     ]);
     const errors = [usage && 'error' in usage ? usage.error : null, quotas && 'error' in quotas ? quotas.error : null]
       .filter(Boolean)
       .map((error) => error instanceof Error ? error.message : String(error));
     return {
-      backendId: backend.id,
+      runtimeId: runtime.id,
       displayName,
       available: true,
       usageSupported: capabilities.usage.accountUsage,
@@ -59,16 +59,16 @@ app.get('/api/runtime/usage', rateLimitGeneral, async (c) => {
   const additive = entries.flatMap((entry) => entry.available && 'usage' in entry && entry.usage?.additive
     ? [entry.usage]
     : []);
-  const usageBackends = entries.filter((entry) => entry.usageSupported !== false);
+  const usageRuntimes = entries.filter((entry) => entry.usageSupported !== false);
   const currencies = new Set(additive.map((usage) => usage.currency).filter(Boolean));
   const periods = new Set(additive.map((usage) => usage.period).filter(Boolean));
   const comparable = additive.length > 0
     && entries.every((entry) => entry.available)
-    && additive.length === usageBackends.length
+    && additive.length === usageRuntimes.length
     && currencies.size === 1
     && periods.size === 1;
   return c.json({
-    backends: entries,
+    runtimes: entries,
     ...(comparable ? {
       comparableCostTotal: {
         currency: [...currencies][0],

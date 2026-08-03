@@ -92,7 +92,7 @@ export function publicCanvasInteraction(interaction: InteractionRecord) {
     contextSnapshot: interaction.contextSnapshot ? {
       usedTokens: interaction.contextSnapshot.usedTokens,
       contextLimit: interaction.contextSnapshot.contextLimit,
-      backendId: interaction.contextSnapshot.backendId,
+      runtimeId: interaction.contextSnapshot.runtimeId,
       conversationInstanceId: interaction.contextSnapshot.conversationInstanceId,
       ...(interaction.contextSnapshot.model ? { model: interaction.contextSnapshot.model } : {}),
       ...(interaction.contextSnapshot.provider ? { provider: interaction.contextSnapshot.provider } : {}),

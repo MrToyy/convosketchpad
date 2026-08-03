@@ -1,21 +1,21 @@
 import { ContextMeter } from './ContextMeter';
 import { useSettings } from '@/contexts/SettingsContext';
 import { getAppCopy } from '@/lib/app-messages';
-import type { BackendRuntimeStatus, OverallBackendState } from '@/hooks/useRuntimeEvents';
+import type { AgentRuntimeStatus, OverallRuntimeState } from '@/hooks/useRuntimeEvents';
 
 interface StatusBarProps {
-  overallState: OverallBackendState;
-  backendStatuses: Record<string, BackendRuntimeStatus>;
+  overallState: OverallRuntimeState;
+  runtimeStatuses: Record<string, AgentRuntimeStatus>;
   branchCount: number;
   workingCount: number;
   contextTokens?: number;
   contextLimit?: number;
 }
 
-/** Compact product status derived from backend runtime state and the selected Canvas graph. */
+/** Compact product status derived from Agent Runtime state and the selected Canvas graph. */
 export function StatusBar({
   overallState,
-  backendStatuses,
+  runtimeStatuses,
   branchCount,
   workingCount,
   contextTokens,
@@ -23,7 +23,7 @@ export function StatusBar({
 }: StatusBarProps) {
   const { language } = useSettings();
   const copy = getAppCopy(language);
-  const statuses = Object.values(backendStatuses);
+  const statuses = Object.values(runtimeStatuses);
   const connectedCount = statuses.filter((status) => status.state === 'connected').length;
   const statusColor = overallState === 'ready'
     ? 'border-green/30 bg-green/10 text-green'
@@ -31,14 +31,14 @@ export function StatusBar({
     ? 'border-orange/30 bg-orange/10 text-orange animate-pulse-dot'
     : 'border-red/30 bg-red/10 text-red';
   const statusLabel = overallState === 'connecting'
-    ? (language === 'zh-CN' ? '正在连接后端' : 'Connecting backends')
+    ? (language === 'zh-CN' ? '正在连接运行端' : 'Connecting runtimes')
     : overallState === 'unavailable'
-      ? (language === 'zh-CN' ? '无可用后端' : 'No backends available')
+      ? (language === 'zh-CN' ? '无可用运行端' : 'No runtimes available')
       : language === 'zh-CN'
-        ? `${connectedCount}/${statuses.length} 后端可用`
-        : `${connectedCount}/${statuses.length} backends available`;
+        ? `${connectedCount}/${statuses.length} 运行端可用`
+        : `${connectedCount}/${statuses.length} runtimes available`;
   const statusTitle = statuses.map((status) =>
-    `${status.backendId}: ${status.state}${status.error ? ` — ${status.error}` : ''}`).join('\n');
+    `${status.runtimeId}: ${status.state}${status.error ? ` — ${status.error}` : ''}`).join('\n');
 
   return (
     <div className="shell-panel mx-2 mb-2 flex min-h-10 flex-wrap items-center gap-y-1 overflow-hidden rounded-2xl px-3 py-2 text-[0.667rem] text-muted-foreground shrink-0 select-none max-[378px]:min-h-9 max-[378px]:gap-y-0.5 max-[378px]:px-2.5 max-[378px]:py-1.5 max-[378px]:text-[0.6rem] sm:mx-4 sm:mb-3 sm:flex-nowrap sm:gap-y-0 sm:overflow-x-auto sm:px-4 sm:text-[0.733rem]">

@@ -16,8 +16,8 @@ const tsxCli = path.join(projectRoot, 'node_modules', 'tsx', 'dist', 'cli.mjs');
 const viteCli = path.join(projectRoot, 'node_modules', 'vite', 'bin', 'vite.js');
 const entryPort = parsePort(process.env.PORT, 3080);
 const entryHost = process.env.HOST?.trim() || '127.0.0.1';
-const preferredBackendPort = entryPort < 65_535 ? entryPort + 1 : entryPort - 1;
-const backendPort = await findAvailableLoopbackPort(preferredBackendPort);
+const preferredServerPort = entryPort < 65_535 ? entryPort + 1 : entryPort - 1;
+const internalServerPort = await findAvailableLoopbackPort(preferredServerPort);
 
 if (process.env.VITE_HOST || process.env.VITE_PORT) {
   console.warn('[dev] VITE_HOST and VITE_PORT are deprecated; use HOST and PORT for the ConvoSketchpad entrypoint.');
@@ -26,7 +26,7 @@ if (process.env.VITE_HOST || process.env.VITE_PORT) {
 const serverEnv = {
   ...process.env,
   HOST: '127.0.0.1',
-  PORT: String(backendPort),
+  PORT: String(internalServerPort),
 };
 delete serverEnv.VITE_HOST;
 delete serverEnv.VITE_PORT;
@@ -35,7 +35,7 @@ const clientEnv = {
   ...process.env,
   CONVOSKETCHPAD_DEV_ENTRY_HOST: entryHost,
   CONVOSKETCHPAD_DEV_ENTRY_PORT: String(entryPort),
-  CONVOSKETCHPAD_DEV_BACKEND_PORT: String(backendPort),
+  CONVOSKETCHPAD_DEV_SERVER_PORT: String(internalServerPort),
 };
 delete clientEnv.VITE_HOST;
 delete clientEnv.VITE_PORT;
@@ -74,7 +74,7 @@ async function findAvailableLoopbackPort(preferredPort) {
   if (preferred) return preferred;
   const automatic = await probeLoopbackPort(0);
   if (automatic) return automatic;
-  throw new Error('Could not allocate an internal loopback port for the development backend.');
+  throw new Error('Could not allocate an internal loopback port for the development server.');
 }
 
 function printDevEndpoints() {
@@ -86,8 +86,8 @@ function printDevEndpoints() {
   console.log('');
   console.log('  ConvoSketchpad development');
   console.log(`  Open in browser:          http://${browserHost}:${entryPort}  [HOST / PORT]`);
-  console.log(`  Backend (automatic):      http://127.0.0.1:${backendPort}  [loopback only]`);
-  console.log('  Proxy: /api, /health -> backend');
+  console.log(`  Server (automatic):       http://127.0.0.1:${internalServerPort}  [loopback only]`);
+  console.log('  Proxy: /api, /health -> server');
   console.log('');
 }
 

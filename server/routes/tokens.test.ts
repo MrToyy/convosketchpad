@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const list = vi.fn();
-vi.mock('../lib/agent-backends/registry.js', () => ({
-  agentBackendRegistry: { list },
+vi.mock('../lib/agent-runtimes/registry.js', () => ({
+  agentRuntimeRegistry: { list },
 }));
 vi.mock('../middleware/rate-limit.js', () => ({
   rateLimitGeneral: async (_c: unknown, next: () => Promise<void>) => next(),
@@ -12,11 +12,11 @@ const capabilities = {
   usage: { accountUsage: true, accountQuota: true },
 };
 
-function backend(id: string, cost: number, currency = 'USD') {
+function runtime(id: string, cost: number, currency = 'USD') {
   return {
     id,
     describe: vi.fn(async () => ({ id, displayName: id.toUpperCase() })),
-    getStatus: vi.fn(() => ({ backendId: id, state: 'connected', capabilities })),
+    getStatus: vi.fn(() => ({ runtimeId: id, state: 'connected', capabilities })),
     getCapabilities: vi.fn(async () => capabilities),
     readUsageSummary: vi.fn(async () => ({
       totalCost: cost,
@@ -36,56 +36,56 @@ function backend(id: string, cost: number, currency = 'USD') {
 describe('GET /api/runtime/usage', () => {
   beforeEach(() => list.mockReset());
 
-  it('returns per-Backend usage and sums only comparable costs', async () => {
-    list.mockReturnValue([backend('openclaw', 1.25), backend('codex', 2)]);
+  it('returns per-Runtime usage and sums only comparable costs', async () => {
+    list.mockReturnValue([runtime('openclaw', 1.25), runtime('codex', 2)]);
     const route = await import('./tokens.js');
     const response = await route.default.request('/api/runtime/usage');
     expect(response.status).toBe(200);
     const json = await response.json() as Record<string, unknown>;
     expect(json).toMatchObject({
       comparableCostTotal: { currency: 'USD', amount: 3.25 },
-      backends: [
-        { backendId: 'openclaw', available: true },
-        { backendId: 'codex', available: true },
+      runtimes: [
+        { runtimeId: 'openclaw', available: true },
+        { runtimeId: 'codex', available: true },
       ],
     });
   });
 
   it('omits a global total for incomparable currencies', async () => {
-    list.mockReturnValue([backend('openclaw', 1.25), backend('codex', 2, 'CNY')]);
+    list.mockReturnValue([runtime('openclaw', 1.25), runtime('codex', 2, 'CNY')]);
     const route = await import('./tokens.js');
     const json = await (await route.default.request('/api/runtime/usage')).json() as Record<string, unknown>;
     expect(json).not.toHaveProperty('comparableCostTotal');
   });
 
-  it('keeps partial data when one Backend is unavailable', async () => {
-    const unavailable = backend('codex', 0);
-    unavailable.getStatus.mockReturnValue({ backendId: 'codex', state: 'disconnected', capabilities } as never);
-    list.mockReturnValue([backend('openclaw', 1.25), unavailable]);
+  it('keeps partial data when one Runtime is unavailable', async () => {
+    const unavailable = runtime('codex', 0);
+    unavailable.getStatus.mockReturnValue({ runtimeId: 'codex', state: 'disconnected', capabilities } as never);
+    list.mockReturnValue([runtime('openclaw', 1.25), unavailable]);
     const route = await import('./tokens.js');
-    const json = await (await route.default.request('/api/runtime/usage')).json() as { backends: Array<Record<string, unknown>> };
-    expect(json.backends[0]).toMatchObject({ backendId: 'openclaw', available: true });
-    expect(json.backends[1]).toMatchObject({ backendId: 'codex', available: false });
+    const json = await (await route.default.request('/api/runtime/usage')).json() as { runtimes: Array<Record<string, unknown>> };
+    expect(json.runtimes[0]).toMatchObject({ runtimeId: 'openclaw', available: true });
+    expect(json.runtimes[1]).toMatchObject({ runtimeId: 'codex', available: false });
     expect(json).not.toHaveProperty('comparableCostTotal');
   });
 
-  it('does not treat a connected Backend without account usage as unavailable', async () => {
-    const noUsage = backend('local-tools', 0);
+  it('does not treat a connected Runtime without account usage as unavailable', async () => {
+    const noUsage = runtime('local-tools', 0);
     const noUsageCapabilities = { usage: { accountUsage: false, accountQuota: false } };
     noUsage.getStatus.mockReturnValue({
-      backendId: 'local-tools',
+      runtimeId: 'local-tools',
       state: 'connected',
       capabilities: noUsageCapabilities,
     } as never);
     noUsage.getCapabilities.mockResolvedValue(noUsageCapabilities as never);
-    list.mockReturnValue([backend('openclaw', 1.25), noUsage]);
+    list.mockReturnValue([runtime('openclaw', 1.25), noUsage]);
     const route = await import('./tokens.js');
     const json = await (await route.default.request('/api/runtime/usage')).json() as {
       comparableCostTotal?: unknown;
-      backends: Array<Record<string, unknown>>;
+      runtimes: Array<Record<string, unknown>>;
     };
-    expect(json.backends[1]).toMatchObject({
-      backendId: 'local-tools',
+    expect(json.runtimes[1]).toMatchObject({
+      runtimeId: 'local-tools',
       available: true,
       usageSupported: false,
     });

@@ -1,5 +1,5 @@
-import type { AgentBackend, BackendHandle } from './agent-backends/contract.js';
-import { getAgentBackend } from './agent-backends/registry.js';
+import type { AgentRuntime, RuntimeHandle } from './agent-runtimes/contract.js';
+import { getAgentRuntime } from './agent-runtimes/registry.js';
 import type { InteractionContextSnapshot } from './canvas-db.js';
 
 export interface InteractionCompletionConversation {
@@ -8,12 +8,12 @@ export interface InteractionCompletionConversation {
 }
 
 export async function captureInteractionCompletionSession(
-  conversationRef: BackendHandle,
+  conversationRef: RuntimeHandle,
   expectedInstanceId?: string,
-  backend: Pick<AgentBackend, 'inspectConversation'> = getAgentBackend(conversationRef.backendId),
+  runtime: Pick<AgentRuntime, 'inspectConversation'> = getAgentRuntime(conversationRef.runtimeId),
   capturedAt = Date.now(),
 ): Promise<InteractionCompletionConversation | null> {
-  const snapshot = await backend.inspectConversation(conversationRef);
+  const snapshot = await runtime.inspectConversation(conversationRef);
   if (!snapshot?.exists || !snapshot.instanceId) return null;
   if (expectedInstanceId !== undefined && snapshot.instanceId !== expectedInstanceId) return null;
   return {
@@ -28,23 +28,23 @@ export async function captureInteractionCompletionSession(
         ? {}
         : { compactionCount: snapshot.context.compactionCount }),
       capturedAt,
-      source: 'agent-backend',
-      backendId: conversationRef.backendId,
+      source: 'agent-runtime',
+      runtimeId: conversationRef.runtimeId,
       conversationRef,
     } : null,
   };
 }
 
 export async function captureInteractionContextSnapshot(
-  conversationRef: BackendHandle,
+  conversationRef: RuntimeHandle,
   expectedInstanceId?: string,
-  backend: Pick<AgentBackend, 'inspectConversation'> = getAgentBackend(conversationRef.backendId),
+  runtime: Pick<AgentRuntime, 'inspectConversation'> = getAgentRuntime(conversationRef.runtimeId),
   capturedAt = Date.now(),
 ): Promise<InteractionContextSnapshot | null> {
   return (await captureInteractionCompletionSession(
     conversationRef,
     expectedInstanceId,
-    backend,
+    runtime,
     capturedAt,
   ))?.contextSnapshot || null;
 }

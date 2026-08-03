@@ -15,7 +15,7 @@
 | POST | `/api/canvas/canvases/:id/root-branches` | 创建或返回草稿主 Branch |
 | POST | `/api/canvas/interactions/:id/fork` | 从已完成历史 Interaction 创建 Branch |
 | POST | `/api/canvas/interactions/:id/resubmit` | 从上一节点创建普通 Branch，并原样重新提交目标 Interaction 的输入 |
-| GET | `/api/canvas/agents` | 读取所有已配置 Backend 的扁平 Agent 目录和 `firstAvailable` |
+| GET | `/api/canvas/agents` | 读取所有已配置 Runtime 的扁平 Agent 目录和 `firstAvailable` |
 
 Layout 节点兼容仅包含 `x/y` 的旧数据。用户缩放后的 `width/height` 必须同时提供；宽度范围为
 `320–800`，高度范围为 `240–900`。重新排列会更新 `x/y`，但保留已有尺寸：
@@ -52,7 +52,7 @@ Layout 节点兼容仅包含 `x/y` 的旧数据。用户缩放后的 `width/heig
 
 ```json
 {
-  "expectedAgentRef": { "backendId": "openclaw", "profileId": "main" }
+  "expectedAgentRef": { "runtimeId": "openclaw", "profileId": "main" }
 }
 ```
 
@@ -67,13 +67,13 @@ Layout 节点兼容仅包含 `x/y` 的旧数据。用户缩放后的 `width/heig
 ```json
 {
   "expectedHeadInteractionId": null,
-  "expectedAgentRef": { "backendId": "openclaw", "profileId": "main" },
+  "expectedAgentRef": { "runtimeId": "openclaw", "profileId": "main" },
   "userInput": "请分析这些资料",
   "attachmentIds": ["40-character-content-hash"]
 }
 ```
 
-服务端不接受附件路径或可变元数据。即时接受返回 `201 { interaction }`；已排队或结果不确定返回 `202 { operation }`；头节点、Agent 或并发冲突返回 `409`；附件问题返回 `422`；所选 Backend 缺少文本输入能力返回 `503`。首次成功写入 Send Reservation 时 Canvas 的 `agentMutable` 变为 `false`，即使派发随后失败也不会解锁。
+服务端不接受附件路径或可变元数据。即时接受返回 `201 { interaction }`；已排队或结果不确定返回 `202 { operation }`；头节点、Agent 或并发冲突返回 `409`；附件问题返回 `422`；所选 Runtime 缺少文本输入能力返回 `503`。首次成功写入 Send Reservation 时 Canvas 的 `agentMutable` 变为 `false`，即使派发随后失败也不会解锁。
 
 公开的 Send Operation 只包含状态和原始用户输入/附件元数据。内部 `outgoingMessage`、完整历史资源清单、
 内容哈希和媒体派生信息不返回浏览器。`awaiting_media` 表示后端正在生成或读取发送所需的大图派生文件，
@@ -94,14 +94,14 @@ Interaction 同时返回 `version`、`executionState`（`running | completed | f
 {
   "usedTokens": 12000,
   "contextLimit": 100000,
-  "backendId": "openclaw",
+  "runtimeId": "openclaw",
   "conversationInstanceId": "physical-session-id",
   "capturedAt": 1785147159265,
-  "source": "agent-backend"
+  "source": "agent-runtime"
 }
 ```
 
-只有 Backend 明确返回新鲜 Token 数据，且 Conversation Handle 与物理 instance 都匹配时才保存；否则为 `null`。这是节点完成时的累计值，不是该节点单独消耗量，客户端不得沿祖先节点求和。已知 Artifact 全部持久化后 `artifactSyncState` 即为 `synced`；可能仍在运行的晚到 Artifact 静默观察任务不属于用户可见 pending 状态。`hasPendingUpdates` 仅用于 Canvas SSE 不可用时决定是否启用降级轮询。数据库迁移版本和不透明 Backend Handle 不通过产品 API 暴露。
+只有 Runtime 明确返回新鲜 Token 数据，且 Conversation Handle 与物理 instance 都匹配时才保存；否则为 `null`。这是节点完成时的累计值，不是该节点单独消耗量，客户端不得沿祖先节点求和。已知 Artifact 全部持久化后 `artifactSyncState` 即为 `synced`；可能仍在运行的晚到 Artifact 静默观察任务不属于用户可见 pending 状态。`hasPendingUpdates` 仅用于 Canvas SSE 不可用时决定是否启用降级轮询。数据库迁移版本和不透明 Runtime Handle 不通过产品 API 暴露。
 
 Interaction 的 `approvals` 是已净化的节点内审批列表，包含风险、权限、选择、作用域、到期与状态，但不包含原生 Approval Handle、命令环境或凭据。处理审批：
 
@@ -116,7 +116,7 @@ Interaction 的 `approvals` 是已净化的节点内审批列表，包含风险�
 }
 ```
 
-明确接受返回 `200 { approval }`；Backend 结果未知返回 `202` 且状态为 `unconfirmed`；明确拒绝/冲突返回 `409`；过期返回 `410`。服务端验证 choice 与权限子集，防止客户端扩大 Adapter 声明的权限。
+明确接受返回 `200 { approval }`；Runtime 结果未知返回 `202` 且状态为 `unconfirmed`；明确拒绝/冲突返回 `409`；过期返回 `410`。服务端验证 choice 与权限子集，防止客户端扩大 Adapter 声明的权限。
 
 Canvas 本地图片附件和 Artifact 额外返回版本化 `thumbnailUri`，但不返回 `contentHash`。外部 HTTP Artifact
 不提供缩略图 URI，也不会被 ConvoSketchpad 后端主动抓取。
@@ -145,14 +145,14 @@ Canvas 本地图片附件和 Artifact 额外返回版本化 `thumbnailUri`，但
 
 瞬时事件名为 `node.preview`，只包含 `interactionId` 和当前文本。Preview 不写数据库、不重放，SSE 断线后应立即丢弃。SSE 使用 `Last-Event-ID` 恢复持久 cursor，并每 15 秒发送心跳。
 
-## Agent Backend 运行状态
+## Agent Runtime 运行状态
 
 | 方法 | 路径 | 用途 |
 |---|---|---|
-| GET | `/api/runtime/status` | 所有已配置 Backend 的状态明细和聚合总态 |
-| GET | `/api/runtime/events` | 只发布 `runtime.backend_status_changed` 的全局 SSE；15 秒心跳 |
+| GET | `/api/runtime/status` | 所有已配置 Runtime 的状态明细和聚合总态 |
+| GET | `/api/runtime/events` | 只发布 `runtime.status_changed` 的全局 SSE；15 秒心跳 |
 
-响应含 `overallState: ready | degraded | connecting | unavailable`、`updatedAt` 和 `backends[]`。每项只包含 `backendId`、`state`、可选版本/错误/`restartSupported`；原生 Capability、方法表和诊断不发给浏览器。部分故障不会隐藏健康 Backend。状态流不包含 Canvas、Interaction、发送、Artifact 或审批事件；受管用户被禁用或 Session 被撤销后，心跳检查会关闭两个 SSE。
+响应含 `overallState: ready | degraded | connecting | unavailable`、`updatedAt` 和 `runtimes[]`。每项只包含 `runtimeId`、`state`、可选版本/错误/`restartSupported`；原生 Capability、方法表和诊断不发给浏览器。部分故障不会隐藏健康 Runtime。状态流不包含 Canvas、Interaction、发送、Artifact 或审批事件；受管用户被禁用或 Session 被撤销后，心跳检查会关闭两个 SSE。
 
 ## 认证与运维
 
@@ -161,16 +161,18 @@ Canvas 本地图片附件和 Artifact 额外返回版本化 `thumbnailUri`，但
 | POST | `/api/auth/login` | 使用受管用户 Token 换取 HttpOnly Cookie |
 | POST | `/api/auth/logout` | 清除 Cookie |
 | GET | `/api/auth/status` | 当前认证状态 |
-| GET | `/health` | 进程状态和不含错误细节的 Backend 聚合状态 |
-| GET | `/api/runtime/usage` | 每 Backend 的账户用量与 Provider 额度，以及可选可比较费用合计 |
-| POST | `/api/runtime/backends/:backendId/restart` | 请求重启声明支持该操作的 Backend |
+| GET | `/health` | 进程状态和不含错误细节的 Runtime 聚合状态 |
+| GET | `/api/runtime/usage` | 每 Runtime 的账户用量与 Provider 额度，以及可选可比较费用合计 |
+| POST | `/api/runtime/runtimes/:runtimeId/restart` | 请求重启声明支持该操作的 Runtime |
 
-`GET /api/runtime/usage` 并行读取全部 Backend；当前 OpenClaw Adapter 调用 `usage.cost`/`usage.status`。响应保留来源边界：
+重启接口使用 `runtime_not_found`、`runtime_restart_unsupported` 和 `runtime_restart_failed` 错误码，不保留 Backend 命名别名。
+
+`GET /api/runtime/usage` 并行读取全部 Runtime；当前 OpenClaw Adapter 调用 `usage.cost`/`usage.status`。响应保留来源边界：
 
 ```json
 {
-  "backends": [{
-    "backendId": "openclaw",
+  "runtimes": [{
+    "runtimeId": "openclaw",
     "displayName": "OpenClaw",
     "available": true,
     "usage": {
@@ -191,6 +193,6 @@ Canvas 本地图片附件和 Artifact 额外返回版本化 `thumbnailUri`，但
 }
 ```
 
-Token、Provider 和额度窗口不跨 Backend 合并。只有所有 Backend 在线、所有声明支持账户费用的 Backend 都成功返回 `additive=true` 的数据，且币种、统计周期一致时才返回 `comparableCostTotal`；否则 UI 只显示各 Backend 明细。单个 Backend 失败返回局部 `available: false`，不使其他数据丢失，也不会把残缺费用伪装成全局合计。
+Token、Provider 和额度窗口不跨 Runtime 合并。只有所有 Runtime 在线、所有声明支持账户费用的 Runtime 都成功返回 `additive=true` 的数据，且币种、统计周期一致时才返回 `comparableCostTotal`；否则 UI 只显示各 Runtime 明细。单个 Runtime 失败返回局部 `available: false`，不使其他数据丢失，也不会把残缺费用伪装成全局合计。
 
 用户只能通过 `npm run users -- ...` 管理，不提供注册 API。

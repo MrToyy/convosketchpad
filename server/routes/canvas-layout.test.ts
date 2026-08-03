@@ -52,7 +52,7 @@ describe('Canvas layout route', () => {
     const { app, db } = await setup();
     const store = db.getCanvasStore();
     store.ensureUser('owner-a', 'Owner A');
-    const canvas = store.createCanvas('owner-a', 'Canvas', { backendId: 'openclaw', profileId: 'main' });
+    const canvas = store.createCanvas('owner-a', 'Canvas', { runtimeId: 'openclaw', profileId: 'main' });
 
     const oldLayoutResponse = await app.request(`/api/canvas/canvases/${canvas.id}/layout`, {
       method: 'PUT',
@@ -95,7 +95,7 @@ describe('Canvas layout route', () => {
     const { app, db } = await setup();
     const store = db.getCanvasStore();
     store.ensureUser('owner-a', 'Owner A');
-    const canvas = store.createCanvas('owner-a', 'Canvas', { backendId: 'openclaw', profileId: 'main' });
+    const canvas = store.createCanvas('owner-a', 'Canvas', { runtimeId: 'openclaw', profileId: 'main' });
 
     const response = await app.request(`/api/canvas/canvases/${canvas.id}/layout`, {
       method: 'PUT',

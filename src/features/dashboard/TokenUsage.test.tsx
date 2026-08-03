@@ -8,8 +8,8 @@ import { TokenUsage } from './TokenUsage';
 const usage: RuntimeUsageData = {
   comparableCostTotal: { currency: 'USD', amount: 1.25 },
   updatedAt: 123,
-  backends: [{
-    backendId: 'openclaw',
+  runtimes: [{
+    runtimeId: 'openclaw',
     displayName: 'OpenClaw',
     available: true,
     usage: {
@@ -35,8 +35,8 @@ const usage: RuntimeUsageData = {
   }],
 };
 
-describe('TokenUsage Backend aggregation', () => {
-  it('renders comparable totals and keeps Provider quotas grouped by Backend', () => {
+describe('TokenUsage Runtime aggregation', () => {
+  it('renders comparable totals and keeps Provider quotas grouped by Runtime', () => {
     renderWithSettings(<TokenUsage data={usage} loading={false} error={false} onRefresh={vi.fn()} />);
     expect(screen.getAllByText('$1.25')).toHaveLength(2);
     expect(screen.getByText('OpenClaw')).toBeInTheDocument();
@@ -45,7 +45,7 @@ describe('TokenUsage Backend aggregation', () => {
     expect(screen.getByText('1.2K')).toBeInTheDocument();
   });
 
-  it('does not invent a cross-Backend total when costs are not comparable', () => {
+  it('does not invent a cross-Runtime total when costs are not comparable', () => {
     renderWithSettings(<TokenUsage data={{ ...usage, comparableCostTotal: undefined }} loading={false} error={false} onRefresh={vi.fn()} />);
     expect(screen.queryByText('可比较费用合计')).not.toBeInTheDocument();
   });

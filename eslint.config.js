@@ -52,7 +52,7 @@ export default defineConfig([
       'server/lib/canvas-send-service.ts',
       'server/lib/canvas-send-worker.ts',
       'server/lib/canvas-send-coordinator.ts',
-      'server/lib/canvas-backend-events.ts',
+      'server/lib/canvas/runtime-events.ts',
       'server/lib/canvas-reconciler.ts',
       'server/lib/canvas-context-snapshot.ts',
       'server/lib/canvas-artifact-store.ts',
@@ -62,19 +62,19 @@ export default defineConfig([
         paths: [
           {
             name: './gateway-rpc.js',
-            message: 'Canvas business modules must use AgentBackend instead of the OpenClaw transport.',
+            message: 'Canvas business modules must use AgentRuntime instead of the OpenClaw transport.',
           },
           {
             name: '../lib/gateway-rpc.js',
-            message: 'Canvas routes must use AgentBackend instead of the OpenClaw transport.',
+            message: 'Canvas routes must use AgentRuntime instead of the OpenClaw transport.',
           },
           {
-            name: './openclaw-agent-backend.js',
-            message: 'Resolve AgentBackend through the registry; do not bind Canvas to OpenClaw.',
+            name: './openclaw-agent-runtime.js',
+            message: 'Resolve AgentRuntime through the registry; do not bind Canvas to OpenClaw.',
           },
           {
-            name: '../lib/openclaw-agent-backend.js',
-            message: 'Resolve AgentBackend through the registry; do not bind Canvas to OpenClaw.',
+            name: '../lib/openclaw-agent-runtime.js',
+            message: 'Resolve AgentRuntime through the registry; do not bind Canvas to OpenClaw.',
           },
         ],
       }],

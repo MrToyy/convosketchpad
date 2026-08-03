@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import type { BackendEvent, BackendHandle } from '../agent-backends/contract.js';
+import type { RuntimeEvent, RuntimeHandle } from '../agent-runtimes/contract.js';
 import {
   getCanvasStore,
   type DispatchableSendReservation,
@@ -20,50 +20,50 @@ function activeView(interaction: OwnedInteractionRecord) {
   };
 }
 
-function findActive(event: BackendEvent) {
-  const interaction = getCanvasStore().findInteractionByBackendCorrelation(
-    event.backendId,
+function findActive(event: RuntimeEvent) {
+  const interaction = getCanvasStore().findInteractionByRuntimeCorrelation(
+    event.runtimeId,
     event.turnRef || null,
     event.conversationRef || null,
   );
   return interaction ? activeView(interaction) : null;
 }
 
-function eventKey(event: BackendEvent): string {
+function eventKey(event: RuntimeEvent): string {
   if (event.eventId) return event.eventId;
   return createHash('sha256').update(JSON.stringify(event)).digest('hex');
 }
 
-function terminal(event: BackendEvent): boolean {
+function terminal(event: RuntimeEvent): boolean {
   return event.type === 'turn.completed'
     || event.type === 'turn.failed'
     || event.type === 'turn.interrupted';
 }
 
-function processBackendEvent(event: BackendEvent, storedKey?: string): void {
+function processRuntimeEvent(event: RuntimeEvent, storedKey?: string): void {
   const active = findActive(event);
   if (!active) return;
   if (event.type === 'approval.required') {
     getCanvasStore().recordInteractionApproval(
       active.interactionId,
-      event.backendId,
+      event.runtimeId,
       event.approvalRef,
       event.approval,
       event.createdAt,
     );
     publishCanvasChanged(active.ownerId, active.canvasId);
-    if (storedKey) getCanvasStore().markBackendEventProcessed(storedKey);
+    if (storedKey) getCanvasStore().markRuntimeEventProcessed(storedKey);
     return;
   }
   if (event.type === 'approval.resolved') {
     getCanvasStore().applyInteractionApprovalResolution(
-      event.backendId,
+      event.runtimeId,
       event.approvalRef,
       event.resolution,
       event.resolvedBy,
     );
     publishCanvasChanged(active.ownerId, active.canvasId);
-    if (storedKey) getCanvasStore().markBackendEventProcessed(storedKey);
+    if (storedKey) getCanvasStore().markRuntimeEventProcessed(storedKey);
     return;
   }
   if (event.type === 'output.text.delta' || event.type === 'output.message.completed') {
@@ -94,22 +94,22 @@ function processBackendEvent(event: BackendEvent, storedKey?: string): void {
     ...(failureHint ? { failureHint } : {}),
   });
   scheduleCanvasInteractionReconciliation(active.interactionId, 0);
-  if (storedKey) getCanvasStore().markBackendEventProcessed(storedKey);
+  if (storedKey) getCanvasStore().markRuntimeEventProcessed(storedKey);
 }
 
-export function handleCanvasBackendEvent(event: BackendEvent): void {
+export function handleCanvasRuntimeEvent(event: RuntimeEvent): void {
   const durable = terminal(event)
     || event.type === 'approval.required'
     || event.type === 'approval.resolved'
-    || event.type === 'backend.disconnected';
+    || event.type === 'runtime.disconnected';
   if (!durable) {
-    processBackendEvent(event);
+    processRuntimeEvent(event);
     return;
   }
   const key = eventKey(event);
-  const inserted = getCanvasStore().recordBackendEvent({
+  const inserted = getCanvasStore().recordRuntimeEvent({
     eventKey: key,
-    backendId: event.backendId,
+    runtimeId: event.runtimeId,
     conversationRef: event.conversationRef || null,
     turnRef: event.turnRef || null,
     event,
@@ -117,22 +117,22 @@ export function handleCanvasBackendEvent(event: BackendEvent): void {
   });
   if (!inserted) return;
   if (terminal(event) || event.type === 'approval.required' || event.type === 'approval.resolved') {
-    processBackendEvent(event, key);
+    processRuntimeEvent(event, key);
   }
 }
 
 export function registerCanvasInteraction(
   reservation: DispatchableSendReservation,
   interaction: InteractionRecord,
-  turnRef: BackendHandle | null,
+  turnRef: RuntimeHandle | null,
 ): void {
   publishCanvasChanged(reservation.ownerId, reservation.canvasId);
   if (!reservation.conversationRef) return;
-  for (const stored of getCanvasStore().listPendingBackendEvents(
-    reservation.backendId,
+  for (const stored of getCanvasStore().listPendingRuntimeEvents(
+    reservation.runtimeId,
     turnRef,
     reservation.conversationRef,
   )) {
-    processBackendEvent(stored.event, stored.eventKey);
+    processRuntimeEvent(stored.event, stored.eventKey);
   }
 }

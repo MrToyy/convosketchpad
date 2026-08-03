@@ -3,9 +3,9 @@
 ## 不变量
 
 - 浏览器只呈现 Canvas、提交用户指令和上传原始附件。
-- 后端唯一负责 Agent Backend 通信、发送状态机和 Canvas 数据持久化；当前 Registry 只注册 OpenClaw。
+- 后端唯一负责 Agent Runtime 通信、发送状态机和 Canvas 数据持久化；当前 Registry 只注册 OpenClaw。
 - Branch 同时只有一个未终止发送；`ambiguous` 不得超时解锁。
-- 所选 Agent Backend 是执行、Conversation 和原始对话记录权威；SQLite 是 Canvas 拓扑及持久化副本权威。
+- 所选 Agent Runtime 是执行、Conversation 和原始对话记录权威；SQLite 是 Canvas 拓扑及持久化副本权威。
 - 附件按 ID 和所有者解析，Artifact 保持 25 MiB 上限及降级语义。
 - Graph 读取无副作用；后台协调和晚到 Artifact 观察由服务端生命周期驱动。
 - 已知 Artifact 完整后节点立即显示 `synced`；静默晚到观察任务独立持久化，不触发前端降级轮询。
@@ -16,9 +16,9 @@
 - 前端只应用当前 Canvas 的完整实体 upsert；瞬时 Preview 不持久化，SSE 不可用且 `hasPendingUpdates` 时才降级轮询。
 - Interaction 和 Composer 通过右下角单一控制柄缩放；用户尺寸与位置、视口一起保存，Composer 转成 Interaction 时迁移尺寸。
 - 显式重新排列只在没有可见发送或运行任务时执行；按用户尺寸或实际测量尺寸进行左到右拓扑布局，只改变位置，并把完整布局和适应后的视口一起保存。
-- setup 配置 Backend，Agent 目录按 Backend 配置/默认 Profile/原生顺序扁平聚合；新建 Canvas 自动选择第一个可用 Agent，首次 Send Reservation 前可改，之后由 `agent_locked_at` 永久锁定。
+- setup 配置 Runtime，Agent 目录按 Runtime 配置/默认 Profile/原生顺序扁平聚合；新建 Canvas 自动选择第一个可用 Agent，首次 Send Reservation 前可改，之后由 `agent_locked_at` 永久锁定。
 - 审批只在所属 Interaction 节点内呈现；选择、权限子集、作用域与二次确认来自统一事件，前端不接触原生 Approval Handle。
-- Backend 状态和账户用量在导航/设置中按 Backend 聚合；当前 Canvas 的 Branch、工作中和上下文数据保持局部语义。
+- Runtime 状态和账户用量在导航/设置中按 Runtime 聚合；当前 Canvas 的 Branch、工作中和上下文数据保持局部语义。
 
 ## 前端
 
@@ -34,7 +34,7 @@
 | Canvas 实体合并、降级轮询和退避 | `src/features/canvas/sync.ts`、`src/features/canvas/graph-refresh.ts` |
 | 布局、拖拽保存与显式重新排列 | `src/features/canvas/CanvasPanel.tsx`、`src/features/canvas/CanvasNodes.tsx`、`src/features/canvas/layout.ts` |
 | 图片缩略图与按需原图预览 | `src/features/canvas/CanvasNodes.tsx`、`src/features/chat/ImageLightbox.tsx` |
-| Backend 聚合状态、生命周期操作、设置与账户用量 | `src/contexts/RuntimeContext.tsx`、`src/hooks/useRuntimeEvents.ts`、`src/hooks/useBackendRestart.ts`、`src/features/settings/SystemSettings.tsx`、`src/features/dashboard/TokenUsage.tsx` |
+| Runtime 聚合状态、生命周期操作、设置与账户用量 | `src/contexts/RuntimeContext.tsx`、`src/hooks/useRuntimeEvents.ts`、`src/hooks/useRuntimeRestart.ts`、`src/features/settings/SystemSettings.tsx`、`src/features/dashboard/TokenUsage.tsx` |
 | Artifact 显示 | `src/features/chat/ImageLightbox.tsx` |
 
 ## 服务端
@@ -45,15 +45,15 @@
 | Root/Fork、发送与 Interaction 原样重新提交应用用例 | `server/lib/canvas-branch-service.ts`、`server/lib/canvas-send-service.ts` |
 | 发送领域类型、状态判定与历史快照组装 | `server/lib/canvas-domain.ts`、`server/lib/canvas-history-snapshot.ts` |
 | 公开 DTO 与内部资源定位 | `server/lib/canvas-public-dto.ts`、`server/lib/canvas-resource-locator.ts` |
-| Interaction 完成时的 Backend Conversation 上下文快照 | `server/lib/canvas-context-snapshot.ts` |
+| Interaction 完成时的 Runtime Conversation 上下文快照 | `server/lib/canvas-context-snapshot.ts` |
 | Canvas cursor、SSE 和 Preview | `server/routes/canvas.ts`、`server/lib/canvas-sync.ts` |
-| Backend 聚合状态/用量、生命周期 API 与 SSE | `server/routes/runtime.ts`、`server/routes/tokens.ts`、`server/routes/backend-actions.ts`、`server/lib/runtime-events.ts` |
-| SQLite Schema、彻底 Backend 字段迁移、审批与 Branch 状态机 | `server/lib/canvas-db.ts`、`server/lib/canvas-agent-backend-schema.ts`、`server/lib/canvas-migrations.ts` |
-| 三项累计迁移清单、离线验证入口、`0.4.0` Backend Schema 与原始 Schema fixture | `server/lib/canvas-migration-plan.ts`、`bin/convosketchpad-migrate.ts`、`server/lib/canvas-agent-backend-schema.ts`、`server/lib/fixtures/canvas-v0.2.0.sql` |
+| Runtime 聚合状态/用量、生命周期 API 与 SSE | `server/routes/runtime.ts`、`server/routes/tokens.ts`、`server/routes/runtime-actions.ts`、`server/lib/runtime-events.ts` |
+| SQLite Schema、彻底 Runtime 字段迁移、审批与 Branch 状态机 | `server/lib/canvas-db.ts`、`server/lib/canvas-agent-runtime-schema.ts`、`server/lib/canvas-migrations.ts` |
+| 三项累计迁移清单、离线验证入口、`0.4.0` Runtime Schema 与原始 Schema fixture | `server/lib/canvas-migration-plan.ts`、`bin/convosketchpad-migrate.ts`、`server/lib/canvas-agent-runtime-schema.ts`、`server/lib/fixtures/canvas-v0.2.0.sql` |
 | Fork/Session 恢复 Replay Package、文件引用与物理去重 | `server/lib/canvas-replay-plan.ts` |
-| Agent Backend 契约、配置、Registry、聚合目录与开发规范 | `server/lib/agent-backends/contract.ts`、`config.ts`、`registry.ts`、`catalog.ts`、`docs/agent-backends/ADAPTER-DEVELOPMENT.md` |
-| 发送调度、单次 Worker、投递构建与统一 Backend 事件/审批关联 | `server/lib/canvas-send-coordinator.ts`、`server/lib/canvas-send-worker.ts`、`server/lib/canvas-send-delivery.ts`、`server/lib/canvas/backend-events.ts` |
-| OpenClaw Adapter、Gateway 唯一连接、Transcript/Artifact、Session Policy 与设备边界 | `server/lib/agent-backends/adapters/openclaw/` |
+| Agent Runtime 契约、配置、Registry、聚合目录与开发规范 | `server/lib/agent-runtimes/contract.ts`、`config.ts`、`registry.ts`、`catalog.ts`、`docs/agent-runtimes/ADAPTER-DEVELOPMENT.md` |
+| 发送调度、单次 Worker、投递构建与统一 Runtime 事件/审批关联 | `server/lib/canvas-send-coordinator.ts`、`server/lib/canvas-send-worker.ts`、`server/lib/canvas-send-delivery.ts`、`server/lib/canvas/runtime-events.ts` |
+| OpenClaw Adapter、Gateway 唯一连接、Transcript/Artifact、Session Policy 与设备边界 | `server/lib/agent-runtimes/adapters/openclaw/` |
 | Conversation/Turn 协调 | `server/lib/canvas-reconciler.ts`、`server/lib/canvas-context-snapshot.ts` |
 | Artifact 观察与 Interaction 终态策略 | `server/lib/canvas-artifact-watch.ts`、`server/lib/canvas-reconciliation-state.ts` |
 | 文件持久化、媒体派生与监听后的历史缩略图回填 | `server/index.ts`、`server/lib/canvas-artifact-store.ts`、`server/lib/canvas-media-derivatives.ts`、`server/routes/upload-reference.ts` |
@@ -65,7 +65,7 @@
   → POST branch/send {attachmentIds}
   → 服务端校验并写 send_reservations
   → 后端按需生成/复用大图投递派生文件
-  → AgentBackend.dispatchTurn（OpenClaw: chat.send，预留 ID = idempotencyKey）
+  → AgentRuntime.dispatchTurn（OpenClaw: chat.send，预留 ID = idempotencyKey）
   → accepted 后事务创建 Interaction
   → canvas_changes + 完整 Interaction upsert
   → 权威记录和 Artifact 协调
@@ -75,4 +75,4 @@ Interaction 原样重新提交在后端事务中复制源用户输入和附件�
 Interaction 创建 `direct-submit` Fork，随后进入同一发送流程。`creationMode` 只用于区分手动 Composer 与直接
 提交，不保存 Retry 来源；接受前失败的 operation 通过 Graph `failedSends` 恢复为普通 Composer。
 
-发送分层测试位于 `server/lib/canvas-domain.test.ts`、`canvas-send-service.test.ts`、`canvas-public-dto.test.ts` 与 `agent-backends/adapters/openclaw/*.test.ts`；Registry/聚合入口由 `agent-backends/registry.test.ts` 覆盖。前端审批、控制与投影由 `CanvasNodes.resize.test.tsx`、`useCanvasComposerDrafts.test.tsx`、`canvas-flow-projection.test.ts` 和 Canvas/SSE 测试覆盖。数据库测试从完整 `0.2.0` fixture 建库，验证旧字段物理移除、Handle 回填、审批、事件去重、状态转换、Artifact、附件及重启幂等。
+发送分层测试位于 `server/lib/canvas-domain.test.ts`、`canvas-send-service.test.ts`、`canvas-public-dto.test.ts` 与 `agent-runtimes/adapters/openclaw/*.test.ts`；Registry/聚合入口由 `agent-runtimes/registry.test.ts` 覆盖。前端审批、控制与投影由 `CanvasNodes.resize.test.tsx`、`useCanvasComposerDrafts.test.tsx`、`canvas-flow-projection.test.ts` 和 Canvas/SSE 测试覆盖。数据库测试从完整 `0.2.0` fixture 建库，验证旧字段物理移除、Handle 回填、审批、事件去重、状态转换、Artifact、附件及重启幂等。

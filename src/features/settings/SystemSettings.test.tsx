@@ -4,17 +4,17 @@ import { renderWithSettings } from '@/test/render-with-settings';
 import { SystemSettings } from './SystemSettings';
 
 describe('SystemSettings', () => {
-  it('lists every configured Backend separately from application updates', () => {
+  it('lists every configured Runtime separately from application updates', () => {
     const onRestart = vi.fn();
     renderWithSettings(<SystemSettings
-      backendStatuses={{
-        openclaw: { backendId: 'openclaw', state: 'connected', restartSupported: true },
-        codex: { backendId: 'codex', state: 'disconnected', error: 'offline' },
+      runtimeStatuses={{
+        openclaw: { runtimeId: 'openclaw', state: 'connected', restartSupported: true },
+        codex: { runtimeId: 'codex', state: 'disconnected', error: 'offline' },
       }}
       onRefreshStatus={vi.fn()}
-      onBackendRestart={onRestart}
+      onRuntimeRestart={onRestart}
     />);
-    expect(screen.getByRole('heading', { name: 'Agent Backends' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Agent 运行端' })).toBeInTheDocument();
     expect(screen.getByText('openclaw')).toBeInTheDocument();
     expect(screen.getByText('codex')).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'ConvoSketchpad' })).toBeInTheDocument();
@@ -24,9 +24,9 @@ describe('SystemSettings', () => {
 
   it('does not offer restart when an Adapter reports it unsupported', () => {
     renderWithSettings(<SystemSettings
-      backendStatuses={{ openclaw: { backendId: 'openclaw', state: 'connected', restartSupported: false } }}
+      runtimeStatuses={{ openclaw: { runtimeId: 'openclaw', state: 'connected', restartSupported: false } }}
       onRefreshStatus={vi.fn()}
-      onBackendRestart={vi.fn()}
+      onRuntimeRestart={vi.fn()}
     />);
     expect(screen.queryByRole('button', { name: '重启' })).not.toBeInTheDocument();
   });

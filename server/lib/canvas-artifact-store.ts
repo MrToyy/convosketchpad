@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { getAgentBackend } from './agent-backends/registry.js';
+import { getAgentRuntime } from './agent-runtimes/registry.js';
 import { config } from './config.js';
 import type { CanvasArtifact, CanvasAttachment, OwnedInteractionRecord } from './canvas-db.js';
 
@@ -129,17 +129,17 @@ async function loadSourceBytes(
   artifact: CanvasArtifact,
 ): Promise<{ bytes: Uint8Array; mimeType?: string }> {
   const uri = artifactSourceUri(artifact);
-  const backendId = interaction.backendId;
-  const backend = getAgentBackend(backendId);
-  if (!interaction.conversationRef) throw new Error('Interaction has no Backend conversation reference');
-  const handle = artifact.backendArtifactRef || backend.createArtifactHandle({
+  const runtimeId = interaction.runtimeId;
+  const runtime = getAgentRuntime(runtimeId);
+  if (!interaction.conversationRef) throw new Error('Interaction has no Runtime conversation reference');
+  const handle = artifact.runtimeArtifactRef || runtime.createArtifactHandle({
     sourceUri: uri,
-    profile: { backendId, profileId: interaction.agentProfileId },
+    profile: { runtimeId, profileId: interaction.agentProfileId },
     conversationRef: interaction.conversationRef,
     ...(artifact.mimeType ? { mimeType: artifact.mimeType } : {}),
   });
-  const materialized = await backend.materializeArtifact(handle);
-  if (!materialized.bytes) throw new Error('Agent Backend returned no persistable Artifact bytes');
+  const materialized = await runtime.materializeArtifact(handle);
+  if (!materialized.bytes) throw new Error('Agent Runtime returned no persistable Artifact bytes');
   if (materialized.bytes.byteLength > CANVAS_ARTIFACT_MAX_BYTES) {
     throw new Error('Artifact exceeds the 25 MiB persistence limit');
   }

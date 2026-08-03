@@ -1,4 +1,4 @@
-export interface BackendTokenUsage {
+export interface RuntimeTokenUsage {
   totalCost: number;
   totalInput: number;
   totalOutput: number;
@@ -23,18 +23,18 @@ export interface ProviderLimit {
   windows: ProviderLimitWindow[];
 }
 
-export interface BackendUsageEntry {
-  backendId: string;
+export interface RuntimeUsageEntry {
+  runtimeId: string;
   displayName: string;
   available: boolean;
   usageSupported?: boolean | null;
-  usage?: BackendTokenUsage;
+  usage?: RuntimeTokenUsage;
   quotas?: { available: boolean; providers: ProviderLimit[] };
   error?: string;
 }
 
 export interface RuntimeUsageData {
-  backends: BackendUsageEntry[];
+  runtimes: RuntimeUsageEntry[];
   comparableCostTotal?: { currency: string; amount: number };
   updatedAt: number;
 }

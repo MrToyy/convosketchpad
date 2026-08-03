@@ -11,7 +11,7 @@ function interaction(
     version: 1,
     branchId: 'branch-root',
     parentInteractionId,
-    backendTurnId: `run-${id}`,
+    runtimeTurnId: `run-${id}`,
     userInput: id,
     agentOutput: `answer-${id}`,
     status: 'completed',
@@ -63,7 +63,7 @@ describe('Canvas flow projection', () => {
       canvas: {
         id: 'canvas-1',
         name: 'Canvas',
-        agentRef: { backendId: 'openclaw', profileId: 'main' },
+        agentRef: { runtimeId: 'openclaw', profileId: 'main' },
         agentMutable: false,
         createdAt: 1,
         updatedAt: 1,
@@ -185,7 +185,7 @@ describe('Canvas flow projection', () => {
       canvas: {
         id: 'canvas-1',
         name: 'Canvas',
-        agentRef: { backendId: 'openclaw', profileId: 'main' },
+        agentRef: { runtimeId: 'openclaw', profileId: 'main' },
         agentMutable: false,
         createdAt: 1,
         updatedAt: 2,

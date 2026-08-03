@@ -8,7 +8,7 @@ function interaction(branchId: string, executionState: CanvasInteraction['execut
     version: 1,
     branchId,
     parentInteractionId: null,
-    backendTurnId: null,
+    runtimeTurnId: null,
     userInput: '',
     agentOutput: '',
     status: executionState === 'running' ? 'streaming' : executionState === 'failed' ? 'failed' : 'completed',

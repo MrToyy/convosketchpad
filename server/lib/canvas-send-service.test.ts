@@ -14,7 +14,7 @@ function fixture() {
   const dir = mkdtempSync(path.join(tmpdir(), 'convosketchpad-send-service-'));
   const store = new CanvasStore(path.join(dir, 'canvas.sqlite'));
   store.ensureUser('owner-a', 'Owner A');
-  const canvas = store.createCanvas('owner-a', 'Canvas', { backendId: 'openclaw', profileId: 'main' });
+  const canvas = store.createCanvas('owner-a', 'Canvas', { runtimeId: 'openclaw', profileId: 'main' });
   const branch = store.createRootBranch('owner-a', canvas.id);
   cleanups.push(() => {
     store.close();
@@ -37,7 +37,7 @@ describe('CanvasSendService', () => {
     });
     const result = await service.submit('owner-a', {
       branchId: branch.id,
-      expectedAgentRef: { backendId: 'openclaw', profileId: 'main' },
+      expectedAgentRef: { runtimeId: 'openclaw', profileId: 'main' },
       userInput: 'hello',
       attachmentIds: [],
     });
@@ -46,7 +46,7 @@ describe('CanvasSendService', () => {
       interaction: {
         branchId: branch.id,
         userInput: 'hello',
-        backendTurnId: 'run-1',
+        runtimeTurnId: 'run-1',
       },
     });
     expect(store.getOwnedBranch('owner-a', branch.id)?.headInteractionId).toBe(
@@ -62,7 +62,7 @@ describe('CanvasSendService', () => {
     });
     const result = await service.submit('owner-a', {
       branchId: branch.id,
-      expectedAgentRef: { backendId: 'openclaw', profileId: 'main' },
+      expectedAgentRef: { runtimeId: 'openclaw', profileId: 'main' },
       userInput: 'queued',
       attachmentIds: [],
     });
@@ -81,7 +81,7 @@ describe('CanvasSendService', () => {
     const service = new CanvasSendService({ store });
     await expect(service.submit('owner-a', {
       branchId: branch.id,
-      expectedAgentRef: { backendId: 'openclaw', profileId: 'other' },
+      expectedAgentRef: { runtimeId: 'openclaw', profileId: 'other' },
       userInput: 'hello',
       attachmentIds: [],
     })).rejects.toMatchObject({
@@ -90,7 +90,7 @@ describe('CanvasSendService', () => {
     });
     await expect(service.submit('owner-a', {
       branchId: branch.id,
-      expectedAgentRef: { backendId: 'openclaw', profileId: 'main' },
+      expectedAgentRef: { runtimeId: 'openclaw', profileId: 'main' },
       userInput: 'hello',
       attachmentIds: ['a'.repeat(40)],
     })).rejects.toBeInstanceOf(CanvasSendApplicationError);
@@ -112,7 +112,7 @@ describe('CanvasSendService', () => {
 
     const result = await service.resubmit('owner-a', {
       interactionId: source.id,
-      expectedAgentRef: { backendId: 'openclaw', profileId: 'main' },
+      expectedAgentRef: { runtimeId: 'openclaw', profileId: 'main' },
     });
 
     expect(result).toMatchObject({
@@ -177,7 +177,7 @@ describe('CanvasSendService', () => {
 
     const result = await service.resubmit('owner-a', {
       interactionId: source.id,
-      expectedAgentRef: { backendId: 'openclaw', profileId: 'main' },
+      expectedAgentRef: { runtimeId: 'openclaw', profileId: 'main' },
     });
     expect(result).toMatchObject({
       kind: 'operation',
@@ -223,7 +223,7 @@ describe('CanvasSendService', () => {
       store,
     }).resubmit('owner-a', {
       interactionId: source.id,
-      expectedAgentRef: { backendId: 'openclaw', profileId: 'main' },
+      expectedAgentRef: { runtimeId: 'openclaw', profileId: 'main' },
     })).rejects.toMatchObject({
       code: 'source_attachment_unavailable',
       status: 422,

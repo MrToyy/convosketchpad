@@ -17,7 +17,7 @@ class FakeEventSource {
 
 const connected = {
   overallState: 'ready',
-  backends: [{ backendId: 'openclaw', state: 'connected', restartSupported: true }],
+  runtimes: [{ runtimeId: 'openclaw', state: 'connected', restartSupported: true }],
   updatedAt: 1,
 };
 
@@ -34,20 +34,20 @@ describe('product runtime transport', () => {
   it('loads aggregate status and connects only to product HTTP/SSE endpoints', async () => {
     const { result } = renderHook(() => useRuntimeEvents());
     await waitFor(() => expect(result.current.overallState).toBe('ready'));
-    expect(result.current.backendStatuses.openclaw.state).toBe('connected');
+    expect(result.current.runtimeStatuses.openclaw.state).toBe('connected');
     expect(fetch).toHaveBeenCalledWith('/api/runtime/status', { credentials: 'include' });
     expect(FakeEventSource.instances[0]?.url).toBe('/api/runtime/events');
   });
 
-  it('applies only unified Backend status events', async () => {
+  it('applies only unified Runtime status events', async () => {
     const { result } = renderHook(() => useRuntimeEvents());
     await waitFor(() => expect(FakeEventSource.instances).toHaveLength(1));
-    act(() => FakeEventSource.instances[0].emit('runtime.backend_status_changed', {
+    act(() => FakeEventSource.instances[0].emit('runtime.status_changed', {
       overallState: 'unavailable',
-      backends: [{ backendId: 'openclaw', state: 'disconnected' }],
+      runtimes: [{ runtimeId: 'openclaw', state: 'disconnected' }],
       updatedAt: 2,
     }));
     expect(result.current.overallState).toBe('unavailable');
-    expect(result.current.backendStatuses.openclaw.state).toBe('disconnected');
+    expect(result.current.runtimeStatuses.openclaw.state).toBe('disconnected');
   });
 });

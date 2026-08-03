@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { afterEach, describe, expect, it } from 'vitest';
-import { backendHandle } from './agent-backends/contract.js';
+import { runtimeHandle } from './agent-runtimes/contract.js';
 import { CanvasStore, type CanvasArtifact } from './canvas-db.js';
 
 const cleanups: Array<() => void> = [];
@@ -25,7 +25,7 @@ function createStore(): CanvasStore {
 
 function seedUser(store: CanvasStore, id = 'user-a') {
   store.ensureUser(id, id);
-  return store.createCanvas(id, 'Test Canvas', { backendId: 'openclaw', profileId: 'main' });
+  return store.createCanvas(id, 'Test Canvas', { runtimeId: 'openclaw', profileId: 'main' });
 }
 
 function observeConversationInstance(
@@ -34,8 +34,8 @@ function observeConversationInstance(
   instanceId: string,
   observedAt?: number,
 ) {
-  const context = store.getOwnedBranchBackendContext('user-a', branchId);
-  if (!context) throw new Error('test Backend context not found');
+  const context = store.getOwnedBranchRuntimeContext('user-a', branchId);
+  if (!context) throw new Error('test Runtime context not found');
   return store.observeBranchConversation(
     branchId,
     {
@@ -79,6 +79,115 @@ afterEach(() => {
 });
 
 describe('CanvasStore', () => {
+  it('repairs the unreleased development Backend schema into the final Runtime schema', () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'convosketchpad-runtime-repair-'));
+    const databasePath = path.join(dir, 'canvas.sqlite');
+    let store = new CanvasStore(databasePath);
+    const canvas = seedUser(store);
+    const branch = store.createRootBranch('user-a', canvas.id);
+    const reservation = store.prepareSend('user-a', {
+      branchId: branch.id,
+      userInput: 'repair me',
+      attachments: [],
+    });
+    const interaction = store.acknowledgeSend(
+      'user-a',
+      reservation.id,
+      'run-repair',
+      [],
+      runtimeHandle('openclaw', { runId: 'run-repair' }),
+    );
+    const owned = store.getOwnedInteraction('user-a', interaction.id)!;
+    store.recordRuntimeEvent({
+      eventKey: 'repair:event',
+      runtimeId: 'openclaw',
+      conversationRef: owned.conversationRef || null,
+      turnRef: owned.turnRef || null,
+      event: {
+        runtimeId: 'openclaw',
+        eventId: 'repair:event',
+        type: 'turn.completed',
+        conversationRef: owned.conversationRef || undefined,
+        turnRef: owned.turnRef || undefined,
+        createdAt: 100,
+      },
+      createdAt: 100,
+    });
+    store.close();
+
+    const development = new DatabaseSync(databasePath);
+    development.exec(`
+      DROP TRIGGER IF EXISTS canvas_update_change_v2;
+      DROP INDEX IF EXISTS runtime_event_pending_turn;
+      DROP INDEX IF EXISTS runtime_event_pending_conversation;
+      ALTER TABLE canvases RENAME COLUMN runtime_id TO backend_id;
+      ALTER TABLE interactions RENAME COLUMN runtime_turn_id TO backend_turn_id;
+      ALTER TABLE send_reservations RENAME COLUMN runtime_id TO backend_id;
+      ALTER TABLE send_reservations RENAME COLUMN runtime_turn_id TO backend_turn_id;
+      ALTER TABLE interaction_artifacts RENAME COLUMN runtime_artifact_id TO backend_artifact_id;
+      ALTER TABLE interaction_artifacts RENAME COLUMN runtime_artifact_ref_json TO backend_artifact_ref_json;
+      ALTER TABLE interaction_approvals RENAME COLUMN runtime_id TO backend_id;
+      ALTER TABLE runtime_event_inbox RENAME TO backend_event_inbox;
+      ALTER TABLE backend_event_inbox RENAME COLUMN runtime_id TO backend_id;
+      CREATE INDEX backend_event_pending_turn
+        ON backend_event_inbox(backend_id, turn_ref_json, processed_at);
+      CREATE INDEX backend_event_pending_conversation
+        ON backend_event_inbox(backend_id, conversation_ref_json, processed_at);
+      UPDATE branches SET conversation_ref_json = replace(conversation_ref_json, '"runtimeId":', '"backendId":');
+      UPDATE branches SET observed_conversation_ref_json = replace(observed_conversation_ref_json, '"runtimeId":', '"backendId":')
+        WHERE observed_conversation_ref_json IS NOT NULL;
+      UPDATE interactions SET turn_ref_json = replace(turn_ref_json, '"runtimeId":', '"backendId":')
+        WHERE turn_ref_json IS NOT NULL;
+      UPDATE interactions SET execution_metadata_json = replace(
+        replace(execution_metadata_json, '"runtimeId":', '"backendId":'),
+        '"source":"agent-runtime"', '"source":"agent-backend"'
+      );
+      UPDATE send_reservations SET conversation_ref_json = replace(conversation_ref_json, '"runtimeId":', '"backendId":');
+      UPDATE send_reservations SET dispatch_recovery_ref_json = replace(dispatch_recovery_ref_json, '"runtimeId":', '"backendId":')
+        WHERE dispatch_recovery_ref_json IS NOT NULL;
+      UPDATE backend_event_inbox SET
+        conversation_ref_json = replace(conversation_ref_json, '"runtimeId":', '"backendId":'),
+        turn_ref_json = replace(turn_ref_json, '"runtimeId":', '"backendId":'),
+        payload_json = replace(payload_json, '"runtimeId":', '"backendId":');
+      DELETE FROM schema_migrations WHERE id = '0.3.2_to_0.4.0_agent_runtime_v1';
+      INSERT OR IGNORE INTO schema_migrations(id, applied_at, app_version)
+        VALUES ('0.3.0_media_derivatives_v1', 1, '0.3.2');
+      INSERT INTO schema_migrations(id, applied_at, app_version)
+        VALUES ('0.3.2_to_0.4.0_agent_backend_v1', 1, '0.4.0');
+    `);
+    development.close();
+
+    store = new CanvasStore(databasePath);
+    expect(store.getOwnedInteraction('user-a', interaction.id)).toMatchObject({
+      runtimeId: 'openclaw',
+      turnRef: { runtimeId: 'openclaw', opaque: { runId: 'run-repair' } },
+      conversationRef: { runtimeId: 'openclaw' },
+    });
+    store.close();
+
+    const verified = new DatabaseSync(databasePath);
+    const columnNames = (table: string) => (verified.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>)
+      .map(({ name }) => name);
+    expect(columnNames('canvases')).toContain('runtime_id');
+    expect(columnNames('canvases')).not.toContain('backend_id');
+    expect(columnNames('interactions')).toContain('runtime_turn_id');
+    expect(columnNames('interaction_artifacts')).toContain('runtime_artifact_ref_json');
+    expect(verified.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'backend_event_inbox'").get())
+      .toBeUndefined();
+    expect(verified.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'runtime_event_inbox'").get())
+      .toBeTruthy();
+    expect((verified.prepare('SELECT id FROM schema_migrations ORDER BY id').all() as Array<{ id: string }>).map(({ id }) => id))
+      .toEqual([
+        '0.2.0_to_0.3.0_v1',
+        '0.3.0_media_derivatives_v1',
+        '0.3.2_to_0.4.0_agent_runtime_v1',
+      ]);
+    expect(verified.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
+    expect(verified.prepare('PRAGMA integrity_check').get()).toEqual({ integrity_check: 'ok' });
+    verified.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
   it('deterministically migrates an exact v0.2.0 database without Gateway access', () => {
     const dir = mkdtempSync(path.join(tmpdir(), 'convosketchpad-v020-canvas-'));
     const databasePath = path.join(dir, 'canvas.sqlite');
@@ -237,7 +346,7 @@ describe('CanvasStore', () => {
     expect(store.db.prepare(`SELECT COUNT(*) AS count FROM schema_migrations
       WHERE id = '0.2.0_to_0.3.0_v1'`).get()).toMatchObject({ count: 1 });
     expect(store.db.prepare(`SELECT app_version FROM schema_migrations
-      WHERE id = '0.3.2_to_0.4.0_agent_backend_v1'`).get()).toMatchObject({
+      WHERE id = '0.3.2_to_0.4.0_agent_runtime_v1'`).get()).toMatchObject({
       app_version: '0.4.0',
     });
     const columnNames = (table: string) => (store.db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>)
@@ -325,7 +434,7 @@ describe('CanvasStore', () => {
       app_version: expect.any(String),
     });
     expect(store.db.prepare(`SELECT app_version FROM schema_migrations
-      WHERE id = '0.3.2_to_0.4.0_agent_backend_v1'`).get()).toMatchObject({
+      WHERE id = '0.3.2_to_0.4.0_agent_runtime_v1'`).get()).toMatchObject({
       app_version: '0.4.0',
     });
 
@@ -516,11 +625,11 @@ describe('CanvasStore', () => {
     const root = store.createRootBranch('user-a', canvas.id);
 
     const updated = store.updateCanvasAgentBeforeFirstInteraction('user-a', canvas.id, {
-      backendId: 'openclaw',
+      runtimeId: 'openclaw',
       profileId: 'designer',
     });
 
-    expect(updated?.agentRef).toEqual({ backendId: 'openclaw', profileId: 'designer' });
+    expect(updated?.agentRef).toEqual({ runtimeId: 'openclaw', profileId: 'designer' });
     expect(store.getGraph('user-a', canvas.id)?.branches).toEqual([
       expect.objectContaining({ id: root.id, conversationId: root.id, conversationState: 'draft' }),
     ]);
@@ -533,23 +642,23 @@ describe('CanvasStore', () => {
     store.prepareSend('user-a', { branchId: preparedBranch.id, userInput: 'hello', attachments: [] });
 
     expect(() => store.updateCanvasAgentBeforeFirstInteraction('user-a', preparedCanvas.id, {
-      backendId: 'openclaw', profileId: 'designer',
+      runtimeId: 'openclaw', profileId: 'designer',
     })).toThrow('agent_locked');
 
     store.db.prepare('UPDATE canvases SET agent_locked_at = NULL WHERE id = ?').run(preparedCanvas.id);
     expect(() => store.updateCanvasAgentBeforeFirstInteraction('user-a', preparedCanvas.id, {
-      backendId: 'openclaw', profileId: 'designer',
+      runtimeId: 'openclaw', profileId: 'designer',
     })).toThrow('agent_locked');
 
     const activeCanvas = store.createCanvas('user-a', 'Active Canvas', {
-      backendId: 'openclaw', profileId: 'main',
+      runtimeId: 'openclaw', profileId: 'main',
     });
     const activeBranch = store.createRootBranch('user-a', activeCanvas.id);
     const reservation = store.prepareSend('user-a', { branchId: activeBranch.id, userInput: 'hello', attachments: [] });
     store.acknowledgeSend('user-a', reservation.id, 'run-active');
 
     expect(() => store.updateCanvasAgentBeforeFirstInteraction('user-a', activeCanvas.id, {
-      backendId: 'openclaw', profileId: 'designer',
+      runtimeId: 'openclaw', profileId: 'designer',
     })).toThrow('agent_locked');
   });
 
@@ -927,7 +1036,7 @@ describe('CanvasStore', () => {
       reservation.id,
       'run-1',
       [],
-      backendHandle('openclaw', { runId: 'run-1' }),
+      runtimeHandle('openclaw', { runId: 'run-1' }),
     );
 
     store.updateReconciliationMetadata(current.id, { phase: 'settling', artifactSync: 'pending' });
@@ -953,15 +1062,15 @@ describe('CanvasStore', () => {
       reservation.id,
       'run-1',
       [],
-      backendHandle('openclaw', { runId: 'run-1' }),
+      runtimeHandle('openclaw', { runId: 'run-1' }),
     );
     const firstSnapshot = {
       usedTokens: 12_000,
       contextLimit: 100_000,
       conversationInstanceId: 'session-1',
       capturedAt: 123,
-      source: 'agent-backend' as const,
-      backendId: 'openclaw',
+      source: 'agent-runtime' as const,
+      runtimeId: 'openclaw',
     };
 
     store.applyReconciledInteraction(current.id, {
@@ -1119,7 +1228,7 @@ describe('CanvasStore', () => {
     expect(store.getCanvasCursor(canvas.id)).toBe(terminalCursor);
   });
 
-  it('correlates Backend events by durable handles and stores them idempotently', () => {
+  it('correlates Runtime events by durable handles and stores them idempotently', () => {
     const store = createStore();
     const canvas = seedUser(store);
     const branch = store.createRootBranch('user-a', canvas.id);
@@ -1133,21 +1242,21 @@ describe('CanvasStore', () => {
       reservation.id,
       'run-1',
       [],
-      backendHandle('openclaw', { runId: 'run-1' }),
+      runtimeHandle('openclaw', { runId: 'run-1' }),
     );
     const owned = store.getOwnedInteraction('user-a', current.id)!;
-    expect(store.findInteractionByBackendCorrelation('openclaw', owned.turnRef || null, null)?.id)
+    expect(store.findInteractionByRuntimeCorrelation('openclaw', owned.turnRef || null, null)?.id)
       .toBe(current.id);
-    expect(store.findInteractionByBackendCorrelation('openclaw', null, owned.conversationRef || null)?.id)
+    expect(store.findInteractionByRuntimeCorrelation('openclaw', null, owned.conversationRef || null)?.id)
       .toBe(current.id);
 
     const event = {
       eventKey: 'chat:1',
-      backendId: 'openclaw',
+      runtimeId: 'openclaw',
       turnRef: owned.turnRef || null,
       conversationRef: owned.conversationRef || null,
       event: {
-        backendId: 'openclaw',
+        runtimeId: 'openclaw',
         eventId: 'chat:1',
         type: 'turn.completed' as const,
         turnRef: owned.turnRef || undefined,
@@ -1156,16 +1265,16 @@ describe('CanvasStore', () => {
       },
       createdAt: Date.now(),
     };
-    expect(store.recordBackendEvent(event)).toBe(true);
-    expect(store.recordBackendEvent(event)).toBe(false);
-    expect(store.listPendingBackendEvents('openclaw', owned.turnRef || null, owned.conversationRef!)).toEqual([
+    expect(store.recordRuntimeEvent(event)).toBe(true);
+    expect(store.recordRuntimeEvent(event)).toBe(false);
+    expect(store.listPendingRuntimeEvents('openclaw', owned.turnRef || null, owned.conversationRef!)).toEqual([
       expect.objectContaining({ eventKey: 'chat:1', event: expect.objectContaining({ type: 'turn.completed' }) }),
     ]);
-    store.markBackendEventProcessed('chat:1');
-    expect(store.listPendingBackendEvents('openclaw', owned.turnRef || null, owned.conversationRef!)).toEqual([]);
+    store.markRuntimeEventProcessed('chat:1');
+    expect(store.listPendingRuntimeEvents('openclaw', owned.turnRef || null, owned.conversationRef!)).toEqual([]);
   });
 
-  it('persists protocol-neutral Backend bindings and durable events', () => {
+  it('persists protocol-neutral Runtime bindings and durable events', () => {
     const store = createStore();
     const canvas = seedUser(store);
     const branch = store.createRootBranch('user-a', canvas.id);
@@ -1175,9 +1284,9 @@ describe('CanvasStore', () => {
       attachments: [],
     });
     expect(reservation).toMatchObject({
-      backendId: 'openclaw',
+      runtimeId: 'openclaw',
       conversationRef: {
-        backendId: 'openclaw',
+        runtimeId: 'openclaw',
         schemaVersion: 1,
         opaque: { sessionKey: `agent:main:canvas:${branch.id}` },
       },
@@ -1187,23 +1296,23 @@ describe('CanvasStore', () => {
       reservation.id,
       'run-1',
       [],
-      backendHandle('openclaw', { runId: 'run-1' }),
+      runtimeHandle('openclaw', { runId: 'run-1' }),
     );
     const owned = store.getOwnedInteraction('user-a', current.id)!;
     expect(owned).toMatchObject({
-      backendId: 'openclaw',
+      runtimeId: 'openclaw',
       agentProfileId: 'main',
-      turnRef: { backendId: 'openclaw', opaque: { runId: 'run-1' } },
-      conversationRef: { backendId: 'openclaw', opaque: { sessionKey: `agent:main:canvas:${branch.id}` } },
+      turnRef: { runtimeId: 'openclaw', opaque: { runId: 'run-1' } },
+      conversationRef: { runtimeId: 'openclaw', opaque: { sessionKey: `agent:main:canvas:${branch.id}` } },
     });
-    expect(store.findInteractionByBackendCorrelation(
+    expect(store.findInteractionByRuntimeCorrelation(
       'openclaw',
       owned.turnRef || null,
       owned.conversationRef || null,
     )?.id).toBe(current.id);
 
     const event = {
-      backendId: 'openclaw',
+      runtimeId: 'openclaw',
       eventId: 'openclaw:chat:1',
       type: 'turn.completed' as const,
       conversationRef: owned.conversationRef,
@@ -1211,29 +1320,29 @@ describe('CanvasStore', () => {
       text: 'done',
       createdAt: Date.now(),
     };
-    expect(store.recordBackendEvent({
+    expect(store.recordRuntimeEvent({
       eventKey: event.eventId,
-      backendId: event.backendId,
+      runtimeId: event.runtimeId,
       conversationRef: event.conversationRef || null,
       turnRef: event.turnRef || null,
       event,
       createdAt: event.createdAt,
     })).toBe(true);
-    expect(store.recordBackendEvent({
+    expect(store.recordRuntimeEvent({
       eventKey: event.eventId,
-      backendId: event.backendId,
+      runtimeId: event.runtimeId,
       conversationRef: event.conversationRef || null,
       turnRef: event.turnRef || null,
       event,
       createdAt: event.createdAt,
     })).toBe(false);
-    expect(store.listPendingBackendEvents(
+    expect(store.listPendingRuntimeEvents(
       'openclaw',
       owned.turnRef || null,
       owned.conversationRef!,
     )).toEqual([expect.objectContaining({ eventKey: event.eventId, event })]);
-    store.markBackendEventProcessed(event.eventId);
-    expect(store.listPendingBackendEvents(
+    store.markRuntimeEventProcessed(event.eventId);
+    expect(store.listPendingRuntimeEvents(
       'openclaw',
       owned.turnRef || null,
       owned.conversationRef!,
@@ -1247,7 +1356,7 @@ describe('CanvasStore', () => {
     const reservation = store.prepareSend('user-a', { branchId: branch.id, userInput: 'run it', attachments: [] });
     const interaction = store.acknowledgeSend('user-a', reservation.id, 'run-approval');
     const approvalRef = {
-      backendId: 'openclaw', schemaVersion: 1, opaque: { approvalId: 'approval-1', approvalKind: 'exec' },
+      runtimeId: 'openclaw', schemaVersion: 1, opaque: { approvalId: 'approval-1', approvalKind: 'exec' },
     };
     const approval = store.recordInteractionApproval(interaction.id, 'openclaw', approvalRef, {
       category: 'command',
@@ -1260,7 +1369,7 @@ describe('CanvasStore', () => {
         { id: 'deny', intent: 'deny', scope: 'item', label: 'Deny', requiresConfirmation: false },
       ],
     });
-    expect(approval).toMatchObject({ status: 'pending', backendId: 'openclaw' });
+    expect(approval).toMatchObject({ status: 'pending', runtimeId: 'openclaw' });
     expect(store.getGraph('user-a', canvas.id)?.interactions[0].approvals).toEqual([
       expect.objectContaining({ id: approval?.id, status: 'pending', title: 'Execute command' }),
     ]);

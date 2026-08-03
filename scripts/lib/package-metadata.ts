@@ -9,7 +9,7 @@ export interface PackageMetadata {
 const fallback: PackageMetadata = {
   version: '0.0.0',
   description:
-    'A visual branching workspace for OpenClaw — fork conversations with context, attachments, and artifacts intact',
+    'A visual branching workspace for agents — revisit any point and continue exploring.',
 };
 
 export function readPackageMetadata(): PackageMetadata {

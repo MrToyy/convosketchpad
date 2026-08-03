@@ -88,7 +88,7 @@ function branchHasComposer(graph: CanvasGraph, branchId: string): boolean {
 }
 
 export function CanvasPanel({ onStatusStatsChange }: { onStatusStatsChange?: (stats: CanvasStatusStats) => void }) {
-  const { backendStatuses } = useRuntime();
+  const { runtimeStatuses } = useRuntime();
   const { language } = useSettings();
   const copy = getCanvasCopy(language);
   const localizeError = useCallback((cause: unknown, fallback: string) => canvasErrorMessage(cause, fallback, language), [language]);
@@ -174,8 +174,8 @@ export function CanvasPanel({ onStatusStatsChange }: { onStatusStatsChange?: (st
     setError(localizeError(cause, copy.loadCanvasFailed));
   }, [copy.loadCanvasFailed, localizeError]);
   const handleGraphRefreshError = useCallback((cause: unknown) => {
-    setError(localizeError(cause, copy.refreshBackendFailed));
-  }, [copy.refreshBackendFailed, localizeError]);
+    setError(localizeError(cause, copy.refreshRuntimeFailed));
+  }, [copy.refreshRuntimeFailed, localizeError]);
   const {
     graph,
     setGraph,
@@ -209,11 +209,11 @@ export function CanvasPanel({ onStatusStatsChange }: { onStatusStatsChange?: (st
       setAgentCatalogLoading(false);
     }
   }, []);
-  const backendCatalogRevision = Object.values(backendStatuses)
-    .map((status) => `${status.backendId}:${status.state}:${status.version || ''}`)
+  const runtimeCatalogRevision = Object.values(runtimeStatuses)
+    .map((status) => `${status.runtimeId}:${status.state}:${status.version || ''}`)
     .sort()
     .join('|');
-  useEffect(() => { void loadAgents(); }, [backendCatalogRevision, loadAgents]);
+  useEffect(() => { void loadAgents(); }, [runtimeCatalogRevision, loadAgents]);
 
   const focusComposer = useCallback((branchId: string, sourceInteractionId: string | null) => {
     setFocusedComposer({ branchId, sourceInteractionId });
@@ -609,7 +609,7 @@ export function CanvasPanel({ onStatusStatsChange }: { onStatusStatsChange?: (st
 
   const changeAgent = useCallback(async (agentRef: AgentRef) => {
     if (!graph || !agentEditable || (
-      agentRef.backendId === graph.canvas.agentRef.backendId
+      agentRef.runtimeId === graph.canvas.agentRef.runtimeId
       && agentRef.profileId === graph.canvas.agentRef.profileId
     )) return;
     setAgentChanging(true);
@@ -703,14 +703,14 @@ export function CanvasPanel({ onStatusStatsChange }: { onStatusStatsChange?: (st
         {selectedId && graph ? (
           <>
             <div className={`absolute top-4 z-10 flex items-center gap-3 rounded-2xl border border-border/75 bg-card/92 px-3 py-2 shadow-lg backdrop-blur ${canvasListVisible ? 'left-4' : 'left-16'}`}>
-              <Bot size={16} className={backendStatuses[graph.canvas.agentRef.backendId]?.state === 'connected' ? 'text-green' : 'text-muted-foreground'} />
+              <Bot size={16} className={runtimeStatuses[graph.canvas.agentRef.runtimeId]?.state === 'connected' ? 'text-green' : 'text-muted-foreground'} />
               <div className="text-sm font-semibold">{graph.canvas.name}</div>
               {graph.canvas.agentMutable ? (
                 <div className="flex items-center gap-1">
                   <select
                     value={(() => {
                       const index = agents.findIndex((agent) =>
-                        agent.agentRef.backendId === graph.canvas.agentRef.backendId
+                        agent.agentRef.runtimeId === graph.canvas.agentRef.runtimeId
                         && agent.agentRef.profileId === graph.canvas.agentRef.profileId);
                       return index >= 0 ? String(index) : '__current__';
                     })()}
@@ -722,12 +722,12 @@ export function CanvasPanel({ onStatusStatsChange }: { onStatusStatsChange?: (st
                     aria-label={copy.selectAgent}
                     className="max-w-48 rounded-lg border border-border bg-background px-2 py-1.5 text-xs"
                   >
-                    {!agents.some((agent) => agent.agentRef.backendId === graph.canvas.agentRef.backendId && agent.agentRef.profileId === graph.canvas.agentRef.profileId) && <option value="__current__">{graph.canvas.agentRef.profileId} · {graph.canvas.agentRef.backendId}</option>}
-                    {agents.map((agent, index) => <option key={`${agent.agentRef.backendId}:${agent.agentRef.profileId}`} value={index} disabled={!agent.available}>{agent.displayName} · {agent.backendDisplayName}{agent.available ? '' : ' — unavailable'}</option>)}
+                    {!agents.some((agent) => agent.agentRef.runtimeId === graph.canvas.agentRef.runtimeId && agent.agentRef.profileId === graph.canvas.agentRef.profileId) && <option value="__current__">{graph.canvas.agentRef.profileId} · {graph.canvas.agentRef.runtimeId}</option>}
+                    {agents.map((agent, index) => <option key={`${agent.agentRef.runtimeId}:${agent.agentRef.profileId}`} value={index} disabled={!agent.available}>{agent.displayName} · {agent.runtimeDisplayName}{agent.available ? '' : ' — unavailable'}</option>)}
                   </select>
                   {agentCatalogError && <Button size="icon" variant="ghost" onClick={() => void loadAgents()} title={copy.retryAgentList}><RefreshCw size={13} /></Button>}
                 </div>
-              ) : <span className="rounded-lg bg-secondary px-2 py-1 text-xs text-muted-foreground">{copy.agentLabel(`${graph.canvas.agentRef.profileId} · ${graph.canvas.agentRef.backendId}`)}</span>}
+              ) : <span className="rounded-lg bg-secondary px-2 py-1 text-xs text-muted-foreground">{copy.agentLabel(`${graph.canvas.agentRef.profileId} · ${graph.canvas.agentRef.runtimeId}`)}</span>}
               <Button size="sm" onClick={() => void createRoot()}><Plus size={14} /> {copy.newSession}</Button>
               <Button
                 size="sm"

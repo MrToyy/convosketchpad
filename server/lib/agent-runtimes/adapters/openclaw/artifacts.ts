@@ -2,8 +2,8 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { BackendArtifactHandle, MaterializedArtifact } from '../../contract.js';
-import { BackendOperationError, assertBackendHandle } from '../../contract.js';
+import type { RuntimeArtifactHandle, MaterializedArtifact } from '../../contract.js';
+import { RuntimeOperationError, assertRuntimeHandle } from '../../contract.js';
 import { config } from '../../../config.js';
 import {
   gatewayRpcCall,
@@ -28,8 +28,8 @@ function gatewayHttpBase(): URL {
 
 async function responseBytes(response: Response): Promise<Uint8Array> {
   const declared = Number(response.headers.get('content-length') || 0);
-  if (declared > MAX_BYTES) throw new BackendOperationError('rejected', 'Artifact exceeds the 25 MiB persistence limit');
-  if (!response.body) throw new BackendOperationError('internal', 'Artifact response has no body');
+  if (declared > MAX_BYTES) throw new RuntimeOperationError('rejected', 'Artifact exceeds the 25 MiB persistence limit');
+  if (!response.body) throw new RuntimeOperationError('internal', 'Artifact response has no body');
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
   let total = 0;
@@ -39,7 +39,7 @@ async function responseBytes(response: Response): Promise<Uint8Array> {
     total += value.byteLength;
     if (total > MAX_BYTES) {
       await reader.cancel();
-      throw new BackendOperationError('rejected', 'Artifact exceeds the 25 MiB persistence limit');
+      throw new RuntimeOperationError('rejected', 'Artifact exceeds the 25 MiB persistence limit');
     }
     chunks.push(value);
   }
@@ -58,7 +58,7 @@ async function downloadUrl(urlValue: string, mimeType?: string): Promise<Materia
     headers: token ? { Authorization: `Bearer ${token}` } : undefined,
     signal: AbortSignal.timeout(30_000),
   });
-  if (!response.ok) throw new BackendOperationError('unavailable', `OpenClaw Artifact returned HTTP ${response.status}`);
+  if (!response.ok) throw new RuntimeOperationError('unavailable', `OpenClaw Artifact returned HTTP ${response.status}`);
   return {
     bytes: await responseBytes(response),
     mimeType: mimeType || response.headers.get('content-type') || undefined,
@@ -104,12 +104,12 @@ async function secureLocalPath(uri: string, agentId: string): Promise<string | n
   if (!realRoots.some((entry) => isWithin(realPath, entry))) return null;
   const stat = await fs.stat(realPath).catch(() => null);
   if (!stat?.isFile()) return null;
-  if (stat.size > MAX_BYTES) throw new BackendOperationError('rejected', 'Artifact exceeds the 25 MiB persistence limit');
+  if (stat.size > MAX_BYTES) throw new RuntimeOperationError('rejected', 'Artifact exceeds the 25 MiB persistence limit');
   return realPath;
 }
 
-export async function materializeOpenClawArtifact(handle: BackendArtifactHandle): Promise<MaterializedArtifact> {
-  assertBackendHandle(handle, 'openclaw');
+export async function materializeOpenClawArtifact(handle: RuntimeArtifactHandle): Promise<MaterializedArtifact> {
+  assertRuntimeHandle(handle, 'openclaw');
   const { opaque } = handle;
   if (opaque.kind === 'native') {
     const query = opaque.runId
@@ -124,41 +124,41 @@ export async function materializeOpenClawArtifact(handle: BackendArtifactHandle)
       return { bytes: Buffer.from(result.data, 'base64'), ...(mimeType ? { mimeType } : {}) };
     }
     if (typeof result.url === 'string') return downloadUrl(result.url, mimeType);
-    throw new BackendOperationError('internal', 'Gateway returned an unsupported Artifact download payload');
+    throw new RuntimeOperationError('internal', 'Gateway returned an unsupported Artifact download payload');
   }
 
   const uri = opaque.uri;
-  if (!uri) throw new BackendOperationError('validation', 'OpenClaw Artifact handle is missing a source URI');
+  if (!uri) throw new RuntimeOperationError('validation', 'OpenClaw Artifact handle is missing a source URI');
   if (/^https?:\/\//i.test(uri)) return { externalUrl: uri, ...(opaque.mimeType ? { mimeType: opaque.mimeType } : {}) };
   if (uri.startsWith('/api/chat/media/outgoing/')) {
     const match = uri.match(/^\/api\/chat\/media\/outgoing\/([^/]+)\//);
     let mediaSession = '';
     try { mediaSession = match ? decodeURIComponent(match[1]) : ''; } catch { /* invalid URI */ }
     if (opaque.sessionKey && mediaSession !== opaque.sessionKey) {
-      throw new BackendOperationError('validation', 'Artifact media session does not match the Conversation');
+      throw new RuntimeOperationError('validation', 'Artifact media session does not match the Conversation');
     }
     return downloadUrl(uri, opaque.mimeType);
   }
   if (uri.startsWith('data:')) {
     const match = uri.match(/^data:([^;,]+)(?:;[^,]*)?;base64,(.+)$/s);
-    if (!match) throw new BackendOperationError('validation', 'Unsupported Artifact data URI');
+    if (!match) throw new RuntimeOperationError('validation', 'Unsupported Artifact data URI');
     const bytes = Buffer.from(match[2], 'base64');
-    if (bytes.byteLength > MAX_BYTES) throw new BackendOperationError('rejected', 'Artifact exceeds the 25 MiB persistence limit');
+    if (bytes.byteLength > MAX_BYTES) throw new RuntimeOperationError('rejected', 'Artifact exceeds the 25 MiB persistence limit');
     return { bytes, mimeType: opaque.mimeType || match[1] };
   }
   if (!path.isAbsolute(uri) && !uri.startsWith('file:') && !/^[a-z][a-z0-9+.-]*:/i.test(uri)) {
     if (!gatewaySupports('agents.workspace.get')) {
-      throw new BackendOperationError('unsupported', 'Gateway does not provide agents.workspace.get for relative Artifact paths');
+      throw new RuntimeOperationError('unsupported', 'Gateway does not provide agents.workspace.get for relative Artifact paths');
     }
     const decoded = decodeWorkspaceContent(await gatewayRpcCall('agents.workspace.get', {
       agentId: opaque.agentId,
       path: uri,
     }, 15_000));
-    if (!decoded?.bytes) throw new BackendOperationError('internal', 'Gateway returned an unsupported workspace file payload');
-    if (decoded.bytes.byteLength > MAX_BYTES) throw new BackendOperationError('rejected', 'Artifact exceeds the 25 MiB persistence limit');
+    if (!decoded?.bytes) throw new RuntimeOperationError('internal', 'Gateway returned an unsupported workspace file payload');
+    if (decoded.bytes.byteLength > MAX_BYTES) throw new RuntimeOperationError('rejected', 'Artifact exceeds the 25 MiB persistence limit');
     return { bytes: decoded.bytes, mimeType: opaque.mimeType || decoded.mimeType };
   }
   const localPath = await secureLocalPath(uri, opaque.agentId);
-  if (!localPath) throw new BackendOperationError('validation', 'Artifact source is not an allowed OpenClaw local file');
+  if (!localPath) throw new RuntimeOperationError('validation', 'Artifact source is not an allowed OpenClaw local file');
   return { bytes: await fs.readFile(localPath), ...(opaque.mimeType ? { mimeType: opaque.mimeType } : {}) };
 }

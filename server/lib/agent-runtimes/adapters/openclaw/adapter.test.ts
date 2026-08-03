@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { backendHandle } from '../../contract.js';
+import { runtimeHandle } from '../../contract.js';
 
 const mocks = vi.hoisted(() => ({
   rpc: vi.fn(),
@@ -40,10 +40,10 @@ vi.mock('./openclaw-session-policy.js', () => ({
 }));
 
 import { GatewayDispatchError } from './gateway-rpc.js';
-import { openClawAgentBackend } from './adapter.js';
+import { openClawAgentRuntime } from './adapter.js';
 
-const conversationRef = backendHandle('openclaw', { sessionKey: 'agent:main:canvas:branch-1' });
-const profile = { backendId: 'openclaw', profileId: 'main' };
+const conversationRef = runtimeHandle('openclaw', { sessionKey: 'agent:main:canvas:branch-1' });
+const profile = { runtimeId: 'openclaw', profileId: 'main' };
 
 beforeEach(() => {
   mocks.rpc.mockReset();
@@ -52,21 +52,21 @@ beforeEach(() => {
   mocks.supports.mockReturnValue(true);
 });
 
-describe('OpenClawAgentBackend contract', () => {
+describe('OpenClawAgentRuntime contract', () => {
   it('projects the Agent catalog into stable profiles', async () => {
     mocks.rpc.mockResolvedValue({
       defaultId: 'main',
       agents: [{ id: 'main', name: 'Main Agent', identity: { name: 'Assistant' } }],
     });
-    await expect(openClawAgentBackend.listAgentProfiles({ ownerId: 'owner-a' })).resolves.toMatchObject({
+    await expect(openClawAgentRuntime.listAgentProfiles({ ownerId: 'owner-a' })).resolves.toMatchObject({
       defaultProfileId: 'main',
-      profiles: [{ backendId: 'openclaw', profileId: 'main', displayName: 'Assistant' }],
+      profiles: [{ runtimeId: 'openclaw', profileId: 'main', displayName: 'Assistant' }],
     });
   });
 
   it('normalizes accepted, rejected, and unknown dispatch outcomes', async () => {
     mocks.dispatch.mockResolvedValueOnce({ runId: 'run-1' });
-    await expect(openClawAgentBackend.dispatchTurn({
+    await expect(openClawAgentRuntime.dispatchTurn({
       profile,
       conversationRef,
       message: 'hello',
@@ -74,28 +74,28 @@ describe('OpenClawAgentBackend contract', () => {
       idempotencyKey: 'send-1',
     })).resolves.toMatchObject({
       outcome: 'accepted',
-      turnRef: { backendId: 'openclaw', opaque: { runId: 'run-1' } },
+      turnRef: { runtimeId: 'openclaw', opaque: { runId: 'run-1' } },
     });
 
     mocks.dispatch.mockRejectedValueOnce(new GatewayDispatchError('rejected', 'invalid'));
-    await expect(openClawAgentBackend.dispatchTurn({
+    await expect(openClawAgentRuntime.dispatchTurn({
       profile, conversationRef, message: 'hello', attachments: [], idempotencyKey: 'send-2',
     })).resolves.toMatchObject({ outcome: 'rejected', error: { kind: 'rejected' } });
 
     mocks.dispatch.mockRejectedValueOnce(new GatewayDispatchError('outcome_unknown', 'connection lost'));
-    await expect(openClawAgentBackend.dispatchTurn({
+    await expect(openClawAgentRuntime.dispatchTurn({
       profile, conversationRef, message: 'hello', attachments: [], idempotencyKey: 'send-3',
     })).resolves.toMatchObject({ outcome: 'unknown', error: { kind: 'unknown_outcome' } });
   });
 
   it('resolves exec and plugin approvals through the matching native RPC', async () => {
     mocks.rpc.mockResolvedValue({ ok: true });
-    await openClawAgentBackend.resolveApproval({
-      approvalRef: backendHandle('openclaw', { approvalId: 'exec-1', approvalKind: 'exec' }),
+    await openClawAgentRuntime.resolveApproval({
+      approvalRef: runtimeHandle('openclaw', { approvalId: 'exec-1', approvalKind: 'exec' }),
       resolution: { choiceId: 'allow-once' },
     });
-    await openClawAgentBackend.resolveApproval({
-      approvalRef: backendHandle('openclaw', { approvalId: 'plugin-1', approvalKind: 'plugin' }),
+    await openClawAgentRuntime.resolveApproval({
+      approvalRef: runtimeHandle('openclaw', { approvalId: 'plugin-1', approvalKind: 'plugin' }),
       resolution: { choiceId: 'deny' },
     });
     expect(mocks.rpc).toHaveBeenNthCalledWith(1, 'exec.approval.resolve', {
@@ -119,10 +119,10 @@ describe('OpenClawAgentBackend contract', () => {
         artifacts: [{ id: 'artifact-1', title: 'result.png', mimeType: 'image/png' }],
       });
 
-    const snapshot = await openClawAgentBackend.readTurn({
+    const snapshot = await openClawAgentRuntime.readTurn({
       profile,
       conversationRef,
-      turnRef: backendHandle('openclaw', { runId: 'run-1' }),
+      turnRef: runtimeHandle('openclaw', { runId: 'run-1' }),
       userInput: 'make an image',
       createdAt: 1,
     });
@@ -130,14 +130,14 @@ describe('OpenClawAgentBackend contract', () => {
     expect(snapshot.artifacts).toHaveLength(1);
     expect(snapshot.artifacts[0]).toMatchObject({
       name: 'result.png',
-      backendArtifactRef: { opaque: { kind: 'native', artifactId: 'artifact-1' } },
+      runtimeArtifactRef: { opaque: { kind: 'native', artifactId: 'artifact-1' } },
     });
   });
 
-  it('rejects handles owned by another Backend', async () => {
-    await expect(openClawAgentBackend.dispatchTurn({
+  it('rejects handles owned by another Runtime', async () => {
+    await expect(openClawAgentRuntime.dispatchTurn({
       profile,
-      conversationRef: backendHandle('other', { conversationId: '1' }),
+      conversationRef: runtimeHandle('other', { conversationId: '1' }),
       message: 'hello',
       attachments: [],
       idempotencyKey: 'send-4',

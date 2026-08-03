@@ -26,7 +26,7 @@ function flowNode(
         version: 1,
         branchId: id,
         parentInteractionId: null,
-        backendTurnId: null,
+        runtimeTurnId: null,
         userInput: '',
         agentOutput: '',
         status: 'completed',

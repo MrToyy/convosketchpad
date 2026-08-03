@@ -6,7 +6,7 @@ import { readFileSync, writeFileSync, renameSync, copyFileSync, existsSync, unli
 
 /** All supported env config keys. */
 export interface EnvConfig {
-  AGENT_BACKENDS?: string;
+  AGENT_RUNTIMES?: string;
   OPENCLAW_GATEWAY_URL?: string;
   OPENCLAW_GATEWAY_TOKEN?: string;
   OPENCLAW_GATEWAY_TIMEZONE?: string;
@@ -48,7 +48,7 @@ export function generateEnvContent(config: EnvConfig): string {
   ];
 
   // Gateway (always written — most important)
-  lines.push(`AGENT_BACKENDS=${config.AGENT_BACKENDS || 'openclaw'}`);
+  lines.push(`AGENT_RUNTIMES=${config.AGENT_RUNTIMES || 'openclaw'}`);
   lines.push('');
   lines.push('# OpenClaw Gateway');
   if (config.OPENCLAW_GATEWAY_URL && config.OPENCLAW_GATEWAY_URL !== DEFAULTS.OPENCLAW_GATEWAY_URL) {
@@ -140,6 +140,7 @@ export function loadExistingEnv(envPath: string): EnvConfig {
     }
   }
   const legacyMappings = [
+    ['AGENT_BACKENDS', 'AGENT_RUNTIMES'],
     ['GATEWAY_URL', 'OPENCLAW_GATEWAY_URL'],
     ['GATEWAY_TOKEN', 'OPENCLAW_GATEWAY_TOKEN'],
     ['CONVOSKETCHPAD_GATEWAY_TIMEZONE', 'OPENCLAW_GATEWAY_TIMEZONE'],
@@ -153,7 +154,7 @@ export function loadExistingEnv(envPath: string): EnvConfig {
     if (legacy && !current) config[currentKey] = legacy;
     delete config[legacyKey];
   }
-  config.AGENT_BACKENDS ||= 'openclaw';
+  config.AGENT_RUNTIMES ||= 'openclaw';
   return config as EnvConfig;
 }
 

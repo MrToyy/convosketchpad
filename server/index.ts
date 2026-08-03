@@ -2,14 +2,14 @@
  * ConvoSketchpad server entry point.
  *
  * Starts the HTTP server behind an optional external TLS terminator, starts
- * the backend-owned OpenClaw connection, and registers graceful shutdown
+ * the runtime-owned OpenClaw connection, and registers graceful shutdown
  * handlers.
  * @module
  */
 
 import { serve } from '@hono/node-server';
 import app from './app.js';
-import { agentBackendRegistry } from './lib/agent-backends/registry.js';
+import { agentRuntimeRegistry } from './lib/agent-runtimes/registry.js';
 import { config, validateConfig, printStartupBanner } from './lib/config.js';
 import { startCanvasReconciler, stopCanvasReconciler } from './lib/canvas-reconciler.js';
 import { startCanvasSendCoordinator, stopCanvasSendCoordinator } from './lib/canvas-send-coordinator.js';
@@ -75,7 +75,7 @@ function shutdown(signal: string) {
 
   stopCanvasReconciler();
   stopCanvasSendCoordinator();
-  agentBackendRegistry.close();
+  agentRuntimeRegistry.close();
 
   httpServer.close(() => {
     console.log('[convosketchpad] HTTP server closed');

@@ -6,7 +6,7 @@
 
 | 环境变量 | 默认值 | 用途 |
 |---|---|---|
-| `AGENT_BACKENDS` | `openclaw` | 启用的 Backend 类型，逗号分隔；同一类型最多一个实例，未知或空配置会拒绝启动 |
+| `AGENT_RUNTIMES` | `openclaw` | 启用的 Agent 运行端类型，逗号分隔；同一类型最多一个实例，未知或空配置会拒绝启动 |
 | `OPENCLAW_GATEWAY_URL` | `http://127.0.0.1:18789` | OpenClaw Adapter 连接的 Gateway HTTP Origin |
 | `OPENCLAW_GATEWAY_TOKEN` | 空 | Gateway 共享密钥；本机 RPC、Gateway HTTP 和远程配对 bootstrap 使用，不会发给浏览器 |
 | `OPENCLAW_GATEWAY_TIMEZONE` | 应用宿主机时区 | OpenClaw Adapter 预测每日 Session 重置的 IANA 时区 |
@@ -88,7 +88,7 @@ Custom 的“HTTPS reverse proxy”还会询问额外可信代理 IP。回环代
 - `VITE_HOST`
 - `VITE_PORT`
 
-旧 `.env` 中的 `GATEWAY_URL`、`GATEWAY_TOKEN` 和 `CONVOSKETCHPAD_GATEWAY_TIMEZONE` 仅由 setup 读取并原子改写为 `OPENCLAW_*` 名称；运行时不再读取旧名称。如果旧、新名称同时存在且值冲突，setup 会明确失败。
+旧 `.env` 中的 `GATEWAY_URL`、`GATEWAY_TOKEN` 和 `CONVOSKETCHPAD_GATEWAY_TIMEZONE` 仅由 setup 读取并原子改写为 `OPENCLAW_*` 名称；开发期使用过的 `AGENT_BACKENDS` 会由 setup 或目标版本迁移器一次性改写为 `AGENT_RUNTIMES`。正式运行只读取新名称，不保留别名或双写；旧、新名称同时存在且值冲突时迁移会明确失败。
 
 浏览器 CSP 的 `connect-src` 固定为 `'self'`，因为产品通信只有同源 HTTP/SSE。
 
@@ -102,7 +102,7 @@ Canvas SQLite 位于 `database/canvas.sqlite`，附件和 Artifact 位于项目�
 
 ConvoSketchpad 不检查 Codex/Claude 本地凭据，也不调用它们的 CLI。
 
-setup 写入 Backend 配置后会自动迁移数据库：检测到受管服务时先停服，创建一致性 SQLite 快照，迁移失败时恢复，并只在原服务此前运行时重启。无受管服务时直接运行事务化迁移；服务启动仍会在监听前幂等检查 Schema。
+setup 写入 Agent 运行端配置后会自动迁移数据库：检测到受管服务时先停服，创建一致性 SQLite 快照，迁移失败时恢复，并只在原服务此前运行时重启。无受管服务时直接运行事务化迁移；服务启动仍会在监听前幂等检查 Schema。
 
 ## 受管认证
 

@@ -11,7 +11,7 @@ import {
 import { canvasReplayResourceFileName } from './canvas-replay-plan.js';
 import { locateCanvasResource } from './canvas-resource-locator.js';
 
-export interface BackendDeliveryAttachment {
+export interface RuntimeDeliveryAttachment {
   fileName: string;
   mimeType: string;
   content: string;
@@ -20,7 +20,7 @@ export interface BackendDeliveryAttachment {
 async function loadContextResource(
   reservation: DispatchableSendReservation,
   resource: CanvasContextResource,
-): Promise<BackendDeliveryAttachment> {
+): Promise<RuntimeDeliveryAttachment> {
   const store = getCanvasStore();
   const locator = locateCanvasResource(resource.uri);
   let bytes: Uint8Array | null = null;
@@ -118,11 +118,11 @@ export async function buildCanvasDelivery(
   reservation: DispatchableSendReservation,
 ): Promise<{
   message: string;
-  attachments: BackendDeliveryAttachment[];
+  attachments: RuntimeDeliveryAttachment[];
   bootstrapWarnings: string[];
 }> {
   const store = getCanvasStore();
-  const attachments: BackendDeliveryAttachment[] = [];
+  const attachments: RuntimeDeliveryAttachment[] = [];
   const bootstrapWarnings: string[] = [];
   for (const resource of reservation.bootstrapResources) {
     try {

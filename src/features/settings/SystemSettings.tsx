@@ -1,40 +1,40 @@
 import { RefreshCw, RotateCw } from 'lucide-react';
 import { UpdateBadge } from '@/components/UpdateBadge';
 import { useSettings } from '@/contexts/SettingsContext';
-import type { BackendRuntimeStatus } from '@/hooks/useRuntimeEvents';
+import type { AgentRuntimeStatus } from '@/hooks/useRuntimeEvents';
 import { getSettingsCopy } from './messages';
 
 interface SystemSettingsProps {
   onRefreshStatus: () => void;
-  backendStatuses: Record<string, BackendRuntimeStatus>;
-  onBackendRestart?: (backendId: string) => void;
-  backendRestarting?: boolean;
+  runtimeStatuses: Record<string, AgentRuntimeStatus>;
+  onRuntimeRestart?: (runtimeId: string) => void;
+  runtimeRestarting?: boolean;
 }
 
-const STATUS_COLORS: Record<BackendRuntimeStatus['state'], string> = {
+const STATUS_COLORS: Record<AgentRuntimeStatus['state'], string> = {
   connected: 'bg-green',
   connecting: 'bg-orange animate-pulse',
   disconnected: 'bg-red',
 };
 
-/** Settings for configured Agent Backends and ConvoSketchpad updates. */
+/** Settings for configured Agent Runtimes and ConvoSketchpad updates. */
 export function SystemSettings({
   onRefreshStatus,
-  backendStatuses,
-  onBackendRestart,
-  backendRestarting = false,
+  runtimeStatuses,
+  onRuntimeRestart,
+  runtimeRestarting = false,
 }: SystemSettingsProps) {
   const { language } = useSettings();
   const copy = getSettingsCopy(language).system;
-  const statuses = Object.values(backendStatuses);
+  const statuses = Object.values(runtimeStatuses);
 
   return (
     <div className="space-y-6">
-      <section aria-labelledby="agent-backend-settings" className="space-y-3">
+      <section aria-labelledby="agent-runtime-settings" className="space-y-3">
         <div className="flex items-center justify-between gap-3">
-          <h2 id="agent-backend-settings" className="cockpit-kicker">
+          <h2 id="agent-runtime-settings" className="cockpit-kicker">
             <span aria-hidden="true" className="text-primary">◆</span>
-            Agent Backends
+            {language === 'zh-CN' ? 'Agent 运行端' : 'Agent Runtimes'}
           </h2>
           <button type="button" onClick={onRefreshStatus} className="cockpit-toolbar-button" title={language === 'zh-CN' ? '刷新状态' : 'Refresh status'}>
             <RefreshCw size={14} />
@@ -44,33 +44,33 @@ export function SystemSettings({
 
         {statuses.length === 0 && (
           <div className="cockpit-row text-sm text-muted-foreground">
-            {language === 'zh-CN' ? '没有已配置的 Agent Backend' : 'No Agent Backends configured'}
+            {language === 'zh-CN' ? '没有已配置的 Agent 运行端' : 'No Agent Runtimes configured'}
           </div>
         )}
 
-        {statuses.map((backend) => (
-          <div key={backend.backendId} className="cockpit-row">
+        {statuses.map((runtime) => (
+          <div key={runtime.runtimeId} className="cockpit-row">
             <div className="flex min-w-0 flex-1 items-center gap-3">
-              <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${STATUS_COLORS[backend.state]}`} />
+              <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${STATUS_COLORS[runtime.state]}`} />
               <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium text-foreground">{backend.backendId}</p>
+                <p className="text-sm font-medium text-foreground">{runtime.runtimeId}</p>
                 <p className="text-xs text-muted-foreground">
-                  {backend.state}{backend.version ? ` · v${backend.version}` : ''}
+                  {runtime.state}{runtime.version ? ` · v${runtime.version}` : ''}
                 </p>
-                {backend.error && (
-                  <p className="mt-1 truncate text-xs text-destructive" title={backend.error}>{backend.error}</p>
+                {runtime.error && (
+                  <p className="mt-1 truncate text-xs text-destructive" title={runtime.error}>{runtime.error}</p>
                 )}
               </div>
             </div>
-            {backend.restartSupported && onBackendRestart && (
+            {runtime.restartSupported && onRuntimeRestart && (
               <button
                 type="button"
-                onClick={() => onBackendRestart(backend.backendId)}
-                disabled={backendRestarting}
+                onClick={() => onRuntimeRestart(runtime.runtimeId)}
+                disabled={runtimeRestarting}
                 className="cockpit-toolbar-button w-full justify-center sm:w-auto"
               >
-                <RotateCw size={14} aria-hidden="true" className={backendRestarting ? 'animate-spin' : ''} />
-                {backendRestarting ? copy.restarting : copy.restart}
+                <RotateCw size={14} aria-hidden="true" className={runtimeRestarting ? 'animate-spin' : ''} />
+                {runtimeRestarting ? copy.restarting : copy.restart}
               </button>
             )}
           </div>

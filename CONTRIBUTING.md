@@ -1,6 +1,6 @@
 # 参与 ConvoSketchpad 开发
 
-ConvoSketchpad 的目标是“让想法自由分支”。贡献内容应增强 Canvas 体验、OpenClaw 集成，或支撑这些体验所需的安全性和可运维性。
+ConvoSketchpad 的目标是“让想法自由分支”。贡献内容应增强 Canvas 体验、Agent 运行端集成，或支撑这些体验所需的安全性和可运维性。
 
 ## 开发环境
 

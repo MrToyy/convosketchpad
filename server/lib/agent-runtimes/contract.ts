@@ -4,35 +4,35 @@ export interface OwnerContext {
   ownerId: string;
 }
 
-export interface BackendHandle {
-  backendId: string;
+export interface RuntimeHandle {
+  runtimeId: string;
   schemaVersion: number;
   opaque: Record<string, string>;
 }
 
-export type ConversationHandle = BackendHandle;
-export type TurnHandle = BackendHandle;
-export type BackendArtifactHandle = BackendHandle;
-export type ApprovalHandle = BackendHandle;
+export type ConversationHandle = RuntimeHandle;
+export type TurnHandle = RuntimeHandle;
+export type RuntimeArtifactHandle = RuntimeHandle;
+export type ApprovalHandle = RuntimeHandle;
 
 export interface AgentProfileRef {
-  backendId: string;
+  runtimeId: string;
   profileId: string;
 }
 
 export interface AgentProfile extends AgentProfileRef {
   displayName: string;
-  backendProfileRef: BackendHandle;
+  runtimeProfileRef: RuntimeHandle;
   metadata?: Record<string, unknown>;
 }
 
-export interface BackendDescriptor {
+export interface RuntimeDescriptor {
   id: string;
   displayName: string;
   version?: string;
 }
 
-export interface BackendCapabilities {
+export interface RuntimeCapabilities {
   conversation: { resume: boolean; readHistory: boolean; nativeFork: boolean };
   input: { text: boolean; images: boolean; audio: boolean; arbitraryFiles: boolean };
   output: { textStreaming: boolean; imageGeneration: boolean; artifacts: boolean };
@@ -41,18 +41,18 @@ export interface BackendCapabilities {
   usage: { turnTokens: boolean; contextWindow: boolean; accountUsage: boolean; accountQuota: boolean };
 }
 
-export interface BackendStatus {
-  backendId: string;
+export interface RuntimeStatus {
+  runtimeId: string;
   state: 'disconnected' | 'connecting' | 'connected';
   error?: string;
   version?: string;
   maxPayload?: number;
   restartSupported?: boolean;
-  capabilities?: BackendCapabilities;
+  capabilities?: RuntimeCapabilities;
   diagnostics?: Record<string, unknown>;
 }
 
-export type BackendErrorKind =
+export type RuntimeErrorKind =
   | 'validation'
   | 'unsupported'
   | 'unavailable'
@@ -63,23 +63,23 @@ export type BackendErrorKind =
   | 'unknown_outcome'
   | 'internal';
 
-export class BackendOperationError extends Error {
-  readonly kind: BackendErrorKind;
+export class RuntimeOperationError extends Error {
+  readonly kind: RuntimeErrorKind;
   override readonly cause?: unknown;
 
   constructor(
-    kind: BackendErrorKind,
+    kind: RuntimeErrorKind,
     message: string,
     cause?: unknown,
   ) {
     super(message);
-    this.name = 'BackendOperationError';
+    this.name = 'RuntimeOperationError';
     this.kind = kind;
     this.cause = cause;
   }
 }
 
-export interface BackendInputAttachment {
+export interface RuntimeInputAttachment {
   name?: string;
   fileName?: string;
   mimeType: string;
@@ -90,15 +90,15 @@ export interface DispatchTurnInput {
   profile: AgentProfileRef;
   conversationRef: ConversationHandle;
   message: string;
-  attachments: BackendInputAttachment[];
+  attachments: RuntimeInputAttachment[];
   idempotencyKey: string;
   timeoutMs?: number;
 }
 
 export type DispatchResult =
   | { outcome: 'accepted'; turnRef: TurnHandle | null }
-  | { outcome: 'rejected'; error: BackendOperationError }
-  | { outcome: 'unknown'; error: BackendOperationError; recoveryRef?: BackendHandle };
+  | { outcome: 'rejected'; error: RuntimeOperationError }
+  | { outcome: 'unknown'; error: RuntimeOperationError; recoveryRef?: RuntimeHandle };
 
 export interface ConversationSnapshot {
   exists: boolean;
@@ -112,7 +112,7 @@ export interface ConversationSnapshot {
     provider?: string;
     compactionCount?: number;
   };
-  backendMetadata?: Record<string, unknown>;
+  runtimeMetadata?: Record<string, unknown>;
 }
 
 export type ApprovalRisk = 'low' | 'medium' | 'high';
@@ -150,11 +150,11 @@ export interface ApprovalResolution {
 
 export type ApprovalResolutionResult =
   | { outcome: 'accepted'; resolution: ApprovalResolution }
-  | { outcome: 'rejected'; error: BackendOperationError }
-  | { outcome: 'unknown'; error: BackendOperationError };
+  | { outcome: 'rejected'; error: RuntimeOperationError }
+  | { outcome: 'unknown'; error: RuntimeOperationError };
 
-interface BackendEventBase {
-  backendId: string;
+interface RuntimeEventBase {
+  runtimeId: string;
   eventId?: string;
   sequence?: number;
   conversationRef?: ConversationHandle;
@@ -162,11 +162,11 @@ interface BackendEventBase {
   createdAt: number;
 }
 
-export type BackendEvent = BackendEventBase & (
+export type RuntimeEvent = RuntimeEventBase & (
   | { type: 'turn.accepted' }
   | { type: 'output.text.delta'; text: string }
   | { type: 'output.message.completed'; text: string }
-  | { type: 'artifact.available'; artifactRef: BackendArtifactHandle; name: string; mimeType?: string }
+  | { type: 'artifact.available'; artifactRef: RuntimeArtifactHandle; name: string; mimeType?: string }
   | { type: 'usage.updated'; usedTokens?: number; contextLimit?: number }
   | { type: 'approval.required'; approvalRef: ApprovalHandle; approval: ApprovalSummary }
   | { type: 'approval.resolved'; approvalRef: ApprovalHandle; resolution: ApprovalResolution; resolvedBy?: string }
@@ -174,10 +174,10 @@ export type BackendEvent = BackendEventBase & (
   | { type: 'turn.completed'; text?: string }
   | { type: 'turn.failed'; error: string }
   | { type: 'turn.interrupted'; error?: string }
-  | { type: 'backend.disconnected'; error?: string }
+  | { type: 'runtime.disconnected'; error?: string }
 );
 
-export interface BackendUsageSummary {
+export interface RuntimeUsageSummary {
   totalCost: number;
   totalInput: number;
   totalOutput: number;
@@ -189,17 +189,17 @@ export interface BackendUsageSummary {
   additive?: boolean;
 }
 
-export interface BackendProviderQuotaWindow {
+export interface RuntimeProviderQuotaWindow {
   label: string;
   usedPercent: number;
   resetAt: number | null;
 }
 
-export interface BackendProviderQuota {
+export interface RuntimeProviderQuota {
   provider: string;
   displayName: string;
   plan: string | null;
-  windows: BackendProviderQuotaWindow[];
+  windows: RuntimeProviderQuotaWindow[];
 }
 
 export interface MaterializedArtifact {
@@ -208,9 +208,9 @@ export interface MaterializedArtifact {
   externalUrl?: string;
 }
 
-export interface BackendArtifactCandidate {
+export interface RuntimeArtifactCandidate {
   id?: string;
-  backendArtifactRef?: BackendArtifactHandle;
+  runtimeArtifactRef?: RuntimeArtifactHandle;
   name: string;
   mimeType?: string;
   sizeBytes?: number;
@@ -229,16 +229,16 @@ export interface ReadTurnInput {
   createdAt: number;
 }
 
-export interface BackendTurnSnapshot {
+export interface RuntimeTurnSnapshot {
   agentOutput: string;
-  artifacts: BackendArtifactCandidate[];
+  artifacts: RuntimeArtifactCandidate[];
   matchedTurn: boolean;
   instanceId?: string;
   artifactDiscoveryComplete: boolean;
   artifactWarnings: string[];
 }
 
-export interface BackendTurnStatus {
+export interface RuntimeTurnStatus {
   found: boolean;
   terminal: boolean;
   reflectsTurn: boolean;
@@ -247,11 +247,11 @@ export interface BackendTurnStatus {
   instanceId?: string;
 }
 
-export interface AgentBackend {
+export interface AgentRuntime {
   readonly id: string;
-  describe(): Promise<BackendDescriptor>;
+  describe(): Promise<RuntimeDescriptor>;
   listAgentProfiles(owner: OwnerContext): Promise<{ defaultProfileId?: string; profiles: AgentProfile[] }>;
-  getCapabilities(profile: AgentProfileRef): Promise<BackendCapabilities>;
+  getCapabilities(profile: AgentProfileRef): Promise<RuntimeCapabilities>;
   inspectConversation(handle: ConversationHandle): Promise<ConversationSnapshot | null>;
   conversationWillExpireBeforeNextTurn(handle: ConversationHandle, input: {
     conversationStartedAt: number | null;
@@ -262,41 +262,41 @@ export interface AgentBackend {
     localConversationId: string;
   }): ConversationHandle;
   dispatchTurn(input: DispatchTurnInput): Promise<DispatchResult>;
-  readTurn(input: ReadTurnInput): Promise<BackendTurnSnapshot>;
-  inspectTurn(input: ReadTurnInput): Promise<BackendTurnStatus>;
+  readTurn(input: ReadTurnInput): Promise<RuntimeTurnSnapshot>;
+  inspectTurn(input: ReadTurnInput): Promise<RuntimeTurnStatus>;
   resolveApproval(input: {
     approvalRef: ApprovalHandle;
     resolution: ApprovalResolution;
   }): Promise<ApprovalResolutionResult>;
-  materializeArtifact(handle: BackendArtifactHandle): Promise<MaterializedArtifact>;
+  materializeArtifact(handle: RuntimeArtifactHandle): Promise<MaterializedArtifact>;
   createArtifactHandle(input: {
     sourceUri: string;
     profile: AgentProfileRef;
     conversationRef: ConversationHandle;
     mimeType?: string;
-  }): BackendArtifactHandle;
-  readUsageSummary(): Promise<BackendUsageSummary>;
-  readProviderQuotas(): Promise<{ available: boolean; providers: BackendProviderQuota[] }>;
+  }): RuntimeArtifactHandle;
+  readUsageSummary(): Promise<RuntimeUsageSummary>;
+  readProviderQuotas(): Promise<{ available: boolean; providers: RuntimeProviderQuota[] }>;
   restart(): Promise<{ output: string }>;
-  getStatus(): BackendStatus;
-  subscribeEvents(listener: (event: BackendEvent) => void): () => void;
-  subscribeStatus(listener: (status: BackendStatus) => void): () => void;
+  getStatus(): RuntimeStatus;
+  subscribeEvents(listener: (event: RuntimeEvent) => void): () => void;
+  subscribeStatus(listener: (status: RuntimeStatus) => void): () => void;
   close(): void;
 }
 
-export function backendHandle(
-  backendId: string,
+export function runtimeHandle(
+  runtimeId: string,
   opaque: Record<string, string>,
   schemaVersion = 1,
-): BackendHandle {
-  return { backendId, schemaVersion, opaque };
+): RuntimeHandle {
+  return { runtimeId, schemaVersion, opaque };
 }
 
-export function assertBackendHandle(handle: BackendHandle, backendId: string): void {
-  if (handle.backendId !== backendId) {
-    throw new BackendOperationError('validation', `Handle belongs to ${handle.backendId}, not ${backendId}`);
+export function assertRuntimeHandle(handle: RuntimeHandle, runtimeId: string): void {
+  if (handle.runtimeId !== runtimeId) {
+    throw new RuntimeOperationError('validation', `Handle belongs to ${handle.runtimeId}, not ${runtimeId}`);
   }
   if (handle.schemaVersion !== 1) {
-    throw new BackendOperationError('unsupported', `Unsupported ${backendId} handle schema ${handle.schemaVersion}`);
+    throw new RuntimeOperationError('unsupported', `Unsupported ${runtimeId} handle schema ${handle.schemaVersion}`);
   }
 }

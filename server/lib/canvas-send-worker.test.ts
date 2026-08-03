@@ -29,26 +29,26 @@ async function setup() {
   vi.doMock('./canvas-media-derivatives.js', () => ({
     CANVAS_DELIVERY_MAX_BYTES: 1_800_000,
   }));
-  vi.doMock('./canvas/backend-events.js', () => ({
-    handleCanvasBackendEvent: vi.fn(),
+  vi.doMock('./canvas/runtime-events.js', () => ({
+    handleCanvasRuntimeEvent: vi.fn(),
     registerCanvasInteraction: mocks.registerCanvasInteraction,
   }));
   vi.doMock('./canvas-reconciler.js', () => ({
     scheduleCanvasInteractionReconciliation: mocks.scheduleCanvasInteractionReconciliation,
   }));
-  vi.doMock('./agent-backends/registry.js', () => ({
-    getAgentBackend: () => ({
+  vi.doMock('./agent-runtimes/registry.js', () => ({
+    getAgentRuntime: () => ({
       id: 'openclaw',
       getCapabilities: vi.fn(async () => ({ input: { text: true } })),
       getStatus: vi.fn(() => ({
-        backendId: 'openclaw',
+        runtimeId: 'openclaw',
         state: 'connected',
       })),
       createConversationHandle: ({ profile, localConversationId }: {
         profile: { profileId: string };
         localConversationId: string;
       }) => ({
-        backendId: 'openclaw',
+        runtimeId: 'openclaw',
         schemaVersion: 1,
         opaque: { sessionKey: `agent:${profile.profileId}:canvas:${localConversationId}` },
       }),
@@ -57,9 +57,9 @@ async function setup() {
         return {
           outcome: 'accepted',
           turnRef: {
-            backendId: 'openclaw',
+            runtimeId: 'openclaw',
             schemaVersion: 1,
-            opaque: { runId: raw.backendTurnId },
+            opaque: { runId: raw.runtimeTurnId },
           },
         };
       }),
@@ -92,7 +92,7 @@ describe('Canvas send worker', () => {
     const { db, sync, worker } = await setup();
     const store = db.getCanvasStore();
     store.ensureUser('owner-a', 'Owner A');
-    const canvas = store.createCanvas('owner-a', 'Canvas', { backendId: 'openclaw', profileId: 'main' });
+    const canvas = store.createCanvas('owner-a', 'Canvas', { runtimeId: 'openclaw', profileId: 'main' });
     const branch = store.createRootBranch('owner-a', canvas.id);
     const firstReservation = store.prepareSend('owner-a', {
       branchId: branch.id,
@@ -119,7 +119,7 @@ describe('Canvas send worker', () => {
     });
     const signals: unknown[] = [];
     const unsubscribe = sync.subscribeCanvasSync((signal) => signals.push(signal));
-    mocks.send.mockResolvedValue({ backendTurnId: 'run-continue' });
+    mocks.send.mockResolvedValue({ runtimeTurnId: 'run-continue' });
 
     const result = await worker.runCanvasSendWorker(continuation.id);
 
@@ -129,8 +129,8 @@ describe('Canvas send worker', () => {
     expect(result).toMatchObject({
       branchId: branch.id,
       parentInteractionId: first.id,
-      backendTurnId: null,
-      turnRef: { backendId: 'openclaw', opaque: { runId: 'run-continue' } },
+      runtimeTurnId: null,
+      turnRef: { runtimeId: 'openclaw', opaque: { runId: 'run-continue' } },
       executionState: 'running',
     });
     expect(store.getOwnedBranch('owner-a', branch.id)).toMatchObject({

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { projectOpenClawEvent } from './adapter.js';
 
-describe('OpenClaw AgentBackend event projection', () => {
+describe('OpenClaw AgentRuntime event projection', () => {
   it('normalizes correlation and assistant content without exposing transport shape upstream', () => {
     expect(projectOpenClawEvent({
       type: 'event',
@@ -13,7 +13,7 @@ describe('OpenClaw AgentBackend event projection', () => {
         message: { content: [{ type: 'text', text: 'partial' }, ' output'] },
       },
     })).toMatchObject({
-      backendId: 'openclaw',
+      runtimeId: 'openclaw',
       type: 'output.text.delta',
       text: 'partial output',
       conversationRef: { opaque: { sessionKey: 'session-key' } },

@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
-import { agentBackendRegistry } from '../lib/agent-backends/registry.js';
-import { publicAggregatedBackendStatus } from '../lib/agent-backends/catalog.js';
+import { agentRuntimeRegistry } from '../lib/agent-runtimes/registry.js';
+import { publicAggregatedRuntimeStatus } from '../lib/agent-runtimes/catalog.js';
 import { getCanvasIdentity } from '../lib/canvas-auth.js';
 import { subscribeRuntimeEvents } from '../lib/runtime-events.js';
 import { rateLimitGeneral } from '../middleware/rate-limit.js';
@@ -9,8 +9,8 @@ const app = new Hono();
 const encoder = new TextEncoder();
 
 function publicRuntimeStatus() {
-  return publicAggregatedBackendStatus(
-    agentBackendRegistry.list().map((backend) => backend.getStatus()),
+  return publicAggregatedRuntimeStatus(
+    agentRuntimeRegistry.list().map((runtime) => runtime.getStatus()),
   );
 }
 
@@ -41,13 +41,13 @@ app.get('/api/runtime/events', (c) => {
         try { controller.close(); } catch { /* stream already closed */ }
       };
       try {
-        controller.enqueue(sseFrame('runtime.backend_status_changed', publicRuntimeStatus()));
+        controller.enqueue(sseFrame('runtime.status_changed', publicRuntimeStatus()));
       } catch {
         close();
         return;
       }
       unsubscribe = subscribeRuntimeEvents((event) => {
-        if (event.type !== 'runtime.backend_status_changed') return;
+        if (event.type !== 'runtime.status_changed') return;
         if (event.ownerId && event.ownerId !== identity.userId) return;
         try {
           controller.enqueue(sseFrame(event.type, event, event.id));

@@ -95,12 +95,12 @@ npm start
 ```bash
 PORT=3080
 HOST=127.0.0.1
-AGENT_BACKENDS=openclaw
+AGENT_RUNTIMES=openclaw
 OPENCLAW_GATEWAY_URL=http://127.0.0.1:18789
 OPENCLAW_GATEWAY_TOKEN=<detected-token>
 ```
 
-setup 会发现本机 OpenClaw 配置以减少 URL/Token 输入，并写入已启用 Backend 列表。当前 Release 只支持 `openclaw`；未来 Adapter 也必须通过同一列表配置，不能增加产品级 Backend 切换模式。写入配置后 setup 会为现有 SQLite 创建一致性快照并自动迁移，失败时恢复原数据库。
+setup 会发现本机 OpenClaw 配置以减少 URL/Token 输入，并写入已启用 Agent 运行端列表。当前 Release 只支持 `openclaw`；未来 Adapter 也必须通过同一列表配置，不能增加产品级运行端切换模式。开发期旧键 `AGENT_BACKENDS` 会在备份后一次性转换为 `AGENT_RUNTIMES`。写入配置后 setup 会为现有 SQLite 创建一致性快照并自动迁移，失败时恢复原数据库。
 
 ConvoSketchpad 不提供内置 TLS。远程 HTTPS 由反向代理或 Tailscale Serve 终止，后端仍使用 HTTP。
 

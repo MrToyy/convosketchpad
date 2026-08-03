@@ -5,14 +5,14 @@ import {
 } from './runtime-events.js';
 
 describe('product runtime events', () => {
-  it('publishes Agent Backend status changes', () => {
+  it('publishes Agent Runtime status changes', () => {
     const subscriber = vi.fn();
     const unsubscribe = subscribeRuntimeEvents(subscriber);
 
-    publishRuntimeEvent({ type: 'runtime.backend_status_changed', payload: { overallState: 'ready' } });
+    publishRuntimeEvent({ type: 'runtime.status_changed', payload: { overallState: 'ready' } });
 
     expect(subscriber).toHaveBeenCalledWith(expect.objectContaining({
-      type: 'runtime.backend_status_changed',
+      type: 'runtime.status_changed',
       payload: { overallState: 'ready' },
     }));
     unsubscribe();
@@ -23,7 +23,7 @@ describe('product runtime events', () => {
     const unsubscribe = subscribeRuntimeEvents(subscriber);
     unsubscribe();
 
-    publishRuntimeEvent({ type: 'runtime.backend_status_changed' });
+    publishRuntimeEvent({ type: 'runtime.status_changed' });
 
     expect(subscriber).not.toHaveBeenCalled();
   });
@@ -36,8 +36,8 @@ describe('product runtime events', () => {
     subscribeRuntimeEvents(failed);
     const unsubscribeHealthy = subscribeRuntimeEvents(healthy);
 
-    expect(() => publishRuntimeEvent({ type: 'runtime.backend_status_changed' })).not.toThrow();
-    publishRuntimeEvent({ type: 'runtime.backend_status_changed' });
+    expect(() => publishRuntimeEvent({ type: 'runtime.status_changed' })).not.toThrow();
+    publishRuntimeEvent({ type: 'runtime.status_changed' });
 
     expect(failed).toHaveBeenCalledTimes(1);
     expect(healthy).toHaveBeenCalledTimes(2);

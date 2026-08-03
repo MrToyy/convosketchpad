@@ -69,14 +69,14 @@ describe('Canvas public DTO mapping', () => {
     expect(publicOperation).not.toHaveProperty('bootstrapResources');
   });
 
-  it('does not expose opaque Backend handles through the legacy Interaction DTO', () => {
+  it('does not expose opaque Runtime handles through the legacy Interaction DTO', () => {
     const interaction: InteractionRecord = {
       id: 'interaction-1',
       version: 1,
       branchId: 'branch-1',
       parentInteractionId: null,
-      backendTurnId: 'run-1',
-      turnRef: { backendId: 'openclaw', schemaVersion: 1, opaque: { backendTurnId: 'run-1' } },
+      runtimeTurnId: 'run-1',
+      turnRef: { runtimeId: 'openclaw', schemaVersion: 1, opaque: { runtimeTurnId: 'run-1' } },
       userInput: 'hello',
       agentOutput: 'done',
       status: 'completed',
