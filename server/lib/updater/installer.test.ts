@@ -11,7 +11,12 @@ vi.mock('node:child_process', async (importOriginal) => {
   };
 });
 
-import { buildProject, gitFetchAndCheckout, migrateDatabase } from './installer.js';
+import {
+  buildProject,
+  gitFetchAndCheckout,
+  migrateDatabase,
+  migrateEnvironment,
+} from './installer.js';
 
 describe('updater installer', () => {
   beforeEach(() => {
@@ -88,7 +93,26 @@ describe('updater installer', () => {
     expect(execFileSyncMock).toHaveBeenCalledWith(
       process.execPath,
       ['bin-dist/bin/convosketchpad-migrate.js'],
-      expect.objectContaining({ cwd: '/project' }),
+      expect.objectContaining({
+        cwd: '/project',
+        env: expect.objectContaining({
+          CONVOSKETCHPAD_MAINTENANCE_LOCK_HELD: '1',
+          CONVOSKETCHPAD_DATABASE_OFFLINE: '1',
+        }),
+      }),
+    );
+  });
+
+  it('can migrate Runtime environment configuration without opening the database', () => {
+    migrateEnvironment('/project');
+
+    expect(execFileSyncMock).toHaveBeenCalledWith(
+      process.execPath,
+      ['bin-dist/bin/convosketchpad-migrate.js', '--env-only'],
+      expect.objectContaining({
+        cwd: '/project',
+        env: expect.objectContaining({ CONVOSKETCHPAD_MAINTENANCE_LOCK_HELD: '1' }),
+      }),
     );
   });
 });

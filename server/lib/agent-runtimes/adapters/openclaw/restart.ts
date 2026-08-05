@@ -1,8 +1,8 @@
 import { execFile } from 'node:child_process';
 import { Socket } from 'node:net';
 import { homedir } from 'node:os';
-import { config } from '../../../config.js';
-import { resolveOpenclawBin } from '../../../openclaw-bin.js';
+import { openClawConfig } from './config.js';
+import { resolveOpenclawBin } from './binary.js';
 import { RuntimeOperationError } from '../../contract.js';
 
 const openclawBin = resolveOpenclawBin();
@@ -44,7 +44,7 @@ function runGatewayCommand(
 function gatewayPortIsOpen(): Promise<boolean> {
   return new Promise((resolve) => {
     const socket = new Socket();
-    const gatewayUrl = new URL(config.gatewayUrl);
+    const gatewayUrl = new URL(openClawConfig.gatewayUrl);
     const port = Number.parseInt(gatewayUrl.port, 10) || 18789;
     socket.setTimeout(2_000);
     socket.connect(port, gatewayUrl.hostname, () => { socket.end(); resolve(true); });
@@ -54,7 +54,7 @@ function gatewayPortIsOpen(): Promise<boolean> {
 }
 
 export async function restartOpenClawGateway(): Promise<{ output: string }> {
-  if (!gatewayIsLocal(config.gatewayUrl)) {
+  if (!gatewayIsLocal(openClawConfig.gatewayUrl)) {
     throw new RuntimeOperationError(
       'unsupported',
       'Restart the OpenClaw Gateway on its host; remote Gateway restart is not supported.',

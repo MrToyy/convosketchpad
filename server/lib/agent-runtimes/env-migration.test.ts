@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { migrateLegacyAgentRuntimeEnv } from './env-migration.js';
+import { migrateLegacyAgentRuntimeEnv, validateLegacyAgentRuntimeEnv } from './env-migration.js';
 
 const cleanups: string[] = [];
 
@@ -35,6 +35,7 @@ describe('Agent Runtime environment migration', () => {
   it('leaves the file unchanged when old and new values conflict', () => {
     const original = 'AGENT_BACKENDS=openclaw\nAGENT_RUNTIMES=codex\n';
     const { root, envPath } = fixture(original);
+    expect(() => validateLegacyAgentRuntimeEnv(root)).toThrow('Conflicting AGENT_BACKENDS and AGENT_RUNTIMES');
     expect(() => migrateLegacyAgentRuntimeEnv(root)).toThrow('Conflicting AGENT_BACKENDS and AGENT_RUNTIMES');
     expect(readFileSync(envPath, 'utf8')).toBe(original);
   });

@@ -28,15 +28,15 @@ npm run dev
 src/
   features/canvas/       Canvas 图、交互、布局和文件
   features/auth/         受管登录和认证状态
-  features/connect/      Gateway 连接界面
-  features/settings/     连接与外观设置
-  features/activity/     日志、事件和用量信息
-  features/chat/         Canvas 使用的 Gateway 协议与媒体基础能力
+  features/settings/     Runtime 系统状态与外观设置
+  features/dashboard/    按 Runtime 分组的账户用量
+  features/chat/         通用图片预览能力
   components/            通用产品框架和 UI 组件
-  contexts/              Gateway 与设置状态
+  contexts/              Runtime 与设置状态
 server/
   routes/                Canvas、认证、上传及运维 HTTP 路由
-  lib/                   持久化、协调、Gateway 和安全逻辑
+  lib/                   持久化、协调、Agent Runtime 和安全逻辑
+  lib/agent-runtimes/    通用 Runtime Port、Registry 与 Adapter
   middleware/            认证、Origin、限流和响应保护
 bin/                     更新及受管用户 CLI
 scripts/                 配置向导和安装器辅助模块
@@ -50,8 +50,8 @@ docs/                    产品、运维和维护者文档
 
 - 功能代码应放在现有子系统附近，避免创建平行抽象。
 - 将 Canvas 拓扑、Branch 头节点、已预留发送、所有者边界和持久化文件视为数据完整性约束。
-- 保留 `chat.send` 等 OpenClaw 协议名称；它们属于传输契约，不是产品文案。
-- 校验写入输入，保留认证和 Origin 检查，并复用现有 Gateway 辅助模块。
+- OpenClaw Adapter 内保留 `chat.send` 等原生协议名称；Canvas 通用代码只使用 Agent Runtime Port。
+- 校验写入输入，保留认证和 Origin 检查，并复用现有 Runtime/Adapter 辅助模块。
 - 前端代码应正确清理计时器、监听器、Socket 和 Observer。
 
 评审顺序为：正确性、安全与隔离、与现有子系统的一致性、测试与可运维性，最后才是代码风格。

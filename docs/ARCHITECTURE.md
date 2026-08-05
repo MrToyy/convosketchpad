@@ -43,11 +43,11 @@ turn.completed | turn.failed | turn.interrupted
 runtime.disconnected
 ```
 
-`approval.required` 必须带不透明 Approval Handle、所属 Conversation/Turn、审批类别、可展示摘要、风险、权限、选择、作用域和到期时间；`approval.resolved` 记录最终决定及来源。审批和终态信号使用统一持久化 Inbox 去重。审批摘要保存前移除原始环境等敏感字段，前端只在所属 Interaction 节点内处理；持久/会话级授权需二次确认。HTTP Route 只调用统一 `resolveApproval`。
+`output.imageGeneration` 使用 `supported | unsupported | unknown` 三态；无法从原生协议可靠判断时必须保留 `unknown`。`approval.required` 必须带不透明 Approval Handle、所属 Conversation/Turn、审批类别、可展示摘要、风险、权限、选择、作用域和到期时间；`approval.resolved` 记录最终决定及来源。审批和终态信号使用统一持久化 Inbox 去重。全局断线只走 Runtime Status/SSE，不写 Canvas Inbox。审批摘要保存前移除原始环境等敏感字段，前端只在所属 Interaction 节点内处理；持久/会话级授权需由 UI 确认且服务端再次校验 `confirmed: true`。HTTP Route 只调用统一 `resolveApproval`。
 
-OpenClaw Adapter 独占 `gateway-rpc.ts`、Gateway 方法名、Session Reset Policy 和原始 Gateway 事件投影。计划中的 Codex Adapter 独占 app-server 子进程、JSONL、Thread/Turn/Item、审批请求和本地 Workspace。Canvas Route、Service、Worker、Coordinator、Reconciler、Context Snapshot 和 Artifact 逻辑不得根据 Runtime 类型增加协议分支；ESLint 边界规则会阻止这些通用模块直接导入 Gateway 传输或 OpenClaw Adapter。
+无副作用的 `manifest.ts` 是 Runtime ID 与展示名的支持清单，供服务启动和 setup 共同读取；`definitions.ts` 必须对清单逐项提供实例和配置校验，`registry.ts` 不包含按类型分支。OpenClaw Adapter 独占 `config.ts`、`gateway-rpc.ts`、Gateway 方法名、Session Reset Policy、CLI 定位和原始 Gateway 事件投影。计划中的 Codex Adapter 独占 app-server 子进程、JSONL、Thread/Turn/Item、审批请求和本地 Workspace。Canvas Route、Service、Worker、Coordinator、Reconciler、Context Snapshot 和 Artifact 逻辑不得根据 Runtime 类型增加协议分支；ESLint 边界规则会阻止全部通用 Canvas 模块和 Route 直接导入具体 Adapter。
 
-setup 通过 `AGENT_RUNTIMES` 配置 Runtime；当前每种 Adapter 最多一个实例。Registry 按配置顺序组合实例，Catalog 并行发现 Profile，并按 Runtime 顺序、默认 Profile、原生顺序生成扁平 Agent 目录。所有 Agent 平权，不存在运行时 Runtime 切换器。新建 Canvas 绑定第一个可用 Agent，首次持久 Send Reservation 前可以更新；Reservation 创建事务同时写 `agent_locked_at`，此后不因失败、刷新或重启解锁。
+setup 先以只读方式执行各 Adapter 的本机发现，只确认入口和版本，把已探测和未探测项分组展示，再把用户多选结果写入 `AGENT_RUNTIMES`；之后仅调用已选 Runtime 的 `RuntimeSetupDriver` 完成配置、校验与摘要。发现 Driver 只接收净化后的配置状态和可执行文件路径，不接收凭据；未选 Runtime 不调用原生配置命令、不发起连接或配对，所选 Driver 才可读取 URL/Token 等预填值。本地 CLI 未探测到并不阻止手工配置远程 Runtime。当前每种 Adapter 最多一个实例。Registry 按配置顺序组合实例，Catalog 并行发现 Profile，并按 Runtime 顺序、默认 Profile、原生顺序生成扁平 Agent 目录。setup 配置与配对完成后通过同一个 Runtime Port 读取 Profile，让用户选择产品级默认 Agent，并写入 `CONVOSKETCHPAD_DEFAULT_AGENT_RUNTIME` 与 `CONVOSKETCHPAD_DEFAULT_AGENT_PROFILE`。所有 Agent 平权，不存在运行时 Runtime 切换器。新建 Canvas 优先绑定可用的配置默认项，否则回退到第一个可用 Agent；首次持久 Send Reservation 前可以更新，Reservation 创建事务同时写 `agent_locked_at`，此后不因失败、刷新或重启解锁。
 
 全局状态保留每个 Runtime 明细，并投影 `ready/degraded/connecting/unavailable` 总态；单点失败不隐藏健康 Runtime。账户用量和 Provider 额度按 Runtime 分组，Token 与额度窗口不合并；只有所有 Runtime 在线、所有声明支持费用的 Runtime 都成功返回可加数据且币种/周期一致时计算合计。当前 Canvas 的 Branch、工作中和上下文 Meter 始终来自当前 Graph，不参与账户聚合。
 
@@ -83,7 +83,7 @@ Canvas（绑定一个 Agent Profile 和 Runtime）
 5. `ambiguous` 表示请求可能已经写入 Runtime；只能按 Runtime 声明的可靠性能力安全重试或先执行 `reconcileDispatch`，不能按超时解锁、取消或猜测。
 6. Runtime 明确接受发送后，服务端在事务中创建 Interaction、推进 Branch 头节点并记录不透明 Turn Handle；原生 `runId`/`turnId` 只存在于 Handle 内。
 7. 从用户视角看 Interaction 只追加，不改写历史。
-8. Runtime 事件优先按 Turn Handle 关联；Conversation Handle 只在恰好存在一个候选节点时作为恢复后备，不允许猜测节点。
+8. Runtime 事件带 Turn Handle 时严格按 Turn 关联，未命中不回退；只有事件缺少 Turn Handle 时，Conversation Handle 才能在恰好存在一个候选节点时作为恢复后备，不允许猜测节点。审批 resolved 独立按 Approval Handle 收敛，允许晚于 Interaction 终态到达。
 9. UI 中的“重试”不是持久化实体：原 Interaction 和原执行保持不变，新结果只表现为一个普通 Root/Fork Branch。
 10. Layout 中的节点尺寸只表示用户显式缩放；内容自然测量不持久化。重新排列使用这些尺寸计算间距，但只更新位置。
 
@@ -97,7 +97,7 @@ reserved
     → failed
 ```
 
-连接尚未就绪或确认没有写出请求时回到 `reserved`。请求可能写出后超时或断线进入 `ambiguous`。明确的 Runtime 拒绝进入 `failed`。OpenClaw 可以使用同一 Reservation ID 作为 `idempotencyKey` 重试；Codex 在没有明确幂等保证前必须先读取 Thread 并核对 `clientUserMessageId` 和前一 Turn 位置。重试间隔依次为 1、3、10、30 秒，之后每 60 秒持续重试。发送协调器不做固定频率数据库扫描：新预留和 Runtime 重连会主动唤醒；已有任务只按最早的 `next_attempt_at` 设置一次计时器，空闲时不保留扫描计时器。
+连接尚未就绪或确认没有写出请求时回到 `reserved`。请求可能写出后超时或断线进入 `ambiguous`，并把 Adapter 返回的 `recoveryRef` 保存到既有 `dispatch_recovery_ref_json`。明确的 Runtime 拒绝进入 `failed`。声明幂等的 Runtime 可使用同一 Reservation ID 重试；非幂等 Runtime 必须先 `reconcileDispatch`，`accepted` 直接确认、`not_found` 才重新派发、`unknown` 保持锁定；不具备权威核对能力时永不盲目重发。OpenClaw 当前走幂等重试，计划中的 Codex 必须通过权威 Thread/Turn 读取核对。重试间隔依次为 1、3、10、30 秒，之后每 60 秒持续重试。发送协调器不做固定频率数据库扫描：新预留和 Runtime 重连会主动唤醒；已有任务只按最早的 `next_attempt_at` 设置一次计时器，空闲时不保留扫描计时器。
 
 服务启动和 Gateway 重连时都会扫描可派发预留。Graph 的 `pendingSends` 让刷新后的浏览器继续显示锁定状态。
 
@@ -113,7 +113,7 @@ reserved
 
 节点“重试”调用通用的原样重新提交用例：后端读取源 Interaction 的用户文本和已登记附件，在同一事务中从其
 父 Interaction 创建 `direct-submit` Branch 和 Send Reservation；首节点创建新的 Root Branch。源 Interaction
-可以处于任意执行状态，原 OpenClaw 执行不会停止。新 Branch 继续走上述发送状态机，后端不保存 Retry 类型或
+可以处于任意执行状态，原 Runtime 执行不会停止。新 Branch 继续走上述发送状态机，后端不保存 Retry 类型或
 Retry 来源。
 
 Fork 与失效 Session 恢复共用一个后端 Replay Package 编译流程：
@@ -138,7 +138,7 @@ OpenClaw 在会话记录中可能把 RPC 的 `attachments` 规范化为 `MediaPa
 
 `node.preview` 由统一 Runtime 事件消费层发送，不写 Interaction、change 表或日志。最终对话协调完成后，完整 Interaction upsert 替换 Preview。Canvas SSE 不可用且快照仍有未终止任务时，浏览器才每 15 秒降级读取 Graph，并遵循 `Retry-After`。
 
-Runtime 终态、审批和断线信号在 `runtime_event_inbox` 中持久化并去重。Artifact 观察状态、尝试次数和下一次执行时间保存在 `artifact_sync_jobs`。服务重启会扫描持久任务恢复协调，内存计时器只负责唤醒。Interaction 已显示 `synced` 时仍可存在静默观察任务。审批写入 `interaction_approvals` 并通过 Graph/SSE 投影到所属节点；accepted、rejected 和 unknown 结果分别收敛为 resolved/denied、可重试 pending 和待原生事件确认的 unconfirmed。
+Runtime 终态与审批信号在 `runtime_event_inbox` 中持久化并去重；全局断线状态不进入 Canvas Inbox。Artifact 观察状态、尝试次数和下一次执行时间保存在 `artifact_sync_jobs`。服务重启会扫描持久任务恢复协调，内存计时器只负责唤醒。Interaction 已显示 `synced` 时仍可存在静默观察任务。审批写入 `interaction_approvals` 并通过 Graph/SSE 投影到所属节点；accepted、rejected 和 unknown 结果分别收敛为 resolved/denied、可重试 pending 和待原生事件确认的 unconfirmed。
 
 底部状态栏的 Branch 数和“工作中”数量直接从当前 Graph 投影；“工作中”按 Branch 去重，只包含
 `prepared` 发送与 `running` Interaction。它不把 `unconfirmed`、失败或 Artifact 后台观察包装成用户可处理事项。
@@ -158,7 +158,7 @@ OpenClaw Adapter 的 `server/lib/agent-runtimes/adapters/openclaw/gateway-rpc.ts
 - `role = "operator"`
 - scopes 为 `operator.read`、`operator.write`、`operator.approvals`
 
-后端启动时即尝试连接 Gateway。首次连接、握手或已建立连接发生非主动中断时都进入同一个指数退避重连循环，间隔从 1 秒增长到最多 30 秒；成功握手后重置退避。浏览器仅订阅这一后端状态，不负责驱动 Gateway 重连。
+后端启动时即尝试连接 Gateway。首次连接、握手或已建立连接发生非主动中断时都进入同一个指数退避重连循环，间隔从 1 秒增长到最多 30 秒；成功握手后重置退避。`getStatus()` 和聚合状态读取是纯读操作，不得创建连接或绕过既有重连计时器；只有 Adapter 生命周期订阅、显式 RPC 与退避计时器可以驱动连接。浏览器仅订阅这一后端状态，不负责驱动 Gateway 重连。
 
 连接鉴权按 Gateway 地址分为两种模式：
 
@@ -190,13 +190,14 @@ Node 客户端不发送浏览器 `Origin` Header，因此 ConvoSketchpad 不需�
 |---|---|
 | Canvas API、Branch、发送与原样重新提交应用用例 | `server/routes/canvas.ts`、`server/lib/canvas-branch-service.ts`、`server/lib/canvas-send-service.ts` |
 | Interaction 上下文快照、发送判定与历史快照组装 | `server/lib/canvas-context-snapshot.ts`、`server/lib/canvas-domain.ts`、`server/lib/canvas-history-snapshot.ts` |
-| Agent Runtime 聚合状态、用量、生命周期操作与 SSE | `server/routes/runtime.ts`、`server/routes/tokens.ts`、`server/routes/runtime-actions.ts`、`server/lib/runtime-events.ts` |
+| Agent Runtime 聚合状态、用量、生命周期操作与 SSE | `server/routes/runtime.ts`、`server/routes/runtime-usage.ts`、`server/routes/runtime-actions.ts`、`server/lib/runtime-status-events.ts` |
 | Canvas cursor、SSE 与 Preview | `server/routes/canvas.ts`、`server/lib/canvas-sync.ts` |
 | Schema、迁移清单和状态机 | `server/lib/canvas-db.ts`、`server/lib/canvas-migration-plan.ts`、`server/lib/canvas-migrations.ts`、`server/lib/canvas-agent-runtime-schema.ts` |
 | Fork/Session 恢复 Replay Package 编译与资源物理去重 | `server/lib/canvas-replay-plan.ts`、`server/lib/canvas-resource-locator.ts` |
 | 发送调度、单次 Worker、投递构建与恢复重试 | `server/lib/canvas-send-coordinator.ts`、`server/lib/canvas-send-worker.ts`、`server/lib/canvas-send-delivery.ts`、`server/lib/canvas-send-retry.ts` |
-| Agent Runtime 契约、配置、Registry 与聚合目录 | `server/lib/agent-runtimes/contract.ts`、`config.ts`、`registry.ts`、`catalog.ts` |
-| OpenClaw Adapter、传输、Transcript/Artifact 与统一事件消费 | `server/lib/agent-runtimes/adapters/openclaw/`、`server/lib/canvas/runtime-events.ts` |
+| Agent Runtime 契约、Definition、Registry 与聚合目录 | `server/lib/agent-runtimes/contract.ts`、`definitions.ts`、`registry.ts`、`catalog.ts` |
+| OpenClaw Adapter、传输与 Transcript/Artifact | `server/lib/agent-runtimes/adapters/openclaw/` |
+| 统一 Runtime 事件消费与审批关联 | `server/lib/canvas/runtime-event-consumer.ts` |
 | 对话与 Artifact 协调 | `server/lib/canvas-reconciler.ts`、`server/lib/canvas-artifact-watch.ts`、`server/lib/canvas-reconciliation-state.ts` |
 | 附件、Artifact、投递图与缩略图文件存储 | `server/routes/upload-reference.ts`、`server/lib/canvas-artifact-store.ts`、`server/lib/canvas-media-derivatives.ts` |
 
@@ -207,7 +208,7 @@ Conversation ID、Handle、物理 instance 与完整性，Interaction 保存 `ru
 `execution_metadata_json`，Send Reservation 保存 Runtime、Conversation 与派发恢复引用，Artifact 保存
 `runtime_artifact_id` / `runtime_artifact_ref_json`。Handle 是带 Runtime 归属与 Schema 版本的不透明 JSON；通用运行路径不得解析其中协议字段。
 
-`runtime_event_inbox` 是终态、审批和断线事件的唯一持久化/去重来源，`interaction_approvals` 保存已净化摘要和解析状态。启动迁移将既有数据回填为 OpenClaw Handle，然后删除旧 OpenClaw 列和 `gateway_signal_inbox`；不存在双写或公开兼容别名。
+`runtime_event_inbox` 是终态和审批事件的唯一持久化/去重来源，事件键以 `runtimeId` 命名空间隔离；`interaction_approvals` 保存已净化摘要和解析状态；断线是全局瞬时 Runtime 状态。启动迁移将既有数据回填为 OpenClaw Handle，然后删除旧 OpenClaw 列和 `gateway_signal_inbox`；不存在双写或公开兼容别名。
 
 原样重新提交为 Branch 增加通用 `creation_mode`（`composer | direct-submit`）。它只用于让普通手动草稿继续保持
 单一性，同时允许同一分叉点存在多个直接提交；不记录 Retry 来源。Graph 的 `failedSends` 返回每个 draft Branch
@@ -231,9 +232,9 @@ Interaction 上下文快照保存在 `execution_metadata_json` 并以通用 `run
 
 该数据迁移不连接 Gateway，也不重新读取可能已过期的 Transcript，因此结果不依赖升级时 OpenClaw 的保留窗口或在线状态。新版本服务首次打开 `0.2.0` 数据库时会自动执行；从 `0.3.0` 开始的更新器会在停服后显式运行目标版本的 `npm run migrate` 并校验外键与 SQLite 完整性。迁移账本存在后不会再次扫描历史节点。此后服务启动只恢复 `running`、`unconfirmed`、`observing` 或仍有 `artifact_sync_jobs` 的明确任务，不使用全局协调版本重新打开已终止节点。
 
-`server/lib/canvas-migration-plan.ts` 是发布迁移边界和 ID 的唯一事实来源。截至 `0.4.0` 恰有三项连续迁移：`0.2.0 → 0.3.0` 结构桥接、`0.3.0 → 0.3.2` 媒体维护迁移，以及 `0.3.2 → 0.4.0` Agent Runtime 结构迁移。媒体迁移保留已经发布的 `0.3.0_media_derivatives_v1` ID，不以重命名表达目标版本。
+`server/lib/canvas-migration-plan.ts` 是发布迁移边界和 ID 的唯一事实来源。截至 `0.4.0` 恰有三项连续迁移：`0.2.0 → 0.3.0` 结构桥接、`0.3.0 → 0.3.2` 媒体维护迁移，以及 `0.3.2 → 0.4.0` Agent Runtime 结构迁移。媒体迁移保留已经发布的 `0.3.0_media_derivatives_v1` ID，不以重命名表达目标版本。显式迁移共用维护锁，且只有当前安装的受管服务明确离线或操作者对无管理器场景显式确认离线时才打开 SQLite；setup/update 无法确认离线时推迟到下次服务启动。
 
-`0.3.2_to_0.4.0_agent_runtime_v1` 是 `0.4.0` 的结构迁移：重建 Canvas、Branch、Interaction、Send Reservation 和 Artifact 表，把 OpenClaw 标识投影成版本化 Runtime Handle，将 Gateway 事件迁入 `runtime_event_inbox`，并物理删除旧 OpenClaw 列与 `gateway_signal_inbox`。旧 Canvas 的 `agent_locked_at` 优先回填为最早 Send Reservation 时间，没有 Reservation 的历史数据再以最早 Interaction 时间兜底；已经完成通用 Schema 但缺失锁定状态的数据库也会幂等修复。修改 Agent 的领域入口还会独立检查历史 Reservation/Interaction，避免异常空锁破坏 Runtime/Conversation 归属。结构事务、触发器安装、外键检查和 `integrity_check` 全部成功后才写入迁移账本；已完成结构但尚未写账本的中断状态可在下次启动幂等补全。
+`0.3.2_to_0.4.0_agent_runtime_v1` 是 `0.4.0` 的结构迁移：在同一迁移边界创建审批与通用事件 Inbox，重建 Canvas、Branch、Interaction、Send Reservation 和 Artifact 表，把 OpenClaw 标识投影成版本化 Runtime Handle，将 Gateway 事件迁入 `runtime_event_inbox`，并物理删除旧 OpenClaw 列与 `gateway_signal_inbox`。旧 Canvas 的 `agent_locked_at` 优先回填为最早 Send Reservation 时间，没有 Reservation 的历史数据再以最早 Interaction 时间兜底；已经完成通用 Schema 但缺失锁定状态的数据库也会幂等修复。修改 Agent 的领域入口还会独立检查历史 Reservation/Interaction，避免异常空锁破坏 Runtime/Conversation 归属。结构事务、触发器安装、外键检查和 `integrity_check` 全部成功后才写入迁移账本；已完成结构但尚未写账本的中断状态可在下次启动幂等补全。全新数据库直接创建当前 Schema 并记录三条既定迁移，不先构造或重建旧 OpenClaw Schema。
 
 `0.3.0_media_derivatives_v1` 遍历所有 Canvas 本地文件，为历史上传和 Artifact 计算内容哈希，并为其中的图片
 生成 `thumbnail-v1`。`0.3.0` 及以后版本的更新器在服务停止期间显式执行它，并提供最长 60 分钟；由
@@ -251,7 +252,7 @@ Interaction 上下文快照保存在 `execution_metadata_json` 并以通用 `run
 Canvas Graph 对本地图片只公开版本化 `thumbnailUri`；外部 HTTP Artifact 不由后端抓取，因此只显示文件卡片。
 节点加载缩略图，只有用户打开预览或下载时才请求原图。
 
-`0.4.0` 不保留旧 OpenClaw 物理列或双写 JSON 兼容源。失败回滚依赖 setup/更新器在停服后创建的完整 SQLite 快照，而不是让旧版本反向读取已经迁移的数据库。
+`0.4.0` 不保留旧 OpenClaw 物理列或双写 JSON 兼容源。失败回滚依赖 setup/更新器在停服后创建的完整 SQLite 快照，而不是让旧版本反向读取已经迁移的数据库。Setup 使用完成即删除的临时数据库快照，不登记到更新器正式 `last-good` 账本；更新器状态根目录从项目 `.env` 的 `CONVOSKETCHPAD_DATA_DIR` 解析，确保自定义数据目录下的锁、快照与回滚目标一致。
 
 `send_reservations` 增量新增：
 
@@ -262,7 +263,7 @@ Canvas Graph 对本地图片只公开版本化 `thumbnailUri`；外部 HTTP Arti
 
 升级前未完成的 `prepared` 预留保守迁移为 `ambiguous`，避免把可能已经发出的消息误判为可安全解锁。迁移在事务中执行。
 
-## Session 与持久化
+## OpenClaw Session 与持久化
 
 ConvoSketchpad观察实际 `sessionId` 和重置策略。Session 漂移、缺失或即将重置时，下一次发送加入同一套
 Replay Package，但不改写历史。恢复发送的 Interaction 完成后，协调器以精确 Session key 观察到的物理
@@ -271,10 +272,10 @@ Replay Package，但不改写历史。恢复发送的 Interaction 完成后，�
 
 | 数据 | 权威方或位置 |
 |---|---|
-| Agent、工具、执行、Session、原始对话记录 | OpenClaw |
-| Canvas、Branch、Interaction、发送预留、附件与 Artifact 索引、同步任务、cursor、Gateway 信号、布局、用户 | `database/canvas.sqlite` |
+| Agent、工具、执行、Conversation、原始对话记录 | 所选 Agent Runtime（当前为 OpenClaw） |
+| Canvas、Branch、Interaction、发送预留、附件与 Artifact 索引、同步任务、cursor、Runtime 事件、审批、布局、用户 | `database/canvas.sqlite` |
 | 持久化附件和 Artifact | `artifacts/` |
-| 设备私钥和 Gateway 设备 Token | `~/.convosketchpad/` 或 `CONVOSKETCHPAD_DATA_DIR` |
+| Adapter 管理的本地设备身份和 Token（当前为 OpenClaw Gateway） | `~/.convosketchpad/` 或 `CONVOSKETCHPAD_DATA_DIR` |
 
 备份时必须同时处理 `database/canvas.sqlite` 与 `artifacts/`。
 

@@ -48,7 +48,7 @@ function ProviderQuotas({ providers, copy, language }: {
   </div>);
 }
 
-interface TokenUsageProps {
+interface RuntimeUsageProps {
   data: RuntimeUsageData | null;
   loading: boolean;
   error: boolean;
@@ -56,7 +56,7 @@ interface TokenUsageProps {
 }
 
 /** Per-Runtime account usage. Values are never merged unless the server marks costs comparable. */
-export function TokenUsage({ data, loading, error, onRefresh }: TokenUsageProps) {
+export function RuntimeUsage({ data, loading, error, onRefresh }: RuntimeUsageProps) {
   const { language } = useSettings();
   const copy = getAppCopy(language);
   return <div className="flex h-full min-h-0 flex-col">

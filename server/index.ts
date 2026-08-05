@@ -2,7 +2,7 @@
  * ConvoSketchpad server entry point.
  *
  * Starts the HTTP server behind an optional external TLS terminator, starts
- * the runtime-owned OpenClaw connection, and registers graceful shutdown
+ * all configured Agent Runtime connections, and registers graceful shutdown
  * handlers.
  * @module
  */

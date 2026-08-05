@@ -7,10 +7,9 @@
  */
 
 import { spawnSync, type SpawnSyncOptionsWithStringEncoding } from 'node:child_process';
-
-function resolveOpenClawBin(): string {
-  return process.env.OPENCLAW_BIN?.trim() || 'openclaw';
-}
+import { accessSync, constants } from 'node:fs';
+import { delimiter, isAbsolute, resolve } from 'node:path';
+import { resolveOpenclawBin } from '../../../../server/lib/agent-runtimes/adapters/openclaw/setup-support.js';
 
 export interface DetectedGateway {
   token: string | null;
@@ -28,6 +27,7 @@ export interface NativeCommandResult {
   status: number | null;
   stdout: string;
   stderr: string;
+  notFound?: boolean;
 }
 
 export type NativeCommandOptions = Omit<SpawnSyncOptionsWithStringEncoding, 'encoding'> & {
@@ -51,23 +51,49 @@ const runNativeCommand: NativeCommandRunner = (command, args, options = {}) => {
     status: result.status,
     stdout: result.stdout || '',
     stderr: result.stderr || result.error?.message || '',
+    notFound: result.error && 'code' in result.error && result.error.code === 'ENOENT',
   };
 };
 
+export interface OpenClawRuntimeDetection {
+  detected: boolean;
+  command: string;
+  resolvedBinary: string | null;
+  message: string;
+}
+
+function resolveCommandOnPath(command: string, pathValue = process.env.PATH || ''): string | null {
+  const candidates = command.includes('/') || command.includes('\\')
+    ? [isAbsolute(command) ? command : resolve(command)]
+    : pathValue.split(delimiter).filter(Boolean).map((entry) => resolve(entry, command));
+  for (const candidate of candidates) {
+    try {
+      accessSync(candidate, constants.X_OK);
+      return candidate;
+    } catch {
+      // Continue through PATH in order.
+    }
+  }
+  return null;
+}
+
 /**
- * Read the active local Gateway token and URL for setup defaults.
+ * Read the active local Gateway token and URL after OpenClaw has been selected
+ * for configuration.
  *
  * `OPENCLAW_CONFIG_PATH` is inherited by the CLI, but this process never opens
  * the referenced file itself.
  */
 export function detectGatewayConfig(
   runner: NativeCommandRunner = runNativeCommand,
+  command = resolveOpenclawBin(),
+  environment: NodeJS.ProcessEnv = process.env,
 ): DetectedGateway {
-  const command = resolveOpenClawBin();
   const readValue = (key: string): unknown => {
     const result = runner(command, ['config', 'get', key, '--json'], {
       encoding: 'utf8',
       timeout: 10_000,
+      env: environment,
     });
     if (result.status !== 0) return null;
     try { return JSON.parse(result.stdout.trim()); } catch { return null; }
@@ -79,6 +105,43 @@ export function detectGatewayConfig(
     ? portValue
     : 18789;
   return { token, url: `http://127.0.0.1:${port}` };
+}
+
+/**
+ * Detect the native CLI through the configured command or the current PATH.
+ * A missing CLI does not mean a remote Gateway cannot be configured manually.
+ */
+export function detectOpenClawRuntime(input: {
+  configuredBin?: string;
+  environment?: NodeJS.ProcessEnv;
+  runner?: NativeCommandRunner;
+} = {}): OpenClawRuntimeDetection {
+  const environment = input.environment || process.env;
+  const runner = input.runner || runNativeCommand;
+  const command = resolveOpenclawBin(input.configuredBin || environment.OPENCLAW_BIN);
+  const probe = runner(command, ['--version'], {
+    encoding: 'utf8',
+    timeout: 10_000,
+    env: environment,
+  });
+  if (probe.notFound) {
+    return {
+      detected: false,
+      command,
+      resolvedBinary: null,
+      message: `${command} was not found on PATH`,
+    };
+  }
+
+  const detected = probe.status !== null || !probe.notFound;
+  return {
+    detected,
+    command,
+    resolvedBinary: resolveCommandOnPath(command, environment.PATH),
+    message: probe.status === 0
+      ? 'OpenClaw CLI detected'
+      : 'OpenClaw command found but its version could not be verified',
+  };
 }
 
 export function getEnvGatewayToken(): string | null {

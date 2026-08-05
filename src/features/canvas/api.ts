@@ -113,6 +113,7 @@ export const canvasApi = {
   async resolveApproval(id: string, body: {
     choiceId: string;
     grantedPermissionIds?: string[];
+    confirmed?: true;
   }): Promise<void> {
     await request(`/api/canvas/approvals/${encodeURIComponent(id)}/resolve`, {
       method: 'POST', body: JSON.stringify(body),

@@ -39,6 +39,17 @@ function singleValue(values: string[], key: string): string | null {
   return unique[0] ?? null;
 }
 
+export function validateLegacyAgentRuntimeEnv(projectRoot: string): void {
+  const envPath = path.join(projectRoot, '.env');
+  if (!existsSync(envPath)) return;
+  const lines = readFileSync(envPath, 'utf8').split(/\r?\n/);
+  const legacyValue = singleValue(configuredValues(lines, LEGACY_KEY), LEGACY_KEY);
+  const currentValue = singleValue(configuredValues(lines, CURRENT_KEY), CURRENT_KEY);
+  if (legacyValue !== null && currentValue !== null && currentValue !== legacyValue) {
+    throw new Error(`Conflicting ${LEGACY_KEY} and ${CURRENT_KEY} values in .env`);
+  }
+}
+
 /**
  * Atomically replace the unreleased AGENT_BACKENDS key without retaining an
  * alias or writing both names. Values are never logged or returned.

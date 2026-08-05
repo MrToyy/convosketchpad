@@ -17,11 +17,11 @@ export default function App({ onLogout }: { onLogout?: () => void }) {
   const copy = getAppCopy(language);
   const { overallState, runtimeStatuses, connect } = useRuntime();
   const {
-    tokenData,
+    usageData,
     isLoading: usageLoading,
     loadError: usageError,
-    ensureTokens,
-    refreshTokens,
+    ensureUsage,
+    refreshUsage,
   } = useDashboardData();
   const restart = useRuntimeRestart(language);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -30,11 +30,11 @@ export default function App({ onLogout }: { onLogout?: () => void }) {
   return <div className="flex h-screen w-screen flex-col overflow-hidden bg-background">
     <TopBar
       onSettings={() => setSettingsOpen(true)}
-      tokenData={tokenData}
+      usageData={usageData}
       usageLoading={usageLoading}
       usageError={usageError}
-      onUsageOpen={() => void ensureTokens()}
-      onUsageRefresh={() => void refreshTokens()}
+      onUsageOpen={() => void ensureUsage()}
+      onUsageRefresh={() => void refreshUsage()}
     />
     <div className="min-h-0 flex-1 px-2 py-2 sm:px-4"><div className="shell-panel h-full overflow-hidden rounded-2xl"><CanvasPanel onStatusStatsChange={setStats} /></div></div>
     <StatusBar overallState={overallState} runtimeStatuses={runtimeStatuses} branchCount={stats.branchCount} workingCount={stats.workingCount} contextTokens={stats.activeContext?.usedTokens} contextLimit={stats.activeContext?.contextLimit} />

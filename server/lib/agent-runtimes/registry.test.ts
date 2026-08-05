@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { AgentRuntime } from './contract.js';
-import { configuredAgentRuntimeIds } from './config.js';
+import { configuredAgentRuntimeIds } from './definitions.js';
 import { AgentRuntimeRegistry } from './registry.js';
 
 function runtime(id: string): AgentRuntime {

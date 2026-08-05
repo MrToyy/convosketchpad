@@ -7,7 +7,7 @@
 | 方法 | 路径 | 用途 |
 |---|---|---|
 | GET | `/api/canvas/canvases` | 列出当前所有者的 Canvas |
-| POST | `/api/canvas/canvases` | 创建 Canvas；服务端选择聚合目录中第一个可用 Agent，不弹选择窗 |
+| POST | `/api/canvas/canvases` | 创建 Canvas；服务端优先选择聚合目录中可用的配置默认 Agent，否则回退到第一个可用项，不弹选择窗 |
 | PATCH | `/api/canvas/canvases/:id` | 更新名称，或在首次持久发送预留前更新 `agentRef` |
 | DELETE | `/api/canvas/canvases/:id` | 删除 Canvas 和持久化文件 |
 | GET | `/api/canvas/canvases/:id/graph` | 无副作用读取 Canvas、Branch、Interaction、布局和 `pendingSends` |
@@ -57,7 +57,7 @@ Layout 节点兼容仅包含 `x/y` 的旧数据。用户缩放后的 `width/heig
 ```
 
 服务端读取源 Interaction 的用户文本和已登记附件，客户端不能替换内容。非首节点从其
-`parentInteractionId` 创建普通 Fork Branch，首节点创建新的 Root Branch；原节点和原 OpenClaw 执行均保持
+`parentInteractionId` 创建普通 Fork Branch，首节点创建新的 Root Branch；原节点和原 Runtime 执行均保持
 不变。源节点可以是 `running`、`completed`、`failed` 或 `unconfirmed`。响应与 Branch 发送一致：
 即时接受返回 `201 { interaction }`，排队或结果不确定返回 `202 { operation }`，明确拒绝返回包含 operation 的
 `422`/`503`。
@@ -111,12 +111,13 @@ Interaction 的 `approvals` 是已净化的节点内审批列表，包含风险�
 
 ```json
 {
-  "choiceId": "allow-once",
-  "grantedPermissionIds": ["execute-command"]
+  "choiceId": "allow-always",
+  "grantedPermissionIds": ["execute-command"],
+  "confirmed": true
 }
 ```
 
-明确接受返回 `200 { approval }`；Runtime 结果未知返回 `202` 且状态为 `unconfirmed`；明确拒绝/冲突返回 `409`；过期返回 `410`。服务端验证 choice 与权限子集，防止客户端扩大 Adapter 声明的权限。
+`confirmed: true` 只在对应 Choice 的 `requiresConfirmation` 为真时发送；UI 确认不能替代服务端校验。缺少确认、无效 Choice/权限或明确拒绝/冲突返回 `409`；过期返回 `410`。明确接受返回 `200 { approval }`；Runtime 返回未知或调用后发生无法判定的异常时返回 `202`，错误为 `approval_resolution_unconfirmed` 且状态为 `unconfirmed`，等待原生 resolved 事件或后续核对，不能盲目重发。
 
 Canvas 本地图片附件和 Artifact 额外返回版本化 `thumbnailUri`，但不返回 `contentHash`。外部 HTTP Artifact
 不提供缩略图 URI，也不会被 ConvoSketchpad 后端主动抓取。
@@ -162,6 +163,8 @@ Canvas 本地图片附件和 Artifact 额外返回版本化 `thumbnailUri`，但
 | POST | `/api/auth/logout` | 清除 Cookie |
 | GET | `/api/auth/status` | 当前认证状态 |
 | GET | `/health` | 进程状态和不含错误细节的 Runtime 聚合状态 |
+| GET | `/api/version` | 当前 ConvoSketchpad 版本 |
+| GET | `/api/version/check` | 查询官方稳定 Release 并返回可用更新；受管认证启用时返回 `status: disabled` |
 | GET | `/api/runtime/usage` | 每 Runtime 的账户用量与 Provider 额度，以及可选可比较费用合计 |
 | POST | `/api/runtime/runtimes/:runtimeId/restart` | 请求重启声明支持该操作的 Runtime |
 

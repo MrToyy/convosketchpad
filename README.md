@@ -47,7 +47,7 @@ ConvoSketchpad 用可视化分支解决这个问题：你可以从任意已完�
 - 以仅追加方式组织交互，明确区分“继续”和“分支”。
 - 从任意已完成的交互携带当时上下文创建试验分支。
 - setup 配置需要连接的 Agent 运行端，所有运行端提供的 Agent 平权进入统一目录。
-- 新 Canvas 自动选择第一个可用 Agent，首次发送前可更换，发送预留创建后即锁定。
+- 新 Canvas 自动选择 setup 配置的可用默认 Agent，不可用时回退到第一个可用项；首次发送前可更换，发送预留创建后即锁定。
 - 继续使用所选运行端已配置的 Agent、插件、技能与工具，无需维护第二套运行环境。
 - 持久化保存用户附件和生成的 Artifact，并按用户隔离。
 - 当运行端替换或移除分支 Conversation 时，通过规范快照恢复上下文。
@@ -114,7 +114,7 @@ npm run build
 npm start
 ```
 
-`npm run setup` 会配置 Agent 运行端、访问方式和可选的受管用户认证。当前版本连接 OpenClaw Gateway；安装或启动本项目不会替代 Agent 运行端。
+`npm run setup` 会先探测并多选 Agent 运行端，再逐项配置连接，并从统一 Agent 目录选择新建 Canvas 的默认 Agent；随后配置访问方式和可选的受管用户认证。当前版本连接 OpenClaw Gateway；安装或启动本项目不会替代 Agent 运行端。
 
 ### 开发调试
 
@@ -160,6 +160,8 @@ PORT=4000 npm run dev
 | 环境变量 | 默认值 | 用途 |
 |---|---|---|
 | `AGENT_RUNTIMES` | `openclaw` | 启用的 Agent 运行端，按顺序组成统一 Agent 目录 |
+| `CONVOSKETCHPAD_DEFAULT_AGENT_RUNTIME` | 未设置 | 新建 Canvas 优先使用的 Agent 运行端 |
+| `CONVOSKETCHPAD_DEFAULT_AGENT_PROFILE` | 未设置 | 新建 Canvas 优先使用的 Agent Profile；不可用时回退 |
 | `OPENCLAW_GATEWAY_URL` | `http://127.0.0.1:18789` | OpenClaw Gateway 地址 |
 | `OPENCLAW_GATEWAY_TOKEN` | 空 | 仅供服务端使用的 Gateway 共享 Token；本机 RPC、Gateway HTTP 与远程配对 bootstrap 使用 |
 | `HOST` | `127.0.0.1` | 开发与生产统一的浏览器入口监听地址 |
@@ -239,7 +241,7 @@ ConvoSketchpad turns that trade-off into a visual branching workflow. Fork any c
 - Organize append-only Interactions with explicit Continue and Fork semantics.
 - Fork any completed Interaction with its context for independent experiments.
 - Configure Agent Runtimes during setup and use all discovered Agents through one equal, unified catalog.
-- Select the first available Agent for a new Canvas, allow changes before the first send, and lock it when a send reservation is created.
+- Select the configured default Agent for a new Canvas, fall back to the first available Agent, allow changes before the first send, and lock it when a send reservation is created.
 - Keep using the Agents, plugins, skills, and tools configured in the selected Runtime without maintaining a second execution environment.
 - Keep durable, owner-scoped copies of user attachments and generated Artifacts.
 - Recover context from canonical snapshots when a Runtime replaces or removes a Branch Conversation.
@@ -306,7 +308,7 @@ npm run build
 npm start
 ```
 
-`npm run setup` configures Agent Runtimes, access mode, and optional managed-user authentication. The current release connects to OpenClaw Gateway; installing or starting this project does not replace the Agent Runtime.
+`npm run setup` first detects and lets you select Agent Runtimes, configures each connection, and chooses the default Agent for new canvases from the unified catalog. It then configures access mode and optional managed-user authentication. The current release connects to OpenClaw Gateway; installing or starting this project does not replace the Agent Runtime.
 
 ### Development
 
@@ -352,6 +354,8 @@ Copy `.env.example` or run `npm run setup` to generate `.env`. The most commonly
 | Environment variable | Default | Purpose |
 |---|---|---|
 | `AGENT_RUNTIMES` | `openclaw` | Enabled Agent Runtimes in unified Agent catalog order |
+| `CONVOSKETCHPAD_DEFAULT_AGENT_RUNTIME` | unset | Preferred Agent Runtime for a new Canvas |
+| `CONVOSKETCHPAD_DEFAULT_AGENT_PROFILE` | unset | Preferred Agent profile for a new Canvas; falls back when unavailable |
 | `OPENCLAW_GATEWAY_URL` | `http://127.0.0.1:18789` | OpenClaw Gateway address |
 | `OPENCLAW_GATEWAY_TOKEN` | empty | Server-only shared Gateway token for local RPC, Gateway HTTP, and remote pairing bootstrap |
 | `HOST` | `127.0.0.1` | Unified development and production browser-entry bind address |

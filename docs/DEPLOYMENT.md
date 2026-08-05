@@ -3,10 +3,10 @@
 所有拓扑都遵循同一链条：
 
 ```text
-浏览器 → ConvoSketchpad HTTP/SSE → OpenClaw Gateway
+浏览器 → ConvoSketchpad HTTP/SSE → Agent Runtime（当前为 OpenClaw Gateway）
 ```
 
-浏览器不需要访问 Gateway 地址。只需保证 ConvoSketchpad 宿主机能访问 Gateway。
+浏览器不需要访问 Runtime 地址。只需保证 ConvoSketchpad 宿主机能访问已配置的 Agent Runtime。
 
 ConvoSketchpad 自身只监听 HTTP。图中的 HTTPS 均由反向代理或 Tailscale Serve 终止。
 

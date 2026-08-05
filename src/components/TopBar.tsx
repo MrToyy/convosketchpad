@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { BarChart3, Settings } from 'lucide-react';
 import ConvoSketchpadLogo from './ConvoSketchpadLogo';
-import { TokenUsage } from '@/features/dashboard/TokenUsage';
+import { RuntimeUsage } from '@/features/dashboard/RuntimeUsage';
 import { useSettings } from '@/contexts/SettingsContext';
 import { getAppCopy } from '@/lib/app-messages';
 import type { RuntimeUsageData } from '@/types';
@@ -9,7 +9,7 @@ import type { RuntimeUsageData } from '@/types';
 type Panel = 'usage' | null;
 interface TopBarProps {
   onSettings: () => void;
-  tokenData: RuntimeUsageData | null;
+  usageData: RuntimeUsageData | null;
   usageLoading: boolean;
   usageError: boolean;
   onUsageOpen: () => void;
@@ -18,7 +18,7 @@ interface TopBarProps {
 
 export function TopBar({
   onSettings,
-  tokenData,
+  usageData,
   usageLoading,
   usageError,
   onUsageOpen,
@@ -34,9 +34,9 @@ export function TopBar({
     document.addEventListener('mousedown', close);
     return () => document.removeEventListener('mousedown', close);
   }, [panel]);
-  const cost = useMemo(() => tokenData?.comparableCostTotal
-    ? `${tokenData.comparableCostTotal.currency === 'USD' ? '$' : `${tokenData.comparableCostTotal.currency} `}${tokenData.comparableCostTotal.amount.toFixed(2)}`
-    : null, [tokenData]);
+  const cost = useMemo(() => usageData?.comparableCostTotal
+    ? `${usageData.comparableCostTotal.currency === 'USD' ? '$' : `${usageData.comparableCostTotal.currency} `}${usageData.comparableCostTotal.amount.toFixed(2)}`
+    : null, [usageData]);
   const toggleUsage = () => {
     const opening = panel !== 'usage';
     setPanel(opening ? 'usage' : null);
@@ -51,6 +51,6 @@ export function TopBar({
         <button type="button" aria-label={copy.topBar.settings} className="shell-icon-button" onClick={onSettings}><Settings size={14} /></button>
       </div>
     </header>
-    {panel && <div className="shell-panel absolute right-2 mt-2 max-h-[420px] w-[480px] max-w-[calc(100vw-1rem)] overflow-y-auto rounded-2xl sm:right-4"><TokenUsage data={tokenData} loading={usageLoading} error={usageError} onRefresh={onUsageRefresh} /></div>}
+    {panel && <div className="shell-panel absolute right-2 mt-2 max-h-[420px] w-[480px] max-w-[calc(100vw-1rem)] overflow-y-auto rounded-2xl sm:right-4"><RuntimeUsage data={usageData} loading={usageLoading} error={usageError} onRefresh={onUsageRefresh} /></div>}
   </div>;
 }

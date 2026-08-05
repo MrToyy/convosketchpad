@@ -16,7 +16,7 @@ ConvoSketchpad 用户可以调用所选 OpenClaw Agent 已获准的工具和工�
 
 统一审批只持久化已净化的类别、摘要、风险、权限、选择、作用域和结果；原始环境、凭据与 Runtime Approval Handle 不返回浏览器。所有审批写入口执行所有者检查、选择/权限子集验证、到期检查和并发 claim；持久授权必须由 UI 二次确认。Runtime 返回结果未知时保持 `unconfirmed`，不得自动重复授权。
 
-OpenClaw 审批请求和结果会先由 Adapter 归一化，再进入通用持久事件 Inbox。持久化摘要不得包含命令环境、凭据或其他未经筛选的原始审批数据。本阶段没有向浏览器公开审批读取或处理 API，审批决定只能通过服务端 `resolveApproval` Port 返回 Runtime。
+OpenClaw 审批请求和结果会先由 Adapter 归一化，再进入通用持久事件 Inbox。持久化摘要不得包含命令环境、凭据或其他未经筛选的原始审批数据。浏览器只通过同源 Canvas Graph/SSE 读取净化后的审批摘要，并通过所有者受控的统一审批 API 提交决定；服务端完成选择、权限子集、到期和二次确认校验后，才经 `resolveApproval` Port 返回 Runtime。
 
 ## 受管用户
 
@@ -49,6 +49,12 @@ Agent、预期头节点和“每 Branch 一个预留”在服务端事务中检�
 `uninstall.sh` 只注销经路径校验、且明确指向当前安装目录的 launchd 或 systemd 服务。它不会删除程序目录、`.env`、Canvas SQLite、附件、Artifact、`CONVOSKETCHPAD_DATA_DIR`、更新器快照或外部服务状态。
 
 同名服务如果指向其他安装，或 macOS `start.sh` 不再完全匹配安装器生成模板，脚本会保留对应文件并输出警告。OpenClaw 设备撤销和 Tailscale Serve 清理必须由操作者通过各自原生工具显式完成，卸载脚本不会推断这些共享外部资源的所有权。
+
+## 安装与更新权限
+
+安装器拒绝覆盖任何脏 Git 工作区，且不允许已有稳定版绕过事务化更新器直接切换 Release。Linux 系统级 systemd 单元的安装、停服和重启使用最小范围的 `sudo install` / `sudo systemctl`；交互终端可以提示授权，非交互任务使用 `sudo -n` 快速失败。更新器不会读取或记录 sudo 密码，权限失败会按明确阶段退出，并在已经切换代码后尝试回滚。
+
+更新器从进程环境或项目 `.env` 解析 `CONVOSKETCHPAD_DATA_DIR`，状态目录与正式回滚文件使用 `0700`/`0600` 权限。Setup 的一次性数据库快照不写入正式 `last-good.json`，成功或完成恢复后删除；配置或数据库迁移失败时恢复 `.env` 的原内容或原本不存在的状态。
 
 ## 部署检查
 

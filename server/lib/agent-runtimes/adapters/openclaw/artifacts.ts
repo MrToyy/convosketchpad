@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { RuntimeArtifactHandle, MaterializedArtifact } from '../../contract.js';
 import { RuntimeOperationError, assertRuntimeHandle } from '../../contract.js';
-import { config } from '../../../config.js';
+import { openClawConfig } from './config.js';
 import {
   gatewayRpcCall,
   gatewaySupports,
@@ -19,7 +19,7 @@ function isWithin(candidate: string, root: string): boolean {
 }
 
 function gatewayHttpBase(): URL {
-  const gatewayUrl = config.gatewayUrl
+  const gatewayUrl = openClawConfig.gatewayUrl
     .replace(/^ws:/, 'http:')
     .replace(/^wss:/, 'https:')
     .replace(/\/ws\/?$/, '');

@@ -79,6 +79,27 @@ afterEach(() => {
 });
 
 describe('CanvasStore', () => {
+  it('creates fresh databases directly at the current Runtime schema', () => {
+    const store = createStore();
+    const tableNames = (store.db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{ name: string }>)
+      .map(({ name }) => name);
+    const migrationIds = (store.db.prepare('SELECT id FROM schema_migrations ORDER BY id').all() as Array<{ id: string }>)
+      .map(({ id }) => id);
+
+    expect(tableNames).toEqual(expect.arrayContaining(['runtime_event_inbox', 'interaction_approvals']));
+    expect(tableNames).not.toEqual(expect.arrayContaining(['gateway_signal_inbox', 'backend_event_inbox']));
+    expect((store.db.prepare('PRAGMA table_info(canvases)').all() as Array<{ name: string }>)
+      .map(({ name }) => name)).not.toContain('agent_id');
+    expect(migrationIds).toEqual([
+      '0.2.0_to_0.3.0_v1',
+      '0.3.0_media_derivatives_v1',
+      '0.3.2_to_0.4.0_agent_runtime_v1',
+    ]);
+    expect(store.db.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'trigger' AND name LIKE '%_v1'").get())
+      .toEqual({ count: 0 });
+    expect(store.db.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
+  });
+
   it('repairs the unreleased development Backend schema into the final Runtime schema', () => {
     const dir = mkdtempSync(path.join(tmpdir(), 'convosketchpad-runtime-repair-'));
     const databasePath = path.join(dir, 'canvas.sqlite');
@@ -194,6 +215,15 @@ describe('CanvasStore', () => {
     const legacy = new DatabaseSync(databasePath);
     legacy.exec(readFileSync(new URL('./fixtures/canvas-v0.2.0.sql', import.meta.url), 'utf-8'));
     legacy.exec(`
+      CREATE TABLE gateway_signal_inbox (
+        event_key TEXT PRIMARY KEY,
+        run_id TEXT,
+        session_key TEXT,
+        event TEXT NOT NULL,
+        payload_json TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        processed_at INTEGER
+      );
       INSERT INTO canvas_users
         (id, display_name, token_hash, token_version, status, created_at, updated_at)
         VALUES ('user-a', 'User A', NULL, 1, 'unmanaged', 1, 1);
@@ -201,6 +231,10 @@ describe('CanvasStore', () => {
       INSERT INTO branches
         (id, canvas_id, kind, session_key, session_state, head_interaction_id, created_at, updated_at)
         VALUES ('branch-1', 'canvas-1', 'root', 'agent:main:canvas:branch-1', 'active', 'streaming', 1, 50);
+      INSERT INTO gateway_signal_inbox
+        (event_key, run_id, session_key, event, payload_json, created_at, processed_at)
+        VALUES ('chat:legacy-terminal', 'run-text', 'agent:main:canvas:branch-1', 'chat',
+          '{"state":"final","message":"done"}', 12, NULL);
     `);
     const insertInteraction = legacy.prepare(`INSERT INTO interactions
       (id, branch_id, run_id, user_input, agent_output, status, attachments_json,
@@ -361,6 +395,8 @@ describe('CanvasStore', () => {
     expect(columnNames('interaction_artifacts')).not.toContain('gateway_artifact_id');
     expect(store.db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'gateway_signal_inbox'").get())
       .toBeUndefined();
+    expect(store.db.prepare('SELECT event_key FROM runtime_event_inbox').get())
+      .toEqual({ event_key: 'openclaw:chat:legacy-terminal' });
 
     const before = store.db.prepare(`SELECT
       (SELECT COUNT(*) FROM interaction_artifacts) AS artifacts,
@@ -1366,6 +1402,7 @@ describe('CanvasStore', () => {
       permissions: [{ id: 'execute', label: 'Execute command', risk: 'high' }],
       choices: [
         { id: 'allow-once', intent: 'grant', scope: 'item', label: 'Allow once', requiresConfirmation: false },
+        { id: 'allow-always', intent: 'grant', scope: 'persistent', label: 'Always allow', requiresConfirmation: true },
         { id: 'deny', intent: 'deny', scope: 'item', label: 'Deny', requiresConfirmation: false },
       ],
     });
@@ -1376,6 +1413,9 @@ describe('CanvasStore', () => {
     expect(() => store.claimInteractionApproval('user-a', approval!.id, {
       choiceId: 'allow-once', grantedPermissionIds: ['unknown'],
     })).toThrow('approval_permissions_invalid');
+    expect(() => store.claimInteractionApproval('user-a', approval!.id, {
+      choiceId: 'allow-always', grantedPermissionIds: ['execute'],
+    })).toThrow('approval_confirmation_required');
     expect(store.claimInteractionApproval('user-a', approval!.id, {
       choiceId: 'allow-once', grantedPermissionIds: ['execute'],
     })).toMatchObject({ status: 'resolving' });

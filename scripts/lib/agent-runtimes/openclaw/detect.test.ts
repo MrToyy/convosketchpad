@@ -11,7 +11,7 @@ import path from 'node:path';
 import type {
   NativeCommandResult,
   NativeCommandRunner,
-} from './gateway-detect.js';
+} from './detect.js';
 
 function commandResult(
   status: number,
@@ -50,7 +50,7 @@ describe('OpenClaw native gateway configuration', () => {
 
   async function loadModule() {
     vi.resetModules();
-    return import('./gateway-detect.js');
+    return import('./detect.js');
   }
 
   it('detects the local Gateway through native config commands', async () => {
@@ -108,6 +108,30 @@ describe('OpenClaw native gateway configuration', () => {
       .toEqual({ token: 'env', source: 'env' });
     expect(mod.chooseSetupGatewayToken({}))
       .toEqual({ token: null, source: 'none' });
+  });
+
+  it('detects only CLI presence without reading Gateway configuration or credentials', async () => {
+    const mod = await loadModule();
+    const calls: string[] = [];
+    const missing = mod.detectOpenClawRuntime({
+      runner: () => ({ status: null, stdout: '', stderr: 'not found', notFound: true }),
+    });
+    expect(missing).toMatchObject({
+      detected: false,
+      resolvedBinary: null,
+    });
+
+    const unconfigured = mod.detectOpenClawRuntime({
+      runner: (_command, args) => {
+        calls.push(args.join(' '));
+        return { status: 0, stdout: '1.2.3', stderr: '' };
+      },
+    });
+    expect(unconfigured).toMatchObject({
+      detected: true,
+    });
+    expect(unconfigured).not.toHaveProperty('gateway');
+    expect(calls).toEqual(['--version']);
   });
 
 });

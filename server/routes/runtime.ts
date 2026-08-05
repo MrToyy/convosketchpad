@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { agentRuntimeRegistry } from '../lib/agent-runtimes/registry.js';
 import { publicAggregatedRuntimeStatus } from '../lib/agent-runtimes/catalog.js';
 import { getCanvasIdentity } from '../lib/canvas-auth.js';
-import { subscribeRuntimeEvents } from '../lib/runtime-events.js';
+import { subscribeRuntimeEvents } from '../lib/runtime-status-events.js';
 import { rateLimitGeneral } from '../middleware/rate-limit.js';
 
 const app = new Hono();

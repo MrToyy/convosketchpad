@@ -24,7 +24,10 @@ import { assembleCanonicalCanvasSnapshot } from './canvas-history-snapshot.js';
 import { config } from './config.js';
 import { applySingleChainSchemaMigration } from './canvas-migrations.js';
 import { packageMetadata } from './package-metadata.js';
-import { ensureGenericAgentRuntimeSchema } from './canvas-agent-runtime-schema.js';
+import {
+  createCurrentCanvasSchema,
+  ensureGenericAgentRuntimeSchema,
+} from './canvas-agent-runtime-schema.js';
 
 export type BranchKind = 'root' | 'fork';
 export type BranchConversationState = 'draft' | 'active';
@@ -136,6 +139,12 @@ export interface InteractionApprovalRecord {
   error: string | null;
   createdAt: number;
   updatedAt: number;
+}
+
+export interface OwnedInteractionApprovalResolution {
+  approval: InteractionApprovalRecord;
+  ownerId: string;
+  canvasId: string;
 }
 
 export interface OwnedInteractionRecord extends InteractionRecord {
@@ -476,9 +485,12 @@ export class CanvasStore {
 
   private migrate(): void {
     const existingCanvasColumns = this.db.prepare('PRAGMA table_info(canvases)').all() as SqlRow[];
+    if (existingCanvasColumns.length === 0) {
+      createCurrentCanvasSchema(this.db, packageMetadata.version);
+      return;
+    }
     if (
-      existingCanvasColumns.length > 0
-      && !existingCanvasColumns.some((column) => asString(column.name) === 'agent_id')
+      !existingCanvasColumns.some((column) => asString(column.name) === 'agent_id')
     ) {
       ensureGenericAgentRuntimeSchema(this.db, packageMetadata.version);
       return;
@@ -635,37 +647,6 @@ export class CanvasStore {
         created_at INTEGER NOT NULL,
         processed_at INTEGER
       );
-      CREATE TABLE IF NOT EXISTS runtime_event_inbox (
-        event_key TEXT PRIMARY KEY,
-        runtime_id TEXT NOT NULL,
-        conversation_ref_json TEXT,
-        turn_ref_json TEXT,
-        event_type TEXT NOT NULL,
-        payload_json TEXT NOT NULL,
-        created_at INTEGER NOT NULL,
-        processed_at INTEGER
-      );
-      CREATE TABLE IF NOT EXISTS interaction_approvals (
-        id TEXT PRIMARY KEY,
-        interaction_id TEXT NOT NULL REFERENCES interactions(id) ON DELETE CASCADE,
-        runtime_id TEXT NOT NULL,
-        approval_ref_json TEXT NOT NULL,
-        category TEXT NOT NULL,
-        title TEXT NOT NULL,
-        description TEXT,
-        risk TEXT NOT NULL CHECK(risk IN ('low', 'medium', 'high')),
-        permissions_json TEXT NOT NULL,
-        choices_json TEXT NOT NULL,
-        expires_at INTEGER,
-        status TEXT NOT NULL CHECK(status IN ('pending', 'resolving', 'resolved', 'denied', 'expired', 'unconfirmed')),
-        resolution_json TEXT,
-        resolved_by TEXT,
-        resolved_at INTEGER,
-        error TEXT,
-        created_at INTEGER NOT NULL,
-        updated_at INTEGER NOT NULL,
-        UNIQUE(runtime_id, approval_ref_json)
-      );
       CREATE TABLE IF NOT EXISTS schema_migrations (
         id TEXT PRIMARY KEY,
         applied_at INTEGER NOT NULL,
@@ -678,12 +659,6 @@ export class CanvasStore {
       CREATE INDEX IF NOT EXISTS canvas_changes_canvas_seq ON canvas_changes(canvas_id, seq);
       CREATE INDEX IF NOT EXISTS gateway_signal_pending_run ON gateway_signal_inbox(run_id, processed_at);
       CREATE INDEX IF NOT EXISTS gateway_signal_pending_session ON gateway_signal_inbox(session_key, processed_at);
-      CREATE INDEX IF NOT EXISTS runtime_event_pending_turn
-        ON runtime_event_inbox(runtime_id, turn_ref_json, processed_at);
-      CREATE INDEX IF NOT EXISTS runtime_event_pending_conversation
-        ON runtime_event_inbox(runtime_id, conversation_ref_json, processed_at);
-      CREATE INDEX IF NOT EXISTS interaction_approvals_interaction
-        ON interaction_approvals(interaction_id, created_at);
     `);
     const reservationColumns = this.db.prepare('PRAGMA table_info(send_reservations)').all() as SqlRow[];
     this.db.exec('BEGIN');
@@ -841,76 +816,6 @@ export class CanvasStore {
       this.db.exec('ROLLBACK');
       throw error;
     }
-    this.db.exec(`
-      CREATE TRIGGER IF NOT EXISTS interaction_visible_version_v1
-      AFTER UPDATE OF agent_output, status, execution_state, artifact_sync_state, terminal_at, error
-      ON interactions
-      WHEN NEW.version = OLD.version
-      BEGIN
-        UPDATE interactions SET version = OLD.version + 1 WHERE id = NEW.id;
-      END;
-      CREATE TRIGGER IF NOT EXISTS interaction_insert_change_v1
-      AFTER INSERT ON interactions
-      BEGIN
-        INSERT INTO canvas_changes(canvas_id, entity_type, entity_id, operation, created_at)
-        SELECT b.canvas_id, 'interaction', NEW.id, 'upsert', CAST(unixepoch('subsec') * 1000 AS INTEGER)
-        FROM branches b WHERE b.id = NEW.branch_id;
-      END;
-      CREATE TRIGGER IF NOT EXISTS interaction_update_change_v1
-      AFTER UPDATE OF version ON interactions
-      WHEN NEW.version != OLD.version
-      BEGIN
-        INSERT INTO canvas_changes(canvas_id, entity_type, entity_id, operation, created_at)
-        SELECT b.canvas_id, 'interaction', NEW.id, 'upsert', CAST(unixepoch('subsec') * 1000 AS INTEGER)
-        FROM branches b WHERE b.id = NEW.branch_id;
-      END;
-      CREATE TRIGGER IF NOT EXISTS branch_insert_change_v1
-      AFTER INSERT ON branches
-      BEGIN
-        INSERT INTO canvas_changes(canvas_id, entity_type, entity_id, operation, created_at)
-        VALUES (NEW.canvas_id, 'branch', NEW.id, 'upsert', CAST(unixepoch('subsec') * 1000 AS INTEGER));
-      END;
-      CREATE TRIGGER IF NOT EXISTS branch_update_change_v1
-      AFTER UPDATE OF session_state, head_interaction_id, openclaw_session_id,
-        observed_session_id, session_integrity ON branches
-      BEGIN
-        INSERT INTO canvas_changes(canvas_id, entity_type, entity_id, operation, created_at)
-        VALUES (NEW.canvas_id, 'branch', NEW.id, 'upsert', CAST(unixepoch('subsec') * 1000 AS INTEGER));
-      END;
-      CREATE TRIGGER IF NOT EXISTS send_insert_change_v1
-      AFTER INSERT ON send_reservations
-      BEGIN
-        INSERT INTO canvas_changes(canvas_id, entity_type, entity_id, operation, created_at)
-        SELECT b.canvas_id, 'send_operation', NEW.id, 'upsert', CAST(unixepoch('subsec') * 1000 AS INTEGER)
-        FROM branches b WHERE b.id = NEW.branch_id;
-      END;
-      CREATE TRIGGER IF NOT EXISTS send_update_change_v1
-      AFTER UPDATE OF status, dispatch_state, error, next_attempt_at, interaction_id ON send_reservations
-      BEGIN
-        INSERT INTO canvas_changes(canvas_id, entity_type, entity_id, operation, created_at)
-        SELECT b.canvas_id, 'send_operation', NEW.id, 'upsert', CAST(unixepoch('subsec') * 1000 AS INTEGER)
-        FROM branches b WHERE b.id = NEW.branch_id;
-      END;
-      CREATE TRIGGER IF NOT EXISTS canvas_update_change_v1
-      AFTER UPDATE OF name, agent_id ON canvases
-      BEGIN
-        INSERT INTO canvas_changes(canvas_id, entity_type, entity_id, operation, created_at)
-        VALUES (NEW.id, 'canvas', NEW.id, 'upsert', CAST(unixepoch('subsec') * 1000 AS INTEGER));
-      END;
-      CREATE TRIGGER IF NOT EXISTS approval_insert_visible_v1
-      AFTER INSERT ON interaction_approvals
-      BEGIN
-        UPDATE interactions SET version = version + 1, updated_at = NEW.updated_at
-        WHERE id = NEW.interaction_id;
-      END;
-      CREATE TRIGGER IF NOT EXISTS approval_update_visible_v1
-      AFTER UPDATE OF status, resolution_json, resolved_by, resolved_at, error
-      ON interaction_approvals
-      BEGIN
-        UPDATE interactions SET version = version + 1, updated_at = NEW.updated_at
-        WHERE id = NEW.interaction_id;
-      END;
-    `);
     this.db.exec(`
       UPDATE branches
       SET openclaw_session_started_at = COALESCE(
@@ -1669,11 +1574,31 @@ export class CanvasStore {
     return this.getReservation(id);
   }
 
-  scheduleReservationRetry(id: string, state: 'reserved' | 'ambiguous', error: string, nextAttemptAt: number): SendReservation | null {
+  scheduleReservationRetry(
+    id: string,
+    state: 'reserved' | 'ambiguous',
+    error: string,
+    nextAttemptAt: number,
+    recoveryRef?: RuntimeHandle | null,
+  ): SendReservation | null {
     this.db.prepare(`UPDATE send_reservations
-      SET dispatch_state = ?, error = ?, next_attempt_at = ?, updated_at = ?
+      SET dispatch_state = ?, error = ?, next_attempt_at = ?,
+        dispatch_recovery_ref_json = COALESCE(?, dispatch_recovery_ref_json), updated_at = ?
       WHERE id = ? AND status = 'prepared'`)
-      .run(state, error, nextAttemptAt, Date.now(), id);
+      .run(
+        state,
+        error,
+        nextAttemptAt,
+        recoveryRef ? JSON.stringify(recoveryRef) : null,
+        Date.now(),
+        id,
+      );
+    return this.getReservation(id);
+  }
+
+  clearReservationDispatchRecovery(id: string): SendReservation | null {
+    this.db.prepare(`UPDATE send_reservations SET dispatch_recovery_ref_json = NULL, updated_at = ?
+      WHERE id = ? AND status = 'prepared'`).run(Date.now(), id);
     return this.getReservation(id);
   }
 
@@ -1749,9 +1674,9 @@ export class CanvasStore {
           asString(row.branch_id),
         );
       this.db.prepare(`UPDATE send_reservations SET status = 'acknowledged', dispatch_state = 'acknowledged',
-        runtime_turn_id = ?, dispatch_recovery_ref_json = ?, interaction_id = ?, next_attempt_at = NULL,
+        runtime_turn_id = ?, interaction_id = ?, next_attempt_at = NULL,
         error = NULL, updated_at = ? WHERE id = ?`)
-        .run(runtimeTurnId, turnRef ? JSON.stringify(turnRef) : null, id, now, reservationId);
+        .run(runtimeTurnId, id, now, reservationId);
       this.db.prepare('UPDATE canvases SET updated_at = ? WHERE id = ?').run(now, asString(row.canvas_id));
       return this.hydrateInteraction(mapInteraction(this.db.prepare('SELECT * FROM interactions WHERE id = ?').get(id) as SqlRow));
     });
@@ -2224,7 +2149,11 @@ export class CanvasStore {
     runtimeId: string,
     turnRef: RuntimeHandle | null,
     conversationRef: RuntimeHandle | null,
+    includeTerminal = false,
   ): OwnedInteractionRecord | null {
+    const stateFilter = includeTerminal
+      ? ''
+      : "AND i.execution_state IN ('running', 'unconfirmed')";
     if (turnRef) {
       const row = this.db.prepare(`SELECT i.*, b.canvas_id, b.conversation_id, b.conversation_ref_json,
           b.conversation_instance_id, b.observed_conversation_instance_id, b.conversation_integrity,
@@ -2233,9 +2162,9 @@ export class CanvasStore {
         JOIN branches b ON b.id = i.branch_id
         JOIN canvases c ON c.id = b.canvas_id
         WHERE c.runtime_id = ? AND i.turn_ref_json = ?
-          AND i.execution_state IN ('running', 'unconfirmed')
+          ${stateFilter}
         ORDER BY i.created_at DESC LIMIT 1`).get(runtimeId, JSON.stringify(turnRef)) as SqlRow | undefined;
-      if (row) return this.hydrateOwnedInteraction(mapOwnedInteraction(row));
+      return row ? this.hydrateOwnedInteraction(mapOwnedInteraction(row)) : null;
     }
     if (!conversationRef) return null;
     const rows = this.db.prepare(`SELECT i.*, b.canvas_id, b.conversation_id, b.conversation_ref_json,
@@ -2245,7 +2174,7 @@ export class CanvasStore {
       JOIN branches b ON b.id = i.branch_id
       JOIN canvases c ON c.id = b.canvas_id
       WHERE c.runtime_id = ? AND b.conversation_ref_json = ?
-        AND i.execution_state IN ('running', 'unconfirmed')
+        ${stateFilter}
       ORDER BY i.created_at DESC LIMIT 2`).all(runtimeId, JSON.stringify(conversationRef)) as SqlRow[];
     return rows.length === 1 ? this.hydrateOwnedInteraction(mapOwnedInteraction(rows[0])) : null;
   }
@@ -2287,9 +2216,13 @@ export class CanvasStore {
     approvalRef: RuntimeHandle,
     resolution: ApprovalResolution,
     resolvedBy?: string,
-  ): InteractionApprovalRecord | null {
-    const row = this.db.prepare(`SELECT * FROM interaction_approvals
-      WHERE runtime_id = ? AND approval_ref_json = ?`)
+  ): OwnedInteractionApprovalResolution | null {
+    const row = this.db.prepare(`SELECT a.*, b.canvas_id, c.owner_id
+      FROM interaction_approvals a
+      JOIN interactions i ON i.id = a.interaction_id
+      JOIN branches b ON b.id = i.branch_id
+      JOIN canvases c ON c.id = b.canvas_id
+      WHERE a.runtime_id = ? AND a.approval_ref_json = ?`)
       .get(runtimeId, JSON.stringify(approvalRef)) as SqlRow | undefined;
     if (!row) return null;
     const approval = mapInteractionApproval(row);
@@ -2305,7 +2238,13 @@ export class CanvasStore {
       now,
       approval.id,
     );
-    return mapInteractionApproval(this.db.prepare('SELECT * FROM interaction_approvals WHERE id = ?').get(approval.id) as SqlRow);
+    return {
+      approval: mapInteractionApproval(
+        this.db.prepare('SELECT * FROM interaction_approvals WHERE id = ?').get(approval.id) as SqlRow,
+      ),
+      ownerId: asString(row.owner_id),
+      canvasId: asString(row.canvas_id),
+    };
   }
 
   getOwnedInteractionApproval(ownerId: string, approvalId: string): InteractionApprovalRecord | null {
@@ -2321,6 +2260,7 @@ export class CanvasStore {
     ownerId: string,
     approvalId: string,
     resolution: ApprovalResolution,
+    confirmed = false,
   ): InteractionApprovalRecord {
     return this.transaction(() => {
       const approval = this.getOwnedInteractionApproval(ownerId, approvalId);
@@ -2333,13 +2273,17 @@ export class CanvasStore {
       }
       const choice = approval.choices.find((candidate) => candidate.id === resolution.choiceId);
       if (!choice) throw new Error('approval_choice_invalid');
+      if (choice.requiresConfirmation && !confirmed) throw new Error('approval_confirmation_required');
       const requested = new Set(approval.permissions.map((permission) => permission.id));
       const granted = resolution.grantedPermissionIds || (choice.intent === 'grant' ? [...requested] : []);
       if (granted.some((permissionId) => !requested.has(permissionId))) {
         throw new Error('approval_permissions_invalid');
       }
       if (choice.intent === 'deny' && granted.length > 0) throw new Error('approval_permissions_invalid');
-      const normalized = { ...resolution, ...(granted.length ? { grantedPermissionIds: granted } : {}) };
+      const normalized: ApprovalResolution = {
+        choiceId: resolution.choiceId,
+        ...(granted.length ? { grantedPermissionIds: granted } : {}),
+      };
       this.db.prepare(`UPDATE interaction_approvals SET status = 'resolving', resolution_json = ?,
         error = NULL, updated_at = ? WHERE id = ? AND status = 'pending'`)
         .run(JSON.stringify(normalized), Date.now(), approval.id);

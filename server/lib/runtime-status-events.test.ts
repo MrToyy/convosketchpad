@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   publishRuntimeEvent,
   subscribeRuntimeEvents,
-} from './runtime-events.js';
+} from './runtime-status-events.js';
 
 describe('product runtime events', () => {
   it('publishes Agent Runtime status changes', () => {

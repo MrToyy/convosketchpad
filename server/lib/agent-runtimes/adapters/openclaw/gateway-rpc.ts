@@ -10,7 +10,7 @@
 
 import { randomUUID } from 'node:crypto';
 import { WebSocket } from 'ws';
-import { config } from '../../../config.js';
+import { openClawConfig } from './config.js';
 import {
   clearStoredDeviceAuth,
   CONVOSKETCHPAD_OPERATOR_SCOPES,
@@ -83,7 +83,7 @@ const RECONNECT_MAX_DELAY_MS = 30_000;
 
 /** Derive the WebSocket URL from the HTTP gateway URL. */
 function getGatewayWsUrl(): string {
-  const httpUrl = config.gatewayUrl;
+  const httpUrl = openClawConfig.gatewayUrl;
   let wsUrl: string;
   if (httpUrl.startsWith('ws://') || httpUrl.startsWith('wss://')) {
     wsUrl = httpUrl;
@@ -124,7 +124,7 @@ const statusSubscribers = new Set<(status: GatewayRuntimeStatus) => void>();
 function runtimeStatus(): GatewayRuntimeStatus {
   return {
     state: connected ? 'connected' : connecting ? 'connecting' : 'disconnected',
-    gatewayRestartSupported: gatewayConnectionMode(config.gatewayUrl) === 'loopback',
+    gatewayRestartSupported: gatewayConnectionMode(openClawConfig.gatewayUrl) === 'loopback',
     ...(lastConnectionError ? { error: lastConnectionError } : {}),
     ...(capabilities.serverVersion ? { serverVersion: capabilities.serverVersion } : {}),
     methods: [...capabilities.methods],
@@ -171,7 +171,7 @@ function buildConnectParams(nonce: string) {
   const storedAuth = connectionMode === 'remote' && !deviceTokenRetryUsed
     ? getStoredDeviceAuth(gatewayUrl)
     : null;
-  const token = storedAuth?.token || config.gatewayToken;
+  const token = storedAuth?.token || openClawConfig.gatewayToken;
   const device = connectionMode === 'remote'
     ? createDeviceBlock({
       clientId,
@@ -247,7 +247,7 @@ function ensureConnection(): void {
   const configuredGatewayUrl = getGatewayWsUrl();
   const configuredMode = gatewayConnectionMode(configuredGatewayUrl);
   if (
-    !config.gatewayToken
+    !openClawConfig.gatewayToken
     && (
       configuredMode === 'loopback'
       || !getStoredDeviceAuth(configuredGatewayUrl)
@@ -347,7 +347,7 @@ function ensureConnection(): void {
               || detailCode === 'AUTH_DEVICE_TOKEN_MISMATCH'
               || detailCode === 'AUTH_SCOPE_MISMATCH'
             )
-            && config.gatewayToken
+            && openClawConfig.gatewayToken
           ) {
             clearStoredDeviceAuth(wsUrl);
             deviceTokenRetryUsed = true;
@@ -404,7 +404,10 @@ function ensureConnection(): void {
   });
 
   socket.on('error', (err) => {
-    if (!shuttingDown) console.warn('[gateway-rpc] WebSocket error:', err.message);
+    if (!shuttingDown) {
+      lastConnectionError = err.message;
+      console.warn('[gateway-rpc] WebSocket error:', err.message);
+    }
   });
 
   socket.on('close', () => {
@@ -523,7 +526,6 @@ export function gatewayDispatchCall(
 }
 
 export function getGatewayRuntimeStatus(): GatewayRuntimeStatus {
-  ensureConnection();
   return runtimeStatus();
 }
 
@@ -546,7 +548,7 @@ export function gatewaySupports(method: string): boolean {
 
 /** Shared-secret credential for Gateway HTTP routes; paired device tokens are WS-only. */
 export function getGatewaySharedHttpAuthToken(): string {
-  return config.gatewayToken;
+  return openClawConfig.gatewayToken;
 }
 
 /** Stop reconnects, reject pending work, and release the persistent socket. */

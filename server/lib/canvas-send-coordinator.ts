@@ -7,7 +7,7 @@ import {
 } from './canvas-db.js';
 import { rescanCanvasReconciliationCandidates } from './canvas-reconciler.js';
 import { canvasSendRetryWakeAt } from './canvas-send-retry.js';
-import { publishRuntimeEvent } from './runtime-events.js';
+import { publishRuntimeEvent } from './runtime-status-events.js';
 import {
   canvasSendWorkerHasActiveDispatches,
   canvasSendWorkerIsActive,

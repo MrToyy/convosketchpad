@@ -26,12 +26,6 @@ async function setup() {
   }));
   vi.doMock('../lib/canvas-auth.js', () => ({ getCanvasIdentity: () => ({ userId: 'owner-a', name: 'Owner A' }) }));
   vi.doMock('../middleware/rate-limit.js', () => ({ rateLimitGeneral: async (_c: unknown, next: () => Promise<void>) => next() }));
-  vi.doMock('../lib/gateway-rpc.js', () => ({
-    gatewayRpcCall: vi.fn(async () => ({ sessions: [] })),
-    gatewaySupports: () => false,
-    getGatewaySharedHttpAuthToken: () => 'test-token',
-  }));
-
   const db = await import('../lib/canvas-db.js');
   const artifacts = await import('../lib/canvas-artifact-store.js');
   const reconciler = await import('../lib/canvas-reconciler.js');

@@ -12,8 +12,8 @@ interface MockStoredDeviceAuth {
 
 // Mock config to point at our test server
 let testPort: number;
-vi.mock('../../../config.js', () => ({
-  get config() {
+vi.mock('./config.js', () => ({
+  get openClawConfig() {
     return {
       gatewayUrl: `http://127.0.0.1:${testPort}`,
       gatewayToken: 'test-token',
@@ -83,6 +83,7 @@ describe('gateway-rpc (persistent WebSocket)', () => {
   let connectMode: 'accept' | 'reject' | 'close' = 'accept';
   let connectPayload: Record<string, unknown> = {};
   let closeOnRpcMethod = '';
+  let connectionCount = 0;
 
   beforeAll(async () => {
     rpcHandler = () => ({});
@@ -95,6 +96,7 @@ describe('gateway-rpc (persistent WebSocket)', () => {
     testPort = (wss.address() as { port: number }).port;
 
     wss.on('connection', (ws, req) => {
+      connectionCount += 1;
       lastRequestOrigin = req.headers.origin;
 
       // Send challenge immediately
@@ -150,6 +152,7 @@ describe('gateway-rpc (persistent WebSocket)', () => {
     connectMode = 'accept';
     connectPayload = {};
     closeOnRpcMethod = '';
+    connectionCount = 0;
     gatewayConnectionModeMock.mockReturnValue('loopback');
     getStoredDeviceAuthMock.mockReturnValue(null);
     delete process.env.CONVOSKETCHPAD_PUBLIC_ORIGIN;
@@ -423,6 +426,23 @@ describe('gateway-rpc (persistent WebSocket)', () => {
       await vi.waitFor(() => expect(states.at(-1)).toBe('disconnected'));
       connectMode = 'accept';
       await vi.waitFor(() => expect(states).toContain('connected'), { timeout: 2_500 });
+
+      unsubscribe();
+      client.closeGatewayRpc();
+    });
+
+    it('does not let status reads bypass reconnect backoff', async () => {
+      connectMode = 'close';
+      const client = await importFreshGatewayRpc();
+      const states: string[] = [];
+      const unsubscribe = client.subscribeGatewayStatus((status) => {
+        states.push(status.state);
+        client.getGatewayRuntimeStatus();
+      });
+
+      await vi.waitFor(() => expect(states.at(-1)).toBe('disconnected'));
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      expect(connectionCount).toBe(1);
 
       unsubscribe();
       client.closeGatewayRpc();

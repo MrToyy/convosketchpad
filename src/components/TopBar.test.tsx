@@ -8,18 +8,18 @@ import type { RuntimeUsageData } from '@/types';
 vi.mock('./ConvoSketchpadLogo', () => ({
   default: () => <div data-testid="convosketchpad-logo" />,
 }));
-vi.mock('@/features/dashboard/TokenUsage', () => ({
-  TokenUsage: () => <div data-testid="token-usage-panel" />,
+vi.mock('@/features/dashboard/RuntimeUsage', () => ({
+  RuntimeUsage: () => <div data-testid="token-usage-panel" />,
 }));
 
 function renderTopBar(opts?: {
-  tokenData?: RuntimeUsageData | null;
+  usageData?: RuntimeUsageData | null;
   onUsageOpen?: () => void;
 }) {
   return renderWithSettings(
     <TopBar
       onSettings={vi.fn()}
-      tokenData={opts?.tokenData ?? null}
+      usageData={opts?.usageData ?? null}
       usageLoading={false}
       usageError={false}
       onUsageOpen={opts?.onUsageOpen ?? vi.fn()}
@@ -51,7 +51,7 @@ describe('TopBar', () => {
     const onUsageOpen = vi.fn();
     renderTopBar({
       onUsageOpen,
-      tokenData: {
+      usageData: {
         runtimes: [],
         comparableCostTotal: { currency: 'USD', amount: 1.25 },
         updatedAt: 123,

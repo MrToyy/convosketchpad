@@ -185,8 +185,9 @@ function ApprovalCard({ approval, onChanged }: {
     : ({ pending: 'Approval required', resolving: 'Submitting', resolved: 'Allowed', denied: 'Denied', expired: 'Expired', unconfirmed: 'Result unconfirmed' } as const)[approval.status];
 
   const resolve = async (choice: InteractionApproval['choices'][number]) => {
+    let confirmed = false;
     if (choice.requiresConfirmation) {
-      const confirmed = window.confirm(language === 'zh-CN'
+      confirmed = window.confirm(language === 'zh-CN'
         ? `“${choice.label}”会在 ${choice.scope} 范围内持续授权。确认继续吗？`
         : `“${choice.label}” grants access for the ${choice.scope} scope. Continue?`);
       if (!confirmed) return;
@@ -197,6 +198,7 @@ function ApprovalCard({ approval, onChanged }: {
       await canvasApi.resolveApproval(approval.id, {
         choiceId: choice.id,
         ...(choice.intent === 'grant' ? { grantedPermissionIds: [...selectedPermissions] } : {}),
+        ...(confirmed ? { confirmed: true as const } : {}),
       });
       onChanged();
     } catch (error) {

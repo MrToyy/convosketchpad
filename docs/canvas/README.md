@@ -20,10 +20,11 @@ ConvoSketchpad 提供聚焦的 Canvas 交互环境和受管用户认证。
 
 ```text
 src/features/canvas/       Canvas 产品界面
-src/features/chat/         Canvas 使用的 OpenClaw 协议与媒体基础能力
+src/features/chat/         Canvas 通用图片预览能力
 src/features/auth/         受管登录
 server/routes/canvas.ts    Canvas HTTP API
 server/lib/canvas-*.ts     数据、文件、认证身份与协调
+server/lib/agent-runtimes/ 通用 Runtime Port、Registry 与 Adapter
 database/canvas.sqlite     运行时数据库（已忽略）
 artifacts/                 持久化 Canvas 文件（已忽略）
 ```

@@ -11,7 +11,7 @@
 
 工作区必须满足：
 
-- 使用 Node.js 22 或更高版本；
+- 使用 Node.js 22.13.0 或更高版本；
 - 已安装 `git` 和 `npm`；
 - 工作区干净，不存在已暂存、未暂存或未跟踪文件；
 - `origin` 使用官方 HTTPS 地址：
@@ -123,14 +123,15 @@ npm run update
 
 1. 校验工具、官方 Origin、权限和干净工作区；
 2. 从官方 GitHub 仓库解析已发布的稳定 Release；
-3. 检测到受管服务时，先停止准确匹配的 `convosketchpad.service` 或 `com.mrtoyy.convosketchpad`；
-4. 快照当前 Commit、`.env` 和停服后的一致 SQLite 数据库副本；
+3. 检测受管服务的实际运行状态；除精确名称外还校验工作目录和启动命令属于当前安装，状态无法确定时失败关闭；
+4. 快照当前 Commit 和 `.env`；只有当前安装的受管服务已确认停止时才创建一致 SQLite 数据库副本；
 5. 只把所选 Release 标签获取到内部 Ref；
 6. 验证目标是否为匹配的 `convosketchpad` Package；
 7. 运行 `npm ci` 和 `npm run build`；
-8. 对已停止的受管服务运行目标版本数据库迁移、历史图片缩略图回填，并校验 SQLite 外键与完整性；
-9. 重启检测到的服务；
-10. 验证 `/health` 和 `/api/version`。
+8. 无论是否存在服务管理器或是否使用 `--no-restart`，先运行目标版本的 Agent Runtime 环境配置迁移；
+9. 对可确认离线的受管服务运行目标版本数据库迁移、历史图片缩略图回填，并校验 SQLite 外键与完整性；
+10. 只重启更新前正在运行的服务，原本停止的服务保持停止；
+11. 只对已恢复运行的服务验证 `/health` 和 `/api/version`。
 
 从 `0.2.0` 升级到本版本时，数据迁移标识为 `0.2.0_to_0.3.0_v1`。它只读取现有 SQLite 数据，不依赖 Gateway 在线、Session 历史或某个特定数据库实例；迁移成功后通过 `schema_migrations` 账本保证不会在后续启动中重复扫描历史节点。
 
@@ -139,15 +140,17 @@ npm run update
 会记录警告并继续，存储或数据库系统性错误会触发回滚。迁移账本存在后，后续更新和服务启动都不会重复全量扫描。
 需要诊断性地复查历史媒体时，停止服务后显式运行 `npm run migrate -- --rescan-media`。
 
-`0.4.0` 的 Agent Runtime 结构迁移标识为 `0.3.2_to_0.4.0_agent_runtime_v1`。所有 `0.3.x` 数据库会在目标版本迁移流程中补齐上述维护迁移和该结构步骤；`0.2.0` 数据库还会先完成结构桥接。Agent Runtime 结构迁移会重建核心表、写入通用 Handle 和事件数据，并按最早 Send Reservation、最早 Interaction 的优先级回填旧 Canvas 的 Agent 锁定时间；已完成通用 Schema 但缺失锁定时间的数据库会在下次迁移检查中自动修复。校验外键与完整性后才记录完成标识。由于媒体维护代码依赖目标结构，实际执行时允许先完成目标 Schema、再处理媒体；统一清单表达的是发布边界和最终必备项，而不是数据库事务的调用先后。
+`0.4.0` 的 Agent Runtime 结构迁移标识为 `0.3.2_to_0.4.0_agent_runtime_v1`。所有 `0.3.x` 数据库会在目标版本迁移流程中补齐上述维护迁移和该结构步骤；`0.2.0` 数据库还会先完成结构桥接。Agent Runtime 结构迁移会在同一边界创建审批与通用事件 Inbox，重建核心表、写入通用 Handle 和事件数据，并按最早 Send Reservation、最早 Interaction 的优先级回填旧 Canvas 的 Agent 锁定时间；已完成通用 Schema 但缺失锁定时间的数据库会在下次迁移检查中自动修复。全新数据库直接创建当前 Schema 并记录既定三项，不先创建旧 OpenClaw Schema。校验外键与完整性后才记录完成标识。由于媒体维护代码依赖目标结构，实际执行时允许先完成目标 Schema、再处理媒体；统一清单表达的是发布边界和最终必备项，而不是数据库事务的调用先后。
 
 截至 `0.4.0`，统一迁移清单中仅有以上三项，版本边界连续为 `0.2.0 → 0.3.0 → 0.3.2 → 0.4.0`。结构迁移会在数据库打开时幂等执行，并删除未进入任何正式 Release 的 `0.2.0_to_single_chain_v1`、`0.3.0_to_0.4.0_agent_backend_v1` 与 `0.3.2_to_0.4.0_agent_backend_v1` 开发态账本记录；已经使用开发期 Backend Schema 的数据库会原地改名物理字段、事件表和 Handle JSON。显式迁移器随后完成媒体维护，并在最终外键和完整性检查后确认三个正式迁移 ID 全部存在，否则更新失败并触发回滚。
 
-如果没有检测到受支持的服务管理器，更新器不会假设手动启动的进程已经停止，也不会在线执行显式迁移。目标服务下次手动启动时会先自动迁移数据库。
+`npm run migrate -- --help` 只显示帮助，不打开数据库。迁移命令会在任何环境迁移或数据库操作前拒绝未知、重复参数，以及 `--env-only`、`--rescan-media` 等互斥模式的组合，避免输入错误被当成普通全量迁移执行。独立运行迁移器会取得与 setup/update 相同的维护锁；匹配当前安装的受管服务必须明确处于停止状态。没有匹配的服务管理器时，先停止所有手工进程，再显式运行 `npm run migrate -- --confirm-offline`；`--rescan-media` 可以和该确认参数组合。
+
+如果没有检测到指向当前安装的受支持服务管理器，更新器不会假设手动启动的进程已经停止，不会打开、快照、显式迁移或失败回滚 SQLite；但不需要打开数据库的 `.env` Runtime 键迁移仍会在更新过程中完成。目标服务下次手动启动时会先自动迁移数据库。
 
 Agent Runtime Schema 迁移会把旧 OpenClaw 顶层列转换为通用 Runtime/Profile、Conversation/Turn/Artifact Handle 和 `runtime_event_inbox`，随后物理删除旧列及 `gateway_signal_inbox`，不会双写。目标版本显式迁移器还会把开发期 `.env` 的 `AGENT_BACKENDS` 一次性改写为 `AGENT_RUNTIMES`；运行时不读取旧键。该迁移本身不可由新版本“降级反向执行”；安全回滚依赖更新器在停服后创建的整库 SQLite 快照。不要绕过快照直接用旧版本打开已经迁移的数据库。
 
-重新运行 `npm run setup` 同样会自动迁移：检测到受管服务时执行停服、SQLite 一致性快照、迁移、失败恢复和按原运行状态重启；没有受管服务时直接执行事务化迁移。服务启动仍会幂等检查并完成尚未应用的迁移。
+重新运行 `npm run setup` 会先取得和更新器相同的维护锁。只有服务配置属于当前安装且状态明确时，setup 才会停止原本运行的服务、创建一次性 SQLite 快照并迁移；重启后还会验证服务状态、健康接口和版本。迁移或服务恢复失败时，在确认服务已经离线后恢复数据库和 `.env` 并保持服务停止；若无法确认重启后的服务已停止，则不覆盖 SQLite，并保留临时快照供人工恢复。Setup 临时快照不会覆盖更新器的 `last-good.json`。没有匹配服务管理器时 setup 只保存配置并推迟数据库迁移，目标服务下次手动启动会幂等完成尚未应用的迁移。
 
 从 `0.3.0` 开始，目标 Release 必须保留基线之后的全部迁移步骤；更新器直接安装所选目标版本，并由目标版本
 按依赖补齐尚未记录在 `schema_migrations` 中的迁移。迁移 ID 发布后不得修改或删除。大型、可延后的历史数据处理
@@ -162,8 +165,10 @@ Agent Runtime Schema 迁移会把旧 OpenClaw 顶层列转换为通用 Runtime/P
 | `--dry-run` | 解析并校验目标，不修改工作区 |
 | `--verbose`、`-v` | 显示详细更新操作 |
 | `--rollback` | 恢复上一个确认正常的快照 |
-| `--no-restart` | 跳过停服、数据库迁移、服务重启和健康检查；下次手动启动目标服务时自动迁移 |
+| `--no-restart` | 跳过停服、数据库迁移、服务重启和健康检查，但仍迁移 `.env` Runtime 键；下次手动启动目标服务时自动迁移数据库 |
 | `--help`、`-h` | 显示帮助 |
+
+`--rollback` 是独立操作，不能与 `--version`、`--dry-run` 或 `--no-restart` 组合；冲突会在获取更新锁或修改工作区前直接失败。更新 CLI 同时拒绝未知参数、重复参数、缺值参数以及把 `--help` 与其他参数组合，避免拼写错误被当成普通更新执行。
 
 ## 示例
 
@@ -186,7 +191,7 @@ npm run update -- --no-restart
 | 退出码 | 含义 |
 |---|---|
 | 0 | 成功 |
-| 1 | 已是最新版本 |
+| 1 | 已是最新版本，或 CLI 参数无效 |
 | 10 | 前置检查失败 |
 | 20 | 官方 Release 解析失败 |
 | 40 | Fetch、校验、安装或构建失败 |
@@ -194,21 +199,23 @@ npm run update -- --no-restart
 | 50 | 服务重启失败 |
 | 60 | 健康检查失败 |
 | 70 | 回滚失败 |
-| 80 | 另一个更新进程持有锁 |
+| 80 | 另一个 setup、migrate 或 update 维护进程持有锁 |
 
 ## 0.3.0 及以后版本的回滚与状态
 
-切换工作区前，更新器会记录当前 Commit、Package 版本、时间戳和 `.env` Hash。存在 `.env` 时，以 `0600` 权限复制。检测到受管服务时会先停服；存在 `database/canvas.sqlite` 时，再使用 SQLite `VACUUM INTO` 创建包含已提交 WAL 内容的一致副本，并以 `0600` 权限保存。状态保存在 `~/.convosketchpad/updater/` 下。
+切换工作区前，更新器会记录当前 Commit、Package 版本、时间戳、`.env` 是否存在及其 Hash。存在 `.env` 时，以 `0600` 权限复制。匹配当前安装的受管服务正在运行时先停服并复核 `inactive`；原本停止的服务不重复停服。只有这样确认数据库离线后，才使用 SQLite `VACUUM INTO` 创建包含已提交 WAL 内容的一致副本并以 `0600` 权限保存。状态保存在 `$CONVOSKETCHPAD_DATA_DIR/updater/`；更新命令按进程环境、项目 `.env`、默认 `~/.convosketchpad` 的顺序解析该目录，相对路径以项目根目录为基准。
 
-如果快照完成后 Fetch、校验、构建、迁移、重启或健康检查失败，更新器会先停止服务，切回已保存的 Commit，恢复数据库快照，运行 `npm ci` 和 `npm run build`，并重启检测到的服务。原始附件和 Artifact 文件不在数据库迁移中改写；媒体回填只在 `artifacts/` 下增加可再生成的派生文件。更新器不会复制或删除 `artifacts/`，因此回滚数据库后多出的派生文件可能保留，但不会被旧版本引用。
+如果快照完成后 Fetch、校验、构建、环境/数据库迁移、重启或健康检查失败，普通更新会切回已保存的 Commit、恢复 `.env` 并运行 `npm ci` 和 `npm run build`。只有更新前已经确认离线并保存了 SQLite 快照时才恢复数据库，且恢复前再次停止并复核受管服务。只有更新前正在运行的受管服务会在回滚后重启；原本停止的服务保持停止。没有匹配服务管理器或使用 `--no-restart` 时，失败回滚只恢复代码和 `.env`，不会替换可能正在使用的 SQLite；手工 `--rollback` 也遵循相同规则。原始附件和 Artifact 文件不在数据库迁移中改写；媒体回填只在 `artifacts/` 下增加可再生成的派生文件。
 
 | 路径 | 用途 |
 |---|---|
-| `~/.convosketchpad/updater/last-good.json` | 上一个确认正常的快照 |
-| `~/.convosketchpad/updater/last-run.json` | 最近一次更新结果 |
-| `~/.convosketchpad/updater/snapshots/<timestamp>/.env` | 受保护的 `.env` 备份 |
-| `~/.convosketchpad/updater/snapshots/<timestamp>/canvas.sqlite` | 一致的更新前数据库备份 |
-| `~/.convosketchpad/updater/update.lock` | 并发更新锁 |
+| `$CONVOSKETCHPAD_DATA_DIR/updater/last-good.json` | 上一个确认正常的正式更新快照 |
+| `$CONVOSKETCHPAD_DATA_DIR/updater/last-run.json` | 最近一次更新结果 |
+| `$CONVOSKETCHPAD_DATA_DIR/updater/snapshots/<timestamp>/.env` | 受保护的 `.env` 备份 |
+| `$CONVOSKETCHPAD_DATA_DIR/updater/snapshots/<timestamp>/canvas.sqlite` | 已确认受管服务离线时创建的一致数据库备份；无匹配服务或 `--no-restart` 不创建 |
+| `$CONVOSKETCHPAD_DATA_DIR/updater/update.lock` | setup、migrate 和 update 共用的维护锁 |
+
+上表中的默认 `$CONVOSKETCHPAD_DATA_DIR` 是 `~/.convosketchpad`。Linux 系统级 systemd 单元的停服、重启与回滚需要管理员权限：交互终端会通过 `sudo systemctl` 请求授权，非交互执行使用 `sudo -n` 并在权限不可用时立即失败和回滚，不会等待隐藏的密码提示。
 
 ## Release 策略
 
@@ -303,7 +310,7 @@ git remote set-url origin https://github.com/MrToyy/convosketchpad.git
 更新器会自动尝试回滚。如果必须手动恢复：
 
 ```bash
-cat ~/.convosketchpad/updater/last-good.json
+cat "${CONVOSKETCHPAD_DATA_DIR:-$HOME/.convosketchpad}/updater/last-good.json"
 git checkout --force <snapshot-ref>
 npm ci
 npm run build

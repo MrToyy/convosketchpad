@@ -13,7 +13,7 @@ Agent、工具、执行、Conversation、原始事件和权威运行记录由 Ru
 - setup 配置需要启用的 Runtime；当前同一 Adapter 类型最多配置一个实例。
 - 配置完成后，各 Runtime 提供的 Profile 合并成一个扁平、平权的 Agent 目录，不存在产品级“切换 Runtime”。
 - Agent 排序稳定：Runtime 配置顺序 → 各 Runtime 默认 Profile → 原生目录顺序。
-- 新建 Canvas 保持现有一键交互，不弹选择窗；自动绑定第一个可用 Agent。
+- 新建 Canvas 保持现有一键交互，不弹选择窗；优先绑定 setup 配置的可用默认 Agent，否则绑定第一个可用项。
 - 在首次持久 Send Reservation 前可以从 Canvas 顶部更换 Agent；预留创建后即锁定 Runtime + Profile，失败或刷新也不解锁。
 - Runtime 断开时最后一次发现的 Agent 可继续显示但不可选择发送；只要至少一个 Runtime/Agent 可用，其他 Runtime 故障不阻断创建。
 - 状态、Agent、用量和额度按 Runtime 聚合；当前 Canvas 的 Branch、工作中数量和上下文不跨 Canvas/Runtime 聚合。
@@ -33,7 +33,7 @@ interface RuntimeHandle {
 
 OpenClaw 可在 `opaque` 中保存 `sessionKey`、`sessionId`、`runId`；Codex 可保存 `threadId`、`turnId`、Item ID。Canvas 通用代码不得解析这些字段。
 
-Capabilities 以产品语义表达：Conversation resume/history/fork，文本/图片/音频/文件输入，文本流/图片生成/Artifact 输出，中断/steer/审批，幂等与未知结果核对，以及上下文、账户用量和额度。
+Capabilities 以产品语义表达：Conversation resume/history/fork，文本/图片/音频/文件输入，文本流/图片生成/Artifact 输出，中断/steer/审批，幂等与未知结果核对，以及上下文、账户用量和额度。无法从原生协议可靠判断的图片生成能力必须返回 `unknown`，不能当作 `unsupported`；`imageGeneration` 使用 `supported | unsupported | unknown` 三态。
 
 ## 统一事件和审批
 
@@ -56,11 +56,11 @@ runtime.disconnected
 
 审批 UI 位于所属 Interaction 节点内，用户可逐项取消权限；持久/会话级选择必须二次确认。审批结果使用 `accepted | rejected | unknown`：明确拒绝可重试，结果未知进入 `unconfirmed` 并等待原生 resolved 事件，不能盲目重发。
 
-终态与审批进入 `runtime_event_inbox` 持久化、去重；Preview 不持久化。
+终态与审批进入 `runtime_event_inbox` 持久化、去重，事件键以 Runtime ID 命名空间隔离。带显式 Turn Handle 的事件必须严格关联，未命中不能回退到 Conversation 中的其他 Turn；审批 resolved 通过 Approval Handle 收敛，允许晚于 Interaction 终态到达。Preview 不持久化。
 
 ## 派发与恢复
 
-`dispatchTurn` 必须返回 `accepted | rejected | unknown`。Canvas Coordinator 继续拥有 Reservation 和 Branch 锁。OpenClaw 用 Reservation ID 作为 `chat.send.idempotencyKey`；Codex 的 JSON-RPC ID 只用于传输关联，未知结果必须先通过 `thread/read` 和持久相关性核对。
+`dispatchTurn` 必须返回 `accepted | rejected | unknown`。`unknown` 可附带不透明 `recoveryRef`，Canvas 保存到既有 `dispatch_recovery_ref_json`；恢复时只有声明 `idempotentDispatch` 的 Runtime 可以用同一 Reservation ID 重发，否则必须声明 `inspectAfterUnknownOutcome` 并通过 `reconcileDispatch` 得到 `accepted | not_found | unknown`。`accepted` 直接确认 Interaction，`not_found` 才允许新派发，`unknown` 保持锁定并继续等待；两项可靠性能力都没有时绝不盲目重发。OpenClaw 使用 Reservation ID 作为 `chat.send.idempotencyKey`，因此走幂等重试；Codex 的 JSON-RPC ID 只用于传输关联，未知结果必须先通过权威读取和持久相关性核对。
 
 Fork 与失效 Conversation 恢复继续使用 Canonical Replay。原生 Fork 只有在证明附件、Artifact 和外部状态语义一致后才可作为优化。
 
@@ -70,11 +70,11 @@ Fork 与失效 Conversation 恢复继续使用 Canonical Replay。原生 Fork �
 - OpenClaw 通过原生 Artifact/Transcript；Codex 通过结构化 ImageGeneration/Tool/MCP Item。
 - 不扫描 Codex 或 OpenClaw 工作区猜测生成物。
 - Adapter 返回的本地路径仍需路径包含、符号链接、大小、MIME 和所有者检查，并立即复制到 Canvas Artifact 存储。
-- `imageGeneration` 是运行时 Capability；没有该能力时 UI/协调器必须明确降级。
+- `imageGeneration` 是 `supported | unsupported | unknown` 三态 Capability；明确不支持时 UI/协调器降级，未知时不得伪装为支持或不支持。
 
 ## 目录结构
 
-统一代码位于 `server/lib/agent-runtimes/{contract,config,registry,catalog}.ts`；每个实现位于 `server/lib/agent-runtimes/adapters/<runtime-id>/`，只由 Registry 组合。Canvas Runtime 事件消费位于 `server/lib/canvas/runtime-events.ts`。完整约束见 [`agent-runtimes/ADAPTER-DEVELOPMENT.md`](agent-runtimes/ADAPTER-DEVELOPMENT.md)。
+统一代码位于 `server/lib/agent-runtimes/{contract,manifest,definitions,registry,catalog,default-agent}.ts`；无副作用 `manifest.ts` 是 Runtime ID/展示名支持清单，`definitions.ts` 对清单逐项提供配置解析、Adapter 实例和配置校验。每个实现位于 `server/lib/agent-runtimes/adapters/<runtime-id>/`，其配置、传输、进程和 setup 支持面都留在该目录。setup 使用 `scripts/lib/agent-runtimes/types.ts` 的 `RuntimeSetupDriver`，Registry 只编排用户选择项。Canvas Runtime 事件消费位于 `server/lib/canvas/runtime-event-consumer.ts`，全局状态 SSE 位于 `server/lib/runtime-status-events.ts`。完整约束见 [`agent-runtimes/ADAPTER-DEVELOPMENT.md`](agent-runtimes/ADAPTER-DEVELOPMENT.md)。
 
 ## 数据库迁移决策
 
@@ -88,11 +88,13 @@ Fork 与失效 Conversation 恢复继续使用 Canonical Replay。原生 Fork �
 - `runtime_event_inbox` 取代 `gateway_signal_inbox`；
 - `interaction_approvals` 保存已净化摘要和解析状态。
 
-已有数据一次性映射为 OpenClaw Handle，旧 `agent_id`、`session_key`、`run_id`、`gateway_artifact_id`、`session_metadata_json` 和 `gateway_signal_inbox` 在成功迁移后物理移除。公开 DTO 也使用通用 Agent/Conversation/Context/Approval 语义。
+已有数据一次性映射为 OpenClaw Handle，审批表与通用事件 Inbox 在同一个 `0.3.2 → 0.4.0` 结构迁移中创建，旧 `agent_id`、`session_key`、`run_id`、`gateway_artifact_id`、`session_metadata_json` 和 `gateway_signal_inbox` 在成功迁移后物理移除。全新数据库直接创建当前 Schema，不构造旧 OpenClaw 表再重建。公开 DTO 也使用通用 Agent/Conversation/Context/Approval 语义。
 
-setup 自动停止检测到的受管服务、创建一致性 SQLite 快照、运行目标迁移、失败恢复并按原状态重启。更新器沿用停服 → 快照 → 构建 → 迁移/完整性校验 → 重启；无受管服务时由下次手动启动在监听前自动迁移。
+setup 的选择页只用无凭据命令确认 Runtime 入口与版本；发现 Driver 只接收净化后的配置状态和可执行文件路径，选中后才进入读取 URL/Token 等预填值的配置阶段。安装器不得越过该流程读取原生配置或直接写 Runtime `.env`。setup/update 只把名称、工作目录和启动命令都属于当前安装的服务视为可管理对象，服务状态未知时失败关闭；仅在服务明确离线后创建或恢复 SQLite 快照。setup 重启后验证服务状态、健康和版本，没有匹配服务管理器时推迟数据库迁移。更新器仍会在无管理器或 `--no-restart` 时迁移环境配置，但不打开、快照或回滚 SQLite；数据库由下次手动启动在监听前自动迁移。独立 migrate 共用维护锁，并在无匹配管理器时要求操作者显式确认所有手工进程已经停止。
 
 截至 `0.4.0`，迁移清单固定为三项连续边界：`0.2.0_to_0.3.0_v1`、覆盖 `0.3.0 → 0.3.2` 小版本维护的历史 ID `0.3.0_media_derivatives_v1`，以及 `0.3.2_to_0.4.0_agent_runtime_v1`。迁移 ID 发布后保持不变，版本边界由统一清单声明。`npm run migrate` 必须显式验证三项都已记录。发布安装流程仍要求 `0.2.0` 先固定升级到 `v0.3.0`，因为旧更新器不具备 `0.3.0` 引入的停服 SQLite 快照和失败回滚能力。
+
+本轮收敛不增加第四条数据库迁移：派发恢复复用 `0.4.0` Schema 已有的 `dispatch_recovery_ref_json`，审批确认属于请求与状态机校验，目录/配置改名不改变持久结构。只有已发布 `0.4.0` Schema 之后出现新的持久字段或不可由现有幂等修复覆盖的数据变换，才创建新的迁移 ID。
 
 ## 聚合规则
 
@@ -112,7 +114,7 @@ setup 自动停止检测到的受管服务、创建一致性 SQLite 快照、运
 2. 配置、Registry、扁平 Agent 目录、聚合状态/用量。
 3. 清晰 Adapter 目录，并将所有 Gateway/Session/原生 Artifact 逻辑收敛到 OpenClaw Adapter。
 4. Canvas Route、Service、Worker、Coordinator、Reconciler、Context 和 Artifact 只依赖 Port。
-5. 新建 Canvas 默认首个可用 Agent，首次预留前可改，之后锁定。
+5. 新建 Canvas 默认 setup 选择的可用 Agent，不可用时回退到首个可用项；首次预留前可改，之后锁定。
 6. Interaction 节点内审批 UI、统一审批 API、持久化与去重。
 7. 数据库彻底迁移，setup/update/启动自动迁移与校验。
 8. Adapter 开发规范、正式产品/架构/API/配置/安装/更新/安全/排障文档和相称测试。

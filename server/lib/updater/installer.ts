@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process';
 import { EXIT_CODES, UpdateError } from './types.js';
 
 const EXEC_TIMEOUT = 300_000;
-const MIGRATION_TIMEOUT = 60 * 60 * 1_000;
+export const MIGRATION_TIMEOUT = 60 * 60 * 1_000;
 const RELEASE_TAG_REGEX = /^v(\d+\.\d+\.\d+)$/;
 const RELEASE_REF_PREFIX = 'refs/convosketchpad/releases';
 
@@ -124,11 +124,41 @@ export function migrateDatabase(cwd: string): void {
     execFileSync(
       process.execPath,
       ['bin-dist/bin/convosketchpad-migrate.js'],
-      { cwd, stdio: 'pipe', timeout: MIGRATION_TIMEOUT },
+      {
+        cwd,
+        stdio: 'pipe',
+        timeout: MIGRATION_TIMEOUT,
+        env: {
+          ...process.env,
+          CONVOSKETCHPAD_MAINTENANCE_LOCK_HELD: '1',
+          CONVOSKETCHPAD_DATABASE_OFFLINE: '1',
+        },
+      },
     );
   } catch (err) {
     throw new UpdateError(
       `Database migration failed: ${errorMessage(err)}`,
+      'migrate',
+      EXIT_CODES.MIGRATION,
+    );
+  }
+}
+
+export function migrateEnvironment(cwd: string): void {
+  try {
+    execFileSync(
+      process.execPath,
+      ['bin-dist/bin/convosketchpad-migrate.js', '--env-only'],
+      {
+        cwd,
+        stdio: 'pipe',
+        timeout: MIGRATION_TIMEOUT,
+        env: { ...process.env, CONVOSKETCHPAD_MAINTENANCE_LOCK_HELD: '1' },
+      },
+    );
+  } catch (err) {
+    throw new UpdateError(
+      `Environment migration failed: ${errorMessage(err)}`,
       'migrate',
       EXIT_CODES.MIGRATION,
     );

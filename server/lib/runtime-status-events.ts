@@ -24,7 +24,7 @@ export function publishRuntimeEvent(
     } catch (error) {
       subscribers.delete(subscriber);
       console.warn(
-        '[runtime-events] Removed failed subscriber:',
+        '[runtime-status-events] Removed failed subscriber:',
         error instanceof Error ? error.message : String(error),
       );
     }

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AgentRuntime, AgentProfile, RuntimeStatus } from './contract.js';
 import {
   aggregateRuntimeStatuses,
@@ -39,6 +39,10 @@ function profile(runtimeId: string, profileId: string): AgentProfile {
 }
 
 describe('Agent Runtime catalog aggregation', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   it('keeps configured Runtime order and puts each Runtime default first', async () => {
     const registry = new AgentRuntimeRegistry();
     registry.register(catalogRuntime({
@@ -82,6 +86,25 @@ describe('Agent Runtime catalog aggregation', () => {
 
     const otherOwner = await listAgentCatalog(registry, { ownerId: 'owner-b' });
     expect(otherOwner.agents).toEqual([]);
+  });
+
+  it('uses the configured default Agent when it is available', async () => {
+    vi.stubEnv('CONVOSKETCHPAD_DEFAULT_AGENT_RUNTIME', 'catalog-b');
+    vi.stubEnv('CONVOSKETCHPAD_DEFAULT_AGENT_PROFILE', 'preferred');
+    const registry = new AgentRuntimeRegistry();
+    registry.register(catalogRuntime({
+      id: 'catalog-a',
+      status: () => ({ runtimeId: 'catalog-a', state: 'connected' }),
+      profiles: () => [profile('catalog-a', 'first')],
+    }));
+    registry.register(catalogRuntime({
+      id: 'catalog-b',
+      status: () => ({ runtimeId: 'catalog-b', state: 'connected' }),
+      profiles: () => [profile('catalog-b', 'preferred')],
+    }));
+
+    const catalog = await listAgentCatalog(registry, { ownerId: 'owner-a' });
+    expect(catalog.firstAvailable).toEqual({ runtimeId: 'catalog-b', profileId: 'preferred' });
   });
 
   it('summarizes partial connectivity without hiding individual states', () => {

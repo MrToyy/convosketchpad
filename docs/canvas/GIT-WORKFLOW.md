@@ -4,7 +4,7 @@
 
 ## 分支职责
 
-- `main` 是 ConvoSketchpad 唯一的长期维护和发布分支，用于维护 Canvas、受管用户认证、OpenClaw 集成和产品品牌。
+- `main` 是 ConvoSketchpad 唯一的长期维护和发布分支，用于维护 Canvas、受管用户认证、Agent Runtime 集成和产品品牌。
 - 功能、修复、文档和 Release 工作都从最新的 `main` 创建短期分支，并通过 Pull Request 合并回 `main`。
 - 不从其他长期分支同步或合并外部项目历史；需要采用外部代码时，按其许可证和当前任务范围单独评估。
 - `main` 受 GitHub Ruleset 保护，只接受 Pull Request 合并。

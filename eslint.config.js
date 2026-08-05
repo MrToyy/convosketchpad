@@ -48,33 +48,17 @@ export default defineConfig([
   },
   {
     files: [
-      'server/routes/canvas.ts',
-      'server/lib/canvas-send-service.ts',
-      'server/lib/canvas-send-worker.ts',
-      'server/lib/canvas-send-coordinator.ts',
-      'server/lib/canvas/runtime-events.ts',
-      'server/lib/canvas-reconciler.ts',
-      'server/lib/canvas-context-snapshot.ts',
-      'server/lib/canvas-artifact-store.ts',
+      'server/routes/**/*.ts',
+      'server/lib/canvas-*.ts',
+      'server/lib/canvas/**/*.ts',
     ],
+    ignores: ['server/**/*.test.ts'],
     rules: {
       'no-restricted-imports': ['error', {
-        paths: [
+        patterns: [
           {
-            name: './gateway-rpc.js',
-            message: 'Canvas business modules must use AgentRuntime instead of the OpenClaw transport.',
-          },
-          {
-            name: '../lib/gateway-rpc.js',
-            message: 'Canvas routes must use AgentRuntime instead of the OpenClaw transport.',
-          },
-          {
-            name: './openclaw-agent-runtime.js',
-            message: 'Resolve AgentRuntime through the registry; do not bind Canvas to OpenClaw.',
-          },
-          {
-            name: '../lib/openclaw-agent-runtime.js',
-            message: 'Resolve AgentRuntime through the registry; do not bind Canvas to OpenClaw.',
+            group: ['**/agent-runtimes/adapters/**'],
+            message: 'Canvas business modules must use the Agent Runtime Port, never a concrete Adapter.',
           },
         ],
       }],

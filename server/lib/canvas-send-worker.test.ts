@@ -4,7 +4,9 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
-  send: vi.fn(),
+  capabilities: {} as Record<string, unknown>,
+  dispatchTurn: vi.fn(),
+  reconcileDispatch: vi.fn(),
   registerCanvasInteraction: vi.fn(),
   scheduleCanvasInteractionReconciliation: vi.fn(),
 }));
@@ -29,7 +31,7 @@ async function setup() {
   vi.doMock('./canvas-media-derivatives.js', () => ({
     CANVAS_DELIVERY_MAX_BYTES: 1_800_000,
   }));
-  vi.doMock('./canvas/runtime-events.js', () => ({
+  vi.doMock('./canvas/runtime-event-consumer.js', () => ({
     handleCanvasRuntimeEvent: vi.fn(),
     registerCanvasInteraction: mocks.registerCanvasInteraction,
   }));
@@ -39,7 +41,7 @@ async function setup() {
   vi.doMock('./agent-runtimes/registry.js', () => ({
     getAgentRuntime: () => ({
       id: 'openclaw',
-      getCapabilities: vi.fn(async () => ({ input: { text: true } })),
+      getCapabilities: vi.fn(async () => mocks.capabilities),
       getStatus: vi.fn(() => ({
         runtimeId: 'openclaw',
         state: 'connected',
@@ -52,17 +54,8 @@ async function setup() {
         schemaVersion: 1,
         opaque: { sessionKey: `agent:${profile.profileId}:canvas:${localConversationId}` },
       }),
-      dispatchTurn: vi.fn(async () => {
-        const raw = await mocks.send();
-        return {
-          outcome: 'accepted',
-          turnRef: {
-            runtimeId: 'openclaw',
-            schemaVersion: 1,
-            opaque: { runId: raw.runtimeTurnId },
-          },
-        };
-      }),
+      dispatchTurn: mocks.dispatchTurn,
+      reconcileDispatch: mocks.reconcileDispatch,
     }),
   }));
 
@@ -75,7 +68,12 @@ async function setup() {
 
 beforeEach(() => {
   tempRoot = mkdtempSync(path.join(tmpdir(), 'convosketchpad-send-worker-'));
-  mocks.send.mockReset();
+  mocks.capabilities = {
+    input: { text: true },
+    reliability: { idempotentDispatch: true, inspectAfterUnknownOutcome: false },
+  };
+  mocks.dispatchTurn.mockReset();
+  mocks.reconcileDispatch.mockReset();
   mocks.registerCanvasInteraction.mockReset();
   mocks.scheduleCanvasInteractionReconciliation.mockReset();
 });
@@ -119,7 +117,14 @@ describe('Canvas send worker', () => {
     });
     const signals: unknown[] = [];
     const unsubscribe = sync.subscribeCanvasSync((signal) => signals.push(signal));
-    mocks.send.mockResolvedValue({ runtimeTurnId: 'run-continue' });
+    mocks.dispatchTurn.mockResolvedValue({
+      outcome: 'accepted',
+      turnRef: {
+        runtimeId: 'openclaw',
+        schemaVersion: 1,
+        opaque: { runId: 'run-continue' },
+      },
+    });
 
     const result = await worker.runCanvasSendWorker(continuation.id);
 
@@ -142,5 +147,124 @@ describe('Canvas send worker', () => {
       ownerId: 'owner-a',
       canvasId: canvas.id,
     });
+  });
+
+  it('persists a recovery handle when dispatch outcome is unknown', async () => {
+    const { db, worker } = await setup();
+    const store = db.getCanvasStore();
+    store.ensureUser('owner-a', 'Owner A');
+    const canvas = store.createCanvas('owner-a', 'Canvas', { runtimeId: 'openclaw', profileId: 'main' });
+    const branch = store.createRootBranch('owner-a', canvas.id);
+    const reservation = store.prepareSend('owner-a', {
+      branchId: branch.id,
+      userInput: 'unknown',
+      attachments: [],
+    });
+    const recoveryRef = {
+      runtimeId: 'openclaw',
+      schemaVersion: 1,
+      opaque: { requestId: 'request-1' },
+    };
+    mocks.dispatchTurn.mockResolvedValue({
+      outcome: 'unknown',
+      error: new Error('outcome unknown'),
+      recoveryRef,
+    });
+
+    await worker.runCanvasSendWorker(reservation.id);
+
+    expect(store.getReservation(reservation.id)).toMatchObject({
+      status: 'prepared',
+      dispatchState: 'ambiguous',
+      dispatchRecoveryRef: recoveryRef,
+    });
+  });
+
+  it('does not redispatch an ambiguous non-idempotent turn without inspection', async () => {
+    const { db, worker } = await setup();
+    const store = db.getCanvasStore();
+    store.ensureUser('owner-a', 'Owner A');
+    const canvas = store.createCanvas('owner-a', 'Canvas', { runtimeId: 'openclaw', profileId: 'main' });
+    const branch = store.createRootBranch('owner-a', canvas.id);
+    const reservation = store.prepareSend('owner-a', {
+      branchId: branch.id,
+      userInput: 'do not duplicate',
+      attachments: [],
+    });
+    store.scheduleReservationRetry(reservation.id, 'ambiguous', 'unknown', Date.now(), {
+      runtimeId: 'openclaw', schemaVersion: 1, opaque: { requestId: 'request-1' },
+    });
+    mocks.capabilities = {
+      input: { text: true },
+      reliability: { idempotentDispatch: false, inspectAfterUnknownOutcome: false },
+    };
+
+    const result = await worker.runCanvasSendWorker(reservation.id);
+
+    expect('dispatchState' in result && result.dispatchState).toBe('ambiguous');
+    expect(mocks.dispatchTurn).not.toHaveBeenCalled();
+    expect(mocks.reconcileDispatch).not.toHaveBeenCalled();
+  });
+
+  it('acknowledges an inspected non-idempotent turn without redispatching it', async () => {
+    const { db, worker } = await setup();
+    const store = db.getCanvasStore();
+    store.ensureUser('owner-a', 'Owner A');
+    const canvas = store.createCanvas('owner-a', 'Canvas', { runtimeId: 'openclaw', profileId: 'main' });
+    const branch = store.createRootBranch('owner-a', canvas.id);
+    const reservation = store.prepareSend('owner-a', {
+      branchId: branch.id,
+      userInput: 'inspect me',
+      attachments: [],
+    });
+    store.scheduleReservationRetry(reservation.id, 'ambiguous', 'unknown', Date.now(), {
+      runtimeId: 'openclaw', schemaVersion: 1, opaque: { requestId: 'request-1' },
+    });
+    mocks.capabilities = {
+      input: { text: true },
+      reliability: { idempotentDispatch: false, inspectAfterUnknownOutcome: true },
+    };
+    mocks.reconcileDispatch.mockResolvedValue({
+      outcome: 'accepted',
+      turnRef: { runtimeId: 'openclaw', schemaVersion: 1, opaque: { turnId: 'turn-1' } },
+    });
+
+    const result = await worker.runCanvasSendWorker(reservation.id);
+
+    expect('agentOutput' in result).toBe(true);
+    expect(mocks.reconcileDispatch).toHaveBeenCalledWith(expect.objectContaining({
+      idempotencyKey: reservation.id,
+      recoveryRef: expect.objectContaining({ opaque: { requestId: 'request-1' } }),
+    }));
+    expect(mocks.dispatchTurn).not.toHaveBeenCalled();
+  });
+
+  it('dispatches only after inspection proves an ambiguous turn was not accepted', async () => {
+    const { db, worker } = await setup();
+    const store = db.getCanvasStore();
+    store.ensureUser('owner-a', 'Owner A');
+    const canvas = store.createCanvas('owner-a', 'Canvas', { runtimeId: 'openclaw', profileId: 'main' });
+    const branch = store.createRootBranch('owner-a', canvas.id);
+    const reservation = store.prepareSend('owner-a', {
+      branchId: branch.id,
+      userInput: 'safe retry',
+      attachments: [],
+    });
+    store.scheduleReservationRetry(reservation.id, 'ambiguous', 'unknown', Date.now(), {
+      runtimeId: 'openclaw', schemaVersion: 1, opaque: { requestId: 'request-1' },
+    });
+    mocks.capabilities = {
+      input: { text: true },
+      reliability: { idempotentDispatch: false, inspectAfterUnknownOutcome: true },
+    };
+    mocks.reconcileDispatch.mockResolvedValue({ outcome: 'not_found' });
+    mocks.dispatchTurn.mockResolvedValue({ outcome: 'accepted', turnRef: null });
+
+    const result = await worker.runCanvasSendWorker(reservation.id);
+
+    expect('agentOutput' in result).toBe(true);
+    expect(mocks.reconcileDispatch).toHaveBeenCalledOnce();
+    expect(mocks.dispatchTurn).toHaveBeenCalledOnce();
+    expect(store.getReservation(reservation.id)?.dispatchRecoveryRef).toBeNull();
   });
 });

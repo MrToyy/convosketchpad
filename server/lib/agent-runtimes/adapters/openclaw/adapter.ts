@@ -15,7 +15,7 @@ import {
   assertRuntimeHandle,
   runtimeHandle,
 } from '../../contract.js';
-import { config } from '../../../config.js';
+import { openClawConfig } from './config.js';
 import {
   GatewayDispatchError,
   closeGatewayRpc,
@@ -83,7 +83,7 @@ function gatewayRuntimeCapabilities(): RuntimeCapabilities {
     },
     output: {
       textStreaming: true,
-      imageGeneration: gatewaySupports('artifacts.list'),
+      imageGeneration: 'unknown',
       artifacts: gatewaySupports('artifacts.list') && gatewaySupports('artifacts.download'),
     },
     execution: {
@@ -93,7 +93,7 @@ function gatewayRuntimeCapabilities(): RuntimeCapabilities {
     },
     reliability: {
       idempotentDispatch: true,
-      inspectAfterUnknownOutcome: gatewaySupports('sessions.get') || gatewaySupports('sessions.list'),
+      inspectAfterUnknownOutcome: false,
     },
     usage: {
       turnTokens: true,
@@ -375,7 +375,7 @@ export const openClawAgentRuntime: AgentRuntime = {
       policy: reset.policy,
       sessionStartedAt: input.conversationStartedAt,
       lastInteractionAt: input.lastInteractionAt,
-      timeZone: config.gatewayTimezone,
+      timeZone: openClawConfig.gatewayTimezone,
     });
   },
 
@@ -410,6 +410,16 @@ export const openClawAgentRuntime: AgentRuntime = {
       }
       throw error;
     }
+  },
+
+  async reconcileDispatch() {
+    return {
+      outcome: 'unknown',
+      error: new RuntimeOperationError(
+        'unsupported',
+        'OpenClaw relies on idempotent dispatch instead of outcome inspection',
+      ),
+    };
   },
 
   async readTurn(input) {

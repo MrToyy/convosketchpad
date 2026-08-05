@@ -38,7 +38,7 @@ describe('GET /api/runtime/usage', () => {
 
   it('returns per-Runtime usage and sums only comparable costs', async () => {
     list.mockReturnValue([runtime('openclaw', 1.25), runtime('codex', 2)]);
-    const route = await import('./tokens.js');
+    const route = await import('./runtime-usage.js');
     const response = await route.default.request('/api/runtime/usage');
     expect(response.status).toBe(200);
     const json = await response.json() as Record<string, unknown>;
@@ -53,7 +53,7 @@ describe('GET /api/runtime/usage', () => {
 
   it('omits a global total for incomparable currencies', async () => {
     list.mockReturnValue([runtime('openclaw', 1.25), runtime('codex', 2, 'CNY')]);
-    const route = await import('./tokens.js');
+    const route = await import('./runtime-usage.js');
     const json = await (await route.default.request('/api/runtime/usage')).json() as Record<string, unknown>;
     expect(json).not.toHaveProperty('comparableCostTotal');
   });
@@ -62,7 +62,7 @@ describe('GET /api/runtime/usage', () => {
     const unavailable = runtime('codex', 0);
     unavailable.getStatus.mockReturnValue({ runtimeId: 'codex', state: 'disconnected', capabilities } as never);
     list.mockReturnValue([runtime('openclaw', 1.25), unavailable]);
-    const route = await import('./tokens.js');
+    const route = await import('./runtime-usage.js');
     const json = await (await route.default.request('/api/runtime/usage')).json() as { runtimes: Array<Record<string, unknown>> };
     expect(json.runtimes[0]).toMatchObject({ runtimeId: 'openclaw', available: true });
     expect(json.runtimes[1]).toMatchObject({ runtimeId: 'codex', available: false });
@@ -79,7 +79,7 @@ describe('GET /api/runtime/usage', () => {
     } as never);
     noUsage.getCapabilities.mockResolvedValue(noUsageCapabilities as never);
     list.mockReturnValue([runtime('openclaw', 1.25), noUsage]);
-    const route = await import('./tokens.js');
+    const route = await import('./runtime-usage.js');
     const json = await (await route.default.request('/api/runtime/usage')).json() as {
       comparableCostTotal?: unknown;
       runtimes: Array<Record<string, unknown>>;

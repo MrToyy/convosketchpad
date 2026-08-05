@@ -38,8 +38,11 @@ export interface Snapshot {
   version: string;
   timestamp: number;
   envHash: string;
+  environmentExisted?: boolean;
+  environmentBackupPath?: string;
   databaseExisted?: boolean;
   databaseBackupPath?: string;
+  snapshotDir?: string;
 }
 
 // ── Version resolution ───────────────────────────────────────────────
@@ -76,12 +79,14 @@ export interface HealthResult {
 
 export interface ServiceManager {
   readonly name: string;
-  detect(): boolean;
+  detect(cwd: string): boolean;
   stop(): Promise<void>;
   restart(): Promise<void>;
-  isActive(): Promise<boolean>;
+  status(): Promise<ServiceState>;
   getLogs(lines: number): Promise<string>;
 }
+
+export type ServiceState = 'active' | 'inactive' | 'unknown';
 
 // ── Update result ────────────────────────────────────────────────────
 

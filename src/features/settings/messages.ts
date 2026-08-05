@@ -10,18 +10,8 @@ export interface SettingsCopy {
     signOut: string;
   };
   system: {
-    gatewayHeading: string;
-    status: string;
-    statuses: Record<'connected' | 'connecting' | 'reconnecting' | 'disconnected', string>;
-    reconnect: string;
-    reconnectTitle: string;
-    gatewayService: string;
-    remoteGatewayTitle: string;
-    remoteGatewayHint: string;
     applicationHeading: string;
     version: string;
-    restartTitle: string;
-    restartHint: string;
     restart: string;
     restarting: string;
   };
@@ -54,18 +44,8 @@ export const settingsCopy = {
       signOut: '退出登录',
     },
     system: {
-      gatewayHeading: 'OpenClaw 网关',
-      status: '连接状态',
-      statuses: { connected: '已连接', connecting: '正在连接…', reconnecting: '正在刷新状态…', disconnected: '未连接' },
-      reconnect: '刷新状态',
-      reconnectTitle: '刷新 OpenClaw 网关连接状态',
-      gatewayService: '网关服务',
-      remoteGatewayTitle: '在网关主机上管理',
-      remoteGatewayHint: '当前连接的是远程 OpenClaw 网关，请在网关所在主机上重启或维护。',
       applicationHeading: 'ConvoSketchpad',
       version: '当前版本',
-      restartTitle: '重启 OpenClaw 网关',
-      restartHint: '仅在配对、智能体或网关后台进程需要完全重新加载时使用。',
       restart: '重启',
       restarting: '正在重启…',
     },
@@ -96,18 +76,8 @@ export const settingsCopy = {
       signOut: 'Sign out',
     },
     system: {
-      gatewayHeading: 'OpenClaw Gateway',
-      status: 'Connection status',
-      statuses: { connected: 'Connected', connecting: 'Connecting…', reconnecting: 'Refreshing status…', disconnected: 'Disconnected' },
-      reconnect: 'Refresh status',
-      reconnectTitle: 'Refresh OpenClaw Gateway connection status',
-      gatewayService: 'Gateway service',
-      remoteGatewayTitle: 'Manage on the Gateway host',
-      remoteGatewayHint: 'This is a remote OpenClaw Gateway. Restart or maintain it on the Gateway host.',
       applicationHeading: 'ConvoSketchpad',
       version: 'Current version',
-      restartTitle: 'Restart OpenClaw Gateway',
-      restartHint: 'Use only when pairing, agents, or Gateway background processes need a full reload.',
       restart: 'Restart',
       restarting: 'Restarting…',
     },

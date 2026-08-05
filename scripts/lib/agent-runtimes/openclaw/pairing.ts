@@ -2,15 +2,13 @@ import { randomUUID } from 'node:crypto';
 import { WebSocket } from 'ws';
 import {
   CONVOSKETCHPAD_OPERATOR_SCOPES,
-  createDeviceBlock,
-  storeDeviceAuth,
-} from '../../server/lib/agent-runtimes/adapters/openclaw/device-identity.js';
-import { packageMetadata } from './package-metadata.js';
-import {
   CONVOSKETCHPAD_GATEWAY_CLIENT_ID,
   CONVOSKETCHPAD_GATEWAY_CLIENT_MODE,
   CONVOSKETCHPAD_GATEWAY_CLIENT_PLATFORM,
-} from '../../server/lib/agent-runtimes/adapters/openclaw/gateway-client-identity.js';
+  createDeviceBlock,
+  storeDeviceAuth,
+} from '../../../../server/lib/agent-runtimes/adapters/openclaw/setup-support.js';
+import { packageMetadata } from '../../package-metadata.js';
 
 const PAIRING_TIMEOUT_MS = 12_000;
 

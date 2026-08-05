@@ -25,6 +25,7 @@ import { dispatchCanvasSend } from '../lib/canvas-send-coordinator.js';
 import { subscribeCanvasSync } from '../lib/canvas-sync.js';
 import { agentRuntimeRegistry } from '../lib/agent-runtimes/registry.js';
 import { listAgentCatalog } from '../lib/agent-runtimes/catalog.js';
+import { RuntimeOperationError } from '../lib/agent-runtimes/contract.js';
 import {
   publicCanvasInteraction as publicInteraction,
   publicCanvasSendReservation as publicSendReservation,
@@ -449,11 +450,18 @@ app.post('/api/canvas/approvals/:id/resolve', rateLimitGeneral, async (c) => {
   const parsed = z.object({
     choiceId: z.string().trim().min(1).max(120),
     grantedPermissionIds: z.array(z.string().trim().min(1).max(200)).max(100).optional(),
+    confirmed: z.literal(true).optional(),
   }).safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: 'Invalid approval resolution' }, 400);
   const store = getCanvasStore();
+  let claimed: ReturnType<typeof store.claimInteractionApproval> | null = null;
   try {
-    const claimed = store.claimInteractionApproval(identity.userId, routeParam(c, 'id'), parsed.data);
+    claimed = store.claimInteractionApproval(
+      identity.userId,
+      routeParam(c, 'id'),
+      parsed.data,
+      parsed.data.confirmed === true,
+    );
     const result = await agentRuntimeRegistry.get(claimed.runtimeId).resolveApproval({
       approvalRef: claimed.approvalRef,
       resolution: claimed.resolution || parsed.data,
@@ -470,6 +478,19 @@ app.post('/api/canvas/approvals/:id/resolve', rateLimitGeneral, async (c) => {
     if (message === 'not_found') return c.json({ error: 'Not found' }, 404);
     if (message === 'approval_expired') return c.json({ error: message }, 410);
     if (message.startsWith('approval_')) return c.json({ error: message }, 409);
+    if (claimed) {
+      const retryable = error instanceof RuntimeOperationError
+        && ['validation', 'unsupported', 'unauthorized', 'rejected', 'conflict'].includes(error.kind);
+      const approval = store.finishInteractionApproval(
+        claimed.id,
+        retryable ? 'rejected' : 'unknown',
+        message,
+      );
+      return c.json(
+        { error: retryable ? message : 'approval_resolution_unconfirmed', approval },
+        retryable ? 409 : 202,
+      );
+    }
     console.error('[canvas approval]', error);
     return c.json({ error: 'approval_resolution_failed' }, 500);
   }

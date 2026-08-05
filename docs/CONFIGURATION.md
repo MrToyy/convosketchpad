@@ -7,15 +7,21 @@
 | 环境变量 | 默认值 | 用途 |
 |---|---|---|
 | `AGENT_RUNTIMES` | `openclaw` | 启用的 Agent 运行端类型，逗号分隔；同一类型最多一个实例，未知或空配置会拒绝启动 |
+| `CONVOSKETCHPAD_DEFAULT_AGENT_RUNTIME` | 未设置 | 新建 Canvas 优先选择的 Runtime ID；必须与 Profile 同时设置且属于 `AGENT_RUNTIMES` |
+| `CONVOSKETCHPAD_DEFAULT_AGENT_PROFILE` | 未设置 | 新建 Canvas 优先选择的 Agent Profile ID；不可用时回退到第一个可用 Agent |
 | `OPENCLAW_GATEWAY_URL` | `http://127.0.0.1:18789` | OpenClaw Adapter 连接的 Gateway HTTP Origin |
 | `OPENCLAW_GATEWAY_TOKEN` | 空 | Gateway 共享密钥；本机 RPC、Gateway HTTP 和远程配对 bootstrap 使用，不会发给浏览器 |
 | `OPENCLAW_GATEWAY_TIMEZONE` | 应用宿主机时区 | OpenClaw Adapter 预测每日 Session 重置的 IANA 时区 |
 | `PORT` | `3080` | ConvoSketchpad 浏览器入口端口 |
 | `HOST` | `127.0.0.1` | ConvoSketchpad 浏览器入口监听地址 |
 | `OPENCLAW_CONFIG_PATH` | 未设置 | 只透传给 OpenClaw CLI 的实例选择器 |
-| `OPENCLAW_BIN` | 自动发现 | OpenClaw CLI 路径 |
+| `OPENCLAW_BIN` | `openclaw` | OpenClaw CLI 命令或显式绝对路径；未设置时直接通过服务进程的 `PATH` 查找 |
 
 `HOST` / `PORT` 在生产和开发模式下含义一致：都是用户打开的 ConvoSketchpad 入口。生产模式由 Hono 在该地址同时提供前端静态文件与 API；开发模式由 Vite 使用该地址，启动脚本自动为 Hono 分配仅监听 `127.0.0.1` 的内部端口，并代理 `/api` 和 `/health`。内部端口不属于用户配置。
+
+Runtime ID 与展示名在无副作用的 `server/lib/agent-runtimes/manifest.ts` 维护；`definitions.ts` 必须为清单中的每项提供实例和配置校验。每个 Adapter 的专属环境变量、默认值和校验位于自身 `adapters/<runtime-id>/config.ts`。通用 `server/lib/config.ts` 不承载 OpenClaw/Codex 专属字段。
+
+setup 先执行只读 Runtime 发现，只用无凭据命令确认本机入口与版本，将已探测和未探测的支持项分组展示并允许多选；发现 Driver 只接收“是否已配置”和可选可执行文件路径，不接收 Token，也不读取原生配置。用户选中后才由对应 Driver 读取可用的 URL/Token 预填值并逐项配置。CLI 未探测到不代表远程 Runtime 不可接入。配置完成后 setup 通过统一 Runtime Port 获取 Profile 并选择默认 Agent；若目录暂时不可用，保留已有默认值或不写显式默认值，运行时再安全回退。非交互模式可使用 `--runtimes openclaw` 和 `--default-agent openclaw/main`。
 
 ConvoSketchpad 运行时和 Vite 都只提供 HTTP。HTTPS 必须由 Caddy、Nginx、Traefik、Tailscale Serve 等外部入口终止；项目不会读取 `certs/`。
 
@@ -96,13 +102,15 @@ Custom 的“HTTPS reverse proxy”还会询问额外可信代理 IP。回环代
 
 | 环境变量 | 默认值 | 用途 |
 |---|---|---|
-| `CONVOSKETCHPAD_DATA_DIR` | `~/.convosketchpad` | 远程 Gateway 设备身份与设备 Token、更新器状态 |
+| `CONVOSKETCHPAD_DATA_DIR` | `~/.convosketchpad` | 远程 Gateway 设备身份与设备 Token、更新器状态；相对路径以项目根目录为基准 |
 
 Canvas SQLite 位于 `database/canvas.sqlite`，附件和 Artifact 位于项目内 `artifacts/`。二者必须一起备份。
 
 ConvoSketchpad 不检查 Codex/Claude 本地凭据，也不调用它们的 CLI。
 
-setup 写入 Agent 运行端配置后会自动迁移数据库：检测到受管服务时先停服，创建一致性 SQLite 快照，迁移失败时恢复，并只在原服务此前运行时重启。无受管服务时直接运行事务化迁移；服务启动仍会在监听前幂等检查 Schema。
+更新器按“进程环境 → 项目 `.env` → 默认值”解析 `CONVOSKETCHPAD_DATA_DIR`，因此锁、正式回滚账本、快照和最近运行记录始终位于同一个配置目录。`~/...` 会展开为当前用户目录；相对路径按项目根目录解析。
+
+setup 写入 Agent 运行端配置后，只在受管服务的工作目录和启动命令属于当前安装、且服务状态明确时自动迁移数据库：运行中先停服并复核离线，创建一次性 SQLite 快照，成功重启后验证状态、健康接口和版本；原本停止的服务保持停止。迁移或服务恢复失败时，只有再次确认离线后才恢复数据库与 `.env`；无法确认离线时不覆盖 SQLite，并保留快照供人工处理。Setup 不会改写更新器的正式 `last-good.json`。没有匹配服务管理器时只保存配置并推迟迁移，服务下次手动启动会在监听前幂等检查 Schema。setup 与更新器的显式迁移超时统一为 60 分钟。
 
 ## 受管认证
 

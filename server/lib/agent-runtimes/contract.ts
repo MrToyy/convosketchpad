@@ -32,10 +32,12 @@ export interface RuntimeDescriptor {
   version?: string;
 }
 
+export type CapabilitySupport = 'supported' | 'unsupported' | 'unknown';
+
 export interface RuntimeCapabilities {
   conversation: { resume: boolean; readHistory: boolean; nativeFork: boolean };
   input: { text: boolean; images: boolean; audio: boolean; arbitraryFiles: boolean };
-  output: { textStreaming: boolean; imageGeneration: boolean; artifacts: boolean };
+  output: { textStreaming: boolean; imageGeneration: CapabilitySupport; artifacts: boolean };
   execution: { interrupt: boolean; steer: boolean; interactiveApprovals: boolean };
   reliability: { idempotentDispatch: boolean; inspectAfterUnknownOutcome: boolean };
   usage: { turnTokens: boolean; contextWindow: boolean; accountUsage: boolean; accountQuota: boolean };
@@ -98,6 +100,20 @@ export interface DispatchTurnInput {
 export type DispatchResult =
   | { outcome: 'accepted'; turnRef: TurnHandle | null }
   | { outcome: 'rejected'; error: RuntimeOperationError }
+  | { outcome: 'unknown'; error: RuntimeOperationError; recoveryRef?: RuntimeHandle };
+
+export interface ReconcileDispatchInput {
+  profile: AgentProfileRef;
+  conversationRef: ConversationHandle;
+  recoveryRef: RuntimeHandle | null;
+  idempotencyKey: string;
+  message: string;
+  createdAt: number;
+}
+
+export type ReconcileDispatchResult =
+  | { outcome: 'accepted'; turnRef: TurnHandle | null }
+  | { outcome: 'not_found' }
   | { outcome: 'unknown'; error: RuntimeOperationError; recoveryRef?: RuntimeHandle };
 
 export interface ConversationSnapshot {
@@ -262,6 +278,7 @@ export interface AgentRuntime {
     localConversationId: string;
   }): ConversationHandle;
   dispatchTurn(input: DispatchTurnInput): Promise<DispatchResult>;
+  reconcileDispatch(input: ReconcileDispatchInput): Promise<ReconcileDispatchResult>;
   readTurn(input: ReadTurnInput): Promise<RuntimeTurnSnapshot>;
   inspectTurn(input: ReadTurnInput): Promise<RuntimeTurnStatus>;
   resolveApproval(input: {

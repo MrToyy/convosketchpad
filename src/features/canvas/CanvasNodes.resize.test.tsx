@@ -269,6 +269,7 @@ describe('Canvas node resize controls', () => {
             risk: 'high', permissions: [{ id: 'execute', label: 'Execute command', risk: 'high' }],
             choices: [
               { id: 'allow-once', intent: 'grant', scope: 'item', label: 'Allow once', requiresConfirmation: false },
+              { id: 'allow-always', intent: 'grant', scope: 'persistent', label: 'Always allow', requiresConfirmation: true },
               { id: 'deny', intent: 'deny', scope: 'item', label: 'Deny', requiresConfirmation: false },
             ],
             expiresAt: null, status: 'pending', resolution: null, resolvedBy: null, resolvedAt: null,
@@ -286,5 +287,14 @@ describe('Canvas node resize controls', () => {
       choiceId: 'allow-once', grantedPermissionIds: ['execute'],
     }));
     expect(onApprovalChanged).toHaveBeenCalledOnce();
+
+    resolveApproval.mockClear();
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Always allow' }));
+    await waitFor(() => expect(resolveApproval).toHaveBeenCalledWith('approval-1', {
+      choiceId: 'allow-always', grantedPermissionIds: ['execute'], confirmed: true,
+    }));
+    expect(confirm).toHaveBeenCalledOnce();
+    confirm.mockRestore();
   });
 });

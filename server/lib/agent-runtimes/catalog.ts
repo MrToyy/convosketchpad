@@ -5,6 +5,7 @@ import type {
   OwnerContext,
 } from './contract.js';
 import type { AgentRuntimeRegistry } from './registry.js';
+import { configuredDefaultAgent } from './default-agent.js';
 
 const lastKnownProfiles = new Map<string, AgentProfile[]>();
 
@@ -135,7 +136,13 @@ export async function listAgentCatalog(
     }
   }));
   const agents = groups.flatMap((group) => group.entries);
-  const first = agents.find((agent) => agent.available);
+  const preferred = configuredDefaultAgent().ref;
+  const first = preferred
+    ? agents.find((agent) => agent.available
+      && agent.runtimeId === preferred.runtimeId
+      && agent.profileId === preferred.profileId)
+      || agents.find((agent) => agent.available)
+    : agents.find((agent) => agent.available);
   return {
     agents,
     firstAvailable: first ? { runtimeId: first.runtimeId, profileId: first.profileId } : null,

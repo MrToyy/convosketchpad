@@ -76,6 +76,28 @@ describe('CanvasSendService', () => {
     });
   });
 
+  it('maps protocol-neutral unsupported text input to service unavailable', async () => {
+    const { store, branch } = fixture();
+    const service = new CanvasSendService({
+      store,
+      dispatch: vi.fn(async (reservationId: string) => {
+        store.failReservationById(reservationId, 'runtime_text_input_unsupported');
+        return store.getReservation(reservationId)!;
+      }),
+    });
+
+    await expect(service.submit('owner-a', {
+      branchId: branch.id,
+      expectedAgentRef: { runtimeId: 'openclaw', profileId: 'main' },
+      userInput: 'hello',
+      attachmentIds: [],
+    })).resolves.toMatchObject({
+      kind: 'rejected',
+      error: 'runtime_text_input_unsupported',
+      status: 503,
+    });
+  });
+
   it('keeps ownership, Agent, and attachment validation in the application boundary', async () => {
     const { store, branch } = fixture();
     const service = new CanvasSendService({ store });

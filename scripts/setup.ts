@@ -12,34 +12,40 @@
 // Show token in prompts so users can verify what they entered
 
 import { existsSync } from 'node:fs';
-import { execFileSync, execSync } from 'node:child_process';
+import { execSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { networkInterfaces } from 'node:os';
-import { input, password, confirm, select } from '@inquirer/prompts';
+import { checkbox, input, confirm, select } from '@inquirer/prompts';
 import { printBanner, section, success, warn, fail, info, dim, promptTheme } from './lib/banner.js';
 import { checkPrerequisites, type PrereqResult } from './lib/prereq-check.js';
 import {
-  isValidUrl,
   isValidPort,
   isValidBindHost,
   isValidIpAddress,
-  testGatewayConnection,
 } from './lib/validators.js';
 import {
   writeEnvFile,
   backupExistingEnv,
+  restoreEnvAfterFailedSetup,
   loadExistingEnv,
   cleanupTmp,
   DEFAULTS,
   type EnvConfig,
 } from './lib/env-writer.js';
 import {
-  chooseSetupGatewayToken,
-  detectGatewayConfig,
-  getEnvGatewayToken,
-} from './lib/gateway-detect.js';
-import { requestGatewayPairing } from './lib/gateway-pairing.js';
+  agentRuntimeSetupDriver,
+  detectAgentRuntimes,
+  groupRuntimeDetections,
+  selectedAgentRuntimeSetupDrivers,
+  type RuntimeSetupDetection,
+} from './lib/agent-runtimes/setup-registry.js';
+import { probeConfiguredAgents } from './lib/agent-runtimes/catalog-probe.js';
+import {
+  AGENT_RUNTIME_MANIFEST,
+  type SupportedAgentRuntimeId,
+} from '../server/lib/agent-runtimes/manifest.js';
+import { MINIMUM_NODE_VERSION } from '../server/lib/node-version.js';
 import {
   applyAccessPlanToConfig,
   buildAccessPlan,
@@ -52,48 +58,94 @@ import {
 import { getTailscaleState, type TailscaleState } from './lib/tailscale.js';
 import { printDeploymentGuides, shouldPrintDeploymentGuides } from './lib/deployment-guides.js';
 import {
-  isRemoteGatewayUrl,
-  isValidIanaTimezone,
-  localIanaTimezone,
-} from './lib/gateway-timezone.js';
-import { createSnapshot, restoreSnapshotDatabase } from '../server/lib/updater/snapshot.js';
-import { detectServiceManager } from '../server/lib/updater/service-manager.js';
+  parseDefaultAgentRef,
+  parseSetupCliOptions,
+  type SetupAccessMode,
+} from './lib/setup-cli-options.js';
+import { migrateDatabaseAfterSetup as runSetupDatabaseMigration } from './lib/setup-database-migration.js';
+import { acquireLock, releaseLock } from '../server/lib/updater/lock.js';
 
 const PROJECT_ROOT = resolve(process.cwd());
 const ENV_PATH = resolve(PROJECT_ROOT, '.env');
-const TOTAL_SECTIONS = 3;
+const TOTAL_SECTIONS = 5;
+let activeSetupLockPath: string | null = null;
 
-const args = process.argv.slice(2);
-const isHelp = args.includes('--help') || args.includes('-h');
-const isCheck = args.includes('--check');
-const isDefaults = args.includes('--defaults');
-
-type AccessMode = 'local' | 'network' | 'custom' | 'tailscale-ip' | 'tailscale-serve';
-
-function getArgValue(flag: string): string | undefined {
-  const index = args.indexOf(flag);
-  if (index === -1) return undefined;
-  return args[index + 1];
-}
-
-function normalizeAccessMode(value?: string | null): AccessMode | undefined {
-  if (!value) return undefined;
-
-  const normalized = value.trim().toLowerCase();
-  if (!normalized) return undefined;
-  if (normalized === 'tailscale') return 'tailscale-ip';
-
-  if (normalized === 'local' || normalized === 'network' || normalized === 'custom' || normalized === 'tailscale-ip' || normalized === 'tailscale-serve') {
-    return normalized;
-  }
-
-  fail(`Invalid --access-mode value: ${value}`);
-  console.log('  Supported values: local, network, custom, tailscale-ip, tailscale-serve');
+const supportedRuntimeIds = AGENT_RUNTIME_MANIFEST.map((runtime) => runtime.id);
+let cliOptions: ReturnType<typeof parseSetupCliOptions>;
+try {
+  cliOptions = parseSetupCliOptions(process.argv.slice(2), supportedRuntimeIds);
+} catch (error) {
+  process.stderr.write(`Error: ${error instanceof Error ? error.message : String(error)}\n`);
+  process.stderr.write('Run `npm run setup -- --help` for usage.\n');
   process.exit(1);
 }
 
-const requestedAccessMode = normalizeAccessMode(getArgValue('--access-mode'));
-const requestedGatewayTimezone = getArgValue('--gateway-timezone')?.trim();
+const isHelp = cliOptions.help;
+const isCheck = cliOptions.check;
+const isDefaults = cliOptions.defaults;
+const requestedAccessMode = cliOptions.accessMode;
+const requestedGatewayTimezone = cliOptions.gatewayTimezone;
+const requestedRuntimeIds = cliOptions.runtimeIds as SupportedAgentRuntimeId[] | null;
+const requestedDefaultAgentRef = cliOptions.defaultAgent;
+type AccessMode = SetupAccessMode;
+
+function existingRuntimeIds(existing: EnvConfig): SupportedAgentRuntimeId[] {
+  const supported = new Set<string>(AGENT_RUNTIME_MANIFEST.map((runtime) => runtime.id));
+  return (existing.AGENT_RUNTIMES || '')
+    .split(',')
+    .map((entry) => entry.trim().toLowerCase())
+    .filter((id): id is SupportedAgentRuntimeId => supported.has(id));
+}
+
+async function chooseAgentRuntimes(
+  detections: RuntimeSetupDetection[],
+  existing: EnvConfig,
+  interactive: boolean,
+): Promise<SupportedAgentRuntimeId[]> {
+  if (requestedRuntimeIds) return requestedRuntimeIds;
+  const configured = existingRuntimeIds(existing);
+  if (!interactive) {
+    if (configured.length > 0) return configured;
+    const detected = detections.filter((runtime) => runtime.detected).map((runtime) => runtime.runtimeId);
+    return detected.length > 0 ? detected : ['openclaw'];
+  }
+
+  section(1, TOTAL_SECTIONS, 'Agent Runtime discovery');
+  const groups = groupRuntimeDetections(detections);
+  const configuredSet = new Set(configured);
+  const fresh = configured.length === 0;
+  for (const runtime of groups.detected) success(`${runtime.displayName}: ${runtime.message}`);
+  for (const runtime of groups.undetected) warn(`${runtime.displayName}: ${runtime.message}`);
+  console.log('');
+
+  while (true) {
+    const selectedDetected = groups.detected.length > 0
+      ? await checkbox<SupportedAgentRuntimeId>({
+          theme: promptTheme,
+          message: 'Detected Runtimes to connect',
+          choices: groups.detected.map((runtime) => ({
+            name: runtime.displayName,
+            value: runtime.runtimeId,
+            checked: configuredSet.has(runtime.runtimeId) || fresh,
+          })),
+        })
+      : [];
+    const selectedUndetected = groups.undetected.length > 0
+      ? await checkbox<SupportedAgentRuntimeId>({
+          theme: promptTheme,
+          message: 'Other supported Runtimes to configure manually',
+          choices: groups.undetected.map((runtime) => ({
+            name: `${runtime.displayName} (not detected locally)`,
+            value: runtime.runtimeId,
+            checked: configuredSet.has(runtime.runtimeId),
+          })),
+        })
+      : [];
+    const selected = [...selectedDetected, ...selectedUndetected];
+    if (selected.length > 0) return selected;
+    warn('Select at least one Agent Runtime. A remote Runtime may be configured even when its CLI is not detected locally.');
+  }
+}
 
 function detectPrimaryIpv4(): string | null {
   const nets = networkInterfaces();
@@ -113,73 +165,116 @@ function sleep(ms: number): Promise<void> {
   return new Promise(resolveTimer => setTimeout(resolveTimer, ms));
 }
 
-async function configureNativePairing(
+async function configureDefaultAgent(
   config: EnvConfig,
-): Promise<string | null> {
-  const gatewayUrl = config.OPENCLAW_GATEWAY_URL || DEFAULTS.OPENCLAW_GATEWAY_URL;
-  if (!isRemoteGatewayUrl(gatewayUrl)) {
-    success('Local Gateway uses shared-token backend authentication; device pairing is not required.');
-    return null;
-  }
-  const probe = await requestGatewayPairing({
-    gatewayUrl,
-    gatewayToken: config.OPENCLAW_GATEWAY_TOKEN || '',
-  });
-  if (probe.status === 'connected') {
-    success(probe.message);
-    return null;
-  }
-  if (probe.status !== 'pending') {
-    warn(`Could not complete native OpenClaw pairing: ${probe.message}`);
-    return 'Start ConvoSketchpad, then approve its request with `openclaw devices list` and `openclaw devices approve <requestId>`.';
+  selectedRuntimeIds: SupportedAgentRuntimeId[],
+  interactive: boolean,
+): Promise<void> {
+  if (
+    requestedDefaultAgentRef
+    && !selectedRuntimeIds.includes(requestedDefaultAgentRef.runtimeId as SupportedAgentRuntimeId)
+  ) {
+    fail(`Default Agent Runtime ${requestedDefaultAgentRef.runtimeId} is not selected by AGENT_RUNTIMES.`);
+    process.exit(1);
   }
 
-  const requestLabel = probe.requestId || '<requestId>';
-  warn(`Native OpenClaw pairing is pending: ${requestLabel}`);
-  return `On the remote Gateway host, verify and approve the ConvoSketchpad backend request: openclaw devices approve ${requestLabel}`;
+  if (interactive) {
+    section(5, TOTAL_SECTIONS, 'Default Agent');
+    dim('New canvases start with this Agent selected; it can still be changed before the first send.');
+  }
+
+  process.stdout.write('  Loading available Agents... ');
+  const { candidates, warnings } = await probeConfiguredAgents(config);
+  if (candidates.length > 0) {
+    console.log(`\x1b[32m✓\x1b[0m ${candidates.length} found`);
+  } else {
+    console.log('\x1b[33m!\x1b[0m none available');
+  }
+  for (const message of warnings) dim(`  ${message}`);
+
+  let selected = requestedDefaultAgentRef;
+  if (selected) {
+    const matched = candidates.some((candidate) =>
+      candidate.runtimeId === selected!.runtimeId && candidate.profileId === selected!.profileId);
+    if (candidates.length > 0 && !matched) {
+      fail(`--default-agent ${selected.runtimeId}/${selected.profileId} was not returned by the configured Runtimes.`);
+      process.exit(1);
+    }
+  } else if (candidates.length > 0 && interactive) {
+    const existingValue = config.CONVOSKETCHPAD_DEFAULT_AGENT_RUNTIME
+      && config.CONVOSKETCHPAD_DEFAULT_AGENT_PROFILE
+      ? `${config.CONVOSKETCHPAD_DEFAULT_AGENT_RUNTIME}/${config.CONVOSKETCHPAD_DEFAULT_AGENT_PROFILE}`
+      : undefined;
+    const availableValues = new Set(candidates.map((candidate) => `${candidate.runtimeId}/${candidate.profileId}`));
+    const value = await select({
+      theme: promptTheme,
+      message: 'Default Agent',
+      choices: candidates.map((candidate) => ({
+        name: `${candidate.displayName} — ${candidate.runtimeDisplayName}`,
+        value: `${candidate.runtimeId}/${candidate.profileId}`,
+      })),
+      default: existingValue && availableValues.has(existingValue) ? existingValue : undefined,
+    });
+    selected = parseDefaultAgentRef(value);
+  } else if (candidates.length > 0) {
+    const existing = candidates.find((candidate) =>
+      candidate.runtimeId === config.CONVOSKETCHPAD_DEFAULT_AGENT_RUNTIME
+      && candidate.profileId === config.CONVOSKETCHPAD_DEFAULT_AGENT_PROFILE);
+    selected = existing || candidates[0];
+  } else if (
+    config.CONVOSKETCHPAD_DEFAULT_AGENT_RUNTIME
+    && config.CONVOSKETCHPAD_DEFAULT_AGENT_PROFILE
+    && selectedRuntimeIds.includes(config.CONVOSKETCHPAD_DEFAULT_AGENT_RUNTIME as SupportedAgentRuntimeId)
+  ) {
+    selected = {
+      runtimeId: config.CONVOSKETCHPAD_DEFAULT_AGENT_RUNTIME,
+      profileId: config.CONVOSKETCHPAD_DEFAULT_AGENT_PROFILE,
+    };
+    warn('Agent catalog could not be loaded; preserving the existing default Agent.');
+  } else {
+    delete config.CONVOSKETCHPAD_DEFAULT_AGENT_RUNTIME;
+    delete config.CONVOSKETCHPAD_DEFAULT_AGENT_PROFILE;
+    warn('Agent catalog could not be loaded; no explicit default was saved. Canvas will use the first available Agent.');
+    return;
+  }
+
+  if (!selected) throw new Error('Default Agent selection was empty');
+  config.CONVOSKETCHPAD_DEFAULT_AGENT_RUNTIME = selected.runtimeId;
+  config.CONVOSKETCHPAD_DEFAULT_AGENT_PROFILE = selected.profileId;
+  success(`Default Agent: ${selected.runtimeId}/${selected.profileId}`);
 }
 
 async function migrateDatabaseAfterSetup(): Promise<void> {
-  const serviceManager = detectServiceManager();
-  const wasActive = serviceManager ? await serviceManager.isActive() : false;
-  if (serviceManager && wasActive) {
-    info(`Stopping ConvoSketchpad via ${serviceManager.name} before database migration`);
-    await serviceManager.stop();
-  }
+  await runSetupDatabaseMigration(PROJECT_ROOT, { info, success, warn });
+}
 
-  let snapshot: ReturnType<typeof createSnapshot> | null = null;
-  try {
-    snapshot = createSnapshot(PROJECT_ROOT);
-    execFileSync(process.execPath, [
-      '--import',
-      'tsx',
-      resolve(PROJECT_ROOT, 'bin/convosketchpad-migrate.ts'),
-    ], {
-      cwd: PROJECT_ROOT,
-      stdio: 'pipe',
-      timeout: 120_000,
-    });
-    success('Database schema is up to date');
-  } catch (error) {
-    if (snapshot) restoreSnapshotDatabase(PROJECT_ROOT, snapshot);
-    throw new Error(
-      `Database migration failed${snapshot ? ' and the pre-setup database was restored' : ''}: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
-      { cause: error },
-    );
-  } finally {
-    if (serviceManager && wasActive) {
-      await serviceManager.restart();
-      info(`ConvoSketchpad restarted via ${serviceManager.name}`);
-    }
+async function persistConfiguration(config: EnvConfig): Promise<void> {
+  const hadExistingEnvironment = existsSync(ENV_PATH);
+  let backupPath: string | undefined;
+  if (hadExistingEnvironment) {
+    backupPath = backupExistingEnv(ENV_PATH);
+    info(`Previous config backed up to ${backupPath.replace(PROJECT_ROOT + '/', '')}`);
   }
+  writeEnvFile(ENV_PATH, config);
+
+  try {
+    await migrateDatabaseAfterSetup();
+  } catch (error) {
+    restoreEnvAfterFailedSetup(ENV_PATH, backupPath);
+    warn(`Configuration restored to its pre-setup ${hadExistingEnvironment ? 'contents' : 'absence'}.`);
+    throw error;
+  }
+  success('Configuration written to .env');
 }
 
 // ── Ctrl+C handler ───────────────────────────────────────────────────
 
 process.on('SIGINT', () => {
   cleanupTmp(ENV_PATH);
+  if (activeSetupLockPath) {
+    releaseLock(activeSetupLockPath);
+    activeSetupLockPath = null;
+  }
   console.log('\n\n  Setup cancelled.\n');
   process.exit(130);
 });
@@ -192,8 +287,10 @@ async function main(): Promise<void> {
   Usage: npm run setup [options]
 
   Options:
-    --check                   Validate existing .env config and test gateway connection
+    --check                   Validate existing .env config and test Runtime connections
     --defaults                Non-interactive setup using auto-detected values
+    --runtimes <ids>          Comma-separated Agent Runtime IDs to configure
+    --default-agent <ref>     Default Agent as <runtime-id>/<profile-id>
     --access-mode <mode>      Non-interactive: local|network|tailscale-ip|tailscale-serve
     --gateway-timezone <tz>   Gateway IANA timezone (for example Asia/Shanghai)
     --help, -h                Show this help message
@@ -205,10 +302,12 @@ async function main(): Promise<void> {
     tailscale-ip      Direct tailnet IP access
     tailscale-serve   Loopback + Tailscale Serve hostname
 
-  The setup wizard guides you through 3 steps:
-    1. Gateway Connection — connect to your OpenClaw gateway
-    2. Access Mode        — local, Tailscale IP, Tailscale Serve, LAN, or custom
-    3. Authentication     — trusted-user Token access (network mode)
+  The setup wizard guides you through 5 steps:
+    1. Runtime Discovery  — detect and select Agent Runtimes
+    2. Runtime Connection — configure each selected Runtime
+    3. Access Mode        — local, Tailscale IP, Tailscale Serve, LAN, or custom
+    4. Authentication     — trusted-user Token access (network mode)
+    5. Default Agent      — choose the Agent selected on new canvases
 
   Examples:
     npm run setup                                     # Interactive setup
@@ -216,17 +315,12 @@ async function main(): Promise<void> {
     npm run setup -- --defaults                       # Auto-configure with detected values
     npm run setup -- --defaults --access-mode tailscale-serve
     npm run setup -- --defaults --gateway-timezone Asia/Shanghai
+    npm run setup -- --defaults --runtimes openclaw --default-agent openclaw/main
 `);
     return;
   }
 
   printBanner(); // no-ops when CONVOSKETCHPAD_INSTALLER is set
-
-  if (requestedGatewayTimezone && !isValidIanaTimezone(requestedGatewayTimezone)) {
-    fail(`Invalid --gateway-timezone value: ${requestedGatewayTimezone}`);
-    dim('Use an IANA timezone such as Asia/Shanghai or America/New_York.');
-    process.exit(1);
-  }
 
   // Clean up stale .env.tmp from previous interrupted runs
   cleanupTmp(ENV_PATH);
@@ -235,9 +329,15 @@ async function main(): Promise<void> {
   const prereqs = checkPrerequisites({ quiet: !!process.env.CONVOSKETCHPAD_INSTALLER });
   if (!prereqs.nodeOk) {
     console.log('');
-    fail('Node.js ≥ 22 is required. Please upgrade and try again.');
+    fail(`Node.js ≥ ${MINIMUM_NODE_VERSION} is required. Please upgrade and try again.`);
     process.exit(1);
   }
+
+  // Hold the shared maintenance lock for the complete mutating setup session,
+  // so an updater cannot replace the running setup code or race its config.
+  const setupLockPath = isCheck ? null : acquireLock(PROJECT_ROOT);
+  activeSetupLockPath = setupLockPath;
+  try {
 
   // Load existing config as defaults
   const hasExisting = existsSync(ENV_PATH);
@@ -257,15 +357,17 @@ async function main(): Promise<void> {
 
   // --defaults mode: non-interactive
   if (isDefaults) {
-    await runDefaults(existing, prereqs);
+    const detections = detectAgentRuntimes(existing);
+    const selectedRuntimeIds = await chooseAgentRuntimes(detections, existing, false);
+    await runDefaults(existing, prereqs, detections, selectedRuntimeIds);
     return;
   }
 
   // If .env exists, ask whether to update or start fresh
   // (Skip this when called from install.sh — the installer already asked)
-  if (hasExisting && existing.OPENCLAW_GATEWAY_TOKEN && !process.env.CONVOSKETCHPAD_INSTALLER) {
+  if (hasExisting && Object.keys(existing).length > 0 && !process.env.CONVOSKETCHPAD_INSTALLER) {
     const action = await select({
-    theme: promptTheme,
+      theme: promptTheme,
       message: 'What would you like to do?',
       choices: [
         { name: 'Update existing configuration', value: 'update' },
@@ -282,19 +384,15 @@ async function main(): Promise<void> {
     }
   }
 
-  // Run interactive setup
-  const config = await collectInteractive(existing, prereqs);
+  const detections = detectAgentRuntimes(existing);
+  const selectedRuntimeIds = await chooseAgentRuntimes(detections, existing, true);
 
-  // Write .env
-  if (hasExisting) {
-    const backupPath = backupExistingEnv(ENV_PATH);
-    info(`Previous config backed up to ${backupPath.replace(PROJECT_ROOT + '/', '')}`);
-  }
-  writeEnvFile(ENV_PATH, config);
+  // Run interactive setup
+  const config = await collectInteractive(existing, prereqs, detections, selectedRuntimeIds);
+  await configureDefaultAgent(config, selectedRuntimeIds, true);
 
   console.log('');
-  success('Configuration written to .env');
-  await migrateDatabaseAfterSetup();
+  await persistConfiguration(config);
 
   printSummary(config);
 
@@ -303,6 +401,10 @@ async function main(): Promise<void> {
     printNextSteps(config);
     printDeploymentGuides();
   }
+  } finally {
+    if (setupLockPath) releaseLock(setupLockPath);
+    activeSetupLockPath = null;
+  }
 }
 
 // ── Interactive setup ────────────────────────────────────────────────
@@ -310,133 +412,36 @@ async function main(): Promise<void> {
 async function collectInteractive(
   existing: EnvConfig,
   prereqs: PrereqResult,
+  detections: RuntimeSetupDetection[],
+  selectedRuntimeIds: SupportedAgentRuntimeId[],
 ): Promise<EnvConfig> {
   const config: EnvConfig = { ...existing };
+  config.AGENT_RUNTIMES = selectedRuntimeIds.join(',');
+  const runtimeFollowUpSteps: string[] = [];
 
-  // ── 1/3: Gateway Connection ──────────────────────────────────────
+  // ── 2/5: Agent Runtime configuration ─────────────────────────────
 
-  section(1, TOTAL_SECTIONS, 'Gateway Connection');
-  dim('ConvoSketchpad connects to your OpenClaw gateway.');
-  dim('Make sure the gateway is running before continuing.');
+  section(2, TOTAL_SECTIONS, 'Agent Runtime connection');
+  dim('Configure each selected Runtime. Local and remote connections are both supported.');
   console.log('');
-
-  // Auto-detect gateway config
-  const detected = detectGatewayConfig();
-  const envToken = getEnvGatewayToken();
-  const tokenChoice = chooseSetupGatewayToken({
-    existingToken: existing.OPENCLAW_GATEWAY_TOKEN,
-    detectedToken: detected.token,
-    envToken,
-  });
-
-  const defaultToken = tokenChoice.token || '';
-  const defaultUrl = existing.OPENCLAW_GATEWAY_URL || detected.url || DEFAULTS.OPENCLAW_GATEWAY_URL;
-
-  if (tokenChoice.source === 'detected') {
-    success('Auto-detected gateway token from local gateway config');
-  }
-  if (tokenChoice.source === 'env') {
-    success('Found OPENCLAW_GATEWAY_TOKEN in environment');
-  }
-
-  config.OPENCLAW_GATEWAY_URL = await input({
-    theme: promptTheme,
-    message: 'Gateway URL',
-    default: defaultUrl,
-    validate: (val) => {
-      if (!isValidUrl(val)) return 'Please enter a valid HTTP(S) URL';
-      return true;
-    },
-  });
-
-  // If we have an auto-detected token, offer to use it
-  if (defaultToken && !existing.OPENCLAW_GATEWAY_TOKEN) {
-    const tokenLabel = tokenChoice.source === 'env' ? 'environment token' : 'detected token';
-    const useDetected = await confirm({
-      theme: promptTheme,
-      message: `Use the ${tokenLabel}?`,
-      default: true,
+  for (const driver of selectedAgentRuntimeSetupDrivers(selectedRuntimeIds)) {
+    const detection = detections.find((runtime) => runtime.runtimeId === driver.id);
+    if (!detection) throw new Error(`Missing setup detection for Runtime ${driver.id}`);
+    info(`Configuring ${driver.displayName}`);
+    const result = await driver.configureInteractive({
+      config,
+      existing,
+      detection,
+      args: { options: { gatewayTimezone: requestedGatewayTimezone } },
     });
-    if (useDetected) {
-      config.OPENCLAW_GATEWAY_TOKEN = defaultToken;
-    } else {
-      config.OPENCLAW_GATEWAY_TOKEN = await password({
-    theme: promptTheme,
-        message: 'Gateway Auth Token (required)',
-        validate: (val) => {
-          if (!val || !val.trim()) return 'Gateway token is required';
-          return true;
-        },
-      });
+    for (const step of result.followUpSteps) {
+      if (!runtimeFollowUpSteps.includes(step)) runtimeFollowUpSteps.push(step);
     }
-  } else if (existing.OPENCLAW_GATEWAY_TOKEN) {
-    // Existing token — offer to keep it
-    const keepExisting = await confirm({
-      theme: promptTheme,
-      message: 'Keep the existing gateway token?',
-      default: true,
-    });
-    if (keepExisting) {
-      config.OPENCLAW_GATEWAY_TOKEN = existing.OPENCLAW_GATEWAY_TOKEN;
-    } else {
-      config.OPENCLAW_GATEWAY_TOKEN = await password({
-    theme: promptTheme,
-        message: 'Gateway Auth Token (required)',
-        validate: (val) => {
-          if (!val || !val.trim()) return 'Gateway token is required';
-          return true;
-        },
-      });
-    }
-  } else {
-    dim('Provide the Gateway token explicitly, or inspect it with: openclaw config get gateway.auth.token');
-    config.OPENCLAW_GATEWAY_TOKEN = await password({
-    theme: promptTheme,
-      message: 'Gateway Auth Token (required)',
-      validate: (val) => {
-        if (!val || !val.trim()) return 'Gateway token is required';
-        return true;
-      },
-    });
   }
 
-  // Test connection
-  const rail = `  \x1b[2m│\x1b[0m`;
-  const testPrefix = process.env.CONVOSKETCHPAD_INSTALLER ? `${rail}  ` : '  ';
-  process.stdout.write(`${testPrefix}Testing connection... `);
-  const gwTest = await testGatewayConnection(config.OPENCLAW_GATEWAY_URL!, config.OPENCLAW_GATEWAY_TOKEN);
-  if (gwTest.ok) {
-    console.log(`\x1b[32m✓\x1b[0m ${gwTest.message}`);
-  } else {
-    console.log(`\x1b[31m✗\x1b[0m ${gwTest.message}`);
-    dim('  Start it with: openclaw gateway start');
-    console.log('\n  Setup could not verify your gateway token. Fix the gateway or token, then re-run setup.\n');
-    process.exit(1);
-  }
+  // ── 3/5: Access Mode ──────────────────────────────────────────────
 
-  if (requestedGatewayTimezone) {
-    config.OPENCLAW_GATEWAY_TIMEZONE = requestedGatewayTimezone;
-  }
-  if (isRemoteGatewayUrl(config.OPENCLAW_GATEWAY_URL!)) {
-    console.log('');
-    dim('Canvas uses the Gateway timezone to predict OpenClaw daily session resets.');
-    config.OPENCLAW_GATEWAY_TIMEZONE = (await input({
-      theme: promptTheme,
-      message: 'Gateway timezone',
-      default:
-        requestedGatewayTimezone ||
-        existing.OPENCLAW_GATEWAY_TIMEZONE ||
-        localIanaTimezone(),
-      validate: (value) =>
-        isValidIanaTimezone(value)
-          ? true
-          : 'Enter an IANA timezone such as Asia/Shanghai or America/New_York',
-    })).trim();
-  }
-
-  // ── 2/3: Access Mode ──────────────────────────────────────────────
-
-  section(2, TOTAL_SECTIONS, 'How will you access ConvoSketchpad?');
+  section(3, TOTAL_SECTIONS, 'How will you access ConvoSketchpad?');
 
   const accessChoices: { name: string; value: AccessMode; description: string }[] = [
     { name: 'This machine only (localhost)', value: 'local', description: 'Safest, only accessible from this computer' },
@@ -723,10 +728,7 @@ async function collectInteractive(
   delete config.TRUSTED_PROXIES;
   Object.assign(config, applyAccessPlanToConfig(config, accessPlan));
 
-  const pairingFollowUp = await configureNativePairing(config);
-  if (pairingFollowUp) warn(pairingFollowUp);
-
-  // ── 3/3: Authentication ───────────────────────────────────────────
+  // ── 4/5: Authentication ───────────────────────────────────────────
 
   // Always generate a session secret if not already set
   if (!config.CONVOSKETCHPAD_SESSION_SECRET) {
@@ -736,7 +738,7 @@ async function collectInteractive(
   const isNetworkExposed = accessPlan.remoteAccess;
 
   if (isNetworkExposed) {
-    section(3, TOTAL_SECTIONS, 'Authentication');
+    section(4, TOTAL_SECTIONS, 'Authentication');
     warn('Your access mode exposes ConvoSketchpad to the network.');
     dim('ConvoSketchpad uses trusted-user tokens: a simple token identifies and isolates each user.');
     dim('This mode is intended for a small controlled environment, not hostile multi-tenant access.');
@@ -779,13 +781,14 @@ async function collectInteractive(
     if (existing.CONVOSKETCHPAD_SESSION_TTL) config.CONVOSKETCHPAD_SESSION_TTL = existing.CONVOSKETCHPAD_SESSION_TTL;
   }
 
+  for (const step of runtimeFollowUpSteps) warn(step);
+
   return config;
 }
 
 // ── Summary and next steps ───────────────────────────────────────────
 
 function printSummary(config: EnvConfig): void {
-  const gwUrl = config.OPENCLAW_GATEWAY_URL || DEFAULTS.OPENCLAW_GATEWAY_URL;
   const port = config.PORT || DEFAULTS.PORT;
   const host = config.HOST || DEFAULTS.HOST;
   const primaryOrigin = config.ALLOWED_ORIGINS?.split(',')[0]?.trim()
@@ -793,15 +796,23 @@ function printSummary(config: EnvConfig): void {
 
   const hostLabel = host === '127.0.0.1' ? '127.0.0.1 (local only)' : `${host} (network)`;
   const authLabel = config.CONVOSKETCHPAD_AUTH === 'true' ? '🔒 Enabled' : 'Disabled';
-  const gatewayTimezone = config.OPENCLAW_GATEWAY_TIMEZONE;
+  const runtimes = config.AGENT_RUNTIMES || 'openclaw';
+  const runtimeIds = existingRuntimeIds(config);
+  const runtimeDetails = runtimeIds.flatMap((runtimeId) =>
+    agentRuntimeSetupDriver(runtimeId).summary(config));
+  const defaultAgent = config.CONVOSKETCHPAD_DEFAULT_AGENT_RUNTIME
+    && config.CONVOSKETCHPAD_DEFAULT_AGENT_PROFILE
+    ? `${config.CONVOSKETCHPAD_DEFAULT_AGENT_RUNTIME}/${config.CONVOSKETCHPAD_DEFAULT_AGENT_PROFILE}`
+    : 'First available';
 
   if (process.env.CONVOSKETCHPAD_INSTALLER) {
     // Rail-style summary — stays inside the installer's visual flow
     const r = `  \x1b[2m│\x1b[0m`;
     console.log('');
-    console.log(`${r}  \x1b[2mGateway${' '.repeat(4)}\x1b[0m${gwUrl}`);
-    if (gatewayTimezone) {
-      console.log(`${r}  \x1b[2mGateway TZ${' '.repeat(1)}\x1b[0m${gatewayTimezone}`);
+    console.log(`${r}  \x1b[2mRuntimes${' '.repeat(3)}\x1b[0m${runtimes}`);
+    console.log(`${r}  \x1b[2mDefault${' '.repeat(4)}\x1b[0m${defaultAgent}`);
+    for (const detail of runtimeDetails) {
+      console.log(`${r}  \x1b[2m${detail.label.padEnd(11)}\x1b[0m${detail.value}`);
     }
     console.log(`${r}  \x1b[2mHTTP${' '.repeat(7)}\x1b[0m:${port}`);
     console.log(`${r}  \x1b[2mOrigin${' '.repeat(5)}\x1b[0m${primaryOrigin}`);
@@ -811,9 +822,10 @@ function printSummary(config: EnvConfig): void {
     // Standalone mode — boxed summary
     console.log('');
     console.log('  \x1b[2m┌─────────────────────────────────────────┐\x1b[0m');
-    console.log(`  \x1b[2m│\x1b[0m  Gateway    ${gwUrl.padEnd(28)}\x1b[2m│\x1b[0m`);
-    if (gatewayTimezone) {
-      console.log(`  \x1b[2m│\x1b[0m  Gateway TZ ${gatewayTimezone.padEnd(28)}\x1b[2m│\x1b[0m`);
+    console.log(`  \x1b[2m│\x1b[0m  Runtimes   ${runtimes.padEnd(28)}\x1b[2m│\x1b[0m`);
+    console.log(`  \x1b[2m│\x1b[0m  Default    ${defaultAgent.padEnd(28)}\x1b[2m│\x1b[0m`);
+    for (const detail of runtimeDetails) {
+      console.log(`  \x1b[2m│\x1b[0m  ${detail.label.padEnd(11)}${detail.value.padEnd(28)}\x1b[2m│\x1b[0m`);
     }
     console.log(`  \x1b[2m│\x1b[0m  HTTP       :${port.padEnd(27)}\x1b[2m│\x1b[0m`);
     console.log(`  \x1b[2m│\x1b[0m  Origin     ${primaryOrigin.padEnd(28)}\x1b[2m│\x1b[0m`);
@@ -845,43 +857,44 @@ async function runCheck(config: EnvConfig): Promise<void> {
 
   let errors = 0;
 
-  // Gateway token
-  if (config.OPENCLAW_GATEWAY_TOKEN) {
-    success('OPENCLAW_GATEWAY_TOKEN is set');
-  } else {
-    fail('OPENCLAW_GATEWAY_TOKEN is missing (required)');
+  const supportedRuntimeIds = new Set(AGENT_RUNTIME_MANIFEST.map((runtime) => runtime.id));
+  const runtimeIds = (config.AGENT_RUNTIMES || 'openclaw')
+    .split(',')
+    .map((runtimeId) => runtimeId.trim().toLowerCase())
+    .filter(Boolean);
+  const unsupportedRuntimeIds = runtimeIds.filter((runtimeId) => !supportedRuntimeIds.has(runtimeId as SupportedAgentRuntimeId));
+  if (runtimeIds.length === 0 || unsupportedRuntimeIds.length > 0) {
+    fail(`AGENT_RUNTIMES is invalid${unsupportedRuntimeIds.length ? `: ${unsupportedRuntimeIds.join(', ')}` : ''}`);
     errors++;
+  } else {
+    success(`Agent Runtimes: ${runtimeIds.join(', ')}`);
   }
 
-  // Gateway URL
-  const gwUrl = config.OPENCLAW_GATEWAY_URL || DEFAULTS.OPENCLAW_GATEWAY_URL;
-  if (isValidUrl(gwUrl)) {
-    success(`OPENCLAW_GATEWAY_URL is valid: ${gwUrl}`);
-
-    // Test connectivity and token validity
-    process.stdout.write('  Testing gateway connection... ');
-    const gwTest = await testGatewayConnection(gwUrl, config.OPENCLAW_GATEWAY_TOKEN);
-    if (gwTest.ok) {
-      console.log(`\x1b[32m✓\x1b[0m ${gwTest.message}`);
-    } else {
-      console.log(`\x1b[31m✗\x1b[0m ${gwTest.message}`);
+  const defaultRuntime = config.CONVOSKETCHPAD_DEFAULT_AGENT_RUNTIME;
+  const defaultProfile = config.CONVOSKETCHPAD_DEFAULT_AGENT_PROFILE;
+  if (!!defaultRuntime !== !!defaultProfile) {
+    fail('Default Agent Runtime and profile must be configured together');
+    errors++;
+  } else if (defaultRuntime && defaultProfile) {
+    if (!runtimeIds.includes(defaultRuntime.toLowerCase())) {
+      fail(`Default Agent Runtime is not enabled: ${defaultRuntime}`);
       errors++;
+    } else {
+      success(`Default Agent: ${defaultRuntime}/${defaultProfile}`);
     }
   } else {
-    fail(`OPENCLAW_GATEWAY_URL is invalid: ${gwUrl}`);
-    errors++;
+    info('No explicit default Agent; the first available Agent will be used');
   }
 
-  if (config.OPENCLAW_GATEWAY_TIMEZONE) {
-    if (isValidIanaTimezone(config.OPENCLAW_GATEWAY_TIMEZONE)) {
-      success(`Gateway timezone is valid: ${config.OPENCLAW_GATEWAY_TIMEZONE}`);
-    } else {
-      fail(`OPENCLAW_GATEWAY_TIMEZONE is invalid: ${config.OPENCLAW_GATEWAY_TIMEZONE}`);
-      errors++;
-    }
-  } else if (isRemoteGatewayUrl(gwUrl)) {
-    warn(`OPENCLAW_GATEWAY_TIMEZONE is not set; using this host's timezone (${localIanaTimezone()})`);
-    dim('Set it to the timezone used by the remote OpenClaw Gateway.');
+  for (const runtimeId of runtimeIds) {
+    if (!supportedRuntimeIds.has(runtimeId as SupportedAgentRuntimeId)) continue;
+    const driver = agentRuntimeSetupDriver(runtimeId as SupportedAgentRuntimeId);
+    info(`Checking ${driver.displayName}`);
+    const result = await driver.check(config);
+    for (const message of result.successes) success(message);
+    for (const message of result.warnings) warn(message);
+    for (const message of result.errors) fail(message);
+    errors += result.errors.length;
   }
 
   // Port
@@ -940,12 +953,18 @@ async function runCheck(config: EnvConfig): Promise<void> {
 
 // ── --defaults mode ──────────────────────────────────────────────────
 
-async function runDefaults(existing: EnvConfig, prereqs: PrereqResult): Promise<void> {
+async function runDefaults(
+  existing: EnvConfig,
+  prereqs: PrereqResult,
+  detections: RuntimeSetupDetection[],
+  selectedRuntimeIds: SupportedAgentRuntimeId[],
+): Promise<void> {
   console.log('');
   info('Non-interactive mode — using defaults where possible');
   console.log('');
 
   const config: EnvConfig = { ...existing };
+  config.AGENT_RUNTIMES = selectedRuntimeIds.join(',');
   const followUpSteps: string[] = [];
   let selectedAccessPlan: AccessPlan | null = null;
 
@@ -961,43 +980,16 @@ async function runDefaults(existing: EnvConfig, prereqs: PrereqResult): Promise<
     }
   }
 
-  // Try to auto-detect gateway token
-  if (!config.OPENCLAW_GATEWAY_TOKEN) {
-    const detected = detectGatewayConfig();
-    const envToken = getEnvGatewayToken();
-    const tokenChoice = chooseSetupGatewayToken({
-      detectedToken: detected.token,
-      envToken,
+  for (const driver of selectedAgentRuntimeSetupDrivers(selectedRuntimeIds)) {
+    const detection = detections.find((runtime) => runtime.runtimeId === driver.id);
+    if (!detection) throw new Error(`Missing setup detection for Runtime ${driver.id}`);
+    info(`Configuring ${driver.displayName}`);
+    const result = await driver.configureDefaults({
+      config,
+      detection,
+      args: { options: { gatewayTimezone: requestedGatewayTimezone } },
     });
-
-    if (tokenChoice.token) {
-      config.OPENCLAW_GATEWAY_TOKEN = tokenChoice.token;
-      success(`Auto-detected gateway token${tokenChoice.source === 'env' ? ' from environment' : ''}`);
-    } else {
-      fail('OPENCLAW_GATEWAY_TOKEN is required but could not be auto-detected');
-      console.log('  Set OPENCLAW_GATEWAY_TOKEN in your environment, or run setup interactively.');
-      console.log('');
-      process.exit(1);
-    }
-  }
-
-  if (!config.OPENCLAW_GATEWAY_URL) config.OPENCLAW_GATEWAY_URL = DEFAULTS.OPENCLAW_GATEWAY_URL;
-  if (requestedGatewayTimezone) {
-    config.OPENCLAW_GATEWAY_TIMEZONE = requestedGatewayTimezone;
-  } else if (
-    isRemoteGatewayUrl(config.OPENCLAW_GATEWAY_URL) &&
-    !config.OPENCLAW_GATEWAY_TIMEZONE
-  ) {
-    config.OPENCLAW_GATEWAY_TIMEZONE = localIanaTimezone();
-    warn(`Remote Gateway detected; using Gateway timezone ${config.OPENCLAW_GATEWAY_TIMEZONE}`);
-    dim('Override with --gateway-timezone <IANA timezone> when the Gateway uses another timezone.');
-  }
-  if (
-    config.OPENCLAW_GATEWAY_TIMEZONE &&
-    !isValidIanaTimezone(config.OPENCLAW_GATEWAY_TIMEZONE)
-  ) {
-    fail(`OPENCLAW_GATEWAY_TIMEZONE is invalid: ${config.OPENCLAW_GATEWAY_TIMEZONE}`);
-    process.exit(1);
+    appendFollowUp(result.followUpSteps);
   }
   if (!config.PORT) config.PORT = DEFAULTS.PORT;
   if (!config.HOST) config.HOST = DEFAULTS.HOST;
@@ -1069,33 +1061,14 @@ async function runDefaults(existing: EnvConfig, prereqs: PrereqResult): Promise<
     delete config.CONVOSKETCHPAD_ALLOW_INSECURE;
   }
 
-  process.stdout.write('  Testing gateway connection... ');
-  const gwTest = await testGatewayConnection(config.OPENCLAW_GATEWAY_URL!, config.OPENCLAW_GATEWAY_TOKEN);
-  if (gwTest.ok) {
-    console.log(`\x1b[32m✓\x1b[0m ${gwTest.message}`);
-  } else {
-    console.log(`\x1b[31m✗\x1b[0m ${gwTest.message}`);
-    fail('Refusing to write .env because gateway auth could not be verified.');
-    console.log('');
-    process.exit(1);
-  }
+  await configureDefaultAgent(config, selectedRuntimeIds, false);
 
-  if (existsSync(ENV_PATH)) {
-    const backupPath = backupExistingEnv(ENV_PATH);
-    info(`Previous config backed up to ${backupPath.replace(PROJECT_ROOT + '/', '')}`);
-  }
-  writeEnvFile(ENV_PATH, config);
-
-  success('Configuration written to .env');
-  await migrateDatabaseAfterSetup();
+  await persistConfiguration(config);
 
   printSummary(config);
   if (shouldPrintDeploymentGuides({ invokedFromInstaller: process.env.CONVOSKETCHPAD_INSTALLER === '1', defaultsMode: true })) {
     printDeploymentGuides();
   }
-
-  const pairingFollowUp = await configureNativePairing(config);
-  if (pairingFollowUp) appendFollowUp([pairingFollowUp]);
 
   if (followUpSteps.length > 0) {
     console.log('');

@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { OwnedInteractionRecord } from './canvas-db.js';
+import type { OwnedInteractionRecord } from '../../../canvas-db.js';
 
 const gatewayRpcCall = vi.fn();
 const supported = new Set<string>();
 
-vi.mock('./agent-runtimes/adapters/openclaw/gateway-rpc.js', () => ({
+vi.mock('./gateway-rpc.js', () => ({
   gatewayRpcCall,
   gatewaySupports: (method: string) => supported.has(method),
   GatewayRpcError: class GatewayRpcError extends Error {
@@ -16,7 +16,7 @@ vi.mock('./agent-runtimes/adapters/openclaw/gateway-rpc.js', () => ({
   },
   getGatewaySharedHttpAuthToken: () => 'shared-token',
 }));
-vi.mock('./canvas-artifact-store.js', () => ({
+vi.mock('../../../canvas-artifact-store.js', () => ({
   CANVAS_ARTIFACT_MAX_BYTES: 25 * 1024 * 1024,
   cleanupOrphanCanvasArtifacts: vi.fn(),
   materializeCanvasArtifacts: vi.fn(async (_interaction, artifacts) => ({
@@ -25,10 +25,10 @@ vi.mock('./canvas-artifact-store.js', () => ({
     warnings: [],
   })),
 }));
-vi.mock('./canvas-db.js', () => ({
+vi.mock('../../../canvas-db.js', () => ({
   getCanvasStore: () => ({ observeBranchConversation: vi.fn() }),
 }));
-vi.mock('./config.js', () => ({
+vi.mock('../../../config.js', () => ({
   config: { gatewayUrl: 'http://127.0.0.1:18789', gatewayToken: 'bootstrap-token' },
 }));
 
@@ -90,7 +90,7 @@ describe('Gateway-native Canvas Artifact reconciliation', () => {
       }
       return {};
     });
-    const { reconcileTranscriptSnapshot } = await import('./canvas-reconciler.js');
+    const { reconcileTranscriptSnapshot } = await import('../../../canvas-reconciler.js');
     const snapshot = await reconcileTranscriptSnapshot(interaction());
 
     expect(snapshot.agentOutput).toBe('done');
@@ -113,7 +113,7 @@ describe('Gateway-native Canvas Artifact reconciliation', () => {
         { role: 'assistant', content: [{ type: 'text', text: 'done' }] },
       ],
     });
-    const { reconcileTranscriptSnapshot } = await import('./canvas-reconciler.js');
+    const { reconcileTranscriptSnapshot } = await import('../../../canvas-reconciler.js');
     const snapshot = await reconcileTranscriptSnapshot(interaction());
 
     expect(snapshot.agentOutput).toBe('done');
@@ -152,7 +152,7 @@ describe('Gateway-native Canvas Artifact reconciliation', () => {
       return {};
     });
 
-    const { reconcileTranscriptSnapshot } = await import('./canvas-reconciler.js');
+    const { reconcileTranscriptSnapshot } = await import('../../../canvas-reconciler.js');
     const snapshot = await reconcileTranscriptSnapshot(interaction());
 
     expect(snapshot.artifactPersistenceComplete).toBe(true);

@@ -16,14 +16,17 @@ const {
   storeDeviceAuthMock: vi.fn(),
 }));
 
-vi.mock('../../server/lib/agent-runtimes/adapters/openclaw/device-identity.js', () => ({
+vi.mock('../../../../server/lib/agent-runtimes/adapters/openclaw/setup-support.js', () => ({
   CONVOSKETCHPAD_OPERATOR_SCOPES: ['operator.read', 'operator.write', 'operator.approvals'],
+  CONVOSKETCHPAD_GATEWAY_CLIENT_ID: 'gateway-client',
+  CONVOSKETCHPAD_GATEWAY_CLIENT_MODE: 'backend',
+  CONVOSKETCHPAD_GATEWAY_CLIENT_PLATFORM: 'node',
   createDeviceBlock: createDeviceBlockMock,
   storeDeviceAuth: storeDeviceAuthMock,
 }));
 
-import { requestGatewayPairing } from './gateway-pairing.js';
-import { packageMetadata } from './package-metadata.js';
+import { requestGatewayPairing } from './pairing.js';
+import { packageMetadata } from '../../package-metadata.js';
 
 describe('native Gateway pairing probe', () => {
   let server: Server;
@@ -51,7 +54,7 @@ describe('native Gateway pairing probe', () => {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   });
 
-  it('creates a native pending request with only operator read/write scopes', async () => {
+  it('creates a native pending request with exact operator approval scopes', async () => {
     let receivedOrigin: string | undefined;
     let receivedPath = '';
     let connectParams: Record<string, unknown> | null = null;

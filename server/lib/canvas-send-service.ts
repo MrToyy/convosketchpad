@@ -224,7 +224,7 @@ export class CanvasSendService {
         kind: 'rejected',
         operation: result,
         error,
-        status: error.includes('does not advertise chat.send') ? 503 : 422,
+        status: error === 'runtime_text_input_unsupported' ? 503 : 422,
       };
     }
     return { kind: 'operation', operation: result };

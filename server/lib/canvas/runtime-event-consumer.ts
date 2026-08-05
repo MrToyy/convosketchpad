@@ -20,18 +20,20 @@ function activeView(interaction: OwnedInteractionRecord) {
   };
 }
 
-function findActive(event: RuntimeEvent) {
+function findActive(event: RuntimeEvent, includeTerminal = false) {
   const interaction = getCanvasStore().findInteractionByRuntimeCorrelation(
     event.runtimeId,
     event.turnRef || null,
     event.conversationRef || null,
+    includeTerminal,
   );
   return interaction ? activeView(interaction) : null;
 }
 
 function eventKey(event: RuntimeEvent): string {
-  if (event.eventId) return event.eventId;
-  return createHash('sha256').update(JSON.stringify(event)).digest('hex');
+  const nativeKey = event.eventId
+    || createHash('sha256').update(JSON.stringify(event)).digest('hex');
+  return `${event.runtimeId}:${nativeKey}`;
 }
 
 function terminal(event: RuntimeEvent): boolean {
@@ -41,7 +43,19 @@ function terminal(event: RuntimeEvent): boolean {
 }
 
 function processRuntimeEvent(event: RuntimeEvent, storedKey?: string): void {
-  const active = findActive(event);
+  if (event.type === 'approval.resolved') {
+    const resolution = getCanvasStore().applyInteractionApprovalResolution(
+      event.runtimeId,
+      event.approvalRef,
+      event.resolution,
+      event.resolvedBy,
+    );
+    if (!resolution) return;
+    publishCanvasChanged(resolution.ownerId, resolution.canvasId);
+    if (storedKey) getCanvasStore().markRuntimeEventProcessed(storedKey);
+    return;
+  }
+  const active = findActive(event, event.type === 'approval.required');
   if (!active) return;
   if (event.type === 'approval.required') {
     getCanvasStore().recordInteractionApproval(
@@ -50,17 +64,6 @@ function processRuntimeEvent(event: RuntimeEvent, storedKey?: string): void {
       event.approvalRef,
       event.approval,
       event.createdAt,
-    );
-    publishCanvasChanged(active.ownerId, active.canvasId);
-    if (storedKey) getCanvasStore().markRuntimeEventProcessed(storedKey);
-    return;
-  }
-  if (event.type === 'approval.resolved') {
-    getCanvasStore().applyInteractionApprovalResolution(
-      event.runtimeId,
-      event.approvalRef,
-      event.resolution,
-      event.resolvedBy,
     );
     publishCanvasChanged(active.ownerId, active.canvasId);
     if (storedKey) getCanvasStore().markRuntimeEventProcessed(storedKey);
@@ -100,8 +103,7 @@ function processRuntimeEvent(event: RuntimeEvent, storedKey?: string): void {
 export function handleCanvasRuntimeEvent(event: RuntimeEvent): void {
   const durable = terminal(event)
     || event.type === 'approval.required'
-    || event.type === 'approval.resolved'
-    || event.type === 'runtime.disconnected';
+    || event.type === 'approval.resolved';
   if (!durable) {
     processRuntimeEvent(event);
     return;

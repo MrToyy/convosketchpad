@@ -1,6 +1,5 @@
 import type { AgentRuntime } from './contract.js';
-import { openClawAgentRuntime } from './adapters/openclaw/index.js';
-import { configuredAgentRuntimeIds } from './config.js';
+import { agentRuntimeDefinitions, configuredAgentRuntimeIds } from './definitions.js';
 
 export class AgentRuntimeRegistry {
   private readonly runtimes = new Map<string, AgentRuntime>();
@@ -31,7 +30,7 @@ export class AgentRuntimeRegistry {
 
 export const agentRuntimeRegistry = new AgentRuntimeRegistry();
 for (const runtimeId of configuredAgentRuntimeIds()) {
-  if (runtimeId === 'openclaw') agentRuntimeRegistry.register(openClawAgentRuntime);
+  agentRuntimeRegistry.register(agentRuntimeDefinitions[runtimeId].runtime);
 }
 
 export function getAgentRuntime(runtimeId: string): AgentRuntime {

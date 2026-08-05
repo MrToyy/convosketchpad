@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { generateEnvContent } from './env-writer.js';
+import { generateEnvContent } from '../../env-writer.js';
 import {
   isRemoteGatewayUrl,
   isValidIanaTimezone,
-} from './gateway-timezone.js';
+} from './timezone.js';
 import {
   gatewayConnectionMode,
   gatewayRequiresDevicePairing,
-} from '../../server/lib/agent-runtimes/adapters/openclaw/gateway-client-identity.js';
+} from '../../../../server/lib/agent-runtimes/adapters/openclaw/setup-support.js';
 
 describe('Gateway timezone setup helpers', () => {
   it.each([

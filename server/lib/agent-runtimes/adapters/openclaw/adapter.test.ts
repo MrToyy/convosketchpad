@@ -53,6 +53,21 @@ beforeEach(() => {
 });
 
 describe('OpenClawAgentRuntime contract', () => {
+  it('reports unknown image-generation support and idempotent dispatch semantics', async () => {
+    await expect(openClawAgentRuntime.getCapabilities(profile)).resolves.toMatchObject({
+      output: { imageGeneration: 'unknown' },
+      reliability: { idempotentDispatch: true, inspectAfterUnknownOutcome: false },
+    });
+    await expect(openClawAgentRuntime.reconcileDispatch({
+      profile,
+      conversationRef,
+      recoveryRef: null,
+      idempotencyKey: 'send-unknown',
+      message: 'hello',
+      createdAt: 1,
+    })).resolves.toMatchObject({ outcome: 'unknown', error: { kind: 'unsupported' } });
+  });
+
   it('projects the Agent catalog into stable profiles', async () => {
     mocks.rpc.mockResolvedValue({
       defaultId: 'main',

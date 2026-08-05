@@ -17,11 +17,6 @@ async function setup() {
       gatewayToken: 'test-token',
     },
   }));
-  vi.doMock('./gateway-rpc.js', () => ({
-    gatewaySupports: () => false,
-    gatewayRpcCall: async () => ({}),
-    getGatewaySharedHttpAuthToken: () => 'test-token',
-  }));
   const db = await import('./canvas-db.js');
   const files = await import('./canvas-artifact-store.js');
   const media = await import('./canvas-media-derivatives.js');
@@ -114,6 +109,7 @@ describe('Canvas media derivatives', () => {
 
   it('backfills historical image hashes and thumbnails exactly once', async () => {
     const current = await setup();
+    current.store.db.prepare("DELETE FROM schema_migrations WHERE id = '0.3.0_media_derivatives_v1'").run();
     const original = await sharp({
       create: {
         width: 900,
@@ -161,6 +157,7 @@ describe('Canvas media derivatives', () => {
 
   it('does not record a systemically failed backfill and retries it successfully', async () => {
     const current = await setup();
+    current.store.db.prepare("DELETE FROM schema_migrations WHERE id = '0.3.0_media_derivatives_v1'").run();
     const persisted = await current.files.persistCanvasAttachment('owner-a', current.canvas.id, {
       name: 'retry.png',
       mimeType: 'image/png',

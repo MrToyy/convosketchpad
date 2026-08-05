@@ -6,7 +6,7 @@ import {
 import {
   buildCanvasDelivery,
 } from './canvas-send-delivery.js';
-import { handleCanvasRuntimeEvent, registerCanvasInteraction } from './canvas/runtime-events.js';
+import { handleCanvasRuntimeEvent, registerCanvasInteraction } from './canvas/runtime-event-consumer.js';
 import type { RuntimeEvent } from './agent-runtimes/contract.js';
 import { RuntimeOperationError } from './agent-runtimes/contract.js';
 import { getAgentRuntime } from './agent-runtimes/registry.js';
@@ -57,7 +57,8 @@ export async function runCanvasSendWorker(
     if (!capabilities.input.text) {
       const status = runtime.getStatus();
       if (status.state === 'connected') {
-        store.failReservationById(reservation.id, 'Agent Runtime does not support text input');
+        store.failReservationById(reservation.id, 'runtime_text_input_unsupported');
+        publishCanvasChanged(reservation.ownerId, reservation.canvasId);
         return store.getReservation(reservation.id)!;
       }
     }
@@ -76,6 +77,71 @@ export async function runCanvasSendWorker(
     const preparedReservation = store.getDispatchableReservation(reservation.id);
     if (!preparedReservation) throw new Error('not_found');
     if (preparedReservation.status !== 'prepared') return preparedReservation;
+    if (!preparedReservation.conversationRef) {
+      throw new RuntimeOperationError('validation', 'Reservation has no conversation reference');
+    }
+    if (preparedReservation.dispatchState === 'ambiguous' && !capabilities.reliability.idempotentDispatch) {
+      if (!capabilities.reliability.inspectAfterUnknownOutcome) {
+        const nextAttemptAt = Date.now() + canvasSendRetryDelay(preparedReservation.attemptCount);
+        store.scheduleReservationRetry(
+          preparedReservation.id,
+          'ambiguous',
+          preparedReservation.error || 'Runtime dispatch outcome remains unknown',
+          nextAttemptAt,
+          preparedReservation.dispatchRecoveryRef,
+        );
+        publishCanvasChanged(preparedReservation.ownerId, preparedReservation.canvasId);
+        return store.getReservation(preparedReservation.id)!;
+      }
+      let reconciled;
+      try {
+        reconciled = await runtime.reconcileDispatch({
+          profile,
+          conversationRef: preparedReservation.conversationRef,
+          recoveryRef: preparedReservation.dispatchRecoveryRef || null,
+          idempotencyKey: preparedReservation.id,
+          message,
+          createdAt: preparedReservation.createdAt,
+        });
+      } catch (error) {
+        const nextAttemptAt = Date.now() + canvasSendRetryDelay(preparedReservation.attemptCount);
+        store.scheduleReservationRetry(
+          preparedReservation.id,
+          'ambiguous',
+          error instanceof Error ? error.message : 'Runtime dispatch reconciliation failed',
+          nextAttemptAt,
+          preparedReservation.dispatchRecoveryRef,
+        );
+        publishCanvasChanged(preparedReservation.ownerId, preparedReservation.canvasId);
+        return store.getReservation(preparedReservation.id)!;
+      }
+      if (reconciled.outcome === 'accepted') {
+        const interaction = store.acknowledgeSend(
+          preparedReservation.ownerId,
+          preparedReservation.id,
+          null,
+          bootstrapWarnings,
+          reconciled.turnRef,
+        );
+        registerCanvasInteraction(preparedReservation, interaction, reconciled.turnRef);
+        scheduleCanvasInteractionReconciliation(interaction.id);
+        publishCanvasChanged(preparedReservation.ownerId, preparedReservation.canvasId);
+        return interaction;
+      }
+      if (reconciled.outcome === 'unknown') {
+        const nextAttemptAt = Date.now() + canvasSendRetryDelay(preparedReservation.attemptCount);
+        store.scheduleReservationRetry(
+          preparedReservation.id,
+          'ambiguous',
+          reconciled.error.message,
+          nextAttemptAt,
+          reconciled.recoveryRef || preparedReservation.dispatchRecoveryRef,
+        );
+        publishCanvasChanged(preparedReservation.ownerId, preparedReservation.canvasId);
+        return store.getReservation(preparedReservation.id)!;
+      }
+      store.clearReservationDispatchRecovery(preparedReservation.id);
+    }
     store.markReservationDispatching(reservation.id);
     reservation = store.getDispatchableReservation(reservation.id)!;
     if (!reservation.conversationRef) throw new RuntimeOperationError('validation', 'Reservation has no conversation reference');
@@ -90,7 +156,13 @@ export async function runCanvasSendWorker(
     if (dispatched.outcome === 'rejected') throw dispatched.error;
     if (dispatched.outcome === 'unknown') {
       const nextAttemptAt = Date.now() + canvasSendRetryDelay(reservation.attemptCount);
-      store.scheduleReservationRetry(reservation.id, 'ambiguous', dispatched.error.message, nextAttemptAt);
+      store.scheduleReservationRetry(
+        reservation.id,
+        'ambiguous',
+        dispatched.error.message,
+        nextAttemptAt,
+        dispatched.recoveryRef || null,
+      );
       publishCanvasChanged(reservation.ownerId, reservation.canvasId);
       return store.getReservation(reservation.id)!;
     }

@@ -3,7 +3,7 @@ import { fireEvent, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { renderWithSettings } from '@/test/render-with-settings';
 import type { RuntimeUsageData } from '@/types';
-import { TokenUsage } from './TokenUsage';
+import { RuntimeUsage } from './RuntimeUsage';
 
 const usage: RuntimeUsageData = {
   comparableCostTotal: { currency: 'USD', amount: 1.25 },
@@ -35,9 +35,9 @@ const usage: RuntimeUsageData = {
   }],
 };
 
-describe('TokenUsage Runtime aggregation', () => {
+describe('RuntimeUsage aggregation', () => {
   it('renders comparable totals and keeps Provider quotas grouped by Runtime', () => {
-    renderWithSettings(<TokenUsage data={usage} loading={false} error={false} onRefresh={vi.fn()} />);
+    renderWithSettings(<RuntimeUsage data={usage} loading={false} error={false} onRefresh={vi.fn()} />);
     expect(screen.getAllByText('$1.25')).toHaveLength(2);
     expect(screen.getByText('OpenClaw')).toBeInTheDocument();
     expect(screen.getByText('OpenAI 限额')).toBeInTheDocument();
@@ -46,19 +46,19 @@ describe('TokenUsage Runtime aggregation', () => {
   });
 
   it('does not invent a cross-Runtime total when costs are not comparable', () => {
-    renderWithSettings(<TokenUsage data={{ ...usage, comparableCostTotal: undefined }} loading={false} error={false} onRefresh={vi.fn()} />);
+    renderWithSettings(<RuntimeUsage data={{ ...usage, comparableCostTotal: undefined }} loading={false} error={false} onRefresh={vi.fn()} />);
     expect(screen.queryByText('可比较费用合计')).not.toBeInTheDocument();
   });
 
   it('keeps stale data visible after refresh failure', () => {
-    renderWithSettings(<TokenUsage data={usage} loading={false} error onRefresh={vi.fn()} />);
+    renderWithSettings(<RuntimeUsage data={usage} loading={false} error onRefresh={vi.fn()} />);
     expect(screen.getByText('刷新用量失败，当前显示上次结果。')).toBeInTheDocument();
     expect(screen.getByText('OpenClaw')).toBeInTheDocument();
   });
 
   it('offers an explicit manual refresh action', () => {
     const onRefresh = vi.fn();
-    renderWithSettings(<TokenUsage data={usage} loading={false} error={false} onRefresh={onRefresh} />);
+    renderWithSettings(<RuntimeUsage data={usage} loading={false} error={false} onRefresh={onRefresh} />);
     fireEvent.click(screen.getByRole('button', { name: '刷新用量' }));
     expect(onRefresh).toHaveBeenCalledOnce();
   });

@@ -95,9 +95,11 @@ Artifact 与文本完成相互独立。所有完成节点由后端稀疏观察�
 npm run migrate
 ```
 
+该命令会取得维护锁并拒绝在线或状态未知的受管服务。没有匹配的 systemd/launchd 服务时，先停止全部手工启动的 ConvoSketchpad 进程，再运行 `npm run migrate -- --confirm-offline`。
+
 如果 `/api/chat/media/outgoing/...` 返回 401，确认 `OPENCLAW_GATEWAY_TOKEN` 是当前 Gateway 的共享密钥。设备 Token 只用于远程 WebSocket，不能替代 Gateway HTTP Bearer Token。已完成 Turn 无法被 `artifacts.list` 反查 Conversation 时，后端会安全回退到当前 Interaction 的 transcript Artifact，不会扫描并导入整条 Session 的历史文件。
 
-如果 OpenClaw 已完成而节点仍显示运行中，优先检查数据库中的 `execution_state`、`turn_ref_json` 和 `runtime_event_inbox`，再检查 OpenClaw Adapter 能否调用 `sessions.get/list`。不要在新 Schema 中寻找 `run_id` 或 `gateway_signal_inbox`，它们会在迁移后移除；也不要依据浏览器调试事件或手工修改节点状态。无法唯一关联的事件会保守进入协调流程。
+如果 OpenClaw 已完成而节点仍显示运行中，优先检查数据库中的 `execution_state`、`turn_ref_json` 和 `runtime_event_inbox`，再检查 OpenClaw Adapter 能否调用 `sessions.get/list`。不要在新 Schema 中寻找 `run_id` 或 `gateway_signal_inbox`，它们会在迁移后移除；也不要依据浏览器调试事件或手工修改节点状态。带显式 Turn Handle 但未命中的事件会保留为待处理且不会回退猜测；只有缺少 Turn Handle 且 Conversation 恰好只有一个候选节点时才允许恢复关联。
 
 审批卡片未出现时，先确认对应 Runtime 状态中的 `interactiveApprovals` Capability、OpenClaw 设备 Token 是否含 `operator.approvals`，以及 `runtime_event_inbox` 是否记录 `approval.required`。`409` 通常表示审批已处理、选择无效或权限集合越界；`410` 表示已过期；`202` 表示结果未知，应等待原生 resolved 事件，不要反复点击。
 
@@ -112,7 +114,7 @@ Canvas 节点只加载后端缩略图，不以原图作为自动回退；点击�
 - `artifacts/` 是否可写、磁盘是否有空间；
 - 升级时 `npm run migrate` 的 `0.3.0_media_derivatives_v1` 输出是否有对应警告。
 
-可在目标版本已构建且服务停止时运行 `npm run migrate -- --rescan-media`，复查并补齐缺失的缩略图；该命令不会
+可在目标版本已构建且服务停止时运行 `npm run migrate -- --rescan-media`，复查并补齐缺失的缩略图；没有匹配服务管理器时还需追加 `--confirm-offline`。该命令不会
 改写原图。普通 `npm run migrate` 在迁移账本存在时不会重复全量扫描。
 
 ## 远程启动被拒绝
@@ -124,6 +126,19 @@ Canvas 节点只加载后端缩略图，不以原图作为自动回退；点击�
 `SSL_PORT` 和 `VITE_DISABLE_HTTPS` 已废弃并被忽略。ConvoSketchpad 只提供 HTTP；旧 `certs/` 文件也不会再被自动加载。
 
 `VITE_HOST` 和 `VITE_PORT` 也已废弃。开发和生产统一使用 `HOST` / `PORT` 作为浏览器入口；`npm run dev` 会自动选择 loopback 后端端口。如果旧 `.env` 仍包含这些变量，重新运行 setup 会在备份后移除。
+
+## 更新或 Setup 失败
+
+更新或重新 Setup 失败时，先查看更新器最近结果和服务状态：
+
+```bash
+cat "${CONVOSKETCHPAD_DATA_DIR:-$HOME/.convosketchpad}/updater/last-run.json"
+sudo systemctl status convosketchpad.service --no-pager
+```
+
+如果项目 `.env` 自定义了 `CONVOSKETCHPAD_DATA_DIR`，但当前 Shell 没有导出它，应把上面的路径替换为 `.env` 中的实际值。系统级 systemd 更新在交互终端会请求 sudo；CI、SSH 无终端任务或其他非交互执行必须事先提供无提示授权，否则 `sudo -n` 会让更新明确失败。不要在更新器失败后再次运行安装器跨版本覆盖；排除权限或构建问题后重试 `npm run update`，或用 `npm run update -- --rollback` 恢复正式 `last-good` 快照。
+
+Setup 失败不会改变上述正式回滚目标。它会恢复迁移前的 `.env`；SQLite 只在服务再次确认离线后恢复。若重启后的服务无法停止或状态无法确认，setup 不会覆盖数据库并会保留临时快照，先人工停止服务再处理。没有匹配服务管理器时 setup 不打开数据库，迁移由下次手动启动完成。
 
 ## 构建或测试失败
 

@@ -23,7 +23,7 @@ import { isAllowedOrigin, resolveCorsOrigin } from './lib/origin-utils.js';
 
 import healthRoutes from './routes/health.js';
 import authRoutes from './routes/auth.js';
-import tokensRoutes from './routes/tokens.js';
+import runtimeUsageRoutes from './routes/runtime-usage.js';
 import versionRoutes from './routes/version.js';
 import versionCheckRoutes from './routes/version-check.js';
 import runtimeActionRoutes from './routes/runtime-actions.js';
@@ -69,7 +69,7 @@ app.use('*', cacheHeaders);
 // ── API routes ───────────────────────────────────────────────────────
 
 const routes = [
-  healthRoutes, authRoutes, tokensRoutes,
+  healthRoutes, authRoutes, runtimeUsageRoutes,
   versionRoutes, versionCheckRoutes, runtimeActionRoutes,
   uploadReferenceRoutes, canvasRoutes, runtimeRoutes,
 ];

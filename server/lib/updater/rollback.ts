@@ -5,7 +5,11 @@
 
 import { join } from 'node:path';
 import { rmSync, existsSync } from 'node:fs';
-import { loadSnapshot, restoreSnapshotDatabase } from './snapshot.js';
+import {
+  loadSnapshot,
+  restoreSnapshotDatabase,
+  restoreSnapshotEnvironment,
+} from './snapshot.js';
 import { gitCheckoutLocal, buildProject } from './installer.js';
 import type { Snapshot, ServiceManager, Reporter } from './types.js';
 
@@ -15,16 +19,28 @@ export interface RollbackResult {
   error?: string;
 }
 
+export interface RollbackOptions {
+  /**
+   * SQLite restoration is opt-in from a caller that has independently
+   * confirmed the database is offline. Unmanaged and --no-restart flows pass
+   * false so rollback cannot replace a live database.
+   */
+  restoreDatabase?: boolean;
+}
+
 /**
- * Perform a full rollback: checkout previous ref → rebuild → restart.
+ * Restore code and environment, optionally restore SQLite, then restart a
+ * supplied managed service. Database restoration is controlled separately
+ * from whether the service should be restarted.
  * Does NOT throw — returns a result object.
  */
 export async function rollback(
   cwd: string,
   serviceManager: ServiceManager | null,
   reporter: Reporter,
+  options: RollbackOptions = {},
 ): Promise<RollbackResult> {
-  const snapshot = loadSnapshot();
+  const snapshot = loadSnapshot(cwd);
   if (!snapshot) {
     return { success: false, snapshot: null, error: 'No snapshot found — cannot rollback' };
   }
@@ -36,6 +52,9 @@ export async function rollback(
     if (serviceManager) {
       reporter.verbose(`Stopping ${serviceManager.name} before rollback`);
       await serviceManager.stop();
+      if (await serviceManager.status() !== 'inactive') {
+        throw new Error(`Could not confirm ${serviceManager.name} service is inactive; SQLite was not restored`);
+      }
     }
 
     // 2. Checkout the previous ref (local only — no network needed)
@@ -44,8 +63,13 @@ export async function rollback(
     reporter.ok(`Checked out ${snapshot.ref.slice(0, 8)}`);
 
     // 3. Restore the consistent pre-update database snapshot.
-    restoreSnapshotDatabase(cwd, snapshot);
-    reporter.ok('Database snapshot restored');
+    if (options.restoreDatabase === true) {
+      restoreSnapshotDatabase(cwd, snapshot);
+      reporter.ok('Database snapshot restored');
+    }
+
+    restoreSnapshotEnvironment(cwd, snapshot);
+    reporter.ok('Environment snapshot restored');
 
     // 4. Clean node_modules to avoid stale dependencies from the failed version
     const nodeModulesPath = join(cwd, 'node_modules');
@@ -69,8 +93,8 @@ export async function rollback(
       reporter.verbose(`Restarting via ${serviceManager.name}`);
       await serviceManager.restart();
       await new Promise(r => setTimeout(r, 2000));
-      const active = await serviceManager.isActive();
-      if (!active) {
+      const state = await serviceManager.status();
+      if (state !== 'active') {
         const logs = await serviceManager.getLogs(20);
         return { success: false, snapshot, error: `Service failed to start after rollback:\n${logs}` };
       }
