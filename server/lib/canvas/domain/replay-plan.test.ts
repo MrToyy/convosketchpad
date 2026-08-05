@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { buildCanvasReplayPlan } from './canvas-replay-plan.js';
-import type { CanvasContextResource } from './canvas-db.js';
+import { buildCanvasReplayPlan } from './replay-plan.js';
+import type { CanvasContextResource } from '../model.js';
 
 function resource(overrides: Partial<CanvasContextResource> = {}): CanvasContextResource {
   return {

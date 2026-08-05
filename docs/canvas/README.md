@@ -23,7 +23,8 @@ src/features/canvas/       Canvas 产品界面
 src/features/chat/         Canvas 通用图片预览能力
 src/features/auth/         受管登录
 server/routes/canvas.ts    Canvas HTTP API
-server/lib/canvas-*.ts     数据、文件、认证身份与协调
+server/lib/canvas/         Canvas application、domain、persistence、model 与 Runtime 事件消费
+server/lib/canvas-*.ts     Canvas 文件、同步、协调及通用服务端辅助模块
 server/lib/agent-runtimes/ 通用 Runtime Port、Registry 与 Adapter
 database/canvas.sqlite     运行时数据库（已忽略）
 artifacts/                 持久化 Canvas 文件（已忽略）

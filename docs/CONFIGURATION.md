@@ -19,7 +19,7 @@
 
 `HOST` / `PORT` 在生产和开发模式下含义一致：都是用户打开的 ConvoSketchpad 入口。生产模式由 Hono 在该地址同时提供前端静态文件与 API；开发模式由 Vite 使用该地址，启动脚本自动为 Hono 分配仅监听 `127.0.0.1` 的内部端口，并代理 `/api` 和 `/health`。内部端口不属于用户配置。
 
-Runtime ID 与展示名在无副作用的 `server/lib/agent-runtimes/manifest.ts` 维护；`definitions.ts` 必须为清单中的每项提供实例和配置校验。每个 Adapter 的专属环境变量、默认值和校验位于自身 `adapters/<runtime-id>/config.ts`。通用 `server/lib/config.ts` 不承载 OpenClaw/Codex 专属字段。
+Runtime ID 与展示名在无副作用的 `server/lib/agent-runtimes/manifest.ts` 维护；`definitions.ts` 必须为清单中的每项提供 Registry 所有的实例工厂，通用配置选择与校验位于 `configuration.ts`。每个 Adapter 的专属环境变量、默认值和校验位于自身 `adapters/<runtime-id>/config.ts`。通用 `server/lib/config.ts` 不承载 OpenClaw/Codex 专属字段。只有 `AGENT_RUNTIMES` 完全缺失时才默认启用 `openclaw`；显式空值与未知、重复项一样会被 setup 检查和服务启动拒绝。
 
 setup 先执行只读 Runtime 发现，只用无凭据命令确认本机入口与版本，将已探测和未探测的支持项分组展示并允许多选；发现 Driver 只接收“是否已配置”和可选可执行文件路径，不接收 Token，也不读取原生配置。用户选中后才由对应 Driver 读取可用的 URL/Token 预填值并逐项配置。CLI 未探测到不代表远程 Runtime 不可接入。配置完成后 setup 通过统一 Runtime Port 获取 Profile 并选择默认 Agent；若目录暂时不可用，保留已有默认值或不写显式默认值，运行时再安全回退。非交互模式可使用 `--runtimes openclaw` 和 `--default-agent openclaw/main`。
 

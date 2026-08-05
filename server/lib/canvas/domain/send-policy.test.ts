@@ -3,7 +3,7 @@ import {
   CanvasDomainError,
   decideCanvasSendPlan,
   type CanvasSendBranchState,
-} from './canvas-domain.js';
+} from './send-policy.js';
 
 const rootDraft: CanvasSendBranchState = {
   kind: 'root',

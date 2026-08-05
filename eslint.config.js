@@ -64,4 +64,44 @@ export default defineConfig([
       }],
     },
   },
+  {
+    files: ['server/lib/canvas/domain/**/*.ts', 'server/lib/canvas/model.ts'],
+    ignores: ['server/**/*.test.ts'],
+    rules: {
+      'no-restricted-imports': ['error', {
+        patterns: [
+          {
+            group: [
+              '**/routes/**',
+              '**/application/**',
+              '**/persistence/**',
+              '**/agent-runtimes/registry*',
+              '**/agent-runtimes/adapters/**',
+            ],
+            message: 'Canvas model/domain code may depend only on pure model, domain, and Runtime contract modules.',
+          },
+        ],
+      }],
+    },
+  },
+  {
+    files: ['server/lib/canvas/persistence/**/*.ts'],
+    ignores: ['server/**/*.test.ts'],
+    rules: {
+      'no-restricted-imports': ['error', {
+        patterns: [
+          {
+            group: [
+              '**/routes/**',
+              '**/application/*-service*',
+              '**/application/errors*',
+              '**/agent-runtimes/registry*',
+              '**/agent-runtimes/adapters/**',
+            ],
+            message: 'Canvas persistence must depend inward on ports/model/domain, never on routes, Registry, or Adapters.',
+          },
+        ],
+      }],
+    },
+  },
 ])

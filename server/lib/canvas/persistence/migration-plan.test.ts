@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { packageMetadata } from './package-metadata.js';
-import { CANVAS_MIGRATION_PLAN } from './canvas-migration-plan.js';
+import { packageMetadata } from '../../package-metadata.js';
+import { CANVAS_MIGRATION_PLAN } from './migration-plan.js';
 
 describe('Canvas migration plan', () => {
   it('contains exactly the three continuous migrations required by v0.4.0', () => {

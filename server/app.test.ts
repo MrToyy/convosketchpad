@@ -16,8 +16,20 @@ describe('removed API surfaces', () => {
     }
   });
 
+  async function buildApp() {
+    const { createApp } = await import('./app.js');
+    return createApp({
+      store: {} as never,
+      runtimes: {
+        list: () => [],
+        get: vi.fn(),
+        has: () => false,
+      } as never,
+    });
+  }
+
   it('returns 404 for every retired product API family', async () => {
-    const { default: app } = await import('./app.js');
+    const app = await buildApp();
     const retiredPaths = [
       '/api/kanban/tasks',
       '/api/sessions',
@@ -34,7 +46,7 @@ describe('removed API surfaces', () => {
   });
 
   it('rejects browser API requests from unapproved origins', async () => {
-    const { default: app } = await import('./app.js');
+    const app = await buildApp();
     const response = await app.request('/api/runtime/status', {
       headers: { Origin: 'https://unapproved.example.test' },
     });
@@ -43,7 +55,7 @@ describe('removed API surfaces', () => {
   });
 
   it('does not expose the removed Agent log API', async () => {
-    const { default: app } = await import('./app.js');
+    const app = await buildApp();
     expect((await app.request('/api/agentlog')).status).toBe(404);
     expect((await app.request('/api/agentlog', { method: 'POST' })).status).toBe(404);
   });

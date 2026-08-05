@@ -2,7 +2,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import {
   CANVAS_MIGRATION_PLAN,
   V032_TO_V040_AGENT_RUNTIME_MIGRATION,
-} from './canvas-migration-plan.js';
+} from './migration-plan.js';
 
 type SqlRow = Record<string, unknown>;
 

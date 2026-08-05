@@ -12,7 +12,6 @@ export interface SetupCliOptions {
   runtimeIds: string[] | null;
   defaultAgent: { runtimeId: string; profileId: string } | null;
   accessMode?: SetupAccessMode;
-  gatewayTimezone?: string;
 }
 
 function requireValue(args: string[], index: number, flag: string): string {
@@ -109,12 +108,6 @@ export function parseSetupCliOptions(
       case '--access-mode': {
         markSeen(arg);
         options.accessMode = parseAccessMode(requireValue(args, index, arg));
-        index++;
-        break;
-      }
-      case '--gateway-timezone': {
-        markSeen(arg);
-        options.gatewayTimezone = requireValue(args, index, arg).trim();
         index++;
         break;
       }

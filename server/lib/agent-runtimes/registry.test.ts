@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { AgentRuntime } from './contract.js';
-import { configuredAgentRuntimeIds } from './definitions.js';
-import { AgentRuntimeRegistry } from './registry.js';
+import { configuredAgentRuntimeIds } from './configuration.js';
+import { AgentRuntimeRegistry, createConfiguredAgentRuntimeRegistry } from './registry.js';
 
 function runtime(id: string): AgentRuntime {
   return {
@@ -32,6 +32,17 @@ describe('AgentRuntimeRegistry', () => {
     registry.close();
     expect(first.close).toHaveBeenCalledOnce();
     expect(second.close).toHaveBeenCalledOnce();
+    registry.close();
+    expect(first.close).toHaveBeenCalledOnce();
+    expect(() => registry.register(runtime('third'))).toThrow('Registry is closed');
+  });
+
+  it('creates Registry-owned adapter instances', () => {
+    const first = createConfiguredAgentRuntimeRegistry(['openclaw']);
+    const second = createConfiguredAgentRuntimeRegistry(['openclaw']);
+    expect(first.get('openclaw')).not.toBe(second.get('openclaw'));
+    first.close();
+    second.close();
   });
 });
 

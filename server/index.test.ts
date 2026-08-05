@@ -22,25 +22,22 @@ vi.mock('@hono/node-server', () => ({
     };
   }),
 }));
-vi.mock('./app.js', () => ({ default: { fetch: vi.fn() } }));
+vi.mock('./app.js', () => ({ createApp: vi.fn(() => ({ fetch: vi.fn() })) }));
 vi.mock('./lib/config.js', () => ({
   config: { host: '127.0.0.1', port: 3080 },
   validateConfig: vi.fn(() => mocks.events.push('config_validated')),
   printStartupBanner: vi.fn(),
 }));
-vi.mock('./lib/canvas-reconciler.js', () => ({
-  startCanvasReconciler: vi.fn(),
-  stopCanvasReconciler: vi.fn(),
-}));
-vi.mock('./lib/canvas-send-coordinator.js', () => ({
-  startCanvasSendCoordinator: vi.fn(),
-  stopCanvasSendCoordinator: vi.fn(),
-}));
-vi.mock('./lib/canvas-db.js', () => ({
-  getCanvasStore: vi.fn(() => {
+vi.mock('./application-context.js', () => ({
+  createApplicationContext: vi.fn(() => ({
+    runtimes: {},
+    start: vi.fn(() => mocks.events.push('application_started')),
+    close: vi.fn(),
+    store: (() => {
     mocks.events.push('database_ready');
-    return {};
-  }),
+    return { ensureUser: vi.fn() };
+    })(),
+  })),
 }));
 vi.mock('./lib/canvas-media-derivatives.js', () => ({
   runCanvasMediaBackfillMigration: (...args: unknown[]) => {
@@ -69,6 +66,7 @@ describe('server startup', () => {
       'database_ready',
       'http_listening',
       'media_backfill_started',
+      'application_started',
     ]);
     expect(mocks.runCanvasMediaBackfillMigration).toHaveBeenCalledOnce();
   });

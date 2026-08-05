@@ -1,9 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const list = vi.fn();
-vi.mock('../lib/agent-runtimes/registry.js', () => ({
-  agentRuntimeRegistry: { list },
-}));
 vi.mock('../middleware/rate-limit.js', () => ({
   rateLimitGeneral: async (_c: unknown, next: () => Promise<void>) => next(),
 }));
@@ -39,7 +36,7 @@ describe('GET /api/runtime/usage', () => {
   it('returns per-Runtime usage and sums only comparable costs', async () => {
     list.mockReturnValue([runtime('openclaw', 1.25), runtime('codex', 2)]);
     const route = await import('./runtime-usage.js');
-    const response = await route.default.request('/api/runtime/usage');
+    const response = await route.createRuntimeUsageRoutes({ list } as never).request('/api/runtime/usage');
     expect(response.status).toBe(200);
     const json = await response.json() as Record<string, unknown>;
     expect(json).toMatchObject({
@@ -54,7 +51,7 @@ describe('GET /api/runtime/usage', () => {
   it('omits a global total for incomparable currencies', async () => {
     list.mockReturnValue([runtime('openclaw', 1.25), runtime('codex', 2, 'CNY')]);
     const route = await import('./runtime-usage.js');
-    const json = await (await route.default.request('/api/runtime/usage')).json() as Record<string, unknown>;
+    const json = await (await route.createRuntimeUsageRoutes({ list } as never).request('/api/runtime/usage')).json() as Record<string, unknown>;
     expect(json).not.toHaveProperty('comparableCostTotal');
   });
 
@@ -63,7 +60,7 @@ describe('GET /api/runtime/usage', () => {
     unavailable.getStatus.mockReturnValue({ runtimeId: 'codex', state: 'disconnected', capabilities } as never);
     list.mockReturnValue([runtime('openclaw', 1.25), unavailable]);
     const route = await import('./runtime-usage.js');
-    const json = await (await route.default.request('/api/runtime/usage')).json() as { runtimes: Array<Record<string, unknown>> };
+    const json = await (await route.createRuntimeUsageRoutes({ list } as never).request('/api/runtime/usage')).json() as { runtimes: Array<Record<string, unknown>> };
     expect(json.runtimes[0]).toMatchObject({ runtimeId: 'openclaw', available: true });
     expect(json.runtimes[1]).toMatchObject({ runtimeId: 'codex', available: false });
     expect(json).not.toHaveProperty('comparableCostTotal');
@@ -80,7 +77,7 @@ describe('GET /api/runtime/usage', () => {
     noUsage.getCapabilities.mockResolvedValue(noUsageCapabilities as never);
     list.mockReturnValue([runtime('openclaw', 1.25), noUsage]);
     const route = await import('./runtime-usage.js');
-    const json = await (await route.default.request('/api/runtime/usage')).json() as {
+    const json = await (await route.createRuntimeUsageRoutes({ list } as never).request('/api/runtime/usage')).json() as {
       comparableCostTotal?: unknown;
       runtimes: Array<Record<string, unknown>>;
     };

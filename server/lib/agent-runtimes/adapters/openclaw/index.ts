@@ -1,1 +1,1 @@
-export { openClawAgentRuntime } from './adapter.js';
+export { createOpenClawAgentRuntime } from './adapter.js';

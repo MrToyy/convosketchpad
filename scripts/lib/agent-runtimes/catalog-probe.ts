@@ -43,7 +43,8 @@ export async function probeConfiguredAgents(
   timeoutMs = 8_000,
 ): Promise<{ candidates: SetupAgentCandidate[]; warnings: string[] }> {
   applyRuntimeEnvironment(config);
-  const { agentRuntimeRegistry } = await import('../../../server/lib/agent-runtimes/registry.js');
+  const { createConfiguredAgentRuntimeRegistry } = await import('../../../server/lib/agent-runtimes/registry.js');
+  const agentRuntimeRegistry = createConfiguredAgentRuntimeRegistry();
   try {
     const groups = await Promise.all(agentRuntimeRegistry.list().map(async (runtime) => {
       const connected = await waitForConnected(

@@ -2,8 +2,8 @@ import type {
   CanvasArtifact,
   InteractionContextSnapshot,
   InteractionExecutionState,
-} from './canvas-db.js';
-import { artifactSyncStateDuringObservation } from './canvas-artifact-watch.js';
+} from '../model.js';
+import { artifactSyncStateDuringObservation } from './artifact-watch.js';
 
 interface ReconciliationInteractionState {
   executionState: InteractionExecutionState;

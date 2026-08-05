@@ -16,7 +16,7 @@ import { execSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { networkInterfaces } from 'node:os';
-import { checkbox, input, confirm, select } from '@inquirer/prompts';
+import { input, confirm, select } from '@inquirer/prompts';
 import { printBanner, section, success, warn, fail, info, dim, promptTheme } from './lib/banner.js';
 import { checkPrerequisites, type PrereqResult } from './lib/prereq-check.js';
 import {
@@ -36,15 +36,14 @@ import {
 import {
   agentRuntimeSetupDriver,
   detectAgentRuntimes,
-  groupRuntimeDetections,
   selectedAgentRuntimeSetupDrivers,
   type RuntimeSetupDetection,
 } from './lib/agent-runtimes/setup-registry.js';
-import { probeConfiguredAgents } from './lib/agent-runtimes/catalog-probe.js';
 import {
   AGENT_RUNTIME_MANIFEST,
   type SupportedAgentRuntimeId,
 } from '../server/lib/agent-runtimes/manifest.js';
+import { configuredAgentRuntimeIds } from '../server/lib/agent-runtimes/configuration.js';
 import { MINIMUM_NODE_VERSION } from '../server/lib/node-version.js';
 import {
   applyAccessPlanToConfig,
@@ -57,11 +56,13 @@ import {
 } from './lib/access-plan.js';
 import { getTailscaleState, type TailscaleState } from './lib/tailscale.js';
 import { printDeploymentGuides, shouldPrintDeploymentGuides } from './lib/deployment-guides.js';
+import { parseSetupCliOptions, type SetupAccessMode } from './lib/setup-cli-options.js';
+import { printSetupHelp } from './lib/setup-help.js';
 import {
-  parseDefaultAgentRef,
-  parseSetupCliOptions,
-  type SetupAccessMode,
-} from './lib/setup-cli-options.js';
+  chooseAgentRuntimes,
+  configureDefaultAgent,
+  existingRuntimeIds,
+} from './lib/setup-runtime-selection.js';
 import { migrateDatabaseAfterSetup as runSetupDatabaseMigration } from './lib/setup-database-migration.js';
 import { acquireLock, releaseLock } from '../server/lib/updater/lock.js';
 
@@ -84,68 +85,9 @@ const isHelp = cliOptions.help;
 const isCheck = cliOptions.check;
 const isDefaults = cliOptions.defaults;
 const requestedAccessMode = cliOptions.accessMode;
-const requestedGatewayTimezone = cliOptions.gatewayTimezone;
 const requestedRuntimeIds = cliOptions.runtimeIds as SupportedAgentRuntimeId[] | null;
 const requestedDefaultAgentRef = cliOptions.defaultAgent;
 type AccessMode = SetupAccessMode;
-
-function existingRuntimeIds(existing: EnvConfig): SupportedAgentRuntimeId[] {
-  const supported = new Set<string>(AGENT_RUNTIME_MANIFEST.map((runtime) => runtime.id));
-  return (existing.AGENT_RUNTIMES || '')
-    .split(',')
-    .map((entry) => entry.trim().toLowerCase())
-    .filter((id): id is SupportedAgentRuntimeId => supported.has(id));
-}
-
-async function chooseAgentRuntimes(
-  detections: RuntimeSetupDetection[],
-  existing: EnvConfig,
-  interactive: boolean,
-): Promise<SupportedAgentRuntimeId[]> {
-  if (requestedRuntimeIds) return requestedRuntimeIds;
-  const configured = existingRuntimeIds(existing);
-  if (!interactive) {
-    if (configured.length > 0) return configured;
-    const detected = detections.filter((runtime) => runtime.detected).map((runtime) => runtime.runtimeId);
-    return detected.length > 0 ? detected : ['openclaw'];
-  }
-
-  section(1, TOTAL_SECTIONS, 'Agent Runtime discovery');
-  const groups = groupRuntimeDetections(detections);
-  const configuredSet = new Set(configured);
-  const fresh = configured.length === 0;
-  for (const runtime of groups.detected) success(`${runtime.displayName}: ${runtime.message}`);
-  for (const runtime of groups.undetected) warn(`${runtime.displayName}: ${runtime.message}`);
-  console.log('');
-
-  while (true) {
-    const selectedDetected = groups.detected.length > 0
-      ? await checkbox<SupportedAgentRuntimeId>({
-          theme: promptTheme,
-          message: 'Detected Runtimes to connect',
-          choices: groups.detected.map((runtime) => ({
-            name: runtime.displayName,
-            value: runtime.runtimeId,
-            checked: configuredSet.has(runtime.runtimeId) || fresh,
-          })),
-        })
-      : [];
-    const selectedUndetected = groups.undetected.length > 0
-      ? await checkbox<SupportedAgentRuntimeId>({
-          theme: promptTheme,
-          message: 'Other supported Runtimes to configure manually',
-          choices: groups.undetected.map((runtime) => ({
-            name: `${runtime.displayName} (not detected locally)`,
-            value: runtime.runtimeId,
-            checked: configuredSet.has(runtime.runtimeId),
-          })),
-        })
-      : [];
-    const selected = [...selectedDetected, ...selectedUndetected];
-    if (selected.length > 0) return selected;
-    warn('Select at least one Agent Runtime. A remote Runtime may be configured even when its CLI is not detected locally.');
-  }
-}
 
 function detectPrimaryIpv4(): string | null {
   const nets = networkInterfaces();
@@ -163,85 +105,6 @@ function hostForUrl(host: string): string {
 
 function sleep(ms: number): Promise<void> {
   return new Promise(resolveTimer => setTimeout(resolveTimer, ms));
-}
-
-async function configureDefaultAgent(
-  config: EnvConfig,
-  selectedRuntimeIds: SupportedAgentRuntimeId[],
-  interactive: boolean,
-): Promise<void> {
-  if (
-    requestedDefaultAgentRef
-    && !selectedRuntimeIds.includes(requestedDefaultAgentRef.runtimeId as SupportedAgentRuntimeId)
-  ) {
-    fail(`Default Agent Runtime ${requestedDefaultAgentRef.runtimeId} is not selected by AGENT_RUNTIMES.`);
-    process.exit(1);
-  }
-
-  if (interactive) {
-    section(5, TOTAL_SECTIONS, 'Default Agent');
-    dim('New canvases start with this Agent selected; it can still be changed before the first send.');
-  }
-
-  process.stdout.write('  Loading available Agents... ');
-  const { candidates, warnings } = await probeConfiguredAgents(config);
-  if (candidates.length > 0) {
-    console.log(`\x1b[32m✓\x1b[0m ${candidates.length} found`);
-  } else {
-    console.log('\x1b[33m!\x1b[0m none available');
-  }
-  for (const message of warnings) dim(`  ${message}`);
-
-  let selected = requestedDefaultAgentRef;
-  if (selected) {
-    const matched = candidates.some((candidate) =>
-      candidate.runtimeId === selected!.runtimeId && candidate.profileId === selected!.profileId);
-    if (candidates.length > 0 && !matched) {
-      fail(`--default-agent ${selected.runtimeId}/${selected.profileId} was not returned by the configured Runtimes.`);
-      process.exit(1);
-    }
-  } else if (candidates.length > 0 && interactive) {
-    const existingValue = config.CONVOSKETCHPAD_DEFAULT_AGENT_RUNTIME
-      && config.CONVOSKETCHPAD_DEFAULT_AGENT_PROFILE
-      ? `${config.CONVOSKETCHPAD_DEFAULT_AGENT_RUNTIME}/${config.CONVOSKETCHPAD_DEFAULT_AGENT_PROFILE}`
-      : undefined;
-    const availableValues = new Set(candidates.map((candidate) => `${candidate.runtimeId}/${candidate.profileId}`));
-    const value = await select({
-      theme: promptTheme,
-      message: 'Default Agent',
-      choices: candidates.map((candidate) => ({
-        name: `${candidate.displayName} — ${candidate.runtimeDisplayName}`,
-        value: `${candidate.runtimeId}/${candidate.profileId}`,
-      })),
-      default: existingValue && availableValues.has(existingValue) ? existingValue : undefined,
-    });
-    selected = parseDefaultAgentRef(value);
-  } else if (candidates.length > 0) {
-    const existing = candidates.find((candidate) =>
-      candidate.runtimeId === config.CONVOSKETCHPAD_DEFAULT_AGENT_RUNTIME
-      && candidate.profileId === config.CONVOSKETCHPAD_DEFAULT_AGENT_PROFILE);
-    selected = existing || candidates[0];
-  } else if (
-    config.CONVOSKETCHPAD_DEFAULT_AGENT_RUNTIME
-    && config.CONVOSKETCHPAD_DEFAULT_AGENT_PROFILE
-    && selectedRuntimeIds.includes(config.CONVOSKETCHPAD_DEFAULT_AGENT_RUNTIME as SupportedAgentRuntimeId)
-  ) {
-    selected = {
-      runtimeId: config.CONVOSKETCHPAD_DEFAULT_AGENT_RUNTIME,
-      profileId: config.CONVOSKETCHPAD_DEFAULT_AGENT_PROFILE,
-    };
-    warn('Agent catalog could not be loaded; preserving the existing default Agent.');
-  } else {
-    delete config.CONVOSKETCHPAD_DEFAULT_AGENT_RUNTIME;
-    delete config.CONVOSKETCHPAD_DEFAULT_AGENT_PROFILE;
-    warn('Agent catalog could not be loaded; no explicit default was saved. Canvas will use the first available Agent.');
-    return;
-  }
-
-  if (!selected) throw new Error('Default Agent selection was empty');
-  config.CONVOSKETCHPAD_DEFAULT_AGENT_RUNTIME = selected.runtimeId;
-  config.CONVOSKETCHPAD_DEFAULT_AGENT_PROFILE = selected.profileId;
-  success(`Default Agent: ${selected.runtimeId}/${selected.profileId}`);
 }
 
 async function migrateDatabaseAfterSetup(): Promise<void> {
@@ -283,40 +146,7 @@ process.on('SIGINT', () => {
 
 async function main(): Promise<void> {
   if (isHelp) {
-    console.log(`
-  Usage: npm run setup [options]
-
-  Options:
-    --check                   Validate existing .env config and test Runtime connections
-    --defaults                Non-interactive setup using auto-detected values
-    --runtimes <ids>          Comma-separated Agent Runtime IDs to configure
-    --default-agent <ref>     Default Agent as <runtime-id>/<profile-id>
-    --access-mode <mode>      Non-interactive: local|network|tailscale-ip|tailscale-serve
-    --gateway-timezone <tz>   Gateway IANA timezone (for example Asia/Shanghai)
-    --help, -h                Show this help message
-
-  Access modes:
-    local             Localhost only
-    network           LAN-reachable
-    custom            Interactive wizard only: bind, browser Origins, and proxy trust
-    tailscale-ip      Direct tailnet IP access
-    tailscale-serve   Loopback + Tailscale Serve hostname
-
-  The setup wizard guides you through 5 steps:
-    1. Runtime Discovery  — detect and select Agent Runtimes
-    2. Runtime Connection — configure each selected Runtime
-    3. Access Mode        — local, Tailscale IP, Tailscale Serve, LAN, or custom
-    4. Authentication     — trusted-user Token access (network mode)
-    5. Default Agent      — choose the Agent selected on new canvases
-
-  Examples:
-    npm run setup                                     # Interactive setup
-    npm run setup -- --check                          # Validate existing config
-    npm run setup -- --defaults                       # Auto-configure with detected values
-    npm run setup -- --defaults --access-mode tailscale-serve
-    npm run setup -- --defaults --gateway-timezone Asia/Shanghai
-    npm run setup -- --defaults --runtimes openclaw --default-agent openclaw/main
-`);
+    printSetupHelp();
     return;
   }
 
@@ -358,7 +188,7 @@ async function main(): Promise<void> {
   // --defaults mode: non-interactive
   if (isDefaults) {
     const detections = detectAgentRuntimes(existing);
-    const selectedRuntimeIds = await chooseAgentRuntimes(detections, existing, false);
+    const selectedRuntimeIds = await chooseAgentRuntimes({ detections, existing, interactive: false, requestedRuntimeIds });
     await runDefaults(existing, prereqs, detections, selectedRuntimeIds);
     return;
   }
@@ -385,11 +215,11 @@ async function main(): Promise<void> {
   }
 
   const detections = detectAgentRuntimes(existing);
-  const selectedRuntimeIds = await chooseAgentRuntimes(detections, existing, true);
+  const selectedRuntimeIds = await chooseAgentRuntimes({ detections, existing, interactive: true, requestedRuntimeIds });
 
   // Run interactive setup
   const config = await collectInteractive(existing, prereqs, detections, selectedRuntimeIds);
-  await configureDefaultAgent(config, selectedRuntimeIds, true);
+  await configureDefaultAgent({ config, selectedRuntimeIds, interactive: true, requestedDefaultAgent: requestedDefaultAgentRef });
 
   console.log('');
   await persistConfiguration(config);
@@ -432,7 +262,6 @@ async function collectInteractive(
       config,
       existing,
       detection,
-      args: { options: { gatewayTimezone: requestedGatewayTimezone } },
     });
     for (const step of result.followUpSteps) {
       if (!runtimeFollowUpSteps.includes(step)) runtimeFollowUpSteps.push(step);
@@ -796,7 +625,7 @@ function printSummary(config: EnvConfig): void {
 
   const hostLabel = host === '127.0.0.1' ? '127.0.0.1 (local only)' : `${host} (network)`;
   const authLabel = config.CONVOSKETCHPAD_AUTH === 'true' ? '🔒 Enabled' : 'Disabled';
-  const runtimes = config.AGENT_RUNTIMES || 'openclaw';
+  const runtimes = config.AGENT_RUNTIMES ?? 'openclaw';
   const runtimeIds = existingRuntimeIds(config);
   const runtimeDetails = runtimeIds.flatMap((runtimeId) =>
     agentRuntimeSetupDriver(runtimeId).summary(config));
@@ -858,16 +687,13 @@ async function runCheck(config: EnvConfig): Promise<void> {
   let errors = 0;
 
   const supportedRuntimeIds = new Set(AGENT_RUNTIME_MANIFEST.map((runtime) => runtime.id));
-  const runtimeIds = (config.AGENT_RUNTIMES || 'openclaw')
-    .split(',')
-    .map((runtimeId) => runtimeId.trim().toLowerCase())
-    .filter(Boolean);
-  const unsupportedRuntimeIds = runtimeIds.filter((runtimeId) => !supportedRuntimeIds.has(runtimeId as SupportedAgentRuntimeId));
-  if (runtimeIds.length === 0 || unsupportedRuntimeIds.length > 0) {
-    fail(`AGENT_RUNTIMES is invalid${unsupportedRuntimeIds.length ? `: ${unsupportedRuntimeIds.join(', ')}` : ''}`);
-    errors++;
-  } else {
+  let runtimeIds: SupportedAgentRuntimeId[] = [];
+  try {
+    runtimeIds = configuredAgentRuntimeIds(config.AGENT_RUNTIMES);
     success(`Agent Runtimes: ${runtimeIds.join(', ')}`);
+  } catch (error) {
+    fail(error instanceof Error ? error.message : String(error));
+    errors++;
   }
 
   const defaultRuntime = config.CONVOSKETCHPAD_DEFAULT_AGENT_RUNTIME;
@@ -876,7 +702,7 @@ async function runCheck(config: EnvConfig): Promise<void> {
     fail('Default Agent Runtime and profile must be configured together');
     errors++;
   } else if (defaultRuntime && defaultProfile) {
-    if (!runtimeIds.includes(defaultRuntime.toLowerCase())) {
+    if (!runtimeIds.some((runtimeId) => runtimeId === defaultRuntime.toLowerCase())) {
       fail(`Default Agent Runtime is not enabled: ${defaultRuntime}`);
       errors++;
     } else {
@@ -987,7 +813,6 @@ async function runDefaults(
     const result = await driver.configureDefaults({
       config,
       detection,
-      args: { options: { gatewayTimezone: requestedGatewayTimezone } },
     });
     appendFollowUp(result.followUpSteps);
   }
@@ -1061,7 +886,7 @@ async function runDefaults(
     delete config.CONVOSKETCHPAD_ALLOW_INSECURE;
   }
 
-  await configureDefaultAgent(config, selectedRuntimeIds, false);
+  await configureDefaultAgent({ config, selectedRuntimeIds, interactive: false, requestedDefaultAgent: requestedDefaultAgentRef });
 
   await persistConfiguration(config);
 

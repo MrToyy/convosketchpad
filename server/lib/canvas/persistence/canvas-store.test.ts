@@ -3,15 +3,17 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { afterEach, describe, expect, it } from 'vitest';
-import { runtimeHandle } from './agent-runtimes/contract.js';
-import { CanvasStore, type CanvasArtifact } from './canvas-db.js';
+import { runtimeHandle } from '../../agent-runtimes/contract.js';
+import { CanvasStore } from './canvas-store.js';
+import type { CanvasArtifact } from '../model.js';
+import { testConversationHandleFactory } from '../../fixtures/test-conversation-handle.js';
 
 const cleanups: Array<() => void> = [];
 
 function createStoreFixture(): { store: CanvasStore; databasePath: string } {
   const dir = mkdtempSync(path.join(tmpdir(), 'convosketchpad-canvas-'));
   const databasePath = path.join(dir, 'canvas.sqlite');
-  const store = new CanvasStore(databasePath);
+  const store = new CanvasStore(databasePath, { createConversationHandle: testConversationHandleFactory });
   cleanups.push(() => {
     store.close();
     rmSync(dir, { recursive: true, force: true });
@@ -103,7 +105,7 @@ describe('CanvasStore', () => {
   it('repairs the unreleased development Backend schema into the final Runtime schema', () => {
     const dir = mkdtempSync(path.join(tmpdir(), 'convosketchpad-runtime-repair-'));
     const databasePath = path.join(dir, 'canvas.sqlite');
-    let store = new CanvasStore(databasePath);
+    let store = new CanvasStore(databasePath, { createConversationHandle: testConversationHandleFactory });
     const canvas = seedUser(store);
     const branch = store.createRootBranch('user-a', canvas.id);
     const reservation = store.prepareSend('user-a', {
@@ -178,7 +180,7 @@ describe('CanvasStore', () => {
     `);
     development.close();
 
-    store = new CanvasStore(databasePath);
+    store = new CanvasStore(databasePath, { createConversationHandle: testConversationHandleFactory });
     expect(store.getOwnedInteraction('user-a', interaction.id)).toMatchObject({
       runtimeId: 'openclaw',
       turnRef: { runtimeId: 'openclaw', opaque: { runId: 'run-repair' } },
@@ -213,7 +215,7 @@ describe('CanvasStore', () => {
     const dir = mkdtempSync(path.join(tmpdir(), 'convosketchpad-v020-canvas-'));
     const databasePath = path.join(dir, 'canvas.sqlite');
     const legacy = new DatabaseSync(databasePath);
-    legacy.exec(readFileSync(new URL('./fixtures/canvas-v0.2.0.sql', import.meta.url), 'utf-8'));
+    legacy.exec(readFileSync(new URL('../../fixtures/canvas-v0.2.0.sql', import.meta.url), 'utf-8'));
     legacy.exec(`
       CREATE TABLE gateway_signal_inbox (
         event_key TEXT PRIMARY KEY,
@@ -338,7 +340,7 @@ describe('CanvasStore', () => {
         'agent:main:canvas:branch-1', 'continue', 'prepared', 50, 50)`).run();
     legacy.close();
 
-    const store = new CanvasStore(databasePath);
+    const store = new CanvasStore(databasePath, { createConversationHandle: testConversationHandleFactory });
     cleanups.push(() => {
       store.close();
       rmSync(dir, { recursive: true, force: true });
@@ -402,7 +404,7 @@ describe('CanvasStore', () => {
       (SELECT COUNT(*) FROM interaction_artifacts) AS artifacts,
       (SELECT COUNT(*) FROM artifact_sync_jobs) AS jobs,
       (SELECT COUNT(*) FROM schema_migrations) AS migrations`).get();
-    const reopened = new CanvasStore(databasePath);
+    const reopened = new CanvasStore(databasePath, { createConversationHandle: testConversationHandleFactory });
     const after = reopened.db.prepare(`SELECT
       (SELECT COUNT(*) FROM interaction_artifacts) AS artifacts,
       (SELECT COUNT(*) FROM artifact_sync_jobs) AS jobs,
@@ -452,7 +454,7 @@ describe('CanvasStore', () => {
         );
     `);
     legacy.close();
-    const store = new CanvasStore(databasePath);
+    const store = new CanvasStore(databasePath, { createConversationHandle: testConversationHandleFactory });
     cleanups.push(() => {
       store.close();
       rmSync(dir, { recursive: true, force: true });
@@ -486,7 +488,7 @@ describe('CanvasStore', () => {
       }],
       reconciliation: { version: 8, artifactSync: 'synced' },
     });
-    const reopened = new CanvasStore(databasePath);
+    const reopened = new CanvasStore(databasePath, { createConversationHandle: testConversationHandleFactory });
     expect(reopened.getOwnedInteraction('user-a', 'interaction-1')?.artifacts).toEqual([
       expect.objectContaining({ id: 'artifact-canonical' }),
     ]);
@@ -713,7 +715,7 @@ describe('CanvasStore', () => {
     insertMigration.run('0.2.0_to_single_chain_v1', 1, '0.2.0');
     insertMigration.run('0.3.0_to_0.4.0_agent_backend_v1', 2, '0.4.0');
 
-    const reopened = new CanvasStore(databasePath);
+    const reopened = new CanvasStore(databasePath, { createConversationHandle: testConversationHandleFactory });
     cleanups.push(() => reopened.close());
 
     expect(reopened.getCanvas('user-a', canvas.id)).toMatchObject({ agentMutable: false });

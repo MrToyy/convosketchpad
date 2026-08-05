@@ -10,11 +10,6 @@ export interface RuntimeSetupDetection {
   details?: unknown;
 }
 
-export interface RuntimeSetupArguments {
-  /** Adapter-owned CLI options. Generic setup only forwards these values. */
-  options: Readonly<Record<string, string | undefined>>;
-}
-
 export interface RuntimeSetupResult {
   followUpSteps: string[];
 }
@@ -39,12 +34,10 @@ export interface RuntimeSetupDriver {
     config: EnvConfig;
     existing: EnvConfig;
     detection: RuntimeSetupDetection;
-    args: RuntimeSetupArguments;
   }): Promise<RuntimeSetupResult>;
   configureDefaults(input: {
     config: EnvConfig;
     detection: RuntimeSetupDetection;
-    args: RuntimeSetupArguments;
   }): Promise<RuntimeSetupResult>;
   check(config: EnvConfig): Promise<RuntimeSetupCheck>;
   summary(config: EnvConfig): Array<{ label: string; value: string }>;

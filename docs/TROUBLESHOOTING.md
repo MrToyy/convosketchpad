@@ -101,7 +101,7 @@ npm run migrate
 
 如果 OpenClaw 已完成而节点仍显示运行中，优先检查数据库中的 `execution_state`、`turn_ref_json` 和 `runtime_event_inbox`，再检查 OpenClaw Adapter 能否调用 `sessions.get/list`。不要在新 Schema 中寻找 `run_id` 或 `gateway_signal_inbox`，它们会在迁移后移除；也不要依据浏览器调试事件或手工修改节点状态。带显式 Turn Handle 但未命中的事件会保留为待处理且不会回退猜测；只有缺少 Turn Handle 且 Conversation 恰好只有一个候选节点时才允许恢复关联。
 
-审批卡片未出现时，先确认对应 Runtime 状态中的 `interactiveApprovals` Capability、OpenClaw 设备 Token 是否含 `operator.approvals`，以及 `runtime_event_inbox` 是否记录 `approval.required`。`409` 通常表示审批已处理、选择无效或权限集合越界；`410` 表示已过期；`202` 表示结果未知，应等待原生 resolved 事件，不要反复点击。
+审批卡片未出现时，先确认 `/api/runtime/status` 中对应 Runtime 已连接、OpenClaw 设备 Token 含 `operator.approvals`、服务端日志没有报告审批方法不受支持，并检查 `runtime_event_inbox` 是否记录 `approval.required`。公开 Runtime 状态不会返回 `interactiveApprovals` Capability、原生方法表或诊断数据。`409` 通常表示审批已处理、选择无效或权限集合越界；`410` 表示已过期；`202` 表示结果未知，应等待原生 resolved 事件，不要反复点击。
 
 状态栏显示“部分可用”是正常聚合结果：在设置中查看各 Runtime 错误。用量缺少全局费用合计通常表示币种/统计周期不一致、某个 Runtime 未声明可加，或只返回额度而不返回费用；这不是数据丢失。
 

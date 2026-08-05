@@ -36,7 +36,7 @@ export function useRuntimeRestart(language: Language = DEFAULT_LANGUAGE) {
     try {
       if (!restartRuntimeId) throw new Error('Runtime restart target is missing');
       const response = await fetch(
-        `/api/runtime/runtimes/${encodeURIComponent(restartRuntimeId)}/restart`,
+        `/api/runtime/${encodeURIComponent(restartRuntimeId)}/restart`,
         { method: 'POST', credentials: 'include' },
       );
       const data = await response.json() as { ok: boolean };

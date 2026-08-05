@@ -1,10 +1,13 @@
 import type { AgentRuntime } from './contract.js';
-import { agentRuntimeDefinitions, configuredAgentRuntimeIds } from './definitions.js';
+import { agentRuntimeDefinitions } from './definitions.js';
+import { configuredAgentRuntimeIds } from './configuration.js';
 
 export class AgentRuntimeRegistry {
   private readonly runtimes = new Map<string, AgentRuntime>();
+  private closed = false;
 
   register(runtime: AgentRuntime): void {
+    if (this.closed) throw new Error('Agent Runtime Registry is closed');
     if (this.runtimes.has(runtime.id)) throw new Error(`Agent Runtime already registered: ${runtime.id}`);
     this.runtimes.set(runtime.id, runtime);
   }
@@ -24,15 +27,18 @@ export class AgentRuntimeRegistry {
   }
 
   close(): void {
+    if (this.closed) return;
+    this.closed = true;
     for (const runtime of this.runtimes.values()) runtime.close();
   }
 }
 
-export const agentRuntimeRegistry = new AgentRuntimeRegistry();
-for (const runtimeId of configuredAgentRuntimeIds()) {
-  agentRuntimeRegistry.register(agentRuntimeDefinitions[runtimeId].runtime);
-}
-
-export function getAgentRuntime(runtimeId: string): AgentRuntime {
-  return agentRuntimeRegistry.get(runtimeId);
+export function createConfiguredAgentRuntimeRegistry(
+  runtimeIds = configuredAgentRuntimeIds(),
+): AgentRuntimeRegistry {
+  const registry = new AgentRuntimeRegistry();
+  for (const runtimeId of runtimeIds) {
+    registry.register(agentRuntimeDefinitions[runtimeId].createRuntime());
+  }
+  return registry;
 }

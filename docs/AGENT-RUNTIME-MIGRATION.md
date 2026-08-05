@@ -54,7 +54,7 @@ runtime.disconnected
 
 `approval.required` 包含不透明 Handle、类别、可展示摘要、风险、细粒度权限、选择、作用域、二次确认要求和到期时间。`approval.resolved` 包含统一 Resolution 与来源。原始命令环境、Token 和凭据不得进入事件或浏览器 DTO。
 
-审批 UI 位于所属 Interaction 节点内，用户可逐项取消权限；持久/会话级选择必须二次确认。审批结果使用 `accepted | rejected | unknown`：明确拒绝可重试，结果未知进入 `unconfirmed` 并等待原生 resolved 事件，不能盲目重发。
+审批 UI 位于所属 Interaction 节点内，用户可逐项取消权限；持久/会话级选择必须二次确认。审批结果使用 `accepted | rejected | unknown`：明确拒绝可重试，结果未知进入 `unconfirmed` 并等待原生 resolved 事件，不能盲目重发。原生 resolved 事件仍须根据持久化的 Choice 与权限集合做拒绝默认成功的校验；未知 Choice、越权权限或拒绝时携带授权都保持 `unconfirmed`。
 
 终态与审批进入 `runtime_event_inbox` 持久化、去重，事件键以 Runtime ID 命名空间隔离。带显式 Turn Handle 的事件必须严格关联，未命中不能回退到 Conversation 中的其他 Turn；审批 resolved 通过 Approval Handle 收敛，允许晚于 Interaction 终态到达。Preview 不持久化。
 
@@ -70,11 +70,11 @@ Fork 与失效 Conversation 恢复继续使用 Canonical Replay。原生 Fork �
 - OpenClaw 通过原生 Artifact/Transcript；Codex 通过结构化 ImageGeneration/Tool/MCP Item。
 - 不扫描 Codex 或 OpenClaw 工作区猜测生成物。
 - Adapter 返回的本地路径仍需路径包含、符号链接、大小、MIME 和所有者检查，并立即复制到 Canvas Artifact 存储。
-- `imageGeneration` 是 `supported | unsupported | unknown` 三态 Capability；明确不支持时 UI/协调器降级，未知时不得伪装为支持或不支持。
+- `imageGeneration` 是 `supported | unsupported | unknown` 三态 Capability；第一阶段建立契约，OpenClaw 在无法可靠判断时返回 `unknown`，当前没有依赖该字段启停的独立图片生成入口。后续新增此类上层操作时，明确不支持必须由 UI/协调器降级，未知时不得伪装为支持或不支持。
 
 ## 目录结构
 
-统一代码位于 `server/lib/agent-runtimes/{contract,manifest,definitions,registry,catalog,default-agent}.ts`；无副作用 `manifest.ts` 是 Runtime ID/展示名支持清单，`definitions.ts` 对清单逐项提供配置解析、Adapter 实例和配置校验。每个实现位于 `server/lib/agent-runtimes/adapters/<runtime-id>/`，其配置、传输、进程和 setup 支持面都留在该目录。setup 使用 `scripts/lib/agent-runtimes/types.ts` 的 `RuntimeSetupDriver`，Registry 只编排用户选择项。Canvas Runtime 事件消费位于 `server/lib/canvas/runtime-event-consumer.ts`，全局状态 SSE 位于 `server/lib/runtime-status-events.ts`。完整约束见 [`agent-runtimes/ADAPTER-DEVELOPMENT.md`](agent-runtimes/ADAPTER-DEVELOPMENT.md)。
+统一代码位于 `server/lib/agent-runtimes/{contract,manifest,configuration,definitions,registry,catalog,default-agent,usage-service}.ts`；无副作用 `manifest.ts` 是 Runtime ID/展示名支持清单，`configuration.ts` 负责选择和校验已配置 Runtime，`definitions.ts` 对清单逐项提供 Adapter 实例工厂。每个实现位于 `server/lib/agent-runtimes/adapters/<runtime-id>/`，其配置、传输、进程和 setup 支持面都留在该目录。`server/application-context.ts` 是进程组合根，显式创建 Registry 与 Canvas Store，并统一启动/关闭后台协调器与资源；Store 沿 Worker、投递、事件消费和 Reconciler 显式注入，不提供全局 Registry 单例。setup 使用 `scripts/lib/agent-runtimes/types.ts` 的 `RuntimeSetupDriver`，只编排用户选择项。Canvas Runtime 事件消费位于 `server/lib/canvas/runtime-event-consumer.ts`，全局状态 SSE 位于 `server/lib/runtime-status-events.ts`。完整约束见 [`agent-runtimes/ADAPTER-DEVELOPMENT.md`](agent-runtimes/ADAPTER-DEVELOPMENT.md)。
 
 ## 数据库迁移决策
 

@@ -1,9 +1,9 @@
 import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { getAgentRuntime } from './agent-runtimes/registry.js';
 import { config } from './config.js';
-import type { CanvasArtifact, CanvasAttachment, OwnedInteractionRecord } from './canvas-db.js';
+import type { AgentRuntimeResolver } from './canvas/application/ports.js';
+import type { CanvasArtifact, CanvasAttachment, OwnedInteractionRecord } from './canvas/model.js';
 
 export const CANVAS_ARTIFACT_MAX_BYTES = 25 * 1024 * 1024;
 const ARTIFACT_ID_PATTERN = /^[a-f0-9]{40}$/;
@@ -127,10 +127,11 @@ function externalUri(uri: string): boolean {
 async function loadSourceBytes(
   interaction: OwnedInteractionRecord,
   artifact: CanvasArtifact,
+  resolveRuntime: AgentRuntimeResolver,
 ): Promise<{ bytes: Uint8Array; mimeType?: string }> {
   const uri = artifactSourceUri(artifact);
   const runtimeId = interaction.runtimeId;
-  const runtime = getAgentRuntime(runtimeId);
+  const runtime = resolveRuntime(runtimeId);
   if (!interaction.conversationRef) throw new Error('Interaction has no Runtime conversation reference');
   const handle = artifact.runtimeArtifactRef || runtime.createArtifactHandle({
     sourceUri: uri,
@@ -200,6 +201,7 @@ async function persistedArtifactExists(interaction: OwnedInteractionRecord, arti
 export async function materializeCanvasArtifacts(
   interaction: OwnedInteractionRecord,
   extractedArtifacts: CanvasArtifact[],
+  resolveRuntime?: AgentRuntimeResolver,
 ): Promise<MaterializedCanvasArtifacts> {
   const existingBySource = new Map(interaction.artifacts.map((artifact) => [artifactSourceUri(artifact), artifact]));
   const artifacts: CanvasArtifact[] = [];
@@ -236,7 +238,8 @@ export async function materializeCanvasArtifacts(
     }
 
     try {
-      const loaded = await loadSourceBytes(interaction, extracted);
+      if (!resolveRuntime) throw new Error('Agent Runtime resolver is required to materialize this Artifact');
+      const loaded = await loadSourceBytes(interaction, extracted, resolveRuntime);
       artifacts.push(await persistBytes(interaction, extracted, sourceUri, loaded.bytes, loaded.mimeType));
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Artifact persistence failed';

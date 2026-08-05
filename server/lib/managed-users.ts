@@ -1,5 +1,6 @@
 import type { SessionPayload } from './session.js';
-import { getCanvasStore, type CanvasStore, type CanvasUserRecord } from './canvas-db.js';
+import { getCanvasStore, type CanvasStore } from './canvas/persistence/canvas-store.js';
+import type { CanvasUserRecord } from './canvas/model.js';
 import { verifyManagedTokenHash } from './session.js';
 
 export interface ManagedIdentity {

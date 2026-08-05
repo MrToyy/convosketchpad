@@ -115,9 +115,7 @@ export const openClawSetupDriver: RuntimeSetupDriver = {
     };
   },
 
-  async configureInteractive({ config, existing, detection, args }) {
-    const gatewayTimezone = args.options.gatewayTimezone;
-    validateTimezone(gatewayTimezone);
+  async configureInteractive({ config, existing, detection }) {
     const detected = details(detection);
     const nativeGateway = selectedGatewayConfig(existing, detected);
     if (detected.resolvedBinary) config.OPENCLAW_BIN = detected.resolvedBinary;
@@ -174,13 +172,12 @@ export const openClawSetupDriver: RuntimeSetupDriver = {
     }
     await verifyGateway(config);
 
-    if (gatewayTimezone) config.OPENCLAW_GATEWAY_TIMEZONE = gatewayTimezone;
     if (isRemoteGatewayUrl(config.OPENCLAW_GATEWAY_URL)) {
       dim('Canvas uses the Gateway timezone to predict OpenClaw daily session resets.');
       config.OPENCLAW_GATEWAY_TIMEZONE = (await input({
         theme: promptTheme,
         message: 'Gateway timezone',
-        default: gatewayTimezone || existing.OPENCLAW_GATEWAY_TIMEZONE || localIanaTimezone(),
+        default: existing.OPENCLAW_GATEWAY_TIMEZONE || localIanaTimezone(),
         validate: (value) => isValidIanaTimezone(value)
           ? true
           : 'Enter an IANA timezone such as Asia/Shanghai or America/New_York',
@@ -189,9 +186,7 @@ export const openClawSetupDriver: RuntimeSetupDriver = {
     return { followUpSteps: await configurePairing(config) };
   },
 
-  async configureDefaults({ config, detection, args }) {
-    const gatewayTimezone = args.options.gatewayTimezone;
-    validateTimezone(gatewayTimezone);
+  async configureDefaults({ config, detection }) {
     const detected = details(detection);
     const nativeGateway = selectedGatewayConfig(config, detected);
     if (detected.resolvedBinary) config.OPENCLAW_BIN = detected.resolvedBinary;
@@ -214,9 +209,7 @@ export const openClawSetupDriver: RuntimeSetupDriver = {
     } else {
       config.OPENCLAW_GATEWAY_URL ||= nativeGateway.url || DEFAULTS.OPENCLAW_GATEWAY_URL;
     }
-    if (gatewayTimezone) {
-      config.OPENCLAW_GATEWAY_TIMEZONE = gatewayTimezone;
-    } else if (isRemoteGatewayUrl(config.OPENCLAW_GATEWAY_URL) && !config.OPENCLAW_GATEWAY_TIMEZONE) {
+    if (isRemoteGatewayUrl(config.OPENCLAW_GATEWAY_URL) && !config.OPENCLAW_GATEWAY_TIMEZONE) {
       config.OPENCLAW_GATEWAY_TIMEZONE = localIanaTimezone();
       warn(`Remote Gateway detected; using Gateway timezone ${config.OPENCLAW_GATEWAY_TIMEZONE}`);
     }

@@ -1,12 +1,9 @@
-import { agentRuntimeRegistry } from './agent-runtimes/registry.js';
+import type { AgentRuntimeRegistry } from './agent-runtimes/registry.js';
 import { publicAggregatedRuntimeStatus } from './agent-runtimes/catalog.js';
-import {
-  getCanvasStore,
-  type InteractionRecord,
-  type SendReservation,
-} from './canvas-db.js';
+import type { CanvasStore } from './canvas/persistence/canvas-store.js';
+import type { InteractionRecord, SendReservation } from './canvas/model.js';
 import { rescanCanvasReconciliationCandidates } from './canvas-reconciler.js';
-import { canvasSendRetryWakeAt } from './canvas-send-retry.js';
+import { canvasSendRetryWakeAt } from './canvas/domain/send-retry.js';
 import { publishRuntimeEvent } from './runtime-status-events.js';
 import {
   canvasSendWorkerHasActiveDispatches,
@@ -22,19 +19,35 @@ let retryScanRunning = false;
 let retryScanRequested = false;
 let started = false;
 let unsubscribeRuntimeSubscriptions: Array<() => void> = [];
+let runtimeRegistry: AgentRuntimeRegistry | null = null;
+let configuredCanvasStore: CanvasStore | null = null;
+
+function runtimes(): AgentRuntimeRegistry {
+  if (!runtimeRegistry) throw new Error('Canvas send coordinator is not started');
+  return runtimeRegistry;
+}
+
+function canvasStore(): CanvasStore {
+  if (!configuredCanvasStore) throw new Error('Canvas send coordinator is not started');
+  return configuredCanvasStore;
+}
 
 function publishRuntimeStatuses(): void {
   publishRuntimeEvent({
     type: 'runtime.status_changed',
     payload: publicAggregatedRuntimeStatus(
-      agentRuntimeRegistry.list().map((runtime) => runtime.getStatus()),
+      runtimes().list().map((runtime) => runtime.getStatus()),
     ) as unknown as Record<string, unknown>,
   });
 }
 
 export async function dispatchCanvasSend(reservationId: string): Promise<SendReservation | InteractionRecord> {
   try {
-    return await runCanvasSendWorker(reservationId);
+    return await runCanvasSendWorker(
+      reservationId,
+      (runtimeId) => runtimes().get(runtimeId),
+      canvasStore(),
+    );
   } finally {
     scheduleNextRetryScan();
   }
@@ -52,7 +65,7 @@ async function retryDueSends(): Promise<void> {
   retryTimer = null;
   retryTimerAt = null;
   try {
-    const due = getCanvasStore().listDispatchableReservations()
+    const due = canvasStore().listDispatchableReservations()
       .filter((reservation) => !canvasSendWorkerIsActive(reservation.id));
     await Promise.all(due.map((reservation) => dispatchCanvasSend(reservation.id)));
   } finally {
@@ -70,7 +83,7 @@ async function retryDueSends(): Promise<void> {
 
 function scheduleNextRetryScan(): void {
   if (!started) return;
-  const nextAttemptAt = getCanvasStore().nextDispatchableReservationAt();
+  const nextAttemptAt = canvasStore().nextDispatchableReservationAt();
   const now = Date.now();
   const effectiveAttemptAt = canvasSendRetryWakeAt(
     nextAttemptAt,
@@ -91,11 +104,16 @@ function scheduleNextRetryScan(): void {
   retryTimer.unref?.();
 }
 
-export function startCanvasSendCoordinator(): void {
-  if (started) return;
+export function startCanvasSendCoordinator(registry: AgentRuntimeRegistry, store: CanvasStore): void {
+  if (started) {
+    if (runtimeRegistry === registry && configuredCanvasStore === store) return;
+    throw new Error('A Canvas send coordinator is already active in this process');
+  }
   started = true;
-  unsubscribeRuntimeSubscriptions = agentRuntimeRegistry.list().flatMap((runtime) => [
-    runtime.subscribeEvents(consumeCanvasRuntimeEvent),
+  runtimeRegistry = registry;
+  configuredCanvasStore = store;
+  unsubscribeRuntimeSubscriptions = registry.list().flatMap((runtime) => [
+    runtime.subscribeEvents((event) => consumeCanvasRuntimeEvent(store, event)),
     runtime.subscribeStatus((status) => {
       publishRuntimeStatuses();
       if (status.state === 'connected') {
@@ -118,4 +136,6 @@ export function stopCanvasSendCoordinator(): void {
   clearCanvasSendWorkerState();
   for (const unsubscribe of unsubscribeRuntimeSubscriptions) unsubscribe();
   unsubscribeRuntimeSubscriptions = [];
+  runtimeRegistry = null;
+  configuredCanvasStore = null;
 }

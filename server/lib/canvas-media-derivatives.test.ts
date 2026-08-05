@@ -17,7 +17,7 @@ async function setup() {
       gatewayToken: 'test-token',
     },
   }));
-  const db = await import('./canvas-db.js');
+  const db = await import('./canvas/persistence/canvas-store.js');
   const files = await import('./canvas-artifact-store.js');
   const media = await import('./canvas-media-derivatives.js');
   const store = new db.CanvasStore(path.join(tempRoot, 'canvas.sqlite'));

@@ -102,6 +102,6 @@ gh pr create --base main
 ## Canvas 变更的验证建议
 
 - Canvas UI/layout：运行 `src/features/canvas` 测试、TypeScript 检查和 lint。
-- Canvas DB/reconcile：运行 `server/lib/canvas-*.test.ts`。
-- Auth：运行 auth route、middleware、managed users、login failures、WS proxy 测试。
+- Canvas DB/domain/application：运行 `server/lib/canvas/**/*.test.ts`；涉及协调、文件或 OpenClaw 投影时再运行相关 `server/lib/canvas-*.test.ts` 与 Adapter 测试。
+- Auth：运行 auth route、middleware、managed users、login failures，以及 HTTP/SSE 会话撤销相关测试。
 - 大范围变更或复杂分支整合：运行 `npm test -- --run`、`npm run lint`、`npm run build`。

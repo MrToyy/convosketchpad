@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildReconciledInteractionUpdate } from './canvas-reconciliation-state.js';
+import { buildReconciledInteractionUpdate } from './reconciliation-state.js';
 
 const interaction = {
   executionState: 'running' as const,

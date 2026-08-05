@@ -29,12 +29,40 @@ describe('Agent Runtime architecture boundary', () => {
     expect(violations).toEqual([]);
   });
 
-  it('allows only definitions.ts to compose concrete Adapters at the Runtime root', () => {
+  it('keeps concrete Runtime implementations in definitions and pure validators in configuration', () => {
     const root = path.resolve('server/lib/agent-runtimes');
-    const importsAdapter = readdirSync(root)
+    const adapterImports = readdirSync(root)
       .filter((name) => name.endsWith('.ts') && !name.endsWith('.test.ts'))
-      .filter((name) => readFileSync(path.join(root, name), 'utf8').includes('./adapters/'));
+      .flatMap((name) => {
+        const source = readFileSync(path.join(root, name), 'utf8');
+        return source.includes('./adapters/') ? [{ name, source }] : [];
+      });
 
-    expect(importsAdapter).toEqual(['definitions.ts']);
+    expect(adapterImports.map(({ name }) => name)).toEqual(['configuration.ts', 'definitions.ts']);
+    expect(adapterImports.find(({ name }) => name === 'definitions.ts')?.source)
+      .toContain("./adapters/openclaw/index.js");
+    expect(adapterImports.find(({ name }) => name === 'configuration.ts')?.source)
+      .toContain("./adapters/openclaw/config.js");
+  });
+
+  it('keeps Canvas model and domain independent from transport, persistence, and Runtime composition', () => {
+    const files = [
+      path.resolve('server/lib/canvas/model.ts'),
+      ...typeScriptFiles(path.resolve('server/lib/canvas/domain')),
+    ];
+    const forbidden = [
+      '/routes/',
+      '/application/',
+      '/persistence/',
+      'agent-runtimes/registry',
+      'agent-runtimes/adapters/',
+      "from 'hono'",
+      "from 'node:sqlite'",
+    ];
+    const violations = files.flatMap((file) => {
+      const source = readFileSync(file, 'utf8');
+      return forbidden.filter((value) => source.includes(value)).map((value) => ({ file, value }));
+    });
+    expect(violations).toEqual([]);
   });
 });

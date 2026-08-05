@@ -3,7 +3,7 @@ import {
   autoLayoutCanvasNodes,
   canvasNodeBounds,
   type CanvasFlowNode,
-} from './CanvasNodes';
+} from './flow-model';
 import { EMPTY_CANVAS_DRAFT } from './constants';
 import {
   COMPOSER_NODE_WIDTH,

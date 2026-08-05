@@ -114,7 +114,7 @@ npm run build
 npm start
 ```
 
-`npm run setup` 会先探测并多选 Agent 运行端，再逐项配置连接，并从统一 Agent 目录选择新建 Canvas 的默认 Agent；随后配置访问方式和可选的受管用户认证。当前版本连接 OpenClaw Gateway；安装或启动本项目不会替代 Agent 运行端。
+`npm run setup` 会先探测并多选 Agent 运行端，再逐项配置连接，随后配置访问方式和可选的受管用户认证，最后从统一 Agent 目录选择新建 Canvas 的默认 Agent。当前版本连接 OpenClaw Gateway；安装或启动本项目不会替代 Agent 运行端。
 
 ### 开发调试
 
@@ -308,7 +308,7 @@ npm run build
 npm start
 ```
 
-`npm run setup` first detects and lets you select Agent Runtimes, configures each connection, and chooses the default Agent for new canvases from the unified catalog. It then configures access mode and optional managed-user authentication. The current release connects to OpenClaw Gateway; installing or starting this project does not replace the Agent Runtime.
+`npm run setup` first detects and lets you select Agent Runtimes, configures each connection, then configures access mode and optional managed-user authentication. Finally, it chooses the default Agent for new canvases from the unified catalog. The current release connects to OpenClaw Gateway; installing or starting this project does not replace the Agent Runtime.
 
 ### Development
 

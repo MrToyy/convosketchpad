@@ -1,12 +1,8 @@
-import type {
-  CanvasAttachment,
-  CanvasStore,
-  InteractionRecord,
-  SendReservation,
-} from './canvas-db.js';
-import type { AgentRuntime, AgentProfileRef } from './agent-runtimes/contract.js';
-import { getAgentRuntime } from './agent-runtimes/registry.js';
-import { dispatchCanvasSend } from './canvas-send-coordinator.js';
+import type { CanvasStore } from '../persistence/canvas-store.js';
+import type { CanvasAttachment, InteractionRecord, SendReservation } from '../model.js';
+import type { AgentRuntime, AgentProfileRef } from '../../agent-runtimes/contract.js';
+import { dispatchCanvasSend } from '../../canvas-send-coordinator.js';
+import { CanvasApplicationError } from './errors.js';
 
 export interface SubmitCanvasSendCommand {
   branchId: string;
@@ -31,37 +27,27 @@ export type SubmitCanvasSendResult =
     status: 422 | 503;
   };
 
-export class CanvasSendApplicationError extends Error {
-  readonly code: string;
-  readonly status: 404 | 409 | 422;
-  readonly publicMessage: string;
-
-  constructor(code: string, status: 404 | 409 | 422, publicMessage = code) {
-    super(code);
-    this.name = 'CanvasSendApplicationError';
-    this.code = code;
-    this.status = status;
-    this.publicMessage = publicMessage;
-  }
-}
+export class CanvasSendApplicationError extends CanvasApplicationError {}
 
 interface CanvasSendServiceDependencies {
   store: CanvasStore;
   runtime?: AgentRuntime;
-  runtimeResolver?: typeof getAgentRuntime;
+  runtimeResolver?: (runtimeId: string) => AgentRuntime;
   dispatch?: typeof dispatchCanvasSend;
 }
 
 export class CanvasSendService {
   private readonly store: CanvasStore;
   private readonly runtime?: AgentRuntime;
-  private readonly runtimeResolver: typeof getAgentRuntime;
+  private readonly runtimeResolver: (runtimeId: string) => AgentRuntime;
   private readonly dispatch: typeof dispatchCanvasSend;
 
   constructor(dependencies: CanvasSendServiceDependencies) {
     this.store = dependencies.store;
     this.runtime = dependencies.runtime;
-    this.runtimeResolver = dependencies.runtimeResolver || getAgentRuntime;
+    this.runtimeResolver = dependencies.runtimeResolver || (() => {
+      throw new Error('runtime_resolver_not_configured');
+    });
     this.dispatch = dependencies.dispatch || dispatchCanvasSend;
   }
 

@@ -17,13 +17,10 @@ import {
   Bot,
   Loader2,
   Network,
-  PanelLeftClose,
   PanelLeftOpen,
-  Pencil,
   Plus,
   RefreshCw,
   Sparkles,
-  Trash2,
   X,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -32,12 +29,13 @@ import { useRuntime } from '@/contexts/RuntimeContext';
 import { useSettings } from '@/contexts/SettingsContext';
 import { canvasApi, persistCanvasFiles } from './api';
 import { CanvasLocalizedError, canvasErrorMessage, getCanvasCopy, type CanvasCopy } from './messages';
+import { CanvasSidebar } from './CanvasSidebar';
+import { canvasNodeTypes } from './node-types';
 import {
   autoLayoutCanvasNodes,
   canvasNodeBounds,
-  canvasNodeTypes,
   type CanvasFlowNode,
-} from './CanvasNodes';
+} from './flow-model';
 import { EMPTY_CANVAS_DRAFT } from './constants';
 import {
   contextForComposerSource,
@@ -653,48 +651,21 @@ export function CanvasPanel({ onStatusStatsChange }: { onStatusStatsChange?: (st
   return (
     <div lang={language} className="flex h-full min-h-0 w-full overflow-hidden bg-background">
       {canvasListVisible && (
-        <aside className="flex w-64 shrink-0 flex-col border-r border-border/75 bg-card/65 p-3">
-          <div className="flex items-center justify-between gap-2 px-1 py-2">
-            <div className="text-xs font-semibold uppercase tracking-[0.2em] text-primary">{copy.canvasList}</div>
-            <div className="flex items-center gap-1">
-              <Button size="icon" variant="ghost" onClick={() => setCanvasListVisible(false)} title={copy.hideCanvasList} aria-label={copy.hideCanvasList}><PanelLeftClose size={15} /></Button>
-              <Button size="icon" variant="outline" onClick={() => void createCanvas()} title={copy.newCanvas}><Plus size={15} /></Button>
-            </div>
-          </div>
-          <div className="mt-2 grid gap-2 overflow-y-auto">
-            {canvases.map((canvas) => (
-              <div key={canvas.id} className={`group flex items-center gap-1 rounded-2xl border p-1 ${selectedId === canvas.id ? 'border-primary/40 bg-primary/8' : 'border-transparent hover:bg-secondary/70'}`}>
-                {editingCanvasId === canvas.id ? (
-                  <div className="min-w-0 flex-1 px-2 py-1.5">
-                    <input
-                      autoFocus
-                      value={editingCanvasName}
-                      onChange={(event) => setEditingCanvasName(event.target.value)}
-                      onBlur={() => void renameCanvas(canvas)}
-                      onKeyDown={(event) => {
-                        if (event.key === 'Enter') event.currentTarget.blur();
-                        if (event.key === 'Escape') setEditingCanvasId(null);
-                      }}
-                      maxLength={120}
-                      aria-label={copy.renameCanvas(canvas.name)}
-                      className="w-full rounded-lg border border-primary/45 bg-background px-2 py-1 text-sm outline-none focus:ring-1 focus:ring-primary"
-                    />
-                    <div className="mt-1 px-1 text-[0.667rem] text-muted-foreground">{copy.renameHint}</div>
-                  </div>
-                ) : (
-                  <button type="button" onClick={() => setSelectedId(canvas.id)} onDoubleClick={() => { setEditingCanvasId(canvas.id); setEditingCanvasName(canvas.name); }} className="min-w-0 flex-1 rounded-xl px-3 py-2 text-left">
-                    <div className="truncate text-sm font-medium">{canvas.name}</div>
-                    <div className="mt-1 text-[0.667rem] text-muted-foreground">{new Date(canvas.updatedAt).toLocaleDateString(language)}</div>
-                  </button>
-                )}
-                {editingCanvasId !== canvas.id && (
-                  <button type="button" onClick={() => { setEditingCanvasId(canvas.id); setEditingCanvasName(canvas.name); }} className="p-2 text-muted-foreground opacity-0 hover:text-foreground group-hover:opacity-100" aria-label={copy.renameCanvas(canvas.name)} title={copy.renameCanvas(canvas.name)}><Pencil size={14} /></button>
-                )}
-                <button type="button" onClick={() => void deleteCanvas(canvas)} className="p-2 text-muted-foreground opacity-0 hover:text-destructive group-hover:opacity-100" aria-label={copy.deleteCanvas(canvas.name)} title={copy.deleteCanvas(canvas.name)}><Trash2 size={14} /></button>
-              </div>
-            ))}
-          </div>
-        </aside>
+        <CanvasSidebar
+          canvases={canvases}
+          selectedId={selectedId}
+          language={language}
+          copy={copy}
+          editingCanvasId={editingCanvasId}
+          editingCanvasName={editingCanvasName}
+          onEditingCanvasNameChange={setEditingCanvasName}
+          onEditingCanvasIdChange={setEditingCanvasId}
+          onSelect={setSelectedId}
+          onRename={(canvas) => { void renameCanvas(canvas); }}
+          onDelete={(canvas) => { void deleteCanvas(canvas); }}
+          onCreate={() => { void createCanvas(); }}
+          onHide={() => setCanvasListVisible(false)}
+        />
       )}
 
       <main className="relative min-w-0 flex-1">

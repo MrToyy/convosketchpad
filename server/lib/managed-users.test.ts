@@ -2,7 +2,8 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { CanvasStore } from './canvas-db.js';
+import { CanvasStore } from './canvas/persistence/canvas-store.js';
+import { testConversationHandleFactory } from './fixtures/test-conversation-handle.js';
 import { authenticateManagedToken, resolveManagedSession } from './managed-users.js';
 import { createManagedUser, rotateManagedToken } from './user-management.js';
 
@@ -12,7 +13,9 @@ const dirs: string[] = [];
 function createStore(): CanvasStore {
   const dir = mkdtempSync(path.join(tmpdir(), 'convosketchpad-users-'));
   dirs.push(dir);
-  const store = new CanvasStore(path.join(dir, 'canvas.sqlite'));
+  const store = new CanvasStore(path.join(dir, 'canvas.sqlite'), {
+    createConversationHandle: testConversationHandleFactory,
+  });
   stores.push(store);
   return store;
 }

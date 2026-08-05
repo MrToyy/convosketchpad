@@ -27,7 +27,7 @@
 | Cookie 签名、解析、Token hash | [`server/lib/session.ts`](../../server/lib/session.ts) | [`server/lib/config.ts`](../../server/lib/config.ts) |
 | Token 验证、Cookie 用户解析、状态/version 复查 | [`server/lib/managed-users.ts`](../../server/lib/managed-users.ts) | [`server/lib/managed-users.test.ts`](../../server/lib/managed-users.test.ts) |
 | 用户创建、随机 Token、轮换和唯一性 | [`server/lib/user-management.ts`](../../server/lib/user-management.ts) | [`bin/convosketchpad-users.ts`](../../bin/convosketchpad-users.ts) |
-| 用户表、状态、Token version、首用户接管 | [`server/lib/canvas-db.ts`](../../server/lib/canvas-db.ts) | [`server/lib/canvas-db.test.ts`](../../server/lib/canvas-db.test.ts) |
+| 用户表、状态、Token version、首用户接管 | [`server/lib/canvas/persistence/canvas-store.ts`](../../server/lib/canvas/persistence/canvas-store.ts) | [`server/lib/canvas/persistence/canvas-store.test.ts`](../../server/lib/canvas/persistence/canvas-store.test.ts) |
 | 登录失败次数和 IP 锁定 | [`server/lib/login-failures.ts`](../../server/lib/login-failures.ts) | [`server/lib/login-failures.test.ts`](../../server/lib/login-failures.test.ts) |
 | Canvas owner 解析 | [`server/lib/canvas-auth.ts`](../../server/lib/canvas-auth.ts) | [`server/routes/canvas.ts`](../../server/routes/canvas.ts) |
 | Runtime/Canvas SSE 与运行中会话撤销 | [`server/routes/runtime.ts`](../../server/routes/runtime.ts)、[`server/routes/canvas.ts`](../../server/routes/canvas.ts) | [`server/middleware/auth.test.ts`](../../server/middleware/auth.test.ts) |

@@ -1,6 +1,5 @@
 import type { AgentRuntime, RuntimeHandle } from './agent-runtimes/contract.js';
-import { getAgentRuntime } from './agent-runtimes/registry.js';
-import type { InteractionContextSnapshot } from './canvas-db.js';
+import type { InteractionContextSnapshot } from './canvas/model.js';
 
 export interface InteractionCompletionConversation {
   conversationInstanceId: string;
@@ -10,9 +9,10 @@ export interface InteractionCompletionConversation {
 export async function captureInteractionCompletionSession(
   conversationRef: RuntimeHandle,
   expectedInstanceId?: string,
-  runtime: Pick<AgentRuntime, 'inspectConversation'> = getAgentRuntime(conversationRef.runtimeId),
+  runtime?: Pick<AgentRuntime, 'inspectConversation'>,
   capturedAt = Date.now(),
 ): Promise<InteractionCompletionConversation | null> {
+  if (!runtime) throw new Error('Agent Runtime is required to capture a conversation snapshot');
   const snapshot = await runtime.inspectConversation(conversationRef);
   if (!snapshot?.exists || !snapshot.instanceId) return null;
   if (expectedInstanceId !== undefined && snapshot.instanceId !== expectedInstanceId) return null;
@@ -38,7 +38,7 @@ export async function captureInteractionCompletionSession(
 export async function captureInteractionContextSnapshot(
   conversationRef: RuntimeHandle,
   expectedInstanceId?: string,
-  runtime: Pick<AgentRuntime, 'inspectConversation'> = getAgentRuntime(conversationRef.runtimeId),
+  runtime?: Pick<AgentRuntime, 'inspectConversation'>,
   capturedAt = Date.now(),
 ): Promise<InteractionContextSnapshot | null> {
   return (await captureInteractionCompletionSession(

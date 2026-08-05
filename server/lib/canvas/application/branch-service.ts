@@ -1,7 +1,5 @@
-import {
-  type BranchRecord,
-  type CanvasStore,
-} from './canvas-db.js';
+import type { CanvasStore } from '../persistence/canvas-store.js';
+import type { BranchRecord } from '../model.js';
 
 export class CanvasBranchService {
   private readonly store: CanvasStore;

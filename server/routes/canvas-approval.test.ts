@@ -28,30 +28,23 @@ async function setup() {
     rateLimitGeneral: async (_context: unknown, next: () => Promise<void>) => next(),
   }));
   vi.doMock('../lib/canvas-send-coordinator.js', () => ({ dispatchCanvasSend: vi.fn() }));
-  vi.doMock('../lib/agent-runtimes/registry.js', () => {
-    const runtime = {
-      resolveApproval: mocks.resolveApproval,
-      createConversationHandle: ({ localConversationId }: { localConversationId: string }) => ({
-        runtimeId: 'openclaw',
-        schemaVersion: 1,
-        opaque: { sessionKey: `agent:main:canvas:${localConversationId}` },
-      }),
-    };
-    return {
-      agentRuntimeRegistry: { get: () => runtime, list: () => [] },
-      getAgentRuntime: () => runtime,
-    };
-  });
-
-  const db = await import('../lib/canvas-db.js');
+  const db = await import('../lib/canvas/persistence/canvas-store.js');
+  const { testConversationHandleFactory } = await import('../lib/fixtures/test-conversation-handle.js');
+  db.getCanvasStore(testConversationHandleFactory);
   const route = await import('./canvas.js');
   const app = new Hono();
-  app.route('/', route.default);
+  const runtime = {
+    resolveApproval: mocks.resolveApproval,
+  };
+  app.route('/', route.createCanvasRoutes({
+    store: db.getCanvasStore(),
+    runtimes: { get: () => runtime, list: () => [] } as never,
+  }));
   resetStore = db.resetCanvasStoreForTests;
   return { app, db };
 }
 
-function seedApproval(db: typeof import('../lib/canvas-db.js')) {
+function seedApproval(db: typeof import('../lib/canvas/persistence/canvas-store.js')) {
   const store = db.getCanvasStore();
   store.ensureUser('owner-a', 'Owner A');
   const canvas = store.createCanvas('owner-a', 'Canvas', { runtimeId: 'openclaw', profileId: 'main' });

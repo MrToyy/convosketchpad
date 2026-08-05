@@ -1,7 +1,7 @@
 import type {
   CanonicalCanvasSnapshot,
   CanvasContextResource,
-} from './canvas-domain.js';
+} from './send-policy.js';
 
 interface HistoryAttachment {
   contentHash?: string;

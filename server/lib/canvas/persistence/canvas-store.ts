@@ -10,298 +10,55 @@ import {
   type ApprovalPermission,
   type ApprovalResolution,
   type ApprovalSummary,
-} from './agent-runtimes/contract.js';
-import { getAgentRuntime } from './agent-runtimes/registry.js';
-import { buildCanvasReplayPlan } from './canvas-replay-plan.js';
+} from '../../agent-runtimes/contract.js';
+import type { ConversationHandleFactory } from '../application/ports.js';
+import type {
+  ArtifactSyncState,
+  BranchConversationIntegrity,
+  BranchConversationLifecycle,
+  BranchConversationState,
+  BranchCreationMode,
+  BranchKind,
+  BranchRecord,
+  BranchRuntimeContext,
+  CanvasArtifact,
+  CanvasAttachment,
+  CanvasGraph,
+  CanvasMediaBackfillSource,
+  CanvasMediaDerivative,
+  CanvasMediaDerivativePurpose,
+  CanvasRecord,
+  CanvasSyncBatch,
+  CanvasUserRecord,
+  CanvasUserStatus,
+  DispatchableSendReservation,
+  InteractionApprovalRecord,
+  InteractionApprovalStatus,
+  InteractionContextSnapshot,
+  InteractionExecutionState,
+  InteractionRecord,
+  InteractionStatus,
+  OwnedInteractionApprovalResolution,
+  OwnedInteractionRecord,
+  SendReservation,
+  StoredRuntimeEvent,
+} from '../model.js';
+import { buildCanvasReplayPlan } from '../domain/replay-plan.js';
 import {
   decideCanvasSendPlan,
   type CanonicalCanvasSnapshot,
   type CanvasContextResource,
   type SendDispatchState,
   type SendMaterialization,
-} from './canvas-domain.js';
-import { assembleCanonicalCanvasSnapshot } from './canvas-history-snapshot.js';
-import { config } from './config.js';
-import { applySingleChainSchemaMigration } from './canvas-migrations.js';
-import { packageMetadata } from './package-metadata.js';
+} from '../domain/send-policy.js';
+import { assembleCanonicalCanvasSnapshot } from '../domain/history-snapshot.js';
+import { config } from '../../config.js';
+import { applySingleChainSchemaMigration } from './migrations/v020-to-v030.js';
+import { packageMetadata } from '../../package-metadata.js';
 import {
   createCurrentCanvasSchema,
   ensureGenericAgentRuntimeSchema,
-} from './canvas-agent-runtime-schema.js';
-
-export type BranchKind = 'root' | 'fork';
-export type BranchConversationState = 'draft' | 'active';
-export type BranchCreationMode = 'composer' | 'direct-submit';
-export type InteractionStatus = 'streaming' | 'completed' | 'failed';
-export type InteractionExecutionState = 'running' | 'completed' | 'failed' | 'unconfirmed';
-export type ArtifactSyncState = 'not_started' | 'observing' | 'synced' | 'degraded';
-export type { CanvasContextResource, SendDispatchState, SendMaterialization } from './canvas-domain.js';
-export type BranchConversationIntegrity = 'unknown' | 'healthy' | 'drifted';
-export type CanvasUserStatus = 'active' | 'disabled' | 'unmanaged';
-
-export interface CanvasUserRecord {
-  id: string;
-  displayName: string;
-  tokenHash: string | null;
-  tokenVersion: number;
-  status: CanvasUserStatus;
-  canvasCount: number;
-  createdAt: number;
-  updatedAt: number;
-}
-
-export interface CanvasRecord {
-  id: string;
-  name: string;
-  agentRef: AgentProfileRef;
-  agentMutable: boolean;
-  createdAt: number;
-  updatedAt: number;
-}
-
-export interface BranchRecord {
-  id: string;
-  canvasId: string;
-  kind: BranchKind;
-  parentBranchId: string | null;
-  forkedFromInteractionId: string | null;
-  conversationId: string;
-  conversationInstanceId: string | null;
-  observedConversationInstanceId: string | null;
-  conversationIntegrity: BranchConversationIntegrity;
-  conversationState: BranchConversationState;
-  creationMode: BranchCreationMode;
-  headInteractionId: string | null;
-  createdAt: number;
-  updatedAt: number;
-}
-
-export interface InteractionContextSnapshot {
-  usedTokens: number;
-  contextLimit: number;
-  conversationInstanceId: string;
-  model?: string;
-  provider?: string;
-  compactionCount?: number;
-  capturedAt: number;
-  source: 'agent-runtime';
-  runtimeId: string;
-  conversationRef?: RuntimeHandle;
-}
-
-export interface InteractionRecord {
-  id: string;
-  version: number;
-  branchId: string;
-  parentInteractionId: string | null;
-  runtimeTurnId: string | null;
-  turnRef?: RuntimeHandle | null;
-  userInput: string;
-  agentOutput: string;
-  status: InteractionStatus;
-  executionState: InteractionExecutionState;
-  artifactSyncState: ArtifactSyncState;
-  terminalAt: number | null;
-  error: string | null;
-  attachments: CanvasAttachment[];
-  artifacts: CanvasArtifact[];
-  approvals: InteractionApprovalRecord[];
-  executionMetadata: Record<string, unknown>;
-  contextSnapshot: InteractionContextSnapshot | null;
-  createdAt: number;
-  updatedAt: number;
-}
-
-export type InteractionApprovalStatus =
-  | 'pending'
-  | 'resolving'
-  | 'resolved'
-  | 'denied'
-  | 'expired'
-  | 'unconfirmed';
-
-export interface InteractionApprovalRecord {
-  id: string;
-  interactionId: string;
-  runtimeId: string;
-  approvalRef: RuntimeHandle;
-  category: ApprovalSummary['category'];
-  title: string;
-  description?: string;
-  risk: ApprovalSummary['risk'];
-  permissions: ApprovalPermission[];
-  choices: ApprovalChoice[];
-  expiresAt: number | null;
-  status: InteractionApprovalStatus;
-  resolution: ApprovalResolution | null;
-  resolvedBy: string | null;
-  resolvedAt: number | null;
-  error: string | null;
-  createdAt: number;
-  updatedAt: number;
-}
-
-export interface OwnedInteractionApprovalResolution {
-  approval: InteractionApprovalRecord;
-  ownerId: string;
-  canvasId: string;
-}
-
-export interface OwnedInteractionRecord extends InteractionRecord {
-  ownerId: string;
-  canvasId: string;
-  conversationId: string;
-  runtimeId: string;
-  agentProfileId: string;
-  conversationRef?: RuntimeHandle;
-  conversationInstanceId: string | null;
-  observedConversationInstanceId: string | null;
-  conversationIntegrity: BranchConversationIntegrity;
-}
-
-export interface CanvasAttachment {
-  id?: string;
-  contentHash?: string;
-  name: string;
-  mimeType: string;
-  sizeBytes: number;
-  uri?: string;
-  thumbnailUri?: string;
-  sourceUri?: string;
-  storage?: 'canvas' | 'source';
-  available?: boolean;
-  warning?: string;
-}
-
-export interface CanvasArtifact {
-  id?: string;
-  contentHash?: string;
-  runtimeArtifactId?: string;
-  runtimeArtifactRef?: RuntimeHandle;
-  name: string;
-  mimeType?: string;
-  sizeBytes?: number;
-  uri: string;
-  thumbnailUri?: string;
-  sourceUri?: string;
-  storage?: 'canvas' | 'external' | 'source';
-  available?: boolean;
-  warning?: string;
-}
-
-export interface CanvasGraph {
-  cursor: number;
-  canvas: CanvasRecord;
-  branches: BranchRecord[];
-  interactions: InteractionRecord[];
-  layout: {
-    nodes: Record<string, {
-      x: number;
-      y: number;
-      width?: number;
-      height?: number;
-    }>;
-    viewport?: { x: number; y: number; zoom: number };
-  } | null;
-  pendingSends: SendReservation[];
-  failedSends: SendReservation[];
-}
-
-export interface CanvasSyncBatch {
-  cursor: number;
-  canvas?: CanvasRecord;
-  branches: BranchRecord[];
-  interactions: InteractionRecord[];
-  sendOperations: SendReservation[];
-  removed: {
-    branchIds: string[];
-    interactionIds: string[];
-    sendOperationIds: string[];
-  };
-}
-
-export interface StoredRuntimeEvent {
-  eventKey: string;
-  runtimeId: string;
-  conversationRef: RuntimeHandle | null;
-  turnRef: RuntimeHandle | null;
-  event: RuntimeEvent;
-  createdAt: number;
-}
-
-export interface SendReservation {
-  id: string;
-  branchId: string;
-  expectedHeadInteractionId: string | null;
-  userInput: string;
-  attachments: CanvasAttachment[];
-  materialization: SendMaterialization;
-  conversationId: string;
-  runtimeId: string;
-  conversationRef?: RuntimeHandle;
-  dispatchRecoveryRef?: RuntimeHandle | null;
-  outgoingMessage: string;
-  snapshotVersion?: number;
-  bootstrapResources: CanvasContextResource[];
-  status: 'prepared' | 'acknowledged' | 'failed';
-  dispatchState: SendDispatchState;
-  attemptCount: number;
-  lastAttemptAt: number | null;
-  nextAttemptAt: number | null;
-  error: string | null;
-  interactionId: string | null;
-  createdAt: number;
-  updatedAt: number;
-}
-
-export interface DispatchableSendReservation extends SendReservation {
-  ownerId: string;
-  canvasId: string;
-  agentProfileId: string;
-}
-
-export type CanvasMediaDerivativePurpose = 'delivery' | 'thumbnail';
-
-export interface CanvasMediaDerivative {
-  canvasId: string;
-  sourceContentHash: string;
-  purpose: CanvasMediaDerivativePurpose;
-  policyVersion: string;
-  derivativeId: string;
-  mimeType: string;
-  sizeBytes: number;
-  width: number;
-  height: number;
-  createdAt: number;
-  updatedAt: number;
-}
-
-export interface CanvasMediaBackfillSource {
-  kind: 'attachment' | 'artifact';
-  ownerId: string;
-  canvasId: string;
-  interactionId?: string;
-  sourceId: string;
-  name: string;
-  mimeType: string;
-  contentHash?: string;
-}
-
-export interface BranchConversationLifecycle {
-  conversationStartedAt: number | null;
-  observedConversationStartedAt: number | null;
-  lastInteractionAt: number | null;
-}
-
-export interface BranchRuntimeContext {
-  runtimeId: string;
-  agentProfileId: string;
-  conversationRef: RuntimeHandle;
-  observedConversationRef: RuntimeHandle | null;
-  conversationStartedAt: number | null;
-  observedConversationStartedAt: number | null;
-  lastInteractionAt: number | null;
-}
+} from './agent-runtime-schema.js';
 
 type SqlRow = Record<string, unknown>;
 
@@ -471,8 +228,13 @@ function mapOwnedInteraction(row: SqlRow): OwnedInteractionRecord {
 
 export class CanvasStore {
   readonly db: DatabaseSync;
+  private readonly createConversationHandle?: ConversationHandleFactory;
 
-  constructor(databasePath = config.canvasDatabasePath) {
+  constructor(
+    databasePath = config.canvasDatabasePath,
+    dependencies: { createConversationHandle?: ConversationHandleFactory } = {},
+  ) {
+    this.createConversationHandle = dependencies.createConversationHandle;
     mkdirSync(path.dirname(databasePath), { recursive: true });
     this.db = new DatabaseSync(databasePath);
     this.db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
@@ -481,6 +243,13 @@ export class CanvasStore {
 
   close(): void {
     this.db.close();
+  }
+
+  private conversationHandle(profile: AgentProfileRef, localConversationId: string): RuntimeHandle {
+    if (!this.createConversationHandle) {
+      throw new Error('conversation_handle_factory_not_configured');
+    }
+    return this.createConversationHandle({ profile, localConversationId });
   }
 
   private migrate(): void {
@@ -1079,10 +848,7 @@ export class CanvasStore {
       );
       for (const branch of draftBranches) {
         const branchId = asString(branch.id);
-        const conversationRef = getAgentRuntime(agentRef.runtimeId).createConversationHandle({
-          profile: agentRef,
-          localConversationId: branchId,
-        });
+        const conversationRef = this.conversationHandle(agentRef, branchId);
         const conversationId = branchId;
         updateBranch.run(conversationId, JSON.stringify(conversationRef), now, branchId);
       }
@@ -1115,10 +881,7 @@ export class CanvasStore {
   ): BranchRecord {
     const id = randomUUID();
     const now = Date.now();
-    const conversationRef = getAgentRuntime(agentRef.runtimeId).createConversationHandle({
-      profile: agentRef,
-      localConversationId: id,
-    });
+    const conversationRef = this.conversationHandle(agentRef, id);
     const conversationId = id;
     this.db.prepare(`INSERT INTO branches
       (id, canvas_id, kind, parent_branch_id, forked_from_interaction_id, conversation_id,
@@ -2227,8 +1990,30 @@ export class CanvasStore {
     if (!row) return null;
     const approval = mapInteractionApproval(row);
     const choice = approval.choices.find((candidate) => candidate.id === resolution.choiceId);
-    const status: InteractionApprovalStatus = choice?.intent === 'deny' ? 'denied' : 'resolved';
+    const requestedPermissionIds = new Set(approval.permissions.map((permission) => permission.id));
+    const grantedPermissionIds = resolution.grantedPermissionIds || [];
+    const invalidResolution = !choice
+      || grantedPermissionIds.some((permissionId) => !requestedPermissionIds.has(permissionId))
+      || (choice.intent === 'deny' && grantedPermissionIds.length > 0);
     const now = Date.now();
+    if (invalidResolution) {
+      this.db.prepare(`UPDATE interaction_approvals SET status = 'unconfirmed', resolution_json = ?,
+        resolved_by = ?, resolved_at = NULL, error = 'approval_resolution_invalid', updated_at = ?
+        WHERE id = ?`).run(
+        JSON.stringify(resolution),
+        resolvedBy || null,
+        now,
+        approval.id,
+      );
+      return {
+        approval: mapInteractionApproval(
+          this.db.prepare('SELECT * FROM interaction_approvals WHERE id = ?').get(approval.id) as SqlRow,
+        ),
+        ownerId: asString(row.owner_id),
+        canvasId: asString(row.canvas_id),
+      };
+    }
+    const status: InteractionApprovalStatus = choice?.intent === 'deny' ? 'denied' : 'resolved';
     this.db.prepare(`UPDATE interaction_approvals SET status = ?, resolution_json = ?,
       resolved_by = ?, resolved_at = ?, error = NULL, updated_at = ? WHERE id = ?`).run(
       status,
@@ -2425,8 +2210,8 @@ function rowValue(row: SqlRow, key: string): unknown {
 
 let store: CanvasStore | null = null;
 
-export function getCanvasStore(): CanvasStore {
-  store ||= new CanvasStore();
+export function getCanvasStore(createConversationHandle?: ConversationHandleFactory): CanvasStore {
+  store ||= new CanvasStore(config.canvasDatabasePath, { createConversationHandle });
   return store;
 }
 

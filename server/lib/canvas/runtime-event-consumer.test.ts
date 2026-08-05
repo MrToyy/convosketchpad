@@ -26,7 +26,9 @@ async function setup() {
     publishCanvasChanged: mocks.publishChanged,
     publishCanvasPreview: mocks.publishPreview,
   }));
-  const db = await import('../canvas-db.js');
+  const db = await import('./persistence/canvas-store.js');
+  const { testConversationHandleFactory } = await import('../fixtures/test-conversation-handle.js');
+  db.getCanvasStore(testConversationHandleFactory);
   const consumer = await import('./runtime-event-consumer.js');
   resetStore = db.resetCanvasStoreForTests;
   return { db, consumer };
@@ -64,8 +66,8 @@ describe('Canvas Runtime event consumer', () => {
       createdAt: 1,
     };
 
-    consumer.handleCanvasRuntimeEvent(event);
-    consumer.handleCanvasRuntimeEvent(event);
+    consumer.handleCanvasRuntimeEvent(store, event);
+    consumer.handleCanvasRuntimeEvent(store, event);
 
     expect(mocks.signalTerminal).toHaveBeenCalledOnce();
     expect(mocks.signalTerminal).toHaveBeenCalledWith(interaction.id, 'owner-a', {});
@@ -79,7 +81,7 @@ describe('Canvas Runtime event consumer', () => {
     const store = db.getCanvasStore();
 
     for (const runtimeId of ['openclaw', 'codex']) {
-      consumer.handleCanvasRuntimeEvent({
+      consumer.handleCanvasRuntimeEvent(store, {
         runtimeId,
         eventId: 'shared-native-id',
         type: 'turn.completed',
@@ -105,7 +107,7 @@ describe('Canvas Runtime event consumer', () => {
     const activeTurn = { runtimeId: 'openclaw', schemaVersion: 1, opaque: { runId: 'active' } };
     store.acknowledgeSend('owner-a', reservation.id, null, [], activeTurn);
 
-    consumer.handleCanvasRuntimeEvent({
+    consumer.handleCanvasRuntimeEvent(store, {
       runtimeId: 'openclaw',
       eventId: 'old-terminal',
       type: 'turn.completed',
@@ -128,7 +130,7 @@ describe('Canvas Runtime event consumer', () => {
     const branch = store.createRootBranch('owner-a', canvas.id);
     const reservation = store.prepareSend('owner-a', { branchId: branch.id, userInput: 'run', attachments: [] });
     const turnRef = { runtimeId: 'openclaw', schemaVersion: 1, opaque: { runId: 'run-approval' } };
-    consumer.handleCanvasRuntimeEvent({
+    consumer.handleCanvasRuntimeEvent(store, {
       runtimeId: 'openclaw',
       eventId: 'approval-1',
       type: 'approval.required',
@@ -148,7 +150,7 @@ describe('Canvas Runtime event consumer', () => {
     });
     const interaction = store.acknowledgeSend('owner-a', reservation.id, null, [], turnRef);
 
-    consumer.registerCanvasInteraction(reservation, interaction, turnRef);
+    consumer.registerCanvasInteraction(store, reservation, interaction, turnRef);
 
     expect(store.getOwnedInteraction('owner-a', interaction.id)?.approvals).toEqual([
       expect.objectContaining({ title: 'Execute command', status: 'pending' }),
@@ -177,7 +179,7 @@ describe('Canvas Runtime event consumer', () => {
     store.db.prepare("UPDATE interactions SET execution_state = 'completed', status = 'completed' WHERE id = ?")
       .run(interaction.id);
 
-    consumer.handleCanvasRuntimeEvent({
+    consumer.handleCanvasRuntimeEvent(store, {
       runtimeId: 'openclaw',
       eventId: 'approval-resolved-late',
       type: 'approval.resolved',
@@ -196,11 +198,66 @@ describe('Canvas Runtime event consumer', () => {
       .get('openclaw:approval-resolved-late')).toEqual({ processed_at: expect.any(Number) });
   });
 
+  it('keeps invalid native approval resolutions unconfirmed', async () => {
+    const { db, consumer } = await setup();
+    const store = db.getCanvasStore();
+    store.ensureUser('owner-a', 'Owner A');
+    const canvas = store.createCanvas('owner-a', 'Canvas', { runtimeId: 'openclaw', profileId: 'main' });
+    const branch = store.createRootBranch('owner-a', canvas.id);
+    const reservation = store.prepareSend('owner-a', { branchId: branch.id, userInput: 'run', attachments: [] });
+    const turnRef = { runtimeId: 'openclaw', schemaVersion: 1, opaque: { runId: 'run-invalid-approval' } };
+    const interaction = store.acknowledgeSend('owner-a', reservation.id, null, [], turnRef);
+
+    for (const [approvalId, resolution] of [
+      ['unknown-choice', { choiceId: 'not-declared' }],
+      ['extra-permission', { choiceId: 'allow-once', grantedPermissionIds: ['admin'] }],
+    ] as const) {
+      const approvalRef = {
+        runtimeId: 'openclaw',
+        schemaVersion: 1,
+        opaque: { approvalId },
+      };
+      store.recordInteractionApproval(interaction.id, 'openclaw', approvalRef, {
+        category: 'command',
+        title: 'Execute command',
+        risk: 'high',
+        permissions: [{ id: 'execute', label: 'Execute' }],
+        choices: [{
+          id: 'allow-once', intent: 'grant', scope: 'item', label: 'Allow once', requiresConfirmation: false,
+        }],
+      });
+      consumer.handleCanvasRuntimeEvent(store, {
+        runtimeId: 'openclaw',
+        eventId: `approval-invalid-${approvalId}`,
+        type: 'approval.resolved',
+        conversationRef: reservation.conversationRef || undefined,
+        turnRef,
+        approvalRef,
+        resolution,
+        resolvedBy: 'runtime',
+        createdAt: 4,
+      });
+    }
+
+    expect(store.getOwnedInteraction('owner-a', interaction.id)?.approvals).toEqual([
+      expect.objectContaining({
+        status: 'unconfirmed',
+        error: 'approval_resolution_invalid',
+        resolution: { choiceId: 'not-declared' },
+      }),
+      expect.objectContaining({
+        status: 'unconfirmed',
+        error: 'approval_resolution_invalid',
+        resolution: { choiceId: 'allow-once', grantedPermissionIds: ['admin'] },
+      }),
+    ]);
+  });
+
   it('keeps transient disconnection status out of the durable Canvas inbox', async () => {
     const { db, consumer } = await setup();
     const store = db.getCanvasStore();
 
-    consumer.handleCanvasRuntimeEvent({
+    consumer.handleCanvasRuntimeEvent(store, {
       runtimeId: 'openclaw',
       eventId: 'disconnect-1',
       type: 'runtime.disconnected',

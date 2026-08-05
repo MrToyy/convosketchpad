@@ -1,10 +1,13 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { runtimeHandle } from '../../contract.js';
 
 const mocks = vi.hoisted(() => ({
   rpc: vi.fn(),
   dispatch: vi.fn(),
   supports: vi.fn(() => true),
+  acquireGatewayRpc: vi.fn(() => vi.fn()),
+  eventUnsubscribe: vi.fn(),
+  statusUnsubscribe: vi.fn(),
 }));
 
 vi.mock('./gateway-rpc.js', () => {
@@ -16,6 +19,7 @@ vi.mock('./gateway-rpc.js', () => {
     }
   }
   return {
+    acquireGatewayRpc: mocks.acquireGatewayRpc,
     GatewayDispatchError,
     GatewayRpcError: class GatewayRpcError extends Error {},
     gatewayDispatchCall: mocks.dispatch,
@@ -27,8 +31,8 @@ vi.mock('./gateway-rpc.js', () => {
       methods: ['chat.send', 'exec.approval.resolve', 'plugin.approval.resolve'],
       maxPayload: 1_000_000,
     }),
-    subscribeGatewayEvents: () => () => undefined,
-    subscribeGatewayStatus: () => () => undefined,
+    subscribeGatewayEvents: () => mocks.eventUnsubscribe,
+    subscribeGatewayStatus: () => mocks.statusUnsubscribe,
     closeGatewayRpc: vi.fn(),
     getGatewaySharedHttpAuthToken: () => 'token',
   };
@@ -40,7 +44,9 @@ vi.mock('./openclaw-session-policy.js', () => ({
 }));
 
 import { GatewayDispatchError } from './gateway-rpc.js';
-import { openClawAgentRuntime } from './adapter.js';
+import { createOpenClawAgentRuntime } from './adapter.js';
+
+const openClawAgentRuntime = createOpenClawAgentRuntime();
 
 const conversationRef = runtimeHandle('openclaw', { sessionKey: 'agent:main:canvas:branch-1' });
 const profile = { runtimeId: 'openclaw', profileId: 'main' };
@@ -50,9 +56,30 @@ beforeEach(() => {
   mocks.dispatch.mockReset();
   mocks.supports.mockReset();
   mocks.supports.mockReturnValue(true);
+  mocks.eventUnsubscribe.mockReset();
+  mocks.statusUnsubscribe.mockReset();
 });
 
+afterAll(() => openClawAgentRuntime.close());
+
 describe('OpenClawAgentRuntime contract', () => {
+  it('gives each adapter instance its own shared-transport lease', () => {
+    const first = createOpenClawAgentRuntime();
+    const second = createOpenClawAgentRuntime();
+    const firstRelease = mocks.acquireGatewayRpc.mock.results.at(-2)?.value;
+    const secondRelease = mocks.acquireGatewayRpc.mock.results.at(-1)?.value;
+    expect(first).not.toBe(second);
+    first.subscribeEvents(() => undefined);
+    first.subscribeStatus(() => undefined);
+    first.close();
+    expect(firstRelease).toHaveBeenCalledOnce();
+    expect(mocks.eventUnsubscribe).toHaveBeenCalledOnce();
+    expect(mocks.statusUnsubscribe).toHaveBeenCalledOnce();
+    expect(secondRelease).not.toHaveBeenCalled();
+    second.close();
+    expect(secondRelease).toHaveBeenCalledOnce();
+  });
+
   it('reports unknown image-generation support and idempotent dispatch semantics', async () => {
     await expect(openClawAgentRuntime.getCapabilities(profile)).resolves.toMatchObject({
       output: { imageGeneration: 'unknown' },

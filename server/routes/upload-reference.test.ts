@@ -19,7 +19,7 @@ async function buildApp(canvas: { id: string; agentRef: { runtimeId: string; pro
     available: true,
   }));
   vi.doMock('../lib/canvas-auth.js', () => ({ getCanvasIdentity: () => ({ userId: 'owner-a', name: 'Owner A' }) }));
-  vi.doMock('../lib/canvas-db.js', () => ({
+  vi.doMock('../lib/canvas/persistence/canvas-store.js', () => ({
     getCanvasStore: () => ({
       getCanvas: () => canvas,
       recordCanvasAttachment: (_ownerId: string, _canvasId: string, attachment: unknown) => attachment,

@@ -35,7 +35,11 @@ src/
   contexts/              Runtime 与设置状态
 server/
   routes/                Canvas、认证、上传及运维 HTTP 路由
-  lib/                   持久化、协调、Agent Runtime 和安全逻辑
+  lib/canvas/model.ts    Canvas 持久领域模型
+  lib/canvas/application/ Canvas 应用用例与 Port
+  lib/canvas/domain/     Canvas 纯领域规则
+  lib/canvas/persistence/ Store、Schema 与迁移
+  lib/                   Canvas 协调、文件、Agent Runtime 和安全辅助逻辑
   lib/agent-runtimes/    通用 Runtime Port、Registry 与 Adapter
   middleware/            认证、Origin、限流和响应保护
 bin/                     更新及受管用户 CLI

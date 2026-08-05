@@ -79,11 +79,7 @@ Custom 依赖交互问答，不能与 `--defaults --access-mode custom` 一起�
 npm run setup -- --defaults
 ```
 
-使用远程 Gateway 时，还应提供其 IANA 时区，使 ConvoSketchpad 能够预测每日 Session 重置：
-
-```bash
-npm run setup -- --defaults --gateway-timezone Asia/Shanghai
-```
+交互式配置远程 Gateway 时，向导会询问其 IANA 时区，使 ConvoSketchpad 能够预测每日 Session 重置。非交互配置默认保留已有值；首次配置可通过 `OPENCLAW_GATEWAY_TIMEZONE` 环境变量提供，未提供时使用本机 IANA 时区并给出提示。setup 不提供 Runtime 专属 CLI 参数。
 
 自动化安装可以显式指定 Runtime 和默认 Agent：
 

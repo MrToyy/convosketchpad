@@ -2,17 +2,20 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { CanvasStore } from './canvas-db.js';
+import { CanvasStore } from '../persistence/canvas-store.js';
+import { testConversationHandleFactory } from '../../fixtures/test-conversation-handle.js';
 import {
   CanvasSendApplicationError,
   CanvasSendService,
-} from './canvas-send-service.js';
+} from './send-service.js';
 
 const cleanups: Array<() => void> = [];
 
 function fixture() {
   const dir = mkdtempSync(path.join(tmpdir(), 'convosketchpad-send-service-'));
-  const store = new CanvasStore(path.join(dir, 'canvas.sqlite'));
+  const store = new CanvasStore(path.join(dir, 'canvas.sqlite'), {
+    createConversationHandle: testConversationHandleFactory,
+  });
   store.ensureUser('owner-a', 'Owner A');
   const canvas = store.createCanvas('owner-a', 'Canvas', { runtimeId: 'openclaw', profileId: 'main' });
   const branch = store.createRootBranch('owner-a', canvas.id);

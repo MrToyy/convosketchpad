@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import type { CanvasContextResource } from './canvas-domain.js';
+import type { CanvasContextResource } from './send-policy.js';
 
 export interface CanvasReplayInteraction {
   id: string;

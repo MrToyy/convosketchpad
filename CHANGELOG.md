@@ -30,6 +30,8 @@ ConvoSketchpad v0.4.0 定位为“Agent 可视化分支工作台——从任意�
 
 ### 变更
 
+- 主体代码按职责收敛：Canvas 持久模型、纯领域规则、应用用例与 SQLite 持久化分别进入 `canvas/model.ts`、`canvas/domain/`、`canvas/application/` 和 `canvas/persistence/`；服务启动由显式 `ApplicationContext` 组合并注入 Runtime Registry 与 Store，不再保留导入即创建的全局 Runtime 单例。前端 Flow 类型/自动布局与节点渲染分离，Canvas 列表从页面编排组件拆出；setup 的 Runtime 选择、默认 Agent 与帮助输出也拆成独立模块。
+- 删除浏览器不应直接驱动的 `POST /api/canvas/send-operations/:id/dispatch`；Runtime 重启入口统一为 `POST /api/runtime/:runtimeId/restart`。setup 删除 OpenClaw 专属 `--gateway-timezone` 参数，交互模式继续询问远程 Gateway 时区，自动化使用正式环境变量。
 - Canvas Route、发送 Service/Worker/Coordinator、事件消费、Reconciler、上下文快照、Artifact 物化、运行状态、用量和 Provider 配额改为通过统一 Runtime Port 调用；OpenClaw Gateway 方法名、Session Policy、Transcript 与 Artifact 下载收敛到独立 Adapter 目录。
 - 导航栏/设置聚合所有 Runtime 的连接状态；账户用量和额度按 Runtime 分组，仅在币种、周期与可加性一致时显示费用合计。Canvas Branch、工作中和上下文仍保持当前 Canvas 局部语义。
 - SQLite 在既有 `0.3.2 → 0.4.0` 结构迁移内将旧 OpenClaw 顶层字段彻底迁移为 Runtime/Profile、Conversation/Turn/Artifact Handle、审批和通用事件 Inbox；旧列及 `gateway_signal_inbox` 成功后物理移除，不双写。全新数据库直接创建当前 Schema，不再先构造旧表再重建；setup、更新器和服务启动均自动执行安全迁移。
@@ -37,7 +39,8 @@ ConvoSketchpad v0.4.0 定位为“Agent 可视化分支工作台——从任意�
 - Agent Runtime Schema 迁移会根据最早 Send Reservation 回填旧 Canvas 的 Agent 锁定时间，并以最早 Interaction 兜底；已经迁移但锁定字段缺失的数据库会被幂等修复，服务端同时拒绝对任何已有 Reservation 或 Interaction 的 Canvas 更换 Agent。
 - 开发期 Backend Schema 会自动原地迁移为 Runtime 物理字段、Handle JSON 与事件表；`AGENT_BACKENDS` 由 setup/update 一次性转换为 `AGENT_RUNTIMES`，正式运行不兼容读取、不双写。
 - 派发可靠性增加完整恢复闭环：未知结果保存不透明恢复引用；非幂等 Runtime 必须先权威核对，无法核对时保持锁定且不盲目重发。图片生成 Capability 改为 `supported | unsupported | unknown` 三态，OpenClaw 当前如实报告 `unknown`。
-- 无副作用 Runtime Manifest 统一 ID/展示名支持清单，Definition 对清单逐项提供实例与配置校验；OpenClaw 专属配置、CLI 定位及 setup 支持面收敛到 Adapter 目录，Runtime 状态事件、Canvas 事件消费和用量模块采用不混淆的独立命名。
+- 无副作用 Runtime Manifest 统一 ID/展示名支持清单，Definition 对清单逐项提供 Registry 所有的实例工厂与配置校验；ApplicationContext 独立拥有 Store、Adapter 生命周期和后台协调依赖，OpenClaw 共享传输使用租约避免相互关闭。OpenClaw 专属配置、CLI 定位及 setup 支持面收敛到 Adapter 目录，Runtime 状态事件、Canvas 事件消费和用量模块采用不混淆的独立命名。
+- setup 与服务启动共用 Runtime 选择语义：只有缺失 `AGENT_RUNTIMES` 时默认 OpenClaw，显式空配置统一拒绝。原生审批 resolved 事件会再次校验已声明 Choice 和权限子集，契约外结果保持 `unconfirmed`，不再默认成功。
 - OpenClaw CLI 定位改为显式 `OPENCLAW_BIN` 优先、否则直接通过 `PATH` 执行 `openclaw`；setup 选择页只用 `openclaw --version` 发现入口，不在用户选择前读取 Token 或原生配置，选中后才读取可用预填值。成功发现后持久化实际绝对路径，安装器与服务端不再扫描特定安装器或其他用户目录。本机缺少 CLI 不阻断远程 Gateway 安装。本轮默认 Agent 仅增加环境配置，不增加数据库迁移。
 - Runtime 状态读取改为无副作用快照；Gateway 不可达时，状态聚合和状态订阅不再反向触发即时重连，OpenClaw 严格保持 1–30 秒指数退避，避免启动期热循环和日志风暴。
 - setup、migrate 和 update 共用维护锁，并校验 systemd/launchd 的名称、工作目录、启动命令和三态运行状态；只有属于当前安装且明确离线时才快照、迁移或恢复 SQLite。没有匹配管理器时 setup/update 推迟数据库迁移且失败回滚不替换 SQLite；独立 migrate 要求操作者显式确认手工进程已停止。setup 重启后验证服务状态、健康和版本，无法确认离线时不覆盖数据库并保留临时快照。环境配置迁移仍不依赖服务管理器，`--no-restart` 继续只恢复代码和 `.env`。本轮复用既有派发恢复字段，不增加第四条数据库迁移。

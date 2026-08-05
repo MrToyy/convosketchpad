@@ -51,7 +51,7 @@ export function generateEnvContent(config: EnvConfig): string {
   ];
 
   // Agent Runtime selection
-  const runtimeIds = (config.AGENT_RUNTIMES || 'openclaw')
+  const runtimeIds = (config.AGENT_RUNTIMES ?? 'openclaw')
     .split(',')
     .map((runtimeId) => runtimeId.trim().toLowerCase())
     .filter(Boolean);
@@ -149,7 +149,7 @@ export function loadExistingEnv(envPath: string): EnvConfig {
       if (value.length >= 2 && ((value[0] === '"' && value[value.length - 1] === '"') || (value[0] === "'" && value[value.length - 1] === "'"))) {
         value = value.slice(1, -1);
       }
-      if (value) config[key] = value;
+      if (value || key === 'AGENT_RUNTIMES') config[key] = value;
     }
   }
   const legacyMappings = [
@@ -161,13 +161,13 @@ export function loadExistingEnv(envPath: string): EnvConfig {
   for (const [legacyKey, currentKey] of legacyMappings) {
     const legacy = config[legacyKey];
     const current = config[currentKey];
-    if (legacy && current && legacy !== current) {
+    if (legacy !== undefined && current !== undefined && legacy !== current) {
       throw new Error(`Conflicting ${legacyKey} and ${currentKey} values`);
     }
-    if (legacy && !current) config[currentKey] = legacy;
+    if (legacy !== undefined && current === undefined) config[currentKey] = legacy;
     delete config[legacyKey];
   }
-  config.AGENT_RUNTIMES ||= 'openclaw';
+  if (config.AGENT_RUNTIMES === undefined) config.AGENT_RUNTIMES = 'openclaw';
   return config as EnvConfig;
 }
 

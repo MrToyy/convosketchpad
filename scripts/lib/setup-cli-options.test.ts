@@ -10,13 +10,11 @@ describe('setup CLI options', () => {
       '--runtimes', 'openclaw',
       '--default-agent', 'openclaw/main',
       '--access-mode', 'tailscale',
-      '--gateway-timezone', 'Asia/Shanghai',
     ], supported)).toMatchObject({
       defaults: true,
       runtimeIds: ['openclaw'],
       defaultAgent: { runtimeId: 'openclaw', profileId: 'main' },
       accessMode: 'tailscale-ip',
-      gatewayTimezone: 'Asia/Shanghai',
     });
   });
 
@@ -30,6 +28,7 @@ describe('setup CLI options', () => {
     [['--help', '--defaults'], 'cannot be combined'],
     [['--access-mode', 'local'], 'requires --defaults'],
     [['--default-agent', 'codex/main'], 'Unsupported default Agent Runtime'],
+    [['--gateway-timezone', 'Asia/Shanghai'], 'Unknown option'],
   ])('rejects invalid arguments: %j', (args, message) => {
     expect(() => parseSetupCliOptions(args, supported)).toThrow(message);
   });

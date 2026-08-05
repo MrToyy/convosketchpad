@@ -118,6 +118,7 @@ let deviceTokenRetryUsed = false;
 let capabilities: GatewayCapabilities = { methods: new Set() };
 let shuttingDown = false;
 let lastConnectionError = '';
+let runtimeConsumers = 0;
 const eventSubscribers = new Set<(event: GatewayEvent) => void>();
 const statusSubscribers = new Set<(status: GatewayRuntimeStatus) => void>();
 
@@ -549,6 +550,29 @@ export function gatewaySupports(method: string): boolean {
 /** Shared-secret credential for Gateway HTTP routes; paired device tokens are WS-only. */
 export function getGatewaySharedHttpAuthToken(): string {
   return openClawConfig.gatewayToken;
+}
+
+/**
+ * Acquire a process-local lease on the shared OpenClaw transport.
+ *
+ * OpenClaw has one configured Gateway endpoint per process, so Runtime
+ * adapters may share its socket. A lease keeps one Registry from closing the
+ * socket while another Registry is still using it.
+ */
+export function acquireGatewayRpc(): () => void {
+  if (runtimeConsumers === 0 && shuttingDown) {
+    shuttingDown = false;
+    deviceTokenRetryUsed = false;
+    lastConnectionError = '';
+  }
+  runtimeConsumers++;
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    runtimeConsumers = Math.max(0, runtimeConsumers - 1);
+    if (runtimeConsumers === 0) closeGatewayRpc();
+  };
 }
 
 /** Stop reconnects, reject pending work, and release the persistent socket. */

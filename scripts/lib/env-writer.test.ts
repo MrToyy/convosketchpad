@@ -107,6 +107,31 @@ describe('ConvoSketchpad env writer', () => {
     }
   });
 
+  it('preserves an explicitly empty Runtime selection for validation to reject', () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'convosketchpad-env-writer-'));
+    const envPath = path.join(dir, '.env');
+    writeFileSync(envPath, 'AGENT_RUNTIMES=\nOPENCLAW_GATEWAY_TOKEN=token\n', 'utf8');
+    try {
+      expect(loadExistingEnv(envPath)).toMatchObject({
+        AGENT_RUNTIMES: '',
+        OPENCLAW_GATEWAY_TOKEN: 'token',
+      });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('does not let a legacy Runtime key overwrite an explicitly empty current key', () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'convosketchpad-env-writer-'));
+    const envPath = path.join(dir, '.env');
+    writeFileSync(envPath, 'AGENT_BACKENDS=openclaw\nAGENT_RUNTIMES=\n', 'utf8');
+    try {
+      expect(() => loadExistingEnv(envPath)).toThrow('Conflicting AGENT_BACKENDS and AGENT_RUNTIMES');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it('restores an existing environment after setup fails', () => {
     const dir = mkdtempSync(path.join(tmpdir(), 'convosketchpad-env-restore-'));
     const envPath = path.join(dir, '.env');

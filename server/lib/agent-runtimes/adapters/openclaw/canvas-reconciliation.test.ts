@@ -1,10 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { OwnedInteractionRecord } from '../../../canvas-db.js';
+import type { OwnedInteractionRecord } from '../../../canvas/model.js';
 
-const gatewayRpcCall = vi.fn();
-const supported = new Set<string>();
+const { gatewayRpcCall, supported } = vi.hoisted(() => ({
+  gatewayRpcCall: vi.fn(),
+  supported: new Set<string>(),
+}));
 
 vi.mock('./gateway-rpc.js', () => ({
+  acquireGatewayRpc: () => () => undefined,
   gatewayRpcCall,
   gatewaySupports: (method: string) => supported.has(method),
   GatewayRpcError: class GatewayRpcError extends Error {
@@ -25,7 +28,7 @@ vi.mock('../../../canvas-artifact-store.js', () => ({
     warnings: [],
   })),
 }));
-vi.mock('../../../canvas-db.js', () => ({
+vi.mock('../../../canvas/persistence/canvas-store.js', () => ({
   getCanvasStore: () => ({ observeBranchConversation: vi.fn() }),
 }));
 vi.mock('../../../config.js', () => ({
@@ -91,7 +94,9 @@ describe('Gateway-native Canvas Artifact reconciliation', () => {
       return {};
     });
     const { reconcileTranscriptSnapshot } = await import('../../../canvas-reconciler.js');
-    const snapshot = await reconcileTranscriptSnapshot(interaction());
+    const { createOpenClawAgentRuntime } = await import('./index.js');
+    const openClawAgentRuntime = createOpenClawAgentRuntime();
+    const snapshot = await reconcileTranscriptSnapshot(interaction(), () => openClawAgentRuntime);
 
     expect(snapshot.agentOutput).toBe('done');
     expect(snapshot.artifactPersistenceComplete).toBe(true);
@@ -114,7 +119,9 @@ describe('Gateway-native Canvas Artifact reconciliation', () => {
       ],
     });
     const { reconcileTranscriptSnapshot } = await import('../../../canvas-reconciler.js');
-    const snapshot = await reconcileTranscriptSnapshot(interaction());
+    const { createOpenClawAgentRuntime } = await import('./index.js');
+    const openClawAgentRuntime = createOpenClawAgentRuntime();
+    const snapshot = await reconcileTranscriptSnapshot(interaction(), () => openClawAgentRuntime);
 
     expect(snapshot.agentOutput).toBe('done');
     expect(snapshot.artifactPersistenceComplete).toBe(false);
@@ -153,7 +160,9 @@ describe('Gateway-native Canvas Artifact reconciliation', () => {
     });
 
     const { reconcileTranscriptSnapshot } = await import('../../../canvas-reconciler.js');
-    const snapshot = await reconcileTranscriptSnapshot(interaction());
+    const { createOpenClawAgentRuntime } = await import('./index.js');
+    const openClawAgentRuntime = createOpenClawAgentRuntime();
+    const snapshot = await reconcileTranscriptSnapshot(interaction(), () => openClawAgentRuntime);
 
     expect(snapshot.artifactPersistenceComplete).toBe(true);
     expect(snapshot.artifactWarnings).toEqual([]);

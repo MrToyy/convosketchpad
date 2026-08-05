@@ -1,6 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite';
-import { mergeEquivalentArtifacts } from './canvas-artifact-identity.js';
-import { V020_TO_V030_MIGRATION } from './canvas-migration-plan.js';
+import { mergeEquivalentArtifacts } from '../../../canvas-artifact-identity.js';
+import { V020_TO_V030_MIGRATION } from '../migration-plan.js';
 
 type SqlRow = Record<string, unknown>;
 

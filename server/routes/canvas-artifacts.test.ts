@@ -26,12 +26,17 @@ async function setup() {
   }));
   vi.doMock('../lib/canvas-auth.js', () => ({ getCanvasIdentity: () => ({ userId: 'owner-a', name: 'Owner A' }) }));
   vi.doMock('../middleware/rate-limit.js', () => ({ rateLimitGeneral: async (_c: unknown, next: () => Promise<void>) => next() }));
-  const db = await import('../lib/canvas-db.js');
+  const db = await import('../lib/canvas/persistence/canvas-store.js');
+  const { testConversationHandleFactory } = await import('../lib/fixtures/test-conversation-handle.js');
+  db.getCanvasStore(testConversationHandleFactory);
   const artifacts = await import('../lib/canvas-artifact-store.js');
   const reconciler = await import('../lib/canvas-reconciler.js');
   const route = await import('./canvas.js');
   const app = new Hono();
-  app.route('/', route.default);
+  app.route('/', route.createCanvasRoutes({
+    store: db.getCanvasStore(),
+    runtimes: { get: vi.fn(), list: () => [] } as never,
+  }));
   return { app, db, artifacts, reconciler };
 }
 
@@ -43,16 +48,20 @@ async function seedPersistedArtifact(setupResult: Awaited<ReturnType<typeof setu
   const reservation = store.prepareSend(ownerId, { branchId: branch.id, userInput: 'create', attachments: [] });
   const base = store.acknowledgeSend(ownerId, reservation.id, 'run-1');
   const owned = store.getOwnedInteraction(ownerId, base.id)!;
-  const materialized = await setupResult.artifacts.materializeCanvasArtifacts(owned, [{
-    name: 'result.txt', mimeType: 'text/plain', uri: 'data:text/plain;base64,cGVyc2lzdGVk',
-  }]);
+  const artifact = await setupResult.artifacts.persistCanvasArtifactBytes(
+    owned,
+    { name: 'result.txt', mimeType: 'text/plain', uri: 'data:text/plain;base64,cGVyc2lzdGVk' },
+    'data:text/plain;base64,cGVyc2lzdGVk',
+    Buffer.from('persisted'),
+    'text/plain',
+  );
   store.applyReconciledInteraction(base.id, {
     status: 'completed',
     agentOutput: 'done',
-    artifacts: materialized.artifacts,
+    artifacts: [artifact],
     reconciliation: { phase: 'synced', artifactSync: 'synced' },
   });
-  return { canvas, interactionId: base.id, artifact: materialized.artifacts[0] };
+  return { canvas, interactionId: base.id, artifact };
 }
 
 beforeEach(async () => {

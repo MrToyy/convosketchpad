@@ -3,7 +3,7 @@ import {
   type CanvasAttachment,
   type InteractionRecord,
   type SendReservation,
-} from './canvas-db.js';
+} from './canvas/model.js';
 import {
   canvasArtifactThumbnailUri,
   canvasAttachmentThumbnailUri,

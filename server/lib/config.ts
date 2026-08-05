@@ -5,7 +5,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DEFAULT_HOST, DEFAULT_PORT } from './constants.js';
-import { validateConfiguredAgentRuntimes } from './agent-runtimes/definitions.js';
+import {
+  configuredAgentRuntimeIds,
+  validateConfiguredAgentRuntimes,
+} from './agent-runtimes/configuration.js';
 import { configuredDefaultAgent } from './agent-runtimes/default-agent.js';
 import {
   hasRemoteConfiguredOrigin,
@@ -72,7 +75,7 @@ export const SESSION_COOKIE_NAME = `convosketchpad_session_${config.port}`;
 export function printStartupBanner(version: string, tagline: string): void {
   console.log(`\n  \x1b[33m◆ ConvoSketchpad v${version}\x1b[0m`);
   console.log(`  ${tagline}`);
-  console.log(`  Agent Runtimes: ${process.env.AGENT_RUNTIMES || 'openclaw'}`);
+  console.log(`  Agent Runtimes: ${process.env.AGENT_RUNTIMES ?? 'openclaw'}`);
   if (config.auth) console.log('  \x1b[32mAuthentication enabled\x1b[0m');
 }
 
@@ -95,10 +98,8 @@ export function validateConfig(): void {
   }
   if (
     defaultAgent.ref
-    && !(process.env.AGENT_RUNTIMES || 'openclaw')
-      .split(',')
-      .map((runtimeId) => runtimeId.trim().toLowerCase())
-      .includes(defaultAgent.ref.runtimeId.toLowerCase())
+    && !configuredAgentRuntimeIds()
+      .some((runtimeId) => runtimeId === defaultAgent.ref?.runtimeId.toLowerCase())
   ) {
     console.error('The configured default Agent belongs to a Runtime that is not enabled by AGENT_RUNTIMES.');
     process.exit(1);

@@ -1,7 +1,7 @@
 import type { CSSProperties, ReactNode } from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { canvasNodeTypes } from './CanvasNodes';
+import { canvasNodeTypes } from './node-types';
 import { EMPTY_CANVAS_DRAFT } from './constants';
 
 const { resolveApproval } = vi.hoisted(() => ({

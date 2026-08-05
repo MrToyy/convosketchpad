@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   canvasSendRetryDelay,
   canvasSendRetryWakeAt,
-} from './canvas-send-retry.js';
+} from './send-retry.js';
 
 describe('Canvas send retry scheduling', () => {
   it('uses bounded progressive retry delays', () => {

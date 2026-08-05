@@ -1,4 +1,4 @@
-import type { CanvasArtifact } from './canvas-db.js';
+import type { CanvasArtifact } from '../model.js';
 
 const UNIVERSAL_ARTIFACT_WATCH_MS = 120_000;
 

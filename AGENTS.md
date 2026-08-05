@@ -22,7 +22,7 @@
 | Agent Runtime 抽象、OpenClaw/Codex 边界或两阶段迁移 | [`docs/AGENT-RUNTIME-MIGRATION.md`](docs/AGENT-RUNTIME-MIGRATION.md) | 临时设计决策、统一事件/审批与提交边界 |
 | 新增或修改 Agent Runtime Adapter | [`docs/agent-runtimes/ADAPTER-DEVELOPMENT.md`](docs/agent-runtimes/ADAPTER-DEVELOPMENT.md) | 目录、Port、聚合、审批、迁移、安全与测试规范 |
 | Canvas 页面、节点、布局、Branch、Interaction、附件或 Artifact | [`docs/canvas/CANVAS-CODE-MAP.md`](docs/canvas/CANVAS-CODE-MAP.md) | Canvas 不变量、前后端入口与测试 |
-| 登录、用户 Token、隔离、限流、Cookie 或 WS 鉴权 | [`docs/canvas/AUTH-CODE-MAP.md`](docs/canvas/AUTH-CODE-MAP.md) | 认证链路、CLI、SQLite 与会话撤销 |
+| 登录、用户 Token、隔离、限流、Cookie 或 SSE 鉴权 | [`docs/canvas/AUTH-CODE-MAP.md`](docs/canvas/AUTH-CODE-MAP.md) | 认证链路、CLI、SQLite 与会话撤销 |
 | HTTP 路由或接口契约 | [`docs/API.md`](docs/API.md) | Canvas、认证、文件和遥测 API |
 | 本地安装、开发环境或贡献流程 | [`docs/INSTALL.md`](docs/INSTALL.md)、[`CONTRIBUTING.md`](CONTRIBUTING.md) | 安装向导、统一开发命令和实现要求 |
 | 环境变量或 Gateway 配置 | [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md) | 配置来源、默认值和原生 OpenClaw 设置 |

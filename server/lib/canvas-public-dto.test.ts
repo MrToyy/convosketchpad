@@ -4,7 +4,7 @@ import {
   publicCanvasInteraction,
   publicCanvasSendReservation,
 } from './canvas-public-dto.js';
-import type { InteractionRecord, SendReservation } from './canvas-db.js';
+import type { InteractionRecord, SendReservation } from './canvas/model.js';
 
 describe('Canvas public DTO mapping', () => {
   it('projects safe attachment fields without content identity or source locations', () => {

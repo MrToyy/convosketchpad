@@ -9,9 +9,9 @@ import {
 import type {
   CanvasMediaDerivative,
   CanvasMediaDerivativePurpose,
-  CanvasStore,
-} from './canvas-db.js';
-import { CANVAS_MEDIA_BACKFILL_MIGRATION } from './canvas-migration-plan.js';
+} from './canvas/model.js';
+import type { CanvasStore } from './canvas/persistence/canvas-store.js';
+import { CANVAS_MEDIA_BACKFILL_MIGRATION } from './canvas/persistence/migration-plan.js';
 import { packageMetadata } from './package-metadata.js';
 
 export const CANVAS_DELIVERY_POLICY_VERSION = 'delivery-v1';

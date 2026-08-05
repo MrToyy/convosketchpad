@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   autoLayoutCanvasNodes,
   type CanvasFlowNode,
-} from './CanvasNodes';
+} from './flow-model';
 import {
   DEFAULT_NODE_HEIGHT,
   INTERACTION_NODE_WIDTH,

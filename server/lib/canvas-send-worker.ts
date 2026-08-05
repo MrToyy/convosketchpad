@@ -1,18 +1,15 @@
-import {
-  getCanvasStore,
-  type InteractionRecord,
-  type SendReservation,
-} from './canvas-db.js';
+import type { CanvasStore } from './canvas/persistence/canvas-store.js';
+import type { InteractionRecord, SendReservation } from './canvas/model.js';
 import {
   buildCanvasDelivery,
 } from './canvas-send-delivery.js';
 import { handleCanvasRuntimeEvent, registerCanvasInteraction } from './canvas/runtime-event-consumer.js';
 import type { RuntimeEvent } from './agent-runtimes/contract.js';
 import { RuntimeOperationError } from './agent-runtimes/contract.js';
-import { getAgentRuntime } from './agent-runtimes/registry.js';
+import type { AgentRuntime } from './agent-runtimes/contract.js';
 import { CANVAS_DELIVERY_MAX_BYTES } from './canvas-media-derivatives.js';
 import { scheduleCanvasInteractionReconciliation } from './canvas-reconciler.js';
-import { canvasSendRetryDelay } from './canvas-send-retry.js';
+import { canvasSendRetryDelay } from './canvas/domain/send-retry.js';
 import { publishCanvasChanged } from './canvas-sync.js';
 
 const activeDispatches = new Set<string>();
@@ -29,26 +26,27 @@ export function clearCanvasSendWorkerState(): void {
   activeDispatches.clear();
 }
 
-export function consumeCanvasRuntimeEvent(event: RuntimeEvent): void {
-  handleCanvasRuntimeEvent(event);
+export function consumeCanvasRuntimeEvent(store: CanvasStore, event: RuntimeEvent): void {
+  handleCanvasRuntimeEvent(store, event);
 }
 
 export async function runCanvasSendWorker(
   reservationId: string,
+  runtimeResolver: (runtimeId: string) => AgentRuntime,
+  store: CanvasStore,
 ): Promise<SendReservation | InteractionRecord> {
   if (activeDispatches.has(reservationId)) {
-    return getCanvasStore().getReservation(reservationId) || Promise.reject(new Error('not_found'));
+    return store.getReservation(reservationId) || Promise.reject(new Error('not_found'));
   }
   activeDispatches.add(reservationId);
   try {
-    const store = getCanvasStore();
     let reservation = store.getDispatchableReservation(reservationId);
     if (!reservation) throw new Error('not_found');
     if (reservation.status === 'acknowledged' && reservation.interactionId) {
       return store.getOwnedInteraction(reservation.ownerId, reservation.interactionId) || reservation;
     }
     if (reservation.status !== 'prepared') return reservation;
-    const runtime = getAgentRuntime(reservation.runtimeId);
+    const runtime = runtimeResolver(reservation.runtimeId);
     const profile = {
       runtimeId: runtime.id,
       profileId: reservation.agentProfileId,
@@ -73,7 +71,7 @@ export async function runCanvasSendWorker(
       reservation = store.getDispatchableReservation(reservation.id)!;
       publishCanvasChanged(reservation.ownerId, reservation.canvasId);
     }
-    const { message, attachments, bootstrapWarnings } = await buildCanvasDelivery(reservation);
+    const { message, attachments, bootstrapWarnings } = await buildCanvasDelivery(reservation, store);
     const preparedReservation = store.getDispatchableReservation(reservation.id);
     if (!preparedReservation) throw new Error('not_found');
     if (preparedReservation.status !== 'prepared') return preparedReservation;
@@ -123,7 +121,7 @@ export async function runCanvasSendWorker(
           bootstrapWarnings,
           reconciled.turnRef,
         );
-        registerCanvasInteraction(preparedReservation, interaction, reconciled.turnRef);
+        registerCanvasInteraction(store, preparedReservation, interaction, reconciled.turnRef);
         scheduleCanvasInteractionReconciliation(interaction.id);
         publishCanvasChanged(preparedReservation.ownerId, preparedReservation.canvasId);
         return interaction;
@@ -173,12 +171,11 @@ export async function runCanvasSendWorker(
       bootstrapWarnings,
       dispatched.turnRef,
     );
-    registerCanvasInteraction(reservation, interaction, dispatched.turnRef);
+    registerCanvasInteraction(store, reservation, interaction, dispatched.turnRef);
     scheduleCanvasInteractionReconciliation(interaction.id);
     publishCanvasChanged(reservation.ownerId, reservation.canvasId);
     return interaction;
   } catch (error) {
-    const store = getCanvasStore();
     const reservation = store.getDispatchableReservation(reservationId);
     if (!reservation) throw error;
     if (!(error instanceof RuntimeOperationError)

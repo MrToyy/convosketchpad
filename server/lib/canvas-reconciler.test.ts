@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { InteractionRecord } from './canvas-db.js';
+import type { InteractionRecord } from './canvas/model.js';
 import {
   artifactSyncStateDuringObservation,
   compareReconciledInteractions,

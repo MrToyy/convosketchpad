@@ -17,8 +17,8 @@ import {
 } from '../../contract.js';
 import { openClawConfig } from './config.js';
 import {
+  acquireGatewayRpc,
   GatewayDispatchError,
-  closeGatewayRpc,
   gatewayDispatchCall,
   gatewayRpcCall,
   gatewaySupports,
@@ -290,7 +290,7 @@ function terminalSession(session: UnknownRecord): boolean {
   return session.agentState === 'idle' && !session.busy && !session.processing;
 }
 
-export const openClawAgentRuntime: AgentRuntime = {
+const openClawRuntimeOperations: Omit<AgentRuntime, 'close'> = {
   id: OPENCLAW_RUNTIME_ID,
 
   async describe() {
@@ -623,9 +623,39 @@ export const openClawAgentRuntime: AgentRuntime = {
     return subscribeGatewayStatus((status) => listener(projectStatus(status)));
   },
 
-  close() {
-    closeGatewayRpc();
-  },
 };
+
+/** Create a Registry-owned OpenClaw adapter with an independent lifecycle lease. */
+export function createOpenClawAgentRuntime(): AgentRuntime {
+  const releaseGateway = acquireGatewayRpc();
+  const subscriptions = new Set<() => void>();
+  let closed = false;
+  const trackSubscription = (unsubscribe: () => void) => {
+    let active = true;
+    const tracked = () => {
+      if (!active) return;
+      active = false;
+      subscriptions.delete(tracked);
+      unsubscribe();
+    };
+    subscriptions.add(tracked);
+    return tracked;
+  };
+  return {
+    ...openClawRuntimeOperations,
+    subscribeEvents(listener) {
+      return trackSubscription(openClawRuntimeOperations.subscribeEvents(listener));
+    },
+    subscribeStatus(listener) {
+      return trackSubscription(openClawRuntimeOperations.subscribeStatus(listener));
+    },
+    close() {
+      if (closed) return;
+      closed = true;
+      for (const unsubscribe of [...subscriptions]) unsubscribe();
+      releaseGateway();
+    },
+  };
+}
 
 export const openClawHandles = { conversationHandle, turnHandle, approvalHandle };

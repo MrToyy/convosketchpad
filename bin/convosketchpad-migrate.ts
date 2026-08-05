@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 
-import { CanvasStore } from '../server/lib/canvas-db.js';
+import { CanvasStore } from '../server/lib/canvas/persistence/canvas-store.js';
 import { config } from '../server/lib/config.js';
 import {
   CANVAS_MEDIA_BACKFILL_MIGRATION,
   CANVAS_MIGRATION_PLAN,
-} from '../server/lib/canvas-migration-plan.js';
+} from '../server/lib/canvas/persistence/migration-plan.js';
 import { runCanvasMediaBackfillMigration } from '../server/lib/canvas-media-derivatives.js';
 import {
   migrateLegacyAgentRuntimeEnv,

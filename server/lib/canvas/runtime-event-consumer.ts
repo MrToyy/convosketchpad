@@ -1,11 +1,11 @@
 import { createHash } from 'node:crypto';
 import type { RuntimeEvent, RuntimeHandle } from '../agent-runtimes/contract.js';
-import {
-  getCanvasStore,
-  type DispatchableSendReservation,
-  type InteractionRecord,
-  type OwnedInteractionRecord,
-} from '../canvas-db.js';
+import type { CanvasStore } from './persistence/canvas-store.js';
+import type {
+  DispatchableSendReservation,
+  InteractionRecord,
+  OwnedInteractionRecord,
+} from './model.js';
 import {
   scheduleCanvasInteractionReconciliation,
   signalCanvasInteractionTerminal,
@@ -20,8 +20,8 @@ function activeView(interaction: OwnedInteractionRecord) {
   };
 }
 
-function findActive(event: RuntimeEvent, includeTerminal = false) {
-  const interaction = getCanvasStore().findInteractionByRuntimeCorrelation(
+function findActive(store: CanvasStore, event: RuntimeEvent, includeTerminal = false) {
+  const interaction = store.findInteractionByRuntimeCorrelation(
     event.runtimeId,
     event.turnRef || null,
     event.conversationRef || null,
@@ -42,9 +42,9 @@ function terminal(event: RuntimeEvent): boolean {
     || event.type === 'turn.interrupted';
 }
 
-function processRuntimeEvent(event: RuntimeEvent, storedKey?: string): void {
+function processRuntimeEvent(store: CanvasStore, event: RuntimeEvent, storedKey?: string): void {
   if (event.type === 'approval.resolved') {
-    const resolution = getCanvasStore().applyInteractionApprovalResolution(
+    const resolution = store.applyInteractionApprovalResolution(
       event.runtimeId,
       event.approvalRef,
       event.resolution,
@@ -52,13 +52,13 @@ function processRuntimeEvent(event: RuntimeEvent, storedKey?: string): void {
     );
     if (!resolution) return;
     publishCanvasChanged(resolution.ownerId, resolution.canvasId);
-    if (storedKey) getCanvasStore().markRuntimeEventProcessed(storedKey);
+    if (storedKey) store.markRuntimeEventProcessed(storedKey);
     return;
   }
-  const active = findActive(event, event.type === 'approval.required');
+  const active = findActive(store, event, event.type === 'approval.required');
   if (!active) return;
   if (event.type === 'approval.required') {
-    getCanvasStore().recordInteractionApproval(
+    store.recordInteractionApproval(
       active.interactionId,
       event.runtimeId,
       event.approvalRef,
@@ -66,7 +66,7 @@ function processRuntimeEvent(event: RuntimeEvent, storedKey?: string): void {
       event.createdAt,
     );
     publishCanvasChanged(active.ownerId, active.canvasId);
-    if (storedKey) getCanvasStore().markRuntimeEventProcessed(storedKey);
+    if (storedKey) store.markRuntimeEventProcessed(storedKey);
     return;
   }
   if (event.type === 'output.text.delta' || event.type === 'output.message.completed') {
@@ -97,19 +97,19 @@ function processRuntimeEvent(event: RuntimeEvent, storedKey?: string): void {
     ...(failureHint ? { failureHint } : {}),
   });
   scheduleCanvasInteractionReconciliation(active.interactionId, 0);
-  if (storedKey) getCanvasStore().markRuntimeEventProcessed(storedKey);
+  if (storedKey) store.markRuntimeEventProcessed(storedKey);
 }
 
-export function handleCanvasRuntimeEvent(event: RuntimeEvent): void {
+export function handleCanvasRuntimeEvent(store: CanvasStore, event: RuntimeEvent): void {
   const durable = terminal(event)
     || event.type === 'approval.required'
     || event.type === 'approval.resolved';
   if (!durable) {
-    processRuntimeEvent(event);
+    processRuntimeEvent(store, event);
     return;
   }
   const key = eventKey(event);
-  const inserted = getCanvasStore().recordRuntimeEvent({
+  const inserted = store.recordRuntimeEvent({
     eventKey: key,
     runtimeId: event.runtimeId,
     conversationRef: event.conversationRef || null,
@@ -119,22 +119,23 @@ export function handleCanvasRuntimeEvent(event: RuntimeEvent): void {
   });
   if (!inserted) return;
   if (terminal(event) || event.type === 'approval.required' || event.type === 'approval.resolved') {
-    processRuntimeEvent(event, key);
+    processRuntimeEvent(store, event, key);
   }
 }
 
 export function registerCanvasInteraction(
+  store: CanvasStore,
   reservation: DispatchableSendReservation,
   interaction: InteractionRecord,
   turnRef: RuntimeHandle | null,
 ): void {
   publishCanvasChanged(reservation.ownerId, reservation.canvasId);
   if (!reservation.conversationRef) return;
-  for (const stored of getCanvasStore().listPendingRuntimeEvents(
+  for (const stored of store.listPendingRuntimeEvents(
     reservation.runtimeId,
     turnRef,
     reservation.conversationRef,
   )) {
-    processRuntimeEvent(stored.event, stored.eventKey);
+    processRuntimeEvent(store, stored.event, stored.eventKey);
   }
 }

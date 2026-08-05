@@ -44,7 +44,6 @@ Layout 节点兼容仅包含 `x/y` 的旧数据。用户缩放后的 `width/heig
 |---|---|---|
 | POST | `/api/canvas/branches/:id/send` | 原子预留并由后端派发 |
 | GET | `/api/canvas/send-operations/:id` | 读取发送状态 |
-| POST | `/api/canvas/send-operations/:id/dispatch` | 派发尚未终止的预留 |
 | POST | `/api/canvas/send-operations/:id/retry` | 使用相同幂等键立即重试 |
 | POST | `/api/canvas/send-operations/:id/cancel` | 只取消确认尚未发出的 `reserved`/`awaiting_media` 预留 |
 
@@ -117,7 +116,7 @@ Interaction 的 `approvals` 是已净化的节点内审批列表，包含风险�
 }
 ```
 
-`confirmed: true` 只在对应 Choice 的 `requiresConfirmation` 为真时发送；UI 确认不能替代服务端校验。缺少确认、无效 Choice/权限或明确拒绝/冲突返回 `409`；过期返回 `410`。明确接受返回 `200 { approval }`；Runtime 返回未知或调用后发生无法判定的异常时返回 `202`，错误为 `approval_resolution_unconfirmed` 且状态为 `unconfirmed`，等待原生 resolved 事件或后续核对，不能盲目重发。
+`confirmed: true` 只在对应 Choice 的 `requiresConfirmation` 为真时发送；UI 确认不能替代服务端校验。缺少确认、无效 Choice/权限或明确拒绝/冲突返回 `409`；过期返回 `410`。明确接受返回 `200 { approval }`；Runtime 返回未知或调用后发生无法判定的异常时返回 `202`，错误为 `approval_resolution_unconfirmed` 且状态为 `unconfirmed`，等待原生 resolved 事件或后续核对，不能盲目重发。后续原生 `approval.resolved` 事件仍按已持久化 Choice 和权限子集校验；契约外结果保留为 `unconfirmed`，错误为 `approval_resolution_invalid`。
 
 Canvas 本地图片附件和 Artifact 额外返回版本化 `thumbnailUri`，但不返回 `contentHash`。外部 HTTP Artifact
 不提供缩略图 URI，也不会被 ConvoSketchpad 后端主动抓取。
@@ -166,7 +165,7 @@ Canvas 本地图片附件和 Artifact 额外返回版本化 `thumbnailUri`，但
 | GET | `/api/version` | 当前 ConvoSketchpad 版本 |
 | GET | `/api/version/check` | 查询官方稳定 Release 并返回可用更新；受管认证启用时返回 `status: disabled` |
 | GET | `/api/runtime/usage` | 每 Runtime 的账户用量与 Provider 额度，以及可选可比较费用合计 |
-| POST | `/api/runtime/runtimes/:runtimeId/restart` | 请求重启声明支持该操作的 Runtime |
+| POST | `/api/runtime/:runtimeId/restart` | 请求重启声明支持该操作的 Runtime |
 
 重启接口使用 `runtime_not_found`、`runtime_restart_unsupported` 和 `runtime_restart_failed` 错误码，不保留 Backend 命名别名。
 

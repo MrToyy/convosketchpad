@@ -5,8 +5,7 @@ const mocks = vi.hoisted(() => ({
   restartSupported: true,
 }));
 
-vi.mock('../lib/agent-runtimes/registry.js', () => ({
-  agentRuntimeRegistry: {
+const runtimes = {
     has: (runtimeId: string) => runtimeId === 'test-runtime',
     get: () => ({
       getStatus: () => ({
@@ -16,10 +15,10 @@ vi.mock('../lib/agent-runtimes/registry.js', () => ({
       }),
       restart: mocks.restart,
     }),
-  },
-}));
+};
 
-import app from './runtime-actions.js';
+import { createRuntimeActionRoutes } from './runtime-actions.js';
+const app = createRuntimeActionRoutes(runtimes as never);
 
 beforeEach(() => {
   mocks.restart.mockReset();
@@ -29,7 +28,7 @@ beforeEach(() => {
 describe('Agent Runtime lifecycle actions', () => {
   it('delegates restart through the selected Adapter', async () => {
     mocks.restart.mockResolvedValue({ output: 'restarted' });
-    const response = await app.request('/api/runtime/runtimes/test-runtime/restart', {
+    const response = await app.request('/api/runtime/test-runtime/restart', {
       method: 'POST',
     });
     expect(response.status).toBe(200);
@@ -38,12 +37,12 @@ describe('Agent Runtime lifecycle actions', () => {
   });
 
   it('rejects unknown and unsupported Runtime targets', async () => {
-    expect((await app.request('/api/runtime/runtimes/missing/restart', {
+    expect((await app.request('/api/runtime/missing/restart', {
       method: 'POST',
     })).status).toBe(404);
 
     mocks.restartSupported = false;
-    expect((await app.request('/api/runtime/runtimes/test-runtime/restart', {
+    expect((await app.request('/api/runtime/test-runtime/restart', {
       method: 'POST',
     })).status).toBe(409);
     expect(mocks.restart).not.toHaveBeenCalled();
@@ -55,4 +54,10 @@ describe('Agent Runtime lifecycle actions', () => {
       expect((await app.request(path)).status).toBe(404);
     },
   );
+
+  it('does not retain the redundant legacy Runtime restart path', async () => {
+    expect((await app.request('/api/runtime/runtimes/test-runtime/restart', {
+      method: 'POST',
+    })).status).toBe(404);
+  });
 });

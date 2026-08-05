@@ -14,6 +14,16 @@ const mocks = vi.hoisted(() => ({
 let tempRoot = '';
 let resetStore: (() => void) | null = null;
 
+function runtime() {
+  return {
+    id: 'openclaw',
+    getCapabilities: vi.fn(async () => mocks.capabilities),
+    getStatus: vi.fn(() => ({ runtimeId: 'openclaw', state: 'connected' })),
+    dispatchTurn: mocks.dispatchTurn,
+    reconcileDispatch: mocks.reconcileDispatch,
+  } as never;
+}
+
 async function setup() {
   vi.resetModules();
   vi.doMock('./config.js', () => ({
@@ -38,28 +48,9 @@ async function setup() {
   vi.doMock('./canvas-reconciler.js', () => ({
     scheduleCanvasInteractionReconciliation: mocks.scheduleCanvasInteractionReconciliation,
   }));
-  vi.doMock('./agent-runtimes/registry.js', () => ({
-    getAgentRuntime: () => ({
-      id: 'openclaw',
-      getCapabilities: vi.fn(async () => mocks.capabilities),
-      getStatus: vi.fn(() => ({
-        runtimeId: 'openclaw',
-        state: 'connected',
-      })),
-      createConversationHandle: ({ profile, localConversationId }: {
-        profile: { profileId: string };
-        localConversationId: string;
-      }) => ({
-        runtimeId: 'openclaw',
-        schemaVersion: 1,
-        opaque: { sessionKey: `agent:${profile.profileId}:canvas:${localConversationId}` },
-      }),
-      dispatchTurn: mocks.dispatchTurn,
-      reconcileDispatch: mocks.reconcileDispatch,
-    }),
-  }));
-
-  const db = await import('./canvas-db.js');
+  const db = await import('./canvas/persistence/canvas-store.js');
+  const { testConversationHandleFactory } = await import('./fixtures/test-conversation-handle.js');
+  db.getCanvasStore(testConversationHandleFactory);
   const sync = await import('./canvas-sync.js');
   const worker = await import('./canvas-send-worker.js');
   resetStore = db.resetCanvasStoreForTests;
@@ -126,7 +117,7 @@ describe('Canvas send worker', () => {
       },
     });
 
-    const result = await worker.runCanvasSendWorker(continuation.id);
+    const result = await worker.runCanvasSendWorker(continuation.id, runtime, store);
 
     unsubscribe();
     expect('agentOutput' in result).toBe(true);
@@ -171,7 +162,7 @@ describe('Canvas send worker', () => {
       recoveryRef,
     });
 
-    await worker.runCanvasSendWorker(reservation.id);
+    await worker.runCanvasSendWorker(reservation.id, runtime, store);
 
     expect(store.getReservation(reservation.id)).toMatchObject({
       status: 'prepared',
@@ -199,7 +190,7 @@ describe('Canvas send worker', () => {
       reliability: { idempotentDispatch: false, inspectAfterUnknownOutcome: false },
     };
 
-    const result = await worker.runCanvasSendWorker(reservation.id);
+    const result = await worker.runCanvasSendWorker(reservation.id, runtime, store);
 
     expect('dispatchState' in result && result.dispatchState).toBe('ambiguous');
     expect(mocks.dispatchTurn).not.toHaveBeenCalled();
@@ -229,7 +220,7 @@ describe('Canvas send worker', () => {
       turnRef: { runtimeId: 'openclaw', schemaVersion: 1, opaque: { turnId: 'turn-1' } },
     });
 
-    const result = await worker.runCanvasSendWorker(reservation.id);
+    const result = await worker.runCanvasSendWorker(reservation.id, runtime, store);
 
     expect('agentOutput' in result).toBe(true);
     expect(mocks.reconcileDispatch).toHaveBeenCalledWith(expect.objectContaining({
@@ -260,7 +251,7 @@ describe('Canvas send worker', () => {
     mocks.reconcileDispatch.mockResolvedValue({ outcome: 'not_found' });
     mocks.dispatchTurn.mockResolvedValue({ outcome: 'accepted', turnRef: null });
 
-    const result = await worker.runCanvasSendWorker(reservation.id);
+    const result = await worker.runCanvasSendWorker(reservation.id, runtime, store);
 
     expect('agentOutput' in result).toBe(true);
     expect(mocks.reconcileDispatch).toHaveBeenCalledOnce();

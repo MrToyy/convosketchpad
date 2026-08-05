@@ -28,10 +28,15 @@ async function setup() {
     dispatchCanvasSend: vi.fn(),
   }));
 
-  const db = await import('../lib/canvas-db.js');
+  const db = await import('../lib/canvas/persistence/canvas-store.js');
+  const { testConversationHandleFactory } = await import('../lib/fixtures/test-conversation-handle.js');
+  db.getCanvasStore(testConversationHandleFactory);
   const route = await import('./canvas.js');
   const app = new Hono();
-  app.route('/', route.default);
+  app.route('/', route.createCanvasRoutes({
+    store: db.getCanvasStore(),
+    runtimes: { get: vi.fn(), list: () => [] } as never,
+  }));
   resetStore = db.resetCanvasStoreForTests;
   return { app, db };
 }
