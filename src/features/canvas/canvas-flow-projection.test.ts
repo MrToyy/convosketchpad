@@ -159,6 +159,7 @@ describe('Canvas flow projection', () => {
         target: 'composer:branch-root:interaction-2',
       }),
     ]));
+    expect(result.edges.every((edge) => edge.animated !== true)).toBe(true);
     expect(result.nodes.find((node) => node.id === 'composer:branch-direct:interaction-1'))
       .toMatchObject({
         data: {
@@ -234,5 +235,12 @@ describe('Canvas flow projection', () => {
       data: { canAdd: false },
     });
     expect(result.nodes.some((node) => node.type === 'composer')).toBe(false);
+    expect(result.edges).toEqual([
+      expect.objectContaining({
+        source: previous.id,
+        target: accepted.id,
+      }),
+    ]);
+    expect(result.edges.every((edge) => edge.animated !== true)).toBe(true);
   });
 });

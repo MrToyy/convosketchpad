@@ -2,6 +2,12 @@
 
 ConvoSketchpad 的重要变更均记录在此文件中。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [Unreleased]
+
+### 修复
+
+- Canvas 连接边改为静态显示，避免 React Flow 的 SVG 虚线动画在空闲页面持续触发样式重算和 GPU 绘制；运行状态继续由 Interaction 节点和状态栏反馈。
+
 ## [0.4.0] - 2026-08-02
 
 ### 发布摘要

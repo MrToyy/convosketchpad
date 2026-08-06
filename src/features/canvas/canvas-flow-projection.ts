@@ -122,7 +122,6 @@ export function projectCanvasFlow(input: CanvasFlowProjectionInput): {
         id: `edge-${interaction.parentInteractionId}-${interaction.id}`,
         source: interaction.parentInteractionId,
         target: interaction.id,
-        animated: interaction.executionState === 'running',
       }]
       : []);
   const composerNodes: CanvasFlowNode[] = [];
@@ -140,7 +139,6 @@ export function projectCanvasFlow(input: CanvasFlowProjectionInput): {
         id: `edge-${source}-${nodeId}`,
         source,
         target: nodeId,
-        animated: true,
       });
     }
     const sourceNode = source ? interactionNodeById.get(source) : undefined;
