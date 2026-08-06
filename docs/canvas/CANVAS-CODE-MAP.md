@@ -3,7 +3,7 @@
 ## 不变量
 
 - 浏览器只呈现 Canvas、提交用户指令和上传原始附件。
-- 后端唯一负责 Agent Runtime 通信、发送状态机和 Canvas 数据持久化；当前 Registry 只注册 OpenClaw。
+- 后端唯一负责 Agent Runtime 通信、发送状态机和 Canvas 数据持久化；当前 Registry 可注册 OpenClaw 与 Codex。
 - Branch 同时只有一个未终止发送；`ambiguous` 不得超时解锁。
 - 所选 Agent Runtime 是执行、Conversation 和原始对话记录权威；SQLite 是 Canvas 拓扑及持久化副本权威。
 - 附件按 ID 和所有者解析，Artifact 保持 25 MiB 上限及降级语义。
@@ -49,7 +49,7 @@
 | 发送判定、历史快照、Replay 与协调状态机 | `server/lib/canvas/domain/` |
 | 公开 DTO 与内部资源定位 | `server/lib/canvas-public-dto.ts`、`server/lib/canvas-resource-locator.ts` |
 | Interaction 完成时的 Runtime Conversation 上下文快照 | `server/lib/canvas-context-snapshot.ts` |
-| Canvas cursor、SSE 和 Preview | `server/routes/canvas.ts`、`server/lib/canvas-sync.ts` |
+| Canvas cursor、SSE、流式文本组装和 Preview | `server/routes/canvas.ts`、`server/lib/canvas-sync.ts`、`server/lib/canvas/runtime-text-preview.ts` |
 | Runtime 聚合状态/用量、生命周期 API 与 SSE | `server/routes/runtime.ts`、`server/routes/runtime-usage.ts`、`server/routes/runtime-actions.ts`、`server/lib/runtime-status-events.ts` |
 | SQLite Store、Schema、彻底 Runtime 字段迁移与三项迁移清单 | `server/lib/canvas/persistence/`、`bin/convosketchpad-migrate.ts` |
 | `0.4.0` Runtime Schema 与原始 Schema fixture | `server/lib/canvas/persistence/agent-runtime-schema.ts`、`server/lib/fixtures/canvas-v0.2.0.sql` |
@@ -58,6 +58,7 @@
 | 服务进程组合与依赖注入 | `server/application-context.ts`、`server/app.ts` |
 | 发送调度、单次 Worker、投递构建与统一 Runtime 事件/审批关联 | `server/lib/canvas-send-coordinator.ts`、`server/lib/canvas-send-worker.ts`、`server/lib/canvas-send-delivery.ts`、`server/lib/canvas/runtime-event-consumer.ts` |
 | OpenClaw Adapter、Gateway 唯一连接、Transcript/Artifact、Session Policy 与设备边界 | `server/lib/agent-runtimes/adapters/openclaw/` |
+| Codex Adapter、受监督 App Server、Thread/Turn、审批与受管 Artifact | `server/lib/agent-runtimes/adapters/codex/` |
 | Conversation/Turn 协调 | `server/lib/canvas-reconciler.ts`、`server/lib/canvas-context-snapshot.ts` |
 | Artifact 观察与 Interaction 终态策略 | `server/lib/canvas/domain/artifact-watch.ts`、`server/lib/canvas/domain/reconciliation-state.ts` |
 | 文件持久化、媒体派生与监听后的历史缩略图回填 | `server/index.ts`、`server/lib/canvas-artifact-store.ts`、`server/lib/canvas-media-derivatives.ts`、`server/routes/upload-reference.ts` |

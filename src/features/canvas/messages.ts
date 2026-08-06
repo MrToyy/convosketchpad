@@ -12,6 +12,7 @@ export interface CanvasCopy {
   userInput: string;
   attachmentsOnly: string;
   waitingForResponse: string;
+  stillWorking: string;
   noResponse: string;
   partialHistoryResources: string;
   artifactUnavailable: string;
@@ -153,6 +154,7 @@ export const canvasCopy = {
     userInput: '用户输入',
     attachmentsOnly: '（仅包含附件）',
     waitingForResponse: '正在等待智能体响应…',
+    stillWorking: '智能体仍在工作…',
     noResponse: '暂无响应内容。',
     partialHistoryResources: '部分历史资源未能继承',
     artifactUnavailable: 'Artifact 暂不可用',
@@ -226,6 +228,7 @@ export const canvasCopy = {
     userInput: 'User input',
     attachmentsOnly: '(attachments only)',
     waitingForResponse: 'Waiting for the agent…',
+    stillWorking: 'The agent is still working…',
     noResponse: 'No response content.',
     partialHistoryResources: 'Some historical resources could not be inherited',
     artifactUnavailable: 'Artifact unavailable',

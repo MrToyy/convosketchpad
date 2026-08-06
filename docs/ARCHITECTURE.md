@@ -8,14 +8,14 @@ ConvoSketchpad 是 Agent 运行端（Agent Runtime）之上的可视化 Canvas�
 ConvoSketchpad（Hono、SQLite、文件存储、发送协调器）
   ⇅ AgentRuntime（统一 Handles、Capabilities、事件、审批和恢复）
   ├─ OpenClaw Adapter ⇄ 单一持久 Gateway WebSocket
-  └─ Codex Adapter    ⇄ 本地 app-server stdio（第二阶段）
+  └─ Codex Adapter    ⇄ 受监督的本地 app-server stdio JSONL
 ```
 
-当前开发分支已完成第一阶段：Canvas 通用运行路径通过 `AgentRuntime`，Registry 目前只注册 OpenClaw Adapter，HTTP、前端和数据库均使用通用 Agent/Conversation/Turn/Approval 语义。该实现随 v0.4.0 发布，Codex Adapter 尚不存在。已确认的迁移设计和两个功能提交边界见 [`AGENT-RUNTIME-MIGRATION.md`](AGENT-RUNTIME-MIGRATION.md)。
+v0.4.0 的 Canvas 通用运行路径全部通过 `AgentRuntime`，Registry 可同时注册 OpenClaw 与 Codex Adapter，HTTP、前端和数据库均使用通用 Agent/Conversation/Turn/Approval 语义。Codex 直接连接本机 App Server，不经过 OpenClaw。
 
 浏览器不实现 Runtime 握手，不调用 Gateway RPC 或 Codex App Server，不保存 Runtime URL、Token、设备凭据或本地运行时凭据。服务端是唯一的 Agent Runtime 通信方。
 
-浏览器先读取带持久 `cursor` 的 Graph 快照，再连接当前 Canvas 的 SSE。持久更新以完整实体 upsert 发送；流式文本使用不持久化的 `node.preview`，断线即丢弃。Runtime 全局连接状态与 Canvas 数据同步是两条独立产品契约，浏览器不接收或解释 OpenClaw/Codex 原始事件。
+浏览器先读取带持久 `cursor` 的 Graph 快照，再连接当前 Canvas 的 SSE。持久更新以完整实体 upsert 发送；流式文本先在服务端将增量片段、累计快照和已完成消息组装为当前 Turn 的完整预览，再使用不持久化的 `node.preview` 发送，断线即丢弃。Runtime 全局连接状态与 Canvas 数据同步是两条独立产品契约，浏览器不接收或解释 OpenClaw/Codex 原始事件。
 
 ## Agent Runtime 边界
 
@@ -33,6 +33,7 @@ Canvas 通用层只使用以下语义：
 ```text
 turn.accepted
 output.text.delta
+output.text.snapshot
 output.message.completed
 artifact.available
 usage.updated
@@ -45,9 +46,9 @@ runtime.disconnected
 
 `output.imageGeneration` 使用 `supported | unsupported | unknown` 三态；无法从原生协议可靠判断时必须保留 `unknown`。`approval.required` 必须带不透明 Approval Handle、所属 Conversation/Turn、审批类别、可展示摘要、风险、权限、选择、作用域和到期时间；`approval.resolved` 记录最终决定及来源。审批和终态信号使用统一持久化 Inbox 去重。全局断线只走 Runtime Status/SSE，不写 Canvas Inbox。审批摘要保存前移除原始环境等敏感字段，前端只在所属 Interaction 节点内处理；持久/会话级授权需由 UI 确认且服务端再次校验 `confirmed: true`。原生 resolved 事件的 Choice 和权限子集也以已持久化摘要为准再次校验，未知或越权结果进入 `unconfirmed`，不能默认成功。HTTP Route 只调用统一 `resolveApproval`。
 
-无副作用的 `manifest.ts` 是 Runtime ID 与展示名的支持清单，供服务启动和 setup 共同读取；`configuration.ts` 负责已配置 Runtime 的选择与通用校验，`definitions.ts` 必须对清单逐项提供实例工厂，`registry.ts` 不包含按类型分支。`server/application-context.ts` 是进程组合根，显式创建 Registry 与 Canvas Store，并负责后台协调器和资源的启动/关闭；Worker、投递、事件消费和 Reconciler 使用同一显式 Store 依赖。模块导入不会隐式创建全局 Registry、Store 或连接 Runtime。OpenClaw Adapter 独占 `config.ts`、`gateway-rpc.ts`、Gateway 方法名、Session Reset Policy、CLI 定位和原始 Gateway 事件投影；同一进程的 Adapter 实例可共享一个 Gateway 传输，但必须以实例租约隔离关闭生命周期。计划中的 Codex Adapter 独占 app-server 子进程、JSONL、Thread/Turn/Item、审批请求和本地 Workspace。Canvas Route、Service、Worker、Coordinator、Reconciler、Context Snapshot 和 Artifact 逻辑不得根据 Runtime 类型增加协议分支；ESLint 边界规则会阻止全部通用 Canvas 模块和 Route 直接导入具体 Adapter。
+无副作用的 `manifest.ts` 是 Runtime ID 与展示名的支持清单，供服务启动和 setup 共同读取；`configuration.ts` 负责已配置 Runtime 的选择与通用校验，`definitions.ts` 必须对清单逐项提供实例工厂，`registry.ts` 不包含按类型分支。`server/application-context.ts` 是进程组合根，显式创建 Registry 与 Canvas Store，并负责后台协调器和资源的启动/关闭；Worker、投递、事件消费和 Reconciler 使用同一显式 Store 依赖。模块导入不会隐式创建全局 Registry、Store 或连接 Runtime。OpenClaw Adapter 独占 Gateway 方法名、Session Reset Policy、CLI 定位和原始事件投影；Codex Adapter 独占 App Server 子进程、JSONL、Thread/Turn/Item、原生审批和受管交付物目录。Canvas Route、Service、Worker、Coordinator、Reconciler、Context Snapshot 和 Artifact 逻辑不得根据 Runtime 类型增加协议分支；ESLint 边界规则会阻止全部通用 Canvas 模块和 Route 直接导入具体 Adapter。
 
-setup 先以只读方式执行各 Adapter 的本机发现，只确认入口和版本，把已探测和未探测项分组展示，再把用户多选结果写入 `AGENT_RUNTIMES`；之后仅调用已选 Runtime 的 `RuntimeSetupDriver` 完成配置、校验与摘要。发现 Driver 只接收净化后的配置状态和可执行文件路径，不接收凭据；未选 Runtime 不调用原生配置命令、不发起连接或配对，所选 Driver 才可读取 URL/Token 等预填值。本地 CLI 未探测到并不阻止手工配置远程 Runtime。当前每种 Adapter 最多一个实例。Registry 按配置顺序组合实例，Catalog 并行发现 Profile，并按 Runtime 顺序、默认 Profile、原生顺序生成扁平 Agent 目录。setup 配置与配对完成后通过同一个 Runtime Port 读取 Profile，让用户选择产品级默认 Agent，并写入 `CONVOSKETCHPAD_DEFAULT_AGENT_RUNTIME` 与 `CONVOSKETCHPAD_DEFAULT_AGENT_PROFILE`。所有 Agent 平权，不存在运行时 Runtime 切换器。新建 Canvas 优先绑定可用的配置默认项，否则回退到第一个可用 Agent；首次持久 Send Reservation 前可以更新，Reservation 创建事务同时写 `agent_locked_at`，此后不因失败、刷新或重启解锁。
+setup 先以只读方式执行各 Adapter 的本机发现，只确认入口和版本，把已探测和未探测项分组展示，再把用户多选结果写入 `AGENT_RUNTIMES`；之后仅调用已选 Runtime 的 `RuntimeSetupDriver` 完成配置、校验与摘要。发现 Driver 只接收净化后的配置状态和可执行文件路径，不接收凭据；未选 Runtime 不调用原生配置命令、不发起连接或配对。OpenClaw 可在 CLI 未探测到时手工配置远程 Gateway；Codex 当前只接受本机 CLI/App Server。Codex 被选择后才启动临时 App Server 读取 `account/read`；未登录只提示运行 `codex login` 后重跑 setup，不由本项目处理登录。当前每种 Adapter 最多一个实例。Registry 按配置顺序组合实例，Catalog 并行发现 Profile，并按 Runtime 顺序、默认 Profile、原生顺序生成扁平 Agent 目录。setup 配置与配对完成后通过同一个 Runtime Port 读取 Profile，让用户选择产品级默认 Agent，并写入 `CONVOSKETCHPAD_DEFAULT_AGENT_RUNTIME` 与 `CONVOSKETCHPAD_DEFAULT_AGENT_PROFILE`。所有 Agent 平权，不存在运行时 Runtime 切换器。新建 Canvas 优先绑定可用的配置默认项，否则回退到第一个可用 Agent；首次持久 Send Reservation 前可以更新，Reservation 创建事务同时写 `agent_locked_at`，此后不因失败、刷新或重启解锁。
 
 全局状态保留每个 Runtime 明细，并投影 `ready/degraded/connecting/unavailable` 总态；单点失败不隐藏健康 Runtime。账户用量和 Provider 额度按 Runtime 分组，Token 与额度窗口不合并；只有所有 Runtime 在线、所有声明支持费用的 Runtime 都成功返回可加数据且币种/周期一致时计算合计。当前 Canvas 的 Branch、工作中和上下文 Meter 始终来自当前 Graph，不参与账户聚合。
 
@@ -97,7 +98,7 @@ reserved
     → failed
 ```
 
-连接尚未就绪或确认没有写出请求时回到 `reserved`。请求可能写出后超时或断线进入 `ambiguous`，并把 Adapter 返回的 `recoveryRef` 保存到既有 `dispatch_recovery_ref_json`。明确的 Runtime 拒绝进入 `failed`。声明幂等的 Runtime 可使用同一 Reservation ID 重试；非幂等 Runtime 必须先 `reconcileDispatch`，`accepted` 直接确认、`not_found` 才重新派发、`unknown` 保持锁定；不具备权威核对能力时永不盲目重发。OpenClaw 当前走幂等重试，计划中的 Codex 必须通过权威 Thread/Turn 读取核对。重试间隔依次为 1、3、10、30 秒，之后每 60 秒持续重试。发送协调器不做固定频率数据库扫描：新预留和 Runtime 重连会主动唤醒；已有任务只按最早的 `next_attempt_at` 设置一次计时器，空闲时不保留扫描计时器。
+连接尚未就绪或确认没有写出请求时回到 `reserved`。请求可能写出后超时或断线进入 `ambiguous`，并把 Adapter 返回的 `recoveryRef` 保存到既有 `dispatch_recovery_ref_json`。明确的 Runtime 拒绝进入 `failed`。声明幂等的 Runtime 可使用同一 Reservation ID 重试；非幂等 Runtime 必须先 `reconcileDispatch`，`accepted` 直接确认、`not_found` 才重新派发、`unknown` 保持锁定；不具备权威核对能力时永不盲目重发。OpenClaw 使用 `chat.send.idempotencyKey` 走幂等重试；Codex App Server 不提供服务端 `turn/start` 幂等保证，Adapter 在传输结果未知时通过 `thread/read` 和本次交付 Token 核对，只有确认 `not_found` 才允许重发。重试间隔依次为 1、3、10、30 秒，之后每 60 秒持续重试。发送协调器不做固定频率数据库扫描：新预留和 Runtime 重连会主动唤醒；已有任务只按最早的 `next_attempt_at` 设置一次计时器，空闲时不保留扫描计时器。
 
 服务启动和任一 Runtime 重连时都会扫描可派发预留。Graph 的 `pendingSends` 让刷新后的浏览器继续显示锁定状态。
 
@@ -107,7 +108,7 @@ reserved
 2. 浏览器调用 `POST /api/canvas/branches/:id/send`，只提交用户文本、预期头节点、预期 Agent 和附件 ID。
 3. 服务端从数据库解析附件名称、MIME、大小和文件位置，执行所有者、Agent、Branch 与排他性检查。
 4. 服务端持久化发送预留；需要处理大图时进入可恢复的 `awaiting_media`，由后端生成版本化投递派生文件。
-5. 发送协调器调用所选 Runtime 的 `dispatchTurn`；OpenClaw Adapter 将其投影为原生 `chat.send`，并继续使用预留 ID 作为 `idempotencyKey`。
+5. 发送协调器调用所选 Runtime 的 `dispatchTurn`；OpenClaw Adapter 投影为原生 `chat.send` 并使用预留 ID 作为 `idempotencyKey`，Codex Adapter 投影为 `turn/start` 并保存未知结果核对引用。
 6. Runtime 返回 `accepted` 后，服务端创建 `running` Interaction、推进 Branch 头节点并立即发布 Canvas 变更；提交前已完成的头节点因此成为可分叉历史节点，无需等待新 Interaction 终止。`rejected` 明确失败，`unknown` 保持安全的 `ambiguous` 状态。
 7. `canvas-reconciler` 通过 Runtime 的 `readTurn` / `inspectTurn` 读取权威记录，Artifact Store 再通过 `materializeArtifact` 持久化最终文本和 Artifact。
 
@@ -136,7 +137,7 @@ OpenClaw 在会话记录中可能把 RPC 的 `attachments` 规范化为 `MediaPa
 
 数据库事务通过 `canvas_changes` 同时记录可见实体变化。`GET /api/canvas/canvases/:id/events?after=<cursor>` 将 cursor 之后的变化按实体合并为 `CanvasSyncBatch`，发送最新完整投影而非中间事件序列。Interaction `version` 阻止旧批次覆盖新节点；内部检查时间和协调心跳不会增加版本。
 
-`node.preview` 由统一 Runtime 事件消费层发送，不写 Interaction、change 表或日志。最终对话协调完成后，完整 Interaction upsert 替换 Preview。Canvas SSE 不可用且快照仍有未终止任务时，浏览器才每 15 秒降级读取 Graph，并遵循 `Retry-After`。
+`node.preview` 由统一 Runtime 事件消费层发送，其 `text` 始终是当前 Turn 可见文字的完整快照，前端整体替换而不再追加。`RuntimeTextPreviewAssembler` 使用可选 `messageId` 处理同一 Turn 的多段文字；`output.text.delta` 只追加、`output.text.snapshot` 替换当前段，`output.message.completed` 以原生完成值收敛。Preview 不写 Interaction、change 表或日志。最终对话协调完成后，完整 Interaction upsert 替换 Preview。Canvas SSE 不可用且快照仍有未终止任务时，浏览器才每 15 秒降级读取 Graph，并遵循 `Retry-After`。
 
 Runtime 终态与审批信号在 `runtime_event_inbox` 中持久化并去重；全局断线状态不进入 Canvas Inbox。Artifact 观察状态、尝试次数和下一次执行时间保存在 `artifact_sync_jobs`。服务重启会扫描持久任务恢复协调，内存计时器只负责唤醒。Interaction 已显示 `synced` 时仍可存在静默观察任务。审批写入 `interaction_approvals` 并通过 Graph/SSE 投影到所属节点；accepted、rejected 和 unknown 结果分别收敛为 resolved/denied、可重试 pending 和待原生事件确认的 unconfirmed。
 
@@ -145,7 +146,7 @@ Runtime 终态与审批信号在 `runtime_event_inbox` 中持久化并去重；�
 Interaction 首次从 `running`/`unconfirmed` 确认完成时，后端从 OpenClaw 读取该物理 Session 的新鲜累计
 Token 与上下文上限，并把不可覆盖的 `contextSnapshot` 随 Interaction 保存。读取必须匹配完整 Conversation Handle
 和物理 instance ID；失败不阻塞 Interaction 完成，后续 Artifact 观察也不会补写或覆盖，以免下一轮执行造成串算。
-上下文 Meter 仅在 Compose 文本框获得焦点时读取其来源 Interaction 的快照：继续 Branch 使用当前头节点，草稿
+上下文快照必须满足 `0 <= usedTokens <= contextLimit`；累计账户或 Thread 用量不得冒充当前上下文，超出窗口的无效快照不向前端暴露。Codex 使用 `thread/tokenUsage/updated.last.totalTokens` 与 `modelContextWindow`，不使用可能超过窗口的 Thread 累计 `total.totalTokens`。上下文 Meter 仅在 Compose 文本框获得焦点时读取其来源 Interaction 的快照：继续 Branch 使用当前头节点，草稿
 Fork 使用分叉来源节点，空白根节点不显示。前端不查询 Gateway、不沿祖先节点求和，也不存在 Canvas 级聚合或周期轮询。
 
 ## Gateway 连接
@@ -169,6 +170,18 @@ OpenClaw Adapter 的 `server/lib/agent-runtimes/adapters/openclaw/gateway-rpc.ts
 Node 客户端不发送浏览器 `Origin` Header，因此 ConvoSketchpad 不需要修改 `gateway.controlUi.allowedOrigins`。该 OpenClaw 设置仍可能被原生 Control UI 使用，安装和更新流程不会删除已有值。
 
 远程 Gateway 的 setup 创建唯一匹配 ConvoSketchpad 持久密钥的 request，审批必须在 Gateway 宿主机完成。已有本机设备凭据不会删除，但 loopback 模式不会读取或使用它们。
+
+## Codex App Server
+
+Codex Adapter 支持并验证 Codex CLI `0.146.0`，启动时先检查最低版本，再监督 `codex app-server` 子进程并完成 `initialize` / `initialized` 握手。服务端独占 stdio JSONL，浏览器不接触 App Server。Adapter 暴露单一 `codex/default` Profile，不覆盖 Codex 当前账户的模型、Sandbox、审批策略或 Reviewer 设置；同一部署中的受管用户共享宿主机 Codex 账户与 `CODEX_WORKING_DIRECTORY`，Canvas 数据仍按 ConvoSketchpad 所有者隔离。
+
+每个 Branch Conversation 对应持久 Codex Thread。继续发送前 Adapter 调用 `thread/resume` / `thread/read`；`notLoaded` 表示可恢复，不是超时失效，因此继续原 Thread，不做 Canonical Replay。只有 Thread 权威读取确认不存在时，通用发送层才获得 `recreated` 结果并使用项目既有 Replay Package。OpenClaw 的 Session 重置/漂移判断同样留在 OpenClaw Adapter，通用层不解释不同 Runtime 的失效机制。
+
+Codex Turn 使用 Default 模式，继承宿主机配置。图片附件先复制到本次受管输入目录，再以 `localImage` Item 发送；任意文件输入、音频输入和 Steer 当前不提供。原生 `imageGeneration` Item 作为图片 Artifact 读取；其他下载交付物必须由 Codex 写入 `<CODEX_WORKING_DIRECTORY>/.convosketchpad-artifacts/<turn-token>/outputs/`。Adapter 不扫描整个 Workspace，也不把普通 `fileChange` 当成 Artifact。受管目录只接受真实路径仍在目录内、单链接的普通文件，最多 100 个、单文件 25 MiB、本轮总计 100 MiB；经通用 Artifact Store 持久化后释放临时副本。失败或中断 Turn 已写出的文件仍会保留并标注“可能不完整”，路径或限额拒绝只降级 Artifact，不抹除文本结果。安全栅格图片可内联预览；SVG、HTML、文档、压缩包等其他 Artifact 只能下载。
+
+Codex 的命令执行、文件修改和权限请求投影到既有节点内审批；会话级允许仍需二次确认。当前统一审批模型不承载 Codex execpolicy amendment、网络策略 amendment 或更细的持久授权变更，因此不会持久修改这些原生策略；结构化 `item/tool/requestUserInput` 和 MCP elicitation 在本版本的 Default 模式中不提供回答通道，前者明确失败并发出 `input.required` 提示，后者明确拒绝。由此会损失依赖结构化追问、MCP 表单、持久命令规则或持久网络例外的 Codex 工作流，但普通文本交互与节点内一次性/会话级审批仍可使用。
+
+账户用量和额度只从初始化后的 App Server `account/usage/read` 与 `account/rateLimits/read` 获取，不调用 CLI 或读取本地凭据文件。App Server 异常退出会拒绝挂起请求、发布断线状态，并按 1–30 秒指数退避自动重启；状态快照读取不触发额外连接。进程退出或重启不代表 Thread 失效。
 
 ## 前端
 
@@ -198,6 +211,7 @@ Node 客户端不发送浏览器 `Origin` Header，因此 ConvoSketchpad 不需�
 | 发送调度、单次 Worker、投递构建与恢复重试 | `server/lib/canvas-send-coordinator.ts`、`server/lib/canvas-send-worker.ts`、`server/lib/canvas-send-delivery.ts`、`server/lib/canvas/domain/send-retry.ts` |
 | Agent Runtime 组合根、配置、契约、Definition、Registry 与聚合目录 | `server/application-context.ts`、`server/lib/agent-runtimes/configuration.ts`、`contract.ts`、`definitions.ts`、`registry.ts`、`catalog.ts` |
 | OpenClaw Adapter、传输与 Transcript/Artifact | `server/lib/agent-runtimes/adapters/openclaw/` |
+| Codex Adapter、App Server 与受管 Artifact | `server/lib/agent-runtimes/adapters/codex/` |
 | 统一 Runtime 事件消费与审批关联 | `server/lib/canvas/runtime-event-consumer.ts` |
 | 对话与 Artifact 协调 | `server/lib/canvas-reconciler.ts`、`server/lib/canvas/domain/artifact-watch.ts`、`server/lib/canvas/domain/reconciliation-state.ts` |
 | 附件、Artifact、投递图与缩略图文件存储 | `server/routes/upload-reference.ts`、`server/lib/canvas-artifact-store.ts`、`server/lib/canvas-media-derivatives.ts` |
@@ -273,10 +287,11 @@ Replay Package，但不改写历史。恢复发送的 Interaction 完成后，�
 
 | 数据 | 权威方或位置 |
 |---|---|
-| Agent、工具、执行、Conversation、原始对话记录 | 所选 Agent Runtime（当前为 OpenClaw） |
+| Agent、工具、执行、Conversation、原始对话记录 | 所选 Agent Runtime（OpenClaw 或 Codex） |
 | Canvas、Branch、Interaction、发送预留、附件与 Artifact 索引、同步任务、cursor、Runtime 事件、审批、布局、用户 | `database/canvas.sqlite` |
 | 持久化附件和 Artifact | `artifacts/` |
-| Adapter 管理的本地设备身份和 Token（当前为 OpenClaw Gateway） | `~/.convosketchpad/` 或 `CONVOSKETCHPAD_DATA_DIR` |
+| OpenClaw Adapter 管理的本地设备身份和 Token | `~/.convosketchpad/` 或 `CONVOSKETCHPAD_DATA_DIR` |
+| Codex 临时输入与交付物 | `<CODEX_WORKING_DIRECTORY>/.convosketchpad-artifacts/`，持久化后释放 |
 
 备份时必须同时处理 `database/canvas.sqlite` 与 `artifacts/`。
 

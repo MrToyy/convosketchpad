@@ -47,6 +47,40 @@ afterEach(() => {
 });
 
 describe('Canvas Runtime event consumer', () => {
+  it('publishes cumulative preview snapshots for append-only Runtime deltas', async () => {
+    const { db, consumer } = await setup();
+    const { RuntimeTextPreviewAssembler } = await import('./runtime-text-preview.js');
+    const store = db.getCanvasStore();
+    store.ensureUser('owner-a', 'Owner A');
+    const canvas = store.createCanvas('owner-a', 'Canvas', { runtimeId: 'codex', profileId: 'default' });
+    const branch = store.createRootBranch('owner-a', canvas.id);
+    const reservation = store.prepareSend('owner-a', { branchId: branch.id, userInput: 'hello', attachments: [] });
+    const turnRef = { runtimeId: 'codex', schemaVersion: 1, opaque: { turnId: 'turn-1' } };
+    const interaction = store.acknowledgeSend('owner-a', reservation.id, null, [], turnRef);
+    const previews = new RuntimeTextPreviewAssembler();
+
+    for (const text of ['first ', 'second']) {
+      consumer.handleCanvasRuntimeEvent(store, {
+        runtimeId: 'codex',
+        type: 'output.text.delta',
+        conversationRef: reservation.conversationRef || undefined,
+        turnRef,
+        messageId: 'message-1',
+        text,
+        createdAt: 1,
+      }, previews);
+    }
+
+    expect(mocks.publishPreview).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      interactionId: interaction.id,
+      text: 'first ',
+    }));
+    expect(mocks.publishPreview).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      interactionId: interaction.id,
+      text: 'first second',
+    }));
+  });
+
   it('deduplicates durable terminal events and schedules reconciliation once', async () => {
     const { db, consumer } = await setup();
     const store = db.getCanvasStore();

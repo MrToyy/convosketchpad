@@ -212,6 +212,7 @@ describe('Canvas Artifact routes', () => {
     expect(response.status).toBe(200);
     expect(await response.text()).toBe('persisted');
     expect(response.headers.get('Content-Type')).toBe('text/plain');
+    expect(response.headers.get('Content-Disposition')).toMatch(/^attachment;/);
     expect(response.headers.get('Cache-Control')).toContain('immutable');
   });
 

@@ -1,4 +1,5 @@
 import { validateOpenClawConfig } from './adapters/openclaw/config.js';
+import { validateCodexConfig } from './adapters/codex/config.js';
 import {
   AGENT_RUNTIME_MANIFEST,
   type SupportedAgentRuntimeId,
@@ -6,6 +7,7 @@ import {
 
 const configValidators = {
   openclaw: validateOpenClawConfig,
+  codex: validateCodexConfig,
 } satisfies Record<SupportedAgentRuntimeId, () => { warnings: string[]; errors: string[] }>;
 
 export const SUPPORTED_AGENT_RUNTIMES = Object.freeze(

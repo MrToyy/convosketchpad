@@ -73,6 +73,14 @@ describe('Interaction context snapshots', () => {
     )).resolves.toEqual({ conversationInstanceId: SESSION_ID, contextSnapshot: null });
   });
 
+  it('rejects cumulative usage that exceeds the declared context window', async () => {
+    await expect(captureInteractionCompletionSession(
+      conversationRef,
+      SESSION_ID,
+      inspector({ instanceId: SESSION_ID, context: { usedTokens: 425_460, contextLimit: 258_400 } }),
+    )).resolves.toEqual({ conversationInstanceId: SESSION_ID, contextSnapshot: null });
+  });
+
   it('accepts an exact physical instance when no prior instance was observed', async () => {
     const result = await captureInteractionContextSnapshot(
       conversationRef,

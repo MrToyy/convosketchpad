@@ -270,7 +270,9 @@ app.get('/api/canvas/artifacts/:canvasId/:interactionId/:artifactId', rateLimitG
     headers: {
       'Content-Type': persisted.artifact.mimeType || 'application/octet-stream',
       'Content-Length': String(persisted.bytes.byteLength),
-      'Content-Disposition': `inline; filename="${safeName}"; filename*=UTF-8''${encodedName}`,
+      'Content-Disposition': `${['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(
+        persisted.artifact.mimeType?.toLowerCase() || '',
+      ) ? 'inline' : 'attachment'}; filename="${safeName}"; filename*=UTF-8''${encodedName}`,
       'Cache-Control': 'private, max-age=31536000, immutable',
     },
   });
@@ -288,7 +290,7 @@ app.get('/api/canvas/artifacts/:canvasId/:interactionId/:artifactId/thumbnail', 
     item.id === artifactId
     && item.storage === 'canvas'
     && item.available !== false
-    && item.mimeType?.startsWith('image/'));
+    && ['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(item.mimeType?.toLowerCase() || ''));
   if (!artifact) return c.json({ error: 'Not found' }, 404);
   try {
     const prepared = await ensureCanvasMediaDerivative(store, {

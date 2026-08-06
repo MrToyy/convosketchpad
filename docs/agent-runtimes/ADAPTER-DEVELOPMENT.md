@@ -69,7 +69,7 @@ Capabilities 必须描述产品语义而非方法名，尤其包括输入图片�
 
 ## 事件与审批
 
-所有原生事件先归一化为 `RuntimeEvent`。终态与审批 required/resolved 进入 `runtime_event_inbox`，去重键必须包含 `runtimeId`，不能假设不同 Runtime 的原生事件 ID 全局唯一；流式文本只做瞬时 Preview。事件带显式 Turn Handle 时必须严格按该 Handle 关联，未命中不能降级猜测当前 Conversation 的另一个 Turn；仅缺少 Turn Handle 时才允许以 Conversation 的唯一候选恢复。审批 resolved 按 Approval Handle 收敛，即使所属 Interaction 已终止也必须可处理；其 Choice 必须存在于已持久化摘要，授予权限必须是请求权限的子集，拒绝 Choice 不得携带授予权限。任何不满足契约的原生结果都必须记为 `unconfirmed`，不得默认成功。全局断线状态由 Runtime Status/SSE 传播，不写入 Canvas durable inbox；如未来某种断线事实确实改变单个 Turn，必须先投影成明确的 Turn 事件。
+所有原生事件先归一化为 `RuntimeEvent`。终态与审批 required/resolved 进入 `runtime_event_inbox`，去重键必须包含 `runtimeId`，不能假设不同 Runtime 的原生事件 ID 全局唯一；流式文本只做瞬时 Preview。真正的追加片段投影为 `output.text.delta`，原生累计/替换值投影为 `output.text.snapshot`，消息终值投影为 `output.message.completed`；同一 Turn 可有多段 Agent 文字时必须携带稳定 `messageId`。通用消费层会将它们组装为完整预览快照，Adapter 和前端都不得把累计快照再当作 Delta 追加。事件带显式 Turn Handle 时必须严格按该 Handle 关联，未命中不能降级猜测当前 Conversation 的另一个 Turn；仅缺少 Turn Handle 时才允许以 Conversation 的唯一候选恢复。审批 resolved 按 Approval Handle 收敛，即使所属 Interaction 已终止也必须可处理；其 Choice 必须存在于已持久化摘要，授予权限必须是请求权限的子集，拒绝 Choice 不得携带授予权限。任何不满足契约的原生结果都必须记为 `unconfirmed`，不得默认成功。全局断线状态由 Runtime Status/SSE 传播，不写入 Canvas durable inbox；如未来某种断线事实确实改变单个 Turn，必须先投影成明确的 Turn 事件。
 
 审批摘要必须是可直接展示且已净化的数据：类别、标题、描述、风险、权限列表、选择列表、作用域、是否需二次确认和到期时间。不得把原始环境或凭据投影给 Canvas。前端在所属 Interaction 节点内展示审批；持久授权等扩大作用域的选择必须标记 `requiresConfirmation`。前端必须取得显式确认并发送 `confirmed: true`，服务端仍按已持久 Choice 独立校验，不能信任 UI。Route 只能调用 `resolveApproval()`，不能调用原生审批 RPC。
 
@@ -84,10 +84,13 @@ Adapter 必须区分审批结果：
 - `dispatchTurn()` 必须区分 `accepted`、`rejected`、`unknown`。只有有明确幂等保证时才能重发可能已经写出的请求。
 - `unknown` 应尽量返回可持久化的最小 `recoveryRef`。非幂等 Runtime 必须实现 `reconcileDispatch()`，只有返回 `not_found` 才能重新派发；返回 `accepted` 时必须复用权威 Turn，返回 `unknown` 时保持 Reservation 为 `ambiguous`。若既不幂等也不能核对，Worker 会保持锁定且不会重发。
 - Adapter 负责权威 Conversation/Turn 检查；Canvas 负责 Reservation、Branch 锁、Interaction 追加和 Canonical Replay。
+- `prepareConversation()` 必须由 Adapter 解释原生 Conversation 是否仍可继续：仍可恢复时返回 `continued`，真正缺失、过期或即将按原生策略失效时返回 `recreated + reason`，通用层只在后者触发 Canonical Replay。不得把某个 Runtime 的 Session 超时规则提升为通用规则。
 - 输入附件来自 Canvas 已持久化副本。Adapter 不得接受浏览器路径或跨所有者读取。
 - `materializeArtifact()` 只能处理结构化 Artifact Handle 或明确的源 URI；不得扫描整个工作区猜测输出。
-- 返回文件仍须经过大小、MIME、路径/符号链接和所有者检查，随后立即复制到 Canvas 存储。
+- 返回文件仍须经过大小、MIME、路径/符号链接和所有者检查，随后立即复制到 Canvas 存储。使用受管临时目录的 Adapter 应实现 `releaseArtifact()`，只在通用 Store 已确认持久副本后删除源文件；失败或中断 Turn 的可用文件也应尽力持久化并明确标注可能不完整。
 - 图片生成通过 `output.imageGeneration` Capability 与结构化 Artifact 表达，不在通用层根据文件扩展名推断。
+
+Codex 是非幂等派发参考实现：`turn/start` 的 JSON-RPC ID 不提供服务端幂等保证，未知结果通过 `thread/read` 与持久相关 Token 核对；`notLoaded` Thread 仍可恢复，不触发 Replay。通用交付物只允许写入 `CODEX_WORKING_DIRECTORY` 下精确的 `.convosketchpad-artifacts/<turn-token>/outputs/`，不得扫描 Workspace 或把全部 `fileChange` 当作 Artifact。其 Default 模式不回答结构化 ask-user 或 MCP elicitation，也不把 execpolicy/network amendment 投影成通用持久授权；若未来扩展这些能力，必须先扩展统一契约、节点 UI、持久化与拒绝默认成功的测试，不能只在 Adapter 私下放行。
 
 ## 状态与用量聚合
 
@@ -97,6 +100,7 @@ Adapter 必须区分审批结果：
 - `/api/runtime/usage` 保留每个 Runtime 的用量和 Provider 额度分组。Token、额度窗口、Provider 名称不可跨 Runtime 相加。
 - 只有所有已配置 Runtime 均可连接、所有声明支持账户费用的 Runtime 都成功返回 `additive=true` 的费用，且币种和统计周期一致时，服务端才返回 `comparableCostTotal`；缺失数据不能伪装成全局合计。
 - Branch 数、工作中数量和上下文 Meter 属于当前 Canvas，不参与账户级聚合。
+- Adapter 为上下文 Meter 返回的 `usedTokens` 必须是可与 `contextLimit` 比较的当前上下文用量，且满足 `usedTokens <= contextLimit`；账户、Thread 或计费周期累计 Token 不得冒充上下文。Codex 必须使用 `tokenUsage.last.totalTokens`，不得使用 `tokenUsage.total.totalTokens`。
 
 ## 数据库与迁移
 

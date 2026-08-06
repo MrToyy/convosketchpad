@@ -19,7 +19,7 @@ import {
   Sparkles,
   X,
 } from 'lucide-react';
-import { useRef, useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { ImageLightbox } from '@/features/chat/ImageLightbox';
 import { MarkdownRenderer } from '@/features/markdown/MarkdownRenderer';
@@ -221,6 +221,12 @@ export function InteractionNode({ data }: NodeProps<InteractionFlowNode>) {
   } = data;
   const visibleOutput = interaction.agentOutput || preview;
   const running = interaction.executionState === 'running';
+  const streamingOutputVisible = running && Boolean(visibleOutput);
+  const outputBodyRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    if (!streamingOutputVisible || !outputBodyRef.current) return;
+    outputBodyRef.current.scrollTop = outputBodyRef.current.scrollHeight;
+  }, [streamingOutputVisible, visibleOutput]);
   const bootstrapWarnings = Array.isArray(interaction.executionMetadata.bootstrapWarnings)
     ? interaction.executionMetadata.bootstrapWarnings.filter((item): item is string => typeof item === 'string')
     : [];
@@ -291,13 +297,28 @@ export function InteractionNode({ data }: NodeProps<InteractionFlowNode>) {
         </div>
       )}
 
-      <div className="nodrag nowheel mt-3 max-h-[360px] cursor-text select-text overflow-auto text-sm">
-        {running && !visibleOutput ? (
-          <div translate="no" className="notranslate flex items-center gap-2 py-4 text-muted-foreground"><Loader2 size={15} className="animate-spin" /> {copy.waitingForResponse}</div>
-        ) : visibleOutput ? (
-          <MarkdownRenderer content={visibleOutput} />
-        ) : (
-          <p translate="no" className="notranslate py-3 text-muted-foreground">{copy.noResponse}</p>
+      <div
+        data-testid="interaction-output"
+        aria-busy={running}
+        className={`nodrag nowheel mt-3 cursor-text select-text text-sm ${streamingOutputVisible ? 'flex h-40 flex-col overflow-hidden' : ''}`}
+      >
+        <div
+          ref={outputBodyRef}
+          data-testid="interaction-output-body"
+          className={`overflow-x-hidden ${streamingOutputVisible ? 'min-h-0 flex-1 overflow-y-scroll' : 'max-h-[360px] overflow-y-auto'}`}
+        >
+          {visibleOutput ? (
+            <MarkdownRenderer content={visibleOutput} />
+          ) : running ? (
+            <div translate="no" role="status" className="notranslate flex items-center gap-2 py-4 text-muted-foreground"><Loader2 size={15} className="animate-spin" /> {copy.waitingForResponse}</div>
+          ) : (
+            <p translate="no" className="notranslate py-3 text-muted-foreground">{copy.noResponse}</p>
+          )}
+        </div>
+        {streamingOutputVisible && (
+          <div translate="no" role="status" className="notranslate mt-2 flex shrink-0 items-center gap-2 border-t border-border/50 pt-2 text-xs text-muted-foreground">
+            <Loader2 size={13} className="animate-spin" /> {copy.stillWorking}
+          </div>
         )}
       </div>
 
@@ -344,9 +365,17 @@ export function InteractionNode({ data }: NodeProps<InteractionFlowNode>) {
                     : null
                 )}
                 {available ? (
-                  <a href={canvasArtifactUrl(artifact.uri)} target="_blank" rel="noreferrer" download className="flex items-center gap-2 px-3 py-2 text-xs text-foreground hover:bg-secondary/70">
-                    <Icon size={14} /><span className="min-w-0 flex-1 truncate">{artifact.name}</span><Download size={13} />
-                  </a>
+                  <div>
+                    <a href={canvasArtifactUrl(artifact.uri)} target="_blank" rel="noreferrer" download className="flex items-center gap-2 px-3 py-2 text-xs text-foreground hover:bg-secondary/70">
+                      <Icon size={14} /><span className="min-w-0 flex-1 truncate">{artifact.name}</span><Download size={13} />
+                    </a>
+                    {artifact.warning && (
+                      <div className="flex items-start gap-2 border-t border-amber-500/20 px-3 py-2 text-xs text-amber-300">
+                        <AlertCircle size={13} className="mt-0.5 shrink-0" />
+                        <span>{artifact.warning}</span>
+                      </div>
+                    )}
+                  </div>
                 ) : (
                   <div className="flex items-start gap-2 px-3 py-2 text-xs text-amber-300">
                     <AlertCircle size={14} className="mt-0.5 shrink-0" />

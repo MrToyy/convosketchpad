@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  publicCanvasArtifact,
   publicCanvasAttachment,
   publicCanvasInteraction,
   publicCanvasSendReservation,
@@ -7,6 +8,20 @@ import {
 import type { InteractionRecord, SendReservation } from './canvas/model.js';
 
 describe('Canvas public DTO mapping', () => {
+  it('does not expose an active thumbnail for SVG Artifacts', () => {
+    const artifact = publicCanvasArtifact({
+      id: 'artifact-1',
+      name: 'diagram.svg',
+      mimeType: 'image/svg+xml',
+      sizeBytes: 100,
+      uri: '/api/canvas/artifacts/canvas-1/interaction-1/artifact-1',
+      storage: 'canvas',
+      available: true,
+    });
+
+    expect(artifact).not.toHaveProperty('thumbnailUri');
+  });
+
   it('projects safe attachment fields without content identity or source locations', () => {
     const attachment = publicCanvasAttachment({
       id: 'a'.repeat(40),

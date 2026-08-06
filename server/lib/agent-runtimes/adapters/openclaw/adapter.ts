@@ -181,7 +181,31 @@ export function projectOpenClawEvent(event: GatewayEvent): RuntimeEvent | null {
     const state = string(payload.state);
     const refs = eventRefs(payload);
     const text = eventText(payload);
-    if (state === 'delta' && text !== null) return { ...base, ...refs, type: 'output.text.delta', text };
+    if (state === 'delta') {
+      const deltaText = typeof payload.deltaText === 'string' ? payload.deltaText : null;
+      const messageId = string(payload.messageId || record(payload.message).id);
+      if (deltaText !== null) {
+        return {
+          ...base,
+          ...refs,
+          type: payload.replace === true ? 'output.text.snapshot' : 'output.text.delta',
+          text: deltaText,
+          ...(messageId ? { messageId } : {}),
+        };
+      }
+      // Protocol v4 exposes the true append-only fragment as deltaText. Older
+      // Gateways only expose message, which is a cumulative assistant snapshot.
+      if (text !== null) {
+        return {
+          ...base,
+          ...refs,
+          type: 'output.text.snapshot',
+          text,
+          ...(messageId ? { messageId } : {}),
+        };
+      }
+      return null;
+    }
     if (state === 'final') return { ...base, ...refs, type: 'turn.completed', ...(text === null ? {} : { text }) };
     const failure = string(payload.errorMessage || payload.error || payload.stopReason) || 'OpenClaw run failed';
     if (state === 'error') return { ...base, ...refs, type: 'turn.failed', error: failure };
@@ -368,15 +392,18 @@ const openClawRuntimeOperations: Omit<AgentRuntime, 'close'> = {
     };
   },
 
-  async conversationWillExpireBeforeNextTurn(handle, input) {
+  async prepareConversation(handle, input) {
     assertRuntimeHandle(handle, OPENCLAW_RUNTIME_ID);
     const reset = await getCanvasSessionResetPolicy();
-    return !reset.available || !reset.policy || sessionWillResetBeforeSend({
+    const needsReplay = !reset.available || !reset.policy || sessionWillResetBeforeSend({
       policy: reset.policy,
       sessionStartedAt: input.conversationStartedAt,
       lastInteractionAt: input.lastInteractionAt,
       timeZone: openClawConfig.gatewayTimezone,
     });
+    return needsReplay
+      ? { outcome: 'recreated', reason: reset.available ? 'session_reset_due' : 'session_policy_unavailable' }
+      : { outcome: 'continued' };
   },
 
   createConversationHandle({ profile, localConversationId }) {
@@ -567,6 +594,11 @@ const openClawRuntimeOperations: Omit<AgentRuntime, 'close'> = {
 
   async materializeArtifact(handle) {
     return materializeOpenClawArtifact(handle);
+  },
+
+  async releaseArtifact() {
+    // OpenClaw owns its Artifact lifecycle; Canvas only releases Adapter-owned
+    // temporary sources such as the Codex delivery directory.
   },
 
   createArtifactHandle({ sourceUri, profile, conversationRef, mimeType }) {

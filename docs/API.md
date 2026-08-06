@@ -100,7 +100,7 @@ Interaction 同时返回 `version`、`executionState`（`running | completed | f
 }
 ```
 
-只有 Runtime 明确返回新鲜 Token 数据，且 Conversation Handle 与物理 instance 都匹配时才保存；否则为 `null`。这是节点完成时的累计值，不是该节点单独消耗量，客户端不得沿祖先节点求和。已知 Artifact 全部持久化后 `artifactSyncState` 即为 `synced`；可能仍在运行的晚到 Artifact 静默观察任务不属于用户可见 pending 状态。`hasPendingUpdates` 仅用于 Canvas SSE 不可用时决定是否启用降级轮询。数据库迁移版本和不透明 Runtime Handle 不通过产品 API 暴露。
+只有 Runtime 明确返回新鲜 Token 数据，Conversation Handle 与物理 instance 都匹配，且满足 `0 <= usedTokens <= contextLimit` 时才保存；否则为 `null`。这是节点完成时当前 Conversation 的上下文值，不是该节点单独消耗量，客户端不得沿祖先节点求和，也不得用账户或 Thread 累计计费量替代。已知 Artifact 全部持久化后 `artifactSyncState` 即为 `synced`；可能仍在运行的晚到 Artifact 静默观察任务不属于用户可见 pending 状态。`hasPendingUpdates` 仅用于 Canvas SSE 不可用时决定是否启用降级轮询。数据库迁移版本和不透明 Runtime Handle 不通过产品 API 暴露。
 
 Interaction 的 `approvals` 是已净化的节点内审批列表，包含风险、权限、选择、作用域、到期与状态，但不包含原生 Approval Handle、命令环境或凭据。处理审批：
 
@@ -118,8 +118,7 @@ Interaction 的 `approvals` 是已净化的节点内审批列表，包含风险�
 
 `confirmed: true` 只在对应 Choice 的 `requiresConfirmation` 为真时发送；UI 确认不能替代服务端校验。缺少确认、无效 Choice/权限或明确拒绝/冲突返回 `409`；过期返回 `410`。明确接受返回 `200 { approval }`；Runtime 返回未知或调用后发生无法判定的异常时返回 `202`，错误为 `approval_resolution_unconfirmed` 且状态为 `unconfirmed`，等待原生 resolved 事件或后续核对，不能盲目重发。后续原生 `approval.resolved` 事件仍按已持久化 Choice 和权限子集校验；契约外结果保留为 `unconfirmed`，错误为 `approval_resolution_invalid`。
 
-Canvas 本地图片附件和 Artifact 额外返回版本化 `thumbnailUri`，但不返回 `contentHash`。外部 HTTP Artifact
-不提供缩略图 URI，也不会被 ConvoSketchpad 后端主动抓取。
+Canvas 本地安全栅格图片（PNG/JPEG/WebP/GIF）附件和 Artifact 额外返回版本化 `thumbnailUri`，但不返回 `contentHash`。SVG、HTML 等活动内容即使声明为图片也不提供缩略图；外部 HTTP Artifact 也不会被 ConvoSketchpad 后端主动抓取。
 
 ## Canvas 文件
 
@@ -134,6 +133,7 @@ Canvas 本地图片附件和 Artifact 额外返回版本化 `thumbnailUri`，但
 缩略图路由执行与原文件相同的认证、所有者和 Canvas 边界检查，返回私有、不可变缓存响应。当前
 `thumbnail-v1` 输出 WebP，最大边长 768 px、最大 160 KiB；格式不支持或源文件缺失时返回 404。
 原文件端点不做压缩，供用户打开预览或下载。
+安全栅格图片的 Artifact 原文件可使用 `Content-Disposition: inline`；其他 Artifact 一律使用 `attachment` 下载，文件名同时提供安全 ASCII fallback 与 UTF-8 编码值。
 
 ## Canvas 同步
 
@@ -143,7 +143,7 @@ Canvas 本地图片附件和 Artifact 额外返回版本化 `thumbnailUri`，但
 
 持久事件名为 `canvas.sync`，数据为 `CanvasSyncBatch`：包含递增 `cursor`、完整 Canvas/Branch/Interaction/Send Operation upsert 和删除 ID。服务端按实体合并 cursor 之后的变化；客户端不得从事件名推断节点状态。
 
-瞬时事件名为 `node.preview`，只包含 `interactionId` 和当前文本。Preview 不写数据库、不重放，SSE 断线后应立即丢弃。SSE 使用 `Last-Event-ID` 恢复持久 cursor，并每 15 秒发送心跳。
+瞬时事件名为 `node.preview`，只包含 `interactionId` 和当前 Turn 可见文字的完整快照 `text`；客户端应整体替换，不得再将其当作 Delta 追加。Preview 不写数据库、不重放，SSE 断线后应立即丢弃。SSE 使用 `Last-Event-ID` 恢复持久 cursor，并每 15 秒发送心跳。
 
 ## Agent Runtime 运行状态
 
@@ -169,7 +169,7 @@ Canvas 本地图片附件和 Artifact 额外返回版本化 `thumbnailUri`，但
 
 重启接口使用 `runtime_not_found`、`runtime_restart_unsupported` 和 `runtime_restart_failed` 错误码，不保留 Backend 命名别名。
 
-`GET /api/runtime/usage` 并行读取全部 Runtime；当前 OpenClaw Adapter 调用 `usage.cost`/`usage.status`。响应保留来源边界：
+`GET /api/runtime/usage` 并行读取全部 Runtime；OpenClaw Adapter 调用 `usage.cost`/`usage.status`，Codex Adapter 只调用 App Server 的 `account/usage/read` 与 `account/rateLimits/read`。响应保留来源边界：
 
 ```json
 {

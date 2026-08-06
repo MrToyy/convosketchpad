@@ -28,7 +28,7 @@
 ConvoSketchpad 是 Agent 可视化分支工作台，让你从任意节点回溯并继续探索。它把 Agent 工作过程组织成可缩放的空间画布，让不同思路各自延伸，同时保持任务主线清晰。
 
 > [!IMPORTANT]
-> ConvoSketchpad **不是独立的 Agent 运行环境**，也不负责运行模型、工具或 Agent。它必须连接至少一个 Agent 运行端（Agent Runtime）。当前 v0.4.0 正式适配 [OpenClaw](https://github.com/openclaw/openclaw) Gateway；Agent、工具调用、Conversation 和原始运行记录由运行端提供。
+> ConvoSketchpad **不是独立的 Agent 运行环境**，也不负责运行模型、工具或 Agent。它必须连接至少一个 Agent 运行端（Agent Runtime）。当前 v0.4.0 正式适配 [OpenClaw](https://github.com/openclaw/openclaw) Gateway 和本地 Codex App Server；Agent、工具调用、Conversation 和原始运行记录由运行端提供。
 
 ### 为什么做 ConvoSketchpad
 
@@ -66,7 +66,8 @@ Canvas
 
 ```text
 React Canvas ── HTTP/SSE ── ConvoSketchpad 服务端 ── Agent Runtime Port
-                              │                       └─ OpenClaw Adapter ⇄ Gateway
+                              │                       ├─ OpenClaw Adapter ⇄ Gateway
+                              │                       └─ Codex Adapter ⇄ 本地 App Server
                               └──────── SQLite + Artifact 存储
 ```
 
@@ -75,10 +76,10 @@ Agent 运行端负责 Agent 执行、工具、Conversation 和原始运行记录
 ### 已适配的 Agent 运行端
 
 - **OpenClaw Gateway**：v0.4.0 正式支持；提供多 Agent Profile、Conversation、附件、Artifact、用量、连接状态和节点内审批。
+- **Codex App Server**：v0.4.0 正式支持 Codex CLI `0.146.0` 及以上版本的本地受监督接入；提供一个共享宿主机账户的 Codex Agent、Thread 恢复、文本/图片输入、流式输出、图片与通用 Artifact、用量/额度和节点内审批。
 
 以下是路线图候选，不代表已经适配或承诺具体版本：
 
-- **Codex App Server**
 - **Hermes Agent**
 - **Qwen Code**
 - **Kimi Code CLI**
@@ -91,7 +92,7 @@ Agent 运行端负责 Agent 执行、工具、Conversation 和原始运行记录
 - macOS 或 Linux
 - Node.js 22.13 或更高版本
 - npm 和 Git
-- 至少一个已配置且可访问的 Agent 运行端；当前版本要求 OpenClaw Gateway
+- 至少一个已配置且可访问的 Agent 运行端：OpenClaw Gateway，或已登录的本地 Codex CLI `0.146.0+`
 
 ### 快速安装
 
@@ -114,7 +115,7 @@ npm run build
 npm start
 ```
 
-`npm run setup` 会先探测并多选 Agent 运行端，再逐项配置连接，随后配置访问方式和可选的受管用户认证，最后从统一 Agent 目录选择新建 Canvas 的默认 Agent。当前版本连接 OpenClaw Gateway；安装或启动本项目不会替代 Agent 运行端。
+`npm run setup` 会先探测并多选 Agent 运行端，再逐项配置连接，随后配置访问方式和可选的受管用户认证，最后从统一 Agent 目录选择新建 Canvas 的默认 Agent。Codex 接入直接监督本机 `codex app-server`；若未登录，setup 会提示运行 `codex login` 后重试，但不会代办 Runtime 登录或阻断其他配置。安装或启动本项目不会替代 Agent 运行端。
 
 ### 开发调试
 
@@ -164,6 +165,8 @@ PORT=4000 npm run dev
 | `CONVOSKETCHPAD_DEFAULT_AGENT_PROFILE` | 未设置 | 新建 Canvas 优先使用的 Agent Profile；不可用时回退 |
 | `OPENCLAW_GATEWAY_URL` | `http://127.0.0.1:18789` | OpenClaw Gateway 地址 |
 | `OPENCLAW_GATEWAY_TOKEN` | 空 | 仅供服务端使用的 Gateway 共享 Token；本机 RPC、Gateway HTTP 与远程配对 bootstrap 使用 |
+| `CODEX_BIN` | `codex` | Codex CLI 命令或绝对路径；最低且已验证版本为 `0.146.0` |
+| `CODEX_WORKING_DIRECTORY` | `~/codex-convosketchpad` | Codex 可读写的项目目录；setup 按需创建，不是 `~/.codex` |
 | `HOST` | `127.0.0.1` | 开发与生产统一的浏览器入口监听地址 |
 | `PORT` | `3080` | 开发与生产统一的浏览器入口端口 |
 | `CONVOSKETCHPAD_AUTH` | `false` | 是否启用受管用户认证 |
@@ -173,7 +176,7 @@ PORT=4000 npm run dev
 
 ### 产品路线图
 
-- **更多 Agent 运行端**：直接接入 Codex App Server，并评估 Hermes Agent、Qwen Code、Kimi Code CLI、iFlow CLI 等具备结构化协议或 CLI 能力的 Coding Agent。
+- **更多 Agent 运行端**：评估 Hermes Agent、Qwen Code、Kimi Code CLI、iFlow CLI 等具备结构化协议或 CLI 能力的 Coding Agent。
 - **`@图片` 与资源引用**：在输入中引用 Canvas 图片、附件和节点产物，并保留所有者、路径与运行端能力校验。
 - **分支合并**：选择一个或多个分支生成新的 Interaction，保留来源和历史，不改写既有 Conversation。
 - **后续方向**：运行端能力发现、Adapter 一致性测试、跨 Agent 交接、多 Agent 协作和更多多模态能力。
@@ -219,7 +222,7 @@ PORT=4000 npm run dev
 ConvoSketchpad is a visual branching workspace for agents: revisit any point and continue exploring. It organizes Agent work on a zoomable spatial Canvas, so different ideas can develop independently while the primary task stays focused.
 
 > [!IMPORTANT]
-> ConvoSketchpad is **not a standalone Agent runtime** and does not run models, tools, or Agents by itself. It must connect to at least one Agent Runtime. v0.4.0 officially supports the [OpenClaw](https://github.com/openclaw/openclaw) Gateway; the Runtime provides Agents, tool execution, Conversations, and authoritative run records.
+> ConvoSketchpad is **not a standalone Agent runtime** and does not run models, tools, or Agents by itself. It must connect to at least one Agent Runtime. v0.4.0 officially supports the [OpenClaw](https://github.com/openclaw/openclaw) Gateway and a local Codex App Server; the Runtime provides Agents, tool execution, Conversations, and authoritative run records.
 
 > [!NOTE]
 > Most detailed project documentation is written in Chinese. English-speaking developers are encouraged to use a capable large language model to translate and explain the documents while preserving code identifiers, commands, environment variables, and OpenClaw protocol names.
@@ -260,7 +263,8 @@ Canvas
 
 ```text
 React Canvas ── HTTP/SSE ── ConvoSketchpad server ── Agent Runtime Port
-                              │                       └─ OpenClaw Adapter ⇄ Gateway
+                              │                       ├─ OpenClaw Adapter ⇄ Gateway
+                              │                       └─ Codex Adapter ⇄ local App Server
                               └──────── SQLite + Artifact store
 ```
 
@@ -269,10 +273,10 @@ Agent Runtimes own Agent execution, tools, Conversations, and authoritative run 
 ### Supported Agent Runtimes
 
 - **OpenClaw Gateway**: officially supported in v0.4.0, including multiple Agent Profiles, Conversations, attachments, Artifacts, usage, connection health, and in-node approvals.
+- **Codex App Server**: officially supported in v0.4.0 through a supervised local Codex CLI `0.146.0` or newer, including one shared-host-account Agent, Thread resume, text/image input, streaming output, image and general Artifacts, usage/quotas, and in-node approvals.
 
 The following are roadmap candidates, not completed integrations or release commitments:
 
-- **Codex App Server**
 - **Hermes Agent**
 - **Qwen Code**
 - **Kimi Code CLI**
@@ -285,7 +289,7 @@ New Runtimes should use structured protocols such as App Server, ACP, Gateway, o
 - macOS or Linux
 - Node.js 22.13 or newer
 - npm and Git
-- At least one configured and reachable Agent Runtime; the current release requires OpenClaw Gateway
+- At least one configured and reachable Agent Runtime: OpenClaw Gateway or a logged-in local Codex CLI `0.146.0+`
 
 ### Quick install
 
@@ -308,7 +312,7 @@ npm run build
 npm start
 ```
 
-`npm run setup` first detects and lets you select Agent Runtimes, configures each connection, then configures access mode and optional managed-user authentication. Finally, it chooses the default Agent for new canvases from the unified catalog. The current release connects to OpenClaw Gateway; installing or starting this project does not replace the Agent Runtime.
+`npm run setup` first detects and lets you select Agent Runtimes, configures each connection, then configures access mode and optional managed-user authentication. Finally, it chooses the default Agent for new canvases from the unified catalog. Codex integration supervises the local `codex app-server`; when Codex is logged out, setup asks you to run `codex login` and retry without taking over Runtime login or blocking unrelated configuration.
 
 ### Development
 
@@ -358,6 +362,8 @@ Copy `.env.example` or run `npm run setup` to generate `.env`. The most commonly
 | `CONVOSKETCHPAD_DEFAULT_AGENT_PROFILE` | unset | Preferred Agent profile for a new Canvas; falls back when unavailable |
 | `OPENCLAW_GATEWAY_URL` | `http://127.0.0.1:18789` | OpenClaw Gateway address |
 | `OPENCLAW_GATEWAY_TOKEN` | empty | Server-only shared Gateway token for local RPC, Gateway HTTP, and remote pairing bootstrap |
+| `CODEX_BIN` | `codex` | Codex CLI command or absolute path; minimum and tested version is `0.146.0` |
+| `CODEX_WORKING_DIRECTORY` | `~/codex-convosketchpad` | Project directory Codex may modify; setup creates it as needed, distinct from `~/.codex` |
 | `HOST` | `127.0.0.1` | Unified development and production browser-entry bind address |
 | `PORT` | `3080` | Unified development and production browser-entry port |
 | `CONVOSKETCHPAD_AUTH` | `false` | Enable managed-user authentication |
@@ -367,7 +373,7 @@ Before exposing the service to a network, enable managed-user authentication and
 
 ### Product roadmap
 
-- **More Agent Runtimes**: direct Codex App Server integration, followed by evaluation of Hermes Agent, Qwen Code, Kimi Code CLI, iFlow CLI, and other Coding Agents with structured protocols or CLI capabilities.
+- **More Agent Runtimes**: evaluate Hermes Agent, Qwen Code, Kimi Code CLI, iFlow CLI, and other Coding Agents with structured protocols or CLI capabilities.
 - **`@image` and resource references**: reference Canvas images, attachments, and node outputs while preserving ownership, path, and Runtime-capability checks.
 - **Branch merging**: create a new Interaction from selected branches while preserving provenance and history instead of rewriting existing Conversations.
 - **Later directions**: Runtime capability discovery, Adapter conformance tests, cross-Agent handoff, multi-Agent collaboration, and broader multimodal support.

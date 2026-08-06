@@ -82,6 +82,57 @@ const commonNodeProps = {
 };
 
 describe('Canvas node resize controls', () => {
+  it('keeps a visible working indicator after streamed text appears', () => {
+    const InteractionNode = canvasNodeTypes.interaction;
+    const { rerender } = render(<InteractionNode
+      {...commonNodeProps}
+      id="interaction-streaming"
+      type="interaction"
+      data={{
+        interaction: {
+          id: 'interaction-streaming', version: 1, branchId: 'branch-1', parentInteractionId: null,
+          userInput: 'hello', agentOutput: '', status: 'streaming', executionState: 'running',
+          artifactSyncState: 'not_started', terminalAt: null, error: null, attachments: [], artifacts: [],
+          approvals: [], executionMetadata: {}, contextSnapshot: null, createdAt: 1, updatedAt: 1,
+        },
+        preview: 'first streamed paragraph', composerOpen: false, canAdd: false,
+        resubmitting: false, resizeEnabled: true, onAdd: vi.fn(), onResubmit: vi.fn(),
+        onApprovalChanged: vi.fn(),
+      }}
+    />);
+
+    expect(screen.getByText('first streamed paragraph')).toBeInTheDocument();
+    const output = screen.getByTestId('interaction-output');
+    const outputBody = screen.getByTestId('interaction-output-body');
+    const workingStatus = screen.getByRole('status');
+    expect(workingStatus).toHaveTextContent('智能体仍在工作…');
+    expect(output).toHaveClass('flex', 'h-40', 'flex-col', 'overflow-hidden');
+    expect(output).toHaveAttribute('aria-busy', 'true');
+    expect(outputBody).toHaveClass('min-h-0', 'flex-1', 'overflow-y-scroll', 'overflow-x-hidden');
+    expect(workingStatus).toHaveClass('shrink-0');
+    expect(outputBody).not.toContainElement(workingStatus);
+
+    Object.defineProperty(outputBody, 'scrollHeight', { configurable: true, value: 420 });
+    outputBody.scrollTop = 0;
+    rerender(<InteractionNode
+      {...commonNodeProps}
+      id="interaction-streaming"
+      type="interaction"
+      data={{
+        interaction: {
+          id: 'interaction-streaming', version: 1, branchId: 'branch-1', parentInteractionId: null,
+          userInput: 'hello', agentOutput: '', status: 'streaming', executionState: 'running',
+          artifactSyncState: 'not_started', terminalAt: null, error: null, attachments: [], artifacts: [],
+          approvals: [], executionMetadata: {}, contextSnapshot: null, createdAt: 1, updatedAt: 2,
+        },
+        preview: 'first streamed paragraph\n\nsecond streamed paragraph', composerOpen: false, canAdd: false,
+        resubmitting: false, resizeEnabled: true, onAdd: vi.fn(), onResubmit: vi.fn(),
+        onApprovalChanged: vi.fn(),
+      }}
+    />);
+    expect(outputBody.scrollTop).toBe(420);
+  });
+
   it('always renders one bounded bottom-right handle for an Interaction', () => {
     const InteractionNode = canvasNodeTypes.interaction;
     const { rerender } = render(
@@ -162,6 +213,9 @@ describe('Canvas node resize controls', () => {
       expect(path).toHaveAttribute('stroke-linecap', 'round');
     });
     expect(screen.getByTitle('拖动调整节点大小')).toBeInTheDocument();
+    expect(screen.getByTestId('interaction-output')).not.toHaveClass('h-40', 'overflow-hidden');
+    expect(screen.getByTestId('interaction-output')).toHaveAttribute('aria-busy', 'false');
+    expect(screen.getByTestId('interaction-output-body')).toHaveClass('max-h-[360px]', 'overflow-y-auto', 'overflow-x-hidden');
 
     rerender(
       <InteractionNode

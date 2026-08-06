@@ -99,6 +99,7 @@ function parseInteractionContextSnapshot(value: unknown): InteractionContextSnap
     || typeof snapshot.contextLimit !== 'number'
     || !Number.isFinite(snapshot.contextLimit)
     || snapshot.contextLimit <= 0
+    || snapshot.usedTokens > snapshot.contextLimit
     || typeof snapshot.conversationInstanceId !== 'string'
     || !snapshot.conversationInstanceId
     || typeof snapshot.capturedAt !== 'number'
@@ -1362,6 +1363,29 @@ export class CanvasStore {
   clearReservationDispatchRecovery(id: string): SendReservation | null {
     this.db.prepare(`UPDATE send_reservations SET dispatch_recovery_ref_json = NULL, updated_at = ?
       WHERE id = ? AND status = 'prepared'`).run(Date.now(), id);
+    return this.getReservation(id);
+  }
+
+  adoptReservationConversation(
+    id: string,
+    conversationRef: RuntimeHandle,
+    instanceId?: string,
+  ): SendReservation | null {
+    const reservation = this.getDispatchableReservation(id);
+    if (!reservation) return null;
+    if (conversationRef.runtimeId !== reservation.runtimeId) {
+      throw new Error('Conversation reference belongs to a different Agent Runtime');
+    }
+    this.transaction(() => {
+      this.db.prepare(`UPDATE send_reservations SET conversation_ref_json = ?, updated_at = ?
+        WHERE id = ? AND status = 'prepared'`)
+        .run(JSON.stringify(conversationRef), Date.now(), id);
+      this.observeBranchConversation(
+        reservation.branchId,
+        conversationRef,
+        instanceId,
+      );
+    });
     return this.getReservation(id);
   }
 

@@ -10,15 +10,29 @@ describe('OpenClaw AgentRuntime event projection', () => {
         run_id: 'run-1',
         sessionKey: 'session-key',
         state: 'delta',
+        deltaText: ' output',
         message: { content: [{ type: 'text', text: 'partial' }, ' output'] },
       },
     })).toMatchObject({
       runtimeId: 'openclaw',
       type: 'output.text.delta',
-      text: 'partial output',
+      text: ' output',
       conversationRef: { opaque: { sessionKey: 'session-key' } },
       turnRef: { opaque: { runId: 'run-1', sessionKey: 'session-key' } },
     });
+  });
+
+  it('projects cumulative and replacement snapshots without treating them as append-only deltas', () => {
+    expect(projectOpenClawEvent({
+      type: 'event',
+      event: 'chat',
+      payload: { state: 'delta', message: 'cumulative text' },
+    })).toMatchObject({ type: 'output.text.snapshot', text: 'cumulative text' });
+    expect(projectOpenClawEvent({
+      type: 'event',
+      event: 'chat',
+      payload: { state: 'delta', deltaText: 'replacement', replace: true },
+    })).toMatchObject({ type: 'output.text.snapshot', text: 'replacement' });
   });
 
   it('normalizes final, error, and interrupted turn events', () => {

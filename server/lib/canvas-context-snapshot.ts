@@ -6,6 +6,14 @@ export interface InteractionCompletionConversation {
   contextSnapshot: InteractionContextSnapshot | null;
 }
 
+function validContextUsage(value: { usedTokens: number; contextLimit: number }): boolean {
+  return Number.isFinite(value.usedTokens)
+    && value.usedTokens >= 0
+    && Number.isFinite(value.contextLimit)
+    && value.contextLimit > 0
+    && value.usedTokens <= value.contextLimit;
+}
+
 export async function captureInteractionCompletionSession(
   conversationRef: RuntimeHandle,
   expectedInstanceId?: string,
@@ -16,17 +24,20 @@ export async function captureInteractionCompletionSession(
   const snapshot = await runtime.inspectConversation(conversationRef);
   if (!snapshot?.exists || !snapshot.instanceId) return null;
   if (expectedInstanceId !== undefined && snapshot.instanceId !== expectedInstanceId) return null;
+  const context = snapshot.context && validContextUsage(snapshot.context)
+    ? snapshot.context
+    : null;
   return {
     conversationInstanceId: snapshot.instanceId,
-    contextSnapshot: snapshot.context ? {
-      usedTokens: snapshot.context.usedTokens,
-      contextLimit: snapshot.context.contextLimit,
+    contextSnapshot: context ? {
+      usedTokens: context.usedTokens,
+      contextLimit: context.contextLimit,
       conversationInstanceId: snapshot.instanceId,
-      ...(snapshot.context.model ? { model: snapshot.context.model } : {}),
-      ...(snapshot.context.provider ? { provider: snapshot.context.provider } : {}),
-      ...(snapshot.context.compactionCount === undefined
+      ...(context.model ? { model: context.model } : {}),
+      ...(context.provider ? { provider: context.provider } : {}),
+      ...(context.compactionCount === undefined
         ? {}
-        : { compactionCount: snapshot.context.compactionCount }),
+        : { compactionCount: context.compactionCount }),
       capturedAt,
       source: 'agent-runtime',
       runtimeId: conversationRef.runtimeId,

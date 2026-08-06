@@ -9,6 +9,12 @@ import {
   canvasAttachmentThumbnailUri,
 } from './canvas-media-derivatives.js';
 
+const SAFE_RASTER_IMAGE_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
+
+function hasSafeRasterPreview(mimeType?: string): boolean {
+  return SAFE_RASTER_IMAGE_MIME_TYPES.has(mimeType?.toLowerCase() || '');
+}
+
 export function publicCanvasAttachment(attachment: CanvasAttachment): CanvasAttachment {
   const canvasMatch = attachment.uri?.match(/^\/api\/canvas\/attachments\/([^/]+)\/([^/]+)$/);
   return {
@@ -19,7 +25,7 @@ export function publicCanvasAttachment(attachment: CanvasAttachment): CanvasAtta
     uri: attachment.storage === 'canvas' && attachment.uri?.startsWith('/api/canvas/')
       ? attachment.uri
       : undefined,
-    ...(attachment.mimeType.startsWith('image/') && canvasMatch
+    ...(hasSafeRasterPreview(attachment.mimeType) && canvasMatch
       ? {
         thumbnailUri: canvasAttachmentThumbnailUri(
           decodeURIComponent(canvasMatch[1]),
@@ -41,7 +47,7 @@ export function publicCanvasArtifact(artifact: CanvasArtifact): CanvasArtifact {
     mimeType: artifact.mimeType,
     sizeBytes: artifact.sizeBytes,
     uri: artifact.storage === 'canvas' || artifact.storage === 'external' ? artifact.uri : '',
-    ...(artifact.storage === 'canvas' && artifact.mimeType?.startsWith('image/') && canvasMatch
+    ...(artifact.storage === 'canvas' && hasSafeRasterPreview(artifact.mimeType) && canvasMatch
       ? {
         thumbnailUri: canvasArtifactThumbnailUri(
           decodeURIComponent(canvasMatch[1]),

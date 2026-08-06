@@ -98,7 +98,7 @@ export interface DispatchTurnInput {
 }
 
 export type DispatchResult =
-  | { outcome: 'accepted'; turnRef: TurnHandle | null }
+  | { outcome: 'accepted'; turnRef: TurnHandle | null; conversationRef?: ConversationHandle; conversationInstanceId?: string }
   | { outcome: 'rejected'; error: RuntimeOperationError }
   | { outcome: 'unknown'; error: RuntimeOperationError; recoveryRef?: RuntimeHandle };
 
@@ -112,7 +112,7 @@ export interface ReconcileDispatchInput {
 }
 
 export type ReconcileDispatchResult =
-  | { outcome: 'accepted'; turnRef: TurnHandle | null }
+  | { outcome: 'accepted'; turnRef: TurnHandle | null; conversationRef?: ConversationHandle; conversationInstanceId?: string }
   | { outcome: 'not_found' }
   | { outcome: 'unknown'; error: RuntimeOperationError; recoveryRef?: RuntimeHandle };
 
@@ -130,6 +130,10 @@ export interface ConversationSnapshot {
   };
   runtimeMetadata?: Record<string, unknown>;
 }
+
+export type ConversationPreparation =
+  | { outcome: 'continued' }
+  | { outcome: 'recreated'; reason: string };
 
 export type ApprovalRisk = 'low' | 'medium' | 'high';
 export type ApprovalScope = 'item' | 'turn' | 'session' | 'persistent';
@@ -180,8 +184,9 @@ interface RuntimeEventBase {
 
 export type RuntimeEvent = RuntimeEventBase & (
   | { type: 'turn.accepted' }
-  | { type: 'output.text.delta'; text: string }
-  | { type: 'output.message.completed'; text: string }
+  | { type: 'output.text.delta'; text: string; messageId?: string }
+  | { type: 'output.text.snapshot'; text: string; messageId?: string }
+  | { type: 'output.message.completed'; text: string; messageId?: string }
   | { type: 'artifact.available'; artifactRef: RuntimeArtifactHandle; name: string; mimeType?: string }
   | { type: 'usage.updated'; usedTokens?: number; contextLimit?: number }
   | { type: 'approval.required'; approvalRef: ApprovalHandle; approval: ApprovalSummary }
@@ -269,10 +274,10 @@ export interface AgentRuntime {
   listAgentProfiles(owner: OwnerContext): Promise<{ defaultProfileId?: string; profiles: AgentProfile[] }>;
   getCapabilities(profile: AgentProfileRef): Promise<RuntimeCapabilities>;
   inspectConversation(handle: ConversationHandle): Promise<ConversationSnapshot | null>;
-  conversationWillExpireBeforeNextTurn(handle: ConversationHandle, input: {
+  prepareConversation(handle: ConversationHandle, input: {
     conversationStartedAt: number | null;
     lastInteractionAt: number | null;
-  }): Promise<boolean>;
+  }): Promise<ConversationPreparation>;
   createConversationHandle(input: {
     profile: AgentProfileRef;
     localConversationId: string;
@@ -286,6 +291,7 @@ export interface AgentRuntime {
     resolution: ApprovalResolution;
   }): Promise<ApprovalResolutionResult>;
   materializeArtifact(handle: RuntimeArtifactHandle): Promise<MaterializedArtifact>;
+  releaseArtifact?(handle: RuntimeArtifactHandle): Promise<void>;
   createArtifactHandle(input: {
     sourceUri: string;
     profile: AgentProfileRef;

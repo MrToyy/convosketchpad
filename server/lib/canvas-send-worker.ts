@@ -5,6 +5,7 @@ import {
 } from './canvas-send-delivery.js';
 import { handleCanvasRuntimeEvent, registerCanvasInteraction } from './canvas/runtime-event-consumer.js';
 import type { RuntimeEvent } from './agent-runtimes/contract.js';
+import type { RuntimeTextPreviewAssembler } from './canvas/runtime-text-preview.js';
 import { RuntimeOperationError } from './agent-runtimes/contract.js';
 import type { AgentRuntime } from './agent-runtimes/contract.js';
 import { CANVAS_DELIVERY_MAX_BYTES } from './canvas-media-derivatives.js';
@@ -26,8 +27,12 @@ export function clearCanvasSendWorkerState(): void {
   activeDispatches.clear();
 }
 
-export function consumeCanvasRuntimeEvent(store: CanvasStore, event: RuntimeEvent): void {
-  handleCanvasRuntimeEvent(store, event);
+export function consumeCanvasRuntimeEvent(
+  store: CanvasStore,
+  event: RuntimeEvent,
+  previews?: RuntimeTextPreviewAssembler,
+): void {
+  handleCanvasRuntimeEvent(store, event, previews);
 }
 
 export async function runCanvasSendWorker(
@@ -72,7 +77,7 @@ export async function runCanvasSendWorker(
       publishCanvasChanged(reservation.ownerId, reservation.canvasId);
     }
     const { message, attachments, bootstrapWarnings } = await buildCanvasDelivery(reservation, store);
-    const preparedReservation = store.getDispatchableReservation(reservation.id);
+    let preparedReservation = store.getDispatchableReservation(reservation.id);
     if (!preparedReservation) throw new Error('not_found');
     if (preparedReservation.status !== 'prepared') return preparedReservation;
     if (!preparedReservation.conversationRef) {
@@ -114,6 +119,14 @@ export async function runCanvasSendWorker(
         return store.getReservation(preparedReservation.id)!;
       }
       if (reconciled.outcome === 'accepted') {
+        if (reconciled.conversationRef) {
+          store.adoptReservationConversation(
+            preparedReservation.id,
+            reconciled.conversationRef,
+            reconciled.conversationInstanceId,
+          );
+          preparedReservation = store.getDispatchableReservation(preparedReservation.id)!;
+        }
         const interaction = store.acknowledgeSend(
           preparedReservation.ownerId,
           preparedReservation.id,
@@ -163,6 +176,14 @@ export async function runCanvasSendWorker(
       );
       publishCanvasChanged(reservation.ownerId, reservation.canvasId);
       return store.getReservation(reservation.id)!;
+    }
+    if (dispatched.conversationRef) {
+      store.adoptReservationConversation(
+        reservation.id,
+        dispatched.conversationRef,
+        dispatched.conversationInstanceId,
+      );
+      reservation = store.getDispatchableReservation(reservation.id)!;
     }
     const interaction = store.acknowledgeSend(
       reservation.ownerId,

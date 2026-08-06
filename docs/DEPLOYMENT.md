@@ -3,10 +3,12 @@
 所有拓扑都遵循同一链条：
 
 ```text
-浏览器 → ConvoSketchpad HTTP/SSE → Agent Runtime（当前为 OpenClaw Gateway）
+浏览器 → ConvoSketchpad HTTP/SSE → Agent Runtime（OpenClaw Gateway / 本地 Codex App Server）
 ```
 
 浏览器不需要访问 Runtime 地址。只需保证 ConvoSketchpad 宿主机能访问已配置的 Agent Runtime。
+
+Codex 当前不是远程 Runtime：`codex` CLI、App Server 进程和 `CODEX_WORKING_DIRECTORY` 必须与 ConvoSketchpad 服务端同机、同一服务账户可访问。远程浏览器与受管用户共享该宿主机 Codex 账户、额度和工作目录；只有接受此信任边界时才应在远程部署中启用 Codex。
 
 ConvoSketchpad 自身只监听 HTTP。图中的 HTTPS 均由反向代理或 Tailscale Serve 终止。
 

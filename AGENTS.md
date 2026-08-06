@@ -6,8 +6,8 @@
 
 ## 产品与职责边界
 
-- ConvoSketchpad 不是独立的 Agent 运行环境，必须连接到至少一个可用的 Agent 运行端（Agent Runtime）；当前 Release 只支持 OpenClaw Gateway，目标架构与迁移边界见 `docs/AGENT-RUNTIME-MIGRATION.md`。
-- 所选 Agent 运行端负责 Agent、工具、执行、Conversation、事件和原始运行记录；OpenClaw 是当前默认运行端，本地 Codex App Server 计划在第二阶段直接接入，不经过 OpenClaw。
+- ConvoSketchpad 不是独立的 Agent 运行环境，必须连接到至少一个可用的 Agent 运行端（Agent Runtime）；当前 Release 支持 OpenClaw Gateway 与本地 Codex App Server，统一边界见 `docs/ARCHITECTURE.md` 和 `docs/agent-runtimes/ADAPTER-DEVELOPMENT.md`。
+- 所选 Agent 运行端负责 Agent、工具、执行、Conversation、事件和原始运行记录；Codex 通过受监督的本地 App Server 直接接入，不经过 OpenClaw。
 - ConvoSketchpad 负责 Canvas 拓扑与布局、Branch/Interaction 关系、发送协调、恢复元数据、受管用户隔离，以及附件和 Artifact 的持久化副本。
 - 当前 OpenClaw 能力优先使用原生 Gateway 或 CLI 接口，不得新增对 OpenClaw 本地配置文件或 Agent 工作区的直接读写依赖；通用 Canvas 代码不得直接依赖 Runtime 协议方法名。
 - 直接 Codex 集成只能通过受监督的 App Server 协议和明确的统一 Agent Runtime Port；不得检查 Codex/Claude 本地凭据文件，也不得调用它们的 CLI 获取 Provider、用量或配额数据。
@@ -19,7 +19,7 @@
 | 不确定从哪里开始、查看完整文档 | [`docs/README.md`](docs/README.md) | 全部产品、运维和维护者文档索引 |
 | 产品目标、体验或职责边界 | [`docs/PRODUCT.md`](docs/PRODUCT.md) | 产品原则和 OpenClaw/ConvoSketchpad 分工 |
 | 架构、Session、数据流或持久化 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | 运行时模型、发送、恢复和文件流 |
-| Agent Runtime 抽象、OpenClaw/Codex 边界或两阶段迁移 | [`docs/AGENT-RUNTIME-MIGRATION.md`](docs/AGENT-RUNTIME-MIGRATION.md) | 临时设计决策、统一事件/审批与提交边界 |
+| Agent Runtime 抽象、OpenClaw/Codex 边界 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)、[`docs/agent-runtimes/ADAPTER-DEVELOPMENT.md`](docs/agent-runtimes/ADAPTER-DEVELOPMENT.md) | 统一 Port、事件/审批、恢复、Artifact 与扩展约束 |
 | 新增或修改 Agent Runtime Adapter | [`docs/agent-runtimes/ADAPTER-DEVELOPMENT.md`](docs/agent-runtimes/ADAPTER-DEVELOPMENT.md) | 目录、Port、聚合、审批、迁移、安全与测试规范 |
 | Canvas 页面、节点、布局、Branch、Interaction、附件或 Artifact | [`docs/canvas/CANVAS-CODE-MAP.md`](docs/canvas/CANVAS-CODE-MAP.md) | Canvas 不变量、前后端入口与测试 |
 | 登录、用户 Token、隔离、限流、Cookie 或 SSE 鉴权 | [`docs/canvas/AUTH-CODE-MAP.md`](docs/canvas/AUTH-CODE-MAP.md) | 认证链路、CLI、SQLite 与会话撤销 |

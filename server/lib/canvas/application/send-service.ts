@@ -104,10 +104,11 @@ export class CanvasSendService {
     const context = this.store.getOwnedBranchRuntimeContext(ownerId, branchId);
     if (!context) return true;
     const runtime = this.runtime || this.runtimeResolver(context.runtimeId);
-    return runtime.conversationWillExpireBeforeNextTurn(context.conversationRef, {
+    const preparation = await runtime.prepareConversation(context.conversationRef, {
       conversationStartedAt: context.conversationStartedAt,
       lastInteractionAt: context.lastInteractionAt,
     });
+    return preparation.outcome === 'recreated';
   }
 
   async submit(

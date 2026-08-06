@@ -23,7 +23,7 @@ describe('Agent Runtime setup registry', () => {
   });
 
   it('returns setup Drivers only for explicitly selected Runtimes', () => {
-    expect(selectedAgentRuntimeSetupDrivers(['openclaw']).map((driver) => driver.id))
-      .toEqual(['openclaw']);
+    expect(selectedAgentRuntimeSetupDrivers(['codex', 'openclaw']).map((driver) => driver.id))
+      .toEqual(['codex', 'openclaw']);
   });
 });

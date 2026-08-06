@@ -179,7 +179,7 @@ async function persistBytes(
     available: true,
     sizeBytes: bytes.byteLength,
     ...(mimeType ? { mimeType } : {}),
-    warning: undefined,
+    warning: artifact.warning,
   };
 }
 
@@ -218,6 +218,9 @@ export async function materializeCanvasArtifacts(
     const existing = existingBySource.get(sourceUri);
     if (existing && await persistedArtifactExists(interaction, existing)) {
       artifacts.push({ ...existing, name: extracted.name, mimeType: extracted.mimeType || existing.mimeType });
+      if (extracted.runtimeArtifactRef && resolveRuntime) {
+        await resolveRuntime(interaction.runtimeId).releaseArtifact?.(extracted.runtimeArtifactRef).catch(() => undefined);
+      }
       continue;
     }
 
@@ -232,8 +235,11 @@ export async function materializeCanvasArtifacts(
         storage: 'canvas',
         available: true,
         sizeBytes: stableFile.size,
-        warning: undefined,
+        warning: extracted.warning,
       });
+      if (extracted.runtimeArtifactRef && resolveRuntime) {
+        await resolveRuntime(interaction.runtimeId).releaseArtifact?.(extracted.runtimeArtifactRef).catch(() => undefined);
+      }
       continue;
     }
 
@@ -241,6 +247,9 @@ export async function materializeCanvasArtifacts(
       if (!resolveRuntime) throw new Error('Agent Runtime resolver is required to materialize this Artifact');
       const loaded = await loadSourceBytes(interaction, extracted, resolveRuntime);
       artifacts.push(await persistBytes(interaction, extracted, sourceUri, loaded.bytes, loaded.mimeType));
+      if (extracted.runtimeArtifactRef) {
+        await resolveRuntime!(interaction.runtimeId).releaseArtifact?.(extracted.runtimeArtifactRef).catch(() => undefined);
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Artifact persistence failed';
       const warning = `${extracted.name}: ${message}`;

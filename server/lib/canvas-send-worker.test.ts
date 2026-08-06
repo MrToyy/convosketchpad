@@ -140,6 +140,37 @@ describe('Canvas send worker', () => {
     });
   });
 
+  it('adopts a Runtime-created Conversation without parsing its opaque handle', async () => {
+    const { db, worker } = await setup();
+    const store = db.getCanvasStore();
+    store.ensureUser('owner-a', 'Owner A');
+    const canvas = store.createCanvas('owner-a', 'Canvas', { runtimeId: 'openclaw', profileId: 'main' });
+    const branch = store.createRootBranch('owner-a', canvas.id);
+    const reservation = store.prepareSend('owner-a', {
+      branchId: branch.id,
+      userInput: 'start',
+      attachments: [],
+    });
+    const conversationRef = {
+      runtimeId: 'openclaw',
+      schemaVersion: 1,
+      opaque: { nativeConversation: 'opaque-value' },
+    };
+    mocks.dispatchTurn.mockResolvedValue({
+      outcome: 'accepted',
+      conversationRef,
+      conversationInstanceId: 'physical-instance',
+      turnRef: { runtimeId: 'openclaw', schemaVersion: 1, opaque: { nativeTurn: 'turn-1' } },
+    });
+
+    await worker.runCanvasSendWorker(reservation.id, runtime, store);
+
+    expect(store.getOwnedBranchRuntimeContext('owner-a', branch.id)).toMatchObject({ conversationRef });
+    expect(store.getOwnedBranch('owner-a', branch.id)).toMatchObject({
+      conversationInstanceId: 'physical-instance',
+    });
+  });
+
   it('persists a recovery handle when dispatch outcome is unknown', async () => {
     const { db, worker } = await setup();
     const store = db.getCanvasStore();

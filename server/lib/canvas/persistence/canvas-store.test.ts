@@ -1135,6 +1135,32 @@ describe('CanvasStore', () => {
     expect(updated.executionMetadata.contextSnapshot).toEqual(firstSnapshot);
   });
 
+  it('does not expose cumulative Runtime usage as an impossible context snapshot', () => {
+    const store = createStore();
+    const canvas = seedUser(store);
+    const branch = store.createRootBranch('user-a', canvas.id);
+    const reservation = store.prepareSend('user-a', {
+      branchId: branch.id,
+      userInput: 'one',
+      attachments: [],
+    });
+    const current = store.acknowledgeSend('user-a', reservation.id, 'run-1');
+    const metadata = {
+      contextSnapshot: {
+        usedTokens: 425_460,
+        contextLimit: 258_400,
+        conversationInstanceId: 'thread-1',
+        capturedAt: 123,
+        source: 'agent-runtime',
+        runtimeId: 'codex',
+      },
+    };
+    store.db.prepare('UPDATE interactions SET execution_metadata_json = ? WHERE id = ?')
+      .run(JSON.stringify(metadata), current.id);
+
+    expect(store.getOwnedInteraction('user-a', current.id)?.contextSnapshot).toBeNull();
+  });
+
   it('finds unfinished, silently observed, and legacy interactions without reopening terminal records', () => {
     const { store, databasePath } = createStoreFixture();
     const canvas = seedUser(store);

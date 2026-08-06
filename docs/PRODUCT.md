@@ -6,7 +6,7 @@
 
 ConvoSketchpad 可连接一个或多个 Agent 运行端（Agent Runtime），让用户从任意节点回溯并继续探索，而不是把所有方向压缩到一条线性对话中。一个 Canvas 可以同时呈现不同思路，保留每个方向的演进过程，并把对应的提示词、输出、参考资料、附件和生成结果组织在一起。
 
-当前 v0.4.0 只正式支持 OpenClaw Gateway；Canvas 领域模型与具体运行时之间已经建立统一 Agent Runtime 边界，Registry 目前仍只注册 OpenClaw。后续可以直接接入本地 Codex，并为其他运行端保留一致的扩展方式。迁移期间的决策和两个功能提交边界记录在 [`AGENT-RUNTIME-MIGRATION.md`](AGENT-RUNTIME-MIGRATION.md)。
+当前 v0.4.0 正式支持 OpenClaw Gateway 与本地 Codex App Server；Canvas 领域模型与具体运行时之间通过统一 Agent Runtime 边界隔离，后续运行端遵循同一 Adapter 规范接入。
 
 ## 产品由来
 
@@ -46,7 +46,7 @@ Canvas 拓扑和布局不是临时展示状态。节点位置、用户调整后�
 
 所选 Agent Runtime 负责 Agent、模型与工具执行、Conversation、原生事件和原始运行记录。ConvoSketchpad 后端通过统一 Agent Runtime 边界与具体运行时通信，并保存 Canvas 拓扑、对话内容副本、上传附件、尽力持久化的生成 Artifact、发送状态、恢复元数据和受管用户隔离。前端只负责呈现、上传原始附件与提交用户指令；发送用图片压缩、缩略图和历史媒体处理统一由后端完成。
 
-ConvoSketchpad 不是独立的 Agent 运行环境，至少需要一个可用的 Agent Runtime。当前 Release 仍必须连接到可访问的 OpenClaw Gateway；目标架构还允许通过受监督的本地 Codex App Server 直接执行，但不会把 Codex 嵌入 OpenClaw。
+ConvoSketchpad 不是独立的 Agent 运行环境，至少需要一个可用的 Agent Runtime。OpenClaw 通过 Gateway 接入；Codex 通过受监督的本地 App Server 直接接入，不嵌入 OpenClaw。Codex 当前向产品提供一个 `codex/default` Agent，并继承宿主机 Codex 账户、模型、Sandbox 和审批策略。多个受管用户共享这套 Runtime 能力与配置的工作目录，但 Canvas 数据、附件与持久化 Artifact 仍按所有者隔离；部署者必须把这种共享视为明确的信任边界。
 
 配置多个 Runtime 后不存在“切换 Runtime”模式：每个 Runtime 提供的 Agent 都进入同一目录并平权可用。全局连接状态按 Runtime 聚合并保留故障明细；账户用量与 Provider 额度按 Runtime 分组，只有所有已配置 Runtime 在线、所有声明支持费用的 Runtime 都成功返回数据，且币种、周期和可加性都一致时才显示合计。当前 Canvas 的 Branch、工作中数量和上下文仍只描述当前工作区，不做账户级求和。
 

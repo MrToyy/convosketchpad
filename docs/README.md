@@ -11,7 +11,6 @@ ConvoSketchpad 的目标是“让想法自由分支”。以下文档描述通�
 
 - [产品目标与原则](PRODUCT.md)
 - [架构与运行时数据流](ARCHITECTURE.md)
-- [Agent Runtime 抽象迁移工作笔记（临时）](AGENT-RUNTIME-MIGRATION.md)
 - [Agent Runtime Adapter 开发规范](agent-runtimes/ADAPTER-DEVELOPMENT.md)
 - [Canvas 功能索引](canvas/README.md)
 

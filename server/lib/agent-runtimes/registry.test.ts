@@ -48,12 +48,20 @@ describe('AgentRuntimeRegistry', () => {
 
 describe('configuredAgentRuntimeIds', () => {
   it('uses OpenClaw only when the setting is absent', () => {
-    expect(configuredAgentRuntimeIds(undefined)).toEqual(['openclaw']);
+    const configured = process.env.AGENT_RUNTIMES;
+    delete process.env.AGENT_RUNTIMES;
+    try {
+      expect(configuredAgentRuntimeIds()).toEqual(['openclaw']);
+    } finally {
+      if (configured === undefined) delete process.env.AGENT_RUNTIMES;
+      else process.env.AGENT_RUNTIMES = configured;
+    }
   });
 
   it('rejects empty, duplicate, and unsupported configurations', () => {
     expect(() => configuredAgentRuntimeIds('')).toThrow('at least one Runtime');
     expect(() => configuredAgentRuntimeIds('openclaw, openclaw')).toThrow('more than once');
-    expect(() => configuredAgentRuntimeIds('codex')).toThrow('Unsupported Agent Runtime');
+    expect(configuredAgentRuntimeIds('openclaw,codex')).toEqual(['openclaw', 'codex']);
+    expect(() => configuredAgentRuntimeIds('hermes')).toThrow('Unsupported Agent Runtime');
   });
 });

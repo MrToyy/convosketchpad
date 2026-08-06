@@ -14,6 +14,8 @@ export interface EnvConfig {
   OPENCLAW_GATEWAY_TIMEZONE?: string;
   OPENCLAW_CONFIG_PATH?: string;
   OPENCLAW_BIN?: string;
+  CODEX_BIN?: string;
+  CODEX_WORKING_DIRECTORY?: string;
   PORT?: string;
   HOST?: string;
   ALLOWED_ORIGINS?: string;
@@ -72,6 +74,12 @@ export function generateEnvContent(config: EnvConfig): string {
     }
     if (config.OPENCLAW_CONFIG_PATH) lines.push(`OPENCLAW_CONFIG_PATH=${config.OPENCLAW_CONFIG_PATH}`);
     if (config.OPENCLAW_BIN) lines.push(`OPENCLAW_BIN=${config.OPENCLAW_BIN}`);
+    lines.push('');
+  }
+  if (runtimeIds.includes('codex')) {
+    lines.push('# Codex App Server');
+    if (config.CODEX_BIN) lines.push(`CODEX_BIN=${JSON.stringify(config.CODEX_BIN)}`);
+    lines.push(`CODEX_WORKING_DIRECTORY=${JSON.stringify(config.CODEX_WORKING_DIRECTORY || '')}`);
     lines.push('');
   }
 

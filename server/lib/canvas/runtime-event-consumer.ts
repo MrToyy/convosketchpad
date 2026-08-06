@@ -11,6 +11,7 @@ import {
   signalCanvasInteractionTerminal,
 } from '../canvas-reconciler.js';
 import { publishCanvasChanged, publishCanvasPreview } from '../canvas-sync.js';
+import type { RuntimeTextPreviewAssembler } from './runtime-text-preview.js';
 
 function activeView(interaction: OwnedInteractionRecord) {
   return {
@@ -42,7 +43,12 @@ function terminal(event: RuntimeEvent): boolean {
     || event.type === 'turn.interrupted';
 }
 
-function processRuntimeEvent(store: CanvasStore, event: RuntimeEvent, storedKey?: string): void {
+function processRuntimeEvent(
+  store: CanvasStore,
+  event: RuntimeEvent,
+  storedKey?: string,
+  previews?: RuntimeTextPreviewAssembler,
+): void {
   if (event.type === 'approval.resolved') {
     const resolution = store.applyInteractionApprovalResolution(
       event.runtimeId,
@@ -69,12 +75,16 @@ function processRuntimeEvent(store: CanvasStore, event: RuntimeEvent, storedKey?
     if (storedKey) store.markRuntimeEventProcessed(storedKey);
     return;
   }
-  if (event.type === 'output.text.delta' || event.type === 'output.message.completed') {
+  if (
+    event.type === 'output.text.delta'
+    || event.type === 'output.text.snapshot'
+    || event.type === 'output.message.completed'
+  ) {
     publishCanvasPreview({
       ownerId: active.ownerId,
       canvasId: active.canvasId,
       interactionId: active.interactionId,
-      text: event.text,
+      text: previews?.apply(active.interactionId, event) || event.text,
     });
     return;
   }
@@ -88,6 +98,7 @@ function processRuntimeEvent(store: CanvasStore, event: RuntimeEvent, storedKey?
       text,
     });
   }
+  previews?.clear(active.interactionId);
   const failureHint = event.type === 'turn.failed'
     ? event.error
     : event.type === 'turn.interrupted'
@@ -100,12 +111,16 @@ function processRuntimeEvent(store: CanvasStore, event: RuntimeEvent, storedKey?
   if (storedKey) store.markRuntimeEventProcessed(storedKey);
 }
 
-export function handleCanvasRuntimeEvent(store: CanvasStore, event: RuntimeEvent): void {
+export function handleCanvasRuntimeEvent(
+  store: CanvasStore,
+  event: RuntimeEvent,
+  previews?: RuntimeTextPreviewAssembler,
+): void {
   const durable = terminal(event)
     || event.type === 'approval.required'
     || event.type === 'approval.resolved';
   if (!durable) {
-    processRuntimeEvent(store, event);
+    processRuntimeEvent(store, event, undefined, previews);
     return;
   }
   const key = eventKey(event);
@@ -119,7 +134,7 @@ export function handleCanvasRuntimeEvent(store: CanvasStore, event: RuntimeEvent
   });
   if (!inserted) return;
   if (terminal(event) || event.type === 'approval.required' || event.type === 'approval.resolved') {
-    processRuntimeEvent(store, event, key);
+    processRuntimeEvent(store, event, key, previews);
   }
 }
 

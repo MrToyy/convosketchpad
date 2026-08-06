@@ -12,6 +12,7 @@ import {
   consumeCanvasRuntimeEvent,
   runCanvasSendWorker,
 } from './canvas-send-worker.js';
+import { RuntimeTextPreviewAssembler } from './canvas/runtime-text-preview.js';
 
 let retryTimer: ReturnType<typeof setTimeout> | null = null;
 let retryTimerAt: number | null = null;
@@ -21,6 +22,7 @@ let started = false;
 let unsubscribeRuntimeSubscriptions: Array<() => void> = [];
 let runtimeRegistry: AgentRuntimeRegistry | null = null;
 let configuredCanvasStore: CanvasStore | null = null;
+let runtimeTextPreviews: RuntimeTextPreviewAssembler | null = null;
 
 function runtimes(): AgentRuntimeRegistry {
   if (!runtimeRegistry) throw new Error('Canvas send coordinator is not started');
@@ -112,8 +114,10 @@ export function startCanvasSendCoordinator(registry: AgentRuntimeRegistry, store
   started = true;
   runtimeRegistry = registry;
   configuredCanvasStore = store;
+  const previews = new RuntimeTextPreviewAssembler();
+  runtimeTextPreviews = previews;
   unsubscribeRuntimeSubscriptions = registry.list().flatMap((runtime) => [
-    runtime.subscribeEvents((event) => consumeCanvasRuntimeEvent(store, event)),
+    runtime.subscribeEvents((event) => consumeCanvasRuntimeEvent(store, event, previews)),
     runtime.subscribeStatus((status) => {
       publishRuntimeStatuses();
       if (status.state === 'connected') {
@@ -136,6 +140,8 @@ export function stopCanvasSendCoordinator(): void {
   clearCanvasSendWorkerState();
   for (const unsubscribe of unsubscribeRuntimeSubscriptions) unsubscribe();
   unsubscribeRuntimeSubscriptions = [];
+  runtimeTextPreviews?.clearAll();
+  runtimeTextPreviews = null;
   runtimeRegistry = null;
   configuredCanvasStore = null;
 }
