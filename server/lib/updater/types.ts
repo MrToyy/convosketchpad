@@ -27,13 +27,17 @@ export interface UpdateOptions {
   dryRun: boolean;
   verbose: boolean;
   rollback: boolean;
+  resume: boolean;
+  status: boolean;
   noRestart: boolean;
+  leaveStopped: boolean;
   cwd: string;
 }
 
 // ── Snapshot ─────────────────────────────────────────────────────────
 
 export interface Snapshot {
+  kind: 'full' | 'partial';
   ref: string;
   version: string;
   timestamp: number;
@@ -42,6 +46,12 @@ export interface Snapshot {
   environmentBackupPath?: string;
   databaseExisted?: boolean;
   databaseBackupPath?: string;
+  databaseBackupSize?: number;
+  databaseBackupSha256?: string;
+  databaseIntegrityVerified?: boolean;
+  databaseSchemaEpoch?: number;
+  minimumReadableDatabaseSchemaEpoch?: number;
+  maximumReadableDatabaseSchemaEpoch?: number;
   snapshotDir?: string;
 }
 
@@ -86,7 +96,39 @@ export interface ServiceManager {
   getLogs(lines: number): Promise<string>;
 }
 
-export type ServiceState = 'active' | 'inactive' | 'unknown';
+export type ServiceState = 'active' | 'inactive' | 'transitioning' | 'unknown';
+
+export type UpdateTransactionPhase =
+  | 'resolved'
+  | 'service-inspected'
+  | 'service-quiesced'
+  | 'snapshot-created'
+  | 'release-checked-out'
+  | 'built'
+  | 'environment-migrated'
+  | 'database-migrated'
+  | 'service-finalized'
+  | 'health-verified';
+
+export interface UpdateTransaction {
+  schemaVersion: 1;
+  id: string;
+  pid: number;
+  startedAt: number;
+  updatedAt: number;
+  status: 'in-progress' | 'failed' | 'committed' | 'recovered';
+  phase: UpdateTransactionPhase;
+  fromVersion: string;
+  toVersion: string;
+  targetTag: string;
+  noRestart: boolean;
+  leaveStopped: boolean;
+  serviceManagerName?: string;
+  serviceWasActive?: boolean;
+  databaseConfirmedOffline: boolean;
+  snapshot?: Snapshot;
+  error?: string;
+}
 
 // ── Update result ────────────────────────────────────────────────────
 

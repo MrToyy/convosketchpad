@@ -22,11 +22,21 @@ vi.mock('../../server/lib/updater/snapshot.js', () => ({
 }));
 vi.mock('../../server/lib/updater/service-manager.js', () => ({
   detectServiceManager: mocks.detectServiceManager,
+  waitForServiceState: vi.fn(async (manager: { status(): Promise<ServiceState> }) => manager.status()),
 }));
 vi.mock('../../server/lib/updater/health.js', () => ({ checkHealth: mocks.checkHealth }));
 
 import { migrateDatabaseAfterSetup } from './setup-database-migration.js';
 import type { ServiceState } from '../../server/lib/updater/types.js';
+
+const lease = {
+  schemaVersion: 1 as const,
+  path: '/state/update.lock',
+  token: 'lease-token',
+  pid: 1,
+  startedAt: 1,
+  cwd: '/project',
+};
 
 function reporter() {
   return { info: vi.fn(), success: vi.fn(), warn: vi.fn() };
@@ -56,7 +66,7 @@ describe('setup database migration', () => {
     const manager = service(true);
     mocks.detectServiceManager.mockReturnValue(manager);
 
-    await migrateDatabaseAfterSetup('/project', reporter());
+    await migrateDatabaseAfterSetup('/project', reporter(), lease);
 
     expect(manager.stop).toHaveBeenCalledOnce();
     expect(manager.restart).toHaveBeenCalledOnce();
@@ -74,7 +84,7 @@ describe('setup database migration', () => {
     const manager = service(false);
     mocks.detectServiceManager.mockReturnValue(manager);
 
-    await migrateDatabaseAfterSetup('/project', reporter());
+    await migrateDatabaseAfterSetup('/project', reporter(), lease);
 
     expect(manager.stop).not.toHaveBeenCalled();
     expect(manager.restart).not.toHaveBeenCalled();
@@ -84,7 +94,7 @@ describe('setup database migration', () => {
     const output = reporter();
     mocks.detectServiceManager.mockReturnValue(null);
 
-    await migrateDatabaseAfterSetup('/project', output);
+    await migrateDatabaseAfterSetup('/project', output, lease);
 
     expect(mocks.createSnapshot).not.toHaveBeenCalled();
     expect(mocks.execFileSync).not.toHaveBeenCalled();
@@ -99,7 +109,7 @@ describe('setup database migration', () => {
     mocks.createSnapshot.mockReturnValue(snapshot);
     mocks.execFileSync.mockImplementation(() => { throw new Error('migration failed'); });
 
-    await expect(migrateDatabaseAfterSetup('/project', output)).rejects.toThrow(
+    await expect(migrateDatabaseAfterSetup('/project', output, lease)).rejects.toThrow(
       /pre-setup database was restored/,
     );
 
@@ -116,7 +126,7 @@ describe('setup database migration', () => {
     mocks.createSnapshot.mockReturnValue(snapshot);
     vi.mocked(manager.restart).mockRejectedValue(new Error('permission denied'));
 
-    await expect(migrateDatabaseAfterSetup('/project', reporter())).rejects.toThrow(
+    await expect(migrateDatabaseAfterSetup('/project', reporter(), lease)).rejects.toThrow(
       /pre-setup database was restored/,
     );
 
@@ -131,7 +141,7 @@ describe('setup database migration', () => {
     mocks.createSnapshot.mockReturnValue(snapshot);
     mocks.checkHealth.mockResolvedValue({ healthy: false, versionMatch: false, error: 'unhealthy' });
 
-    await expect(migrateDatabaseAfterSetup('/project', reporter())).rejects.toThrow(/pre-setup database was restored/);
+    await expect(migrateDatabaseAfterSetup('/project', reporter(), lease)).rejects.toThrow(/pre-setup database was restored/);
 
     expect(manager.stop).toHaveBeenCalledTimes(2);
     expect(mocks.restoreSnapshotDatabase).toHaveBeenCalledWith('/project', snapshot);
@@ -152,7 +162,7 @@ describe('setup database migration', () => {
       .mockResolvedValueOnce('inactive')
       .mockResolvedValueOnce('active');
 
-    await expect(migrateDatabaseAfterSetup('/project', output)).rejects.toThrow(/Database migration failed/);
+    await expect(migrateDatabaseAfterSetup('/project', output, lease)).rejects.toThrow(/Database migration failed/);
 
     expect(mocks.restoreSnapshotDatabase).not.toHaveBeenCalled();
     expect(mocks.discardSnapshot).not.toHaveBeenCalled();
@@ -164,7 +174,7 @@ describe('setup database migration', () => {
     vi.mocked(manager.status).mockResolvedValue('unknown');
     mocks.detectServiceManager.mockReturnValue(manager);
 
-    await expect(migrateDatabaseAfterSetup('/project', reporter())).rejects.toThrow(/refusing to migrate SQLite/);
+    await expect(migrateDatabaseAfterSetup('/project', reporter(), lease)).rejects.toThrow(/refusing to migrate SQLite/);
 
     expect(mocks.createSnapshot).not.toHaveBeenCalled();
     expect(mocks.execFileSync).not.toHaveBeenCalled();

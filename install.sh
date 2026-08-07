@@ -6,7 +6,7 @@
 #   curl -fsSL https://raw.githubusercontent.com/MrToyy/convosketchpad/main/install.sh | bash
 #
 # Or with options:
-#   curl -fsSL ... | bash -s -- --dir ~/convosketchpad --version v0.4.1
+#   curl -fsSL ... | bash -s -- --dir ~/convosketchpad --version v0.4.2
 #   curl -fsSL ... | bash -s -- --dir ~/convosketchpad --branch main
 #   curl -fsSL ... | bash -s -- --gateway-url https://gw.example.com --gateway-token <token>
 # ──────────────────────────────────────────────────────────────────────

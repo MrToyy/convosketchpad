@@ -128,7 +128,7 @@ export class CodexAppServerClient {
         clientInfo: {
           name: 'convosketchpad',
           title: 'ConvoSketchpad',
-          version: process.env.npm_package_version || '0.4.1',
+          version: process.env.npm_package_version || '0.4.2',
         },
       }, 10_000);
       this.notify('initialized', {});

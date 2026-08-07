@@ -35,6 +35,7 @@ export function systemdStateFromOutput(output: string): ServiceState {
   const state = output.trim().toLowerCase();
   if (state === 'active') return 'active';
   if (state === 'inactive' || state === 'failed') return 'inactive';
+  if (state === 'activating' || state === 'deactivating' || state === 'reloading') return 'transitioning';
   return 'unknown';
 }
 
@@ -189,20 +190,24 @@ export class LaunchdManager implements ServiceManager {
     if (process.platform !== 'darwin') return false;
 
     try {
-      const output = execFileSync('launchctl', ['list'], { stdio: 'pipe' }).toString();
-      const label = findLaunchdLabelFromOutput(output);
-      if (label) {
-        const plist = join(homedir(), 'Library', 'LaunchAgents', `${LAUNCHD_LABEL}.plist`);
-        if (!existsSync(plist)) return false;
-        const workingDirectory = this.readPlistValue(plist, 'WorkingDirectory');
-        const command = this.readPlistValue(plist, 'ProgramArguments:0');
-        if (!serviceConfigurationMatchesInstallation(workingDirectory, command, cwd)) return false;
-        this.label = label;
-        this.plist = plist;
-        this.uid = execFileSync('id', ['-u'], { stdio: 'pipe' }).toString().trim();
+      const plist = join(homedir(), 'Library', 'LaunchAgents', `${LAUNCHD_LABEL}.plist`);
+      if (!existsSync(plist)) return false;
+      const workingDirectory = this.readPlistValue(plist, 'WorkingDirectory');
+      const command = this.readPlistValue(plist, 'ProgramArguments:0');
+      if (!serviceConfigurationMatchesInstallation(workingDirectory, command, cwd)) return false;
+      this.label = LAUNCHD_LABEL;
+      this.plist = plist;
+      this.uid = execFileSync('id', ['-u'], { stdio: 'pipe' }).toString().trim();
+      try {
+        execFileSync('launchctl', ['print', `gui/${this.uid}/${this.label}`], { stdio: 'pipe' });
         this.unloadedForMaintenance = false;
-        return true;
+      } catch (error) {
+        if (!launchdServiceIsMissing(error)) return false;
+        // The plist still identifies this installation. Remember that the Job
+        // is unloaded so a later updater process can resume and bootstrap it.
+        this.unloadedForMaintenance = true;
       }
+      return true;
     } catch {
       // no launchd
     }
@@ -233,8 +238,8 @@ export class LaunchdManager implements ServiceManager {
         { stdio: 'pipe' },
       ).toString();
       return launchdStateFromPrintOutput(output);
-    } catch {
-      return this.unloadedForMaintenance ? 'inactive' : 'unknown';
+    } catch (error) {
+      return this.unloadedForMaintenance && launchdServiceIsMissing(error) ? 'inactive' : 'unknown';
     }
   }
 
@@ -265,6 +270,34 @@ export function launchdStateFromPrintOutput(output: string): ServiceState {
     return 'active';
   }
   return output.trim() ? 'inactive' : 'unknown';
+}
+
+export function launchdServiceIsMissing(error: unknown): boolean {
+  const values: string[] = [];
+  if (error instanceof Error) values.push(error.message);
+  if (error && typeof error === 'object') {
+    for (const key of ['stdout', 'stderr'] as const) {
+      if (key in error) values.push(String((error as Record<string, unknown>)[key] ?? ''));
+    }
+  }
+  return /could not find service|service not loaded|not found in domain/i.test(values.join('\n'));
+}
+
+export async function waitForServiceState(
+  manager: ServiceManager,
+  expected: Exclude<ServiceState, 'unknown'>,
+  options: { timeoutMs?: number; intervalMs?: number } = {},
+): Promise<ServiceState> {
+  const timeoutMs = options.timeoutMs ?? 15_000;
+  const intervalMs = options.intervalMs ?? 250;
+  const deadline = Date.now() + timeoutMs;
+  let state = await manager.status();
+  while (state !== expected && Date.now() < deadline) {
+    if (state === 'unknown') return state;
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, intervalMs));
+    state = await manager.status();
+  }
+  return state;
 }
 
 // ── Factory ──────────────────────────────────────────────────────────

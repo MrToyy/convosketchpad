@@ -19,4 +19,7 @@ export async function assertDatabaseMigrationOffline(
   if (state === 'unknown') {
     throw new Error(`Could not determine ${serviceManager.name} service state; refusing database migration`);
   }
+  if (state === 'transitioning') {
+    throw new Error(`${serviceManager.name} is still transitioning; refusing database migration`);
+  }
 }

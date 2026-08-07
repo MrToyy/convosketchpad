@@ -6,7 +6,7 @@
 
 ConvoSketchpad 可连接一个或多个 Agent 运行端（Agent Runtime），让用户从任意节点回溯并继续探索，而不是把所有方向压缩到一条线性对话中。一个 Canvas 可以同时呈现不同思路，保留每个方向的演进过程，并把对应的提示词、输出、参考资料、附件和生成结果组织在一起。
 
-当前 v0.4.1 正式支持 OpenClaw Gateway 与本地 Codex App Server；Canvas 领域模型与具体运行时之间通过统一 Agent Runtime 边界隔离，后续运行端遵循同一 Adapter 规范接入。
+当前 v0.4.2 正式支持 OpenClaw Gateway 与本地 Codex App Server；Canvas 领域模型与具体运行时之间通过统一 Agent Runtime 边界隔离，后续运行端遵循同一 Adapter 规范接入。
 
 ## 产品由来
 

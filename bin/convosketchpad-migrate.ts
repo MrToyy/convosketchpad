@@ -11,7 +11,11 @@ import {
   migrateLegacyRuntimeEnv,
   validateLegacyRuntimeEnv,
 } from '../server/lib/agent-runtimes/env-migration.js';
-import { acquireLock, releaseLock } from '../server/lib/updater/lock.js';
+import {
+  acquireLock,
+  releaseLock,
+} from '../server/lib/updater/lock.js';
+import { resolveMigrationMaintenanceHandoff } from '../server/lib/updater/migration-handoff.js';
 import { assertDatabaseMigrationOffline } from '../server/lib/migration-maintenance.js';
 import {
   parseMigrateCliOptions,
@@ -33,9 +37,8 @@ function printHelp(): void {
 
 async function main(options: MigrateCliOptions): Promise<void> {
   const projectRoot = config.projectRoot;
-  const inheritedLock = process.env.CONVOSKETCHPAD_MAINTENANCE_LOCK_HELD === '1';
-  const inheritedOffline = process.env.CONVOSKETCHPAD_DATABASE_OFFLINE === '1';
-  const lockPath = inheritedLock ? null : acquireLock(projectRoot);
+  const handoff = resolveMigrationMaintenanceHandoff(projectRoot);
+  const ownedLease = handoff.inherited ? null : acquireLock(projectRoot);
   try {
     validateLegacyRuntimeEnv(projectRoot);
     if (options.envOnly) {
@@ -45,7 +48,7 @@ async function main(options: MigrateCliOptions): Promise<void> {
         : 'Runtime environment configuration already current\n');
       return;
     }
-    if (!inheritedOffline) {
+    if (!handoff.databaseOffline) {
       await assertDatabaseMigrationOffline(projectRoot, options.confirmOffline);
     }
     const store = new CanvasStore(config.canvasDatabasePath);
@@ -94,7 +97,7 @@ async function main(options: MigrateCliOptions): Promise<void> {
       store.close();
     }
   } finally {
-    if (lockPath) releaseLock(lockPath);
+    if (ownedLease) releaseLock(ownedLease);
   }
 }
 

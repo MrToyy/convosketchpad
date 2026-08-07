@@ -12,6 +12,8 @@ import {
 } from './snapshot.js';
 import { gitCheckoutLocal, buildProject } from './installer.js';
 import type { Snapshot, ServiceManager, Reporter } from './types.js';
+import { waitForServiceState } from './service-manager.js';
+import { loadReleaseCompatibility } from './compatibility.js';
 
 export interface RollbackResult {
   success: boolean;
@@ -26,6 +28,10 @@ export interface RollbackOptions {
    * false so rollback cannot replace a live database.
    */
   restoreDatabase?: boolean;
+  /** Use the exact snapshot created by the interrupted transaction. */
+  snapshot?: Snapshot;
+  /** Schema epoch known to be present when the updater did not touch SQLite. */
+  currentDatabaseSchemaEpoch?: number;
 }
 
 /**
@@ -40,7 +46,7 @@ export async function rollback(
   reporter: Reporter,
   options: RollbackOptions = {},
 ): Promise<RollbackResult> {
-  const snapshot = loadSnapshot(cwd);
+  const snapshot = options.snapshot ?? loadSnapshot(cwd);
   if (!snapshot) {
     return { success: false, snapshot: null, error: 'No snapshot found — cannot rollback' };
   }
@@ -48,11 +54,33 @@ export async function rollback(
   reporter.info(`Rolling back to ${snapshot.version} (${snapshot.ref.slice(0, 8)})`);
 
   try {
+    if (
+      options.restoreDatabase === true
+      && (snapshot.kind !== 'full' || snapshot.databaseExisted === undefined)
+    ) {
+      throw new Error('The selected rollback point does not contain a complete database snapshot');
+    }
+    if (options.restoreDatabase !== true) {
+      const currentEpoch = options.currentDatabaseSchemaEpoch
+        ?? loadReleaseCompatibility(cwd).databaseSchemaEpoch;
+      const minimum = snapshot.minimumReadableDatabaseSchemaEpoch;
+      const maximum = snapshot.maximumReadableDatabaseSchemaEpoch;
+      if (
+        minimum === undefined
+        || maximum === undefined
+        || currentEpoch < minimum
+        || currentEpoch > maximum
+      ) {
+        throw new Error(
+          'Code-only rollback is unsafe because the saved release cannot prove compatibility with the current database schema epoch',
+        );
+      }
+    }
     // 1. Stop the service before replacing code or restoring SQLite files.
     if (serviceManager) {
       reporter.verbose(`Stopping ${serviceManager.name} before rollback`);
       await serviceManager.stop();
-      if (await serviceManager.status() !== 'inactive') {
+      if (await waitForServiceState(serviceManager, 'inactive') !== 'inactive') {
         throw new Error(`Could not confirm ${serviceManager.name} service is inactive; SQLite was not restored`);
       }
     }
@@ -92,8 +120,7 @@ export async function rollback(
     if (serviceManager) {
       reporter.verbose(`Restarting via ${serviceManager.name}`);
       await serviceManager.restart();
-      await new Promise(r => setTimeout(r, 2000));
-      const state = await serviceManager.status();
+      const state = await waitForServiceState(serviceManager, 'active');
       if (state !== 'active') {
         const logs = await serviceManager.getLogs(20);
         return { success: false, snapshot, error: `Service failed to start after rollback:\n${logs}` };

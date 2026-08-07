@@ -142,7 +142,7 @@ export async function probeCodexAccount(input: {
   });
   try {
     await request('initialize', {
-      clientInfo: { name: 'convosketchpad_setup', title: 'ConvoSketchpad Setup', version: '0.4.1' },
+      clientInfo: { name: 'convosketchpad_setup', title: 'ConvoSketchpad Setup', version: '0.4.2' },
     });
     child.stdin.write(`${JSON.stringify({ method: 'initialized', params: {} })}\n`);
     const result = await request('account/read', { refreshToken: false }) as {

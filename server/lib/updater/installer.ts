@@ -2,6 +2,11 @@
 
 import { execFileSync } from 'node:child_process';
 import { EXIT_CODES, UpdateError } from './types.js';
+import {
+  maintenanceLeaseEnvironment,
+  type MaintenanceLease,
+} from './lock.js';
+import { parseReleaseCompatibility } from './compatibility.js';
 
 const EXEC_TIMEOUT = 300_000;
 export const MIGRATION_TIMEOUT = 60 * 60 * 1_000;
@@ -69,6 +74,12 @@ function validateReleaseManifest(cwd: string, releaseRef: string, expectedVersio
         `expected convosketchpad@${expectedVersion}, found ${pkg.name ?? 'unknown'}@${pkg.version ?? 'unknown'}`,
       );
     }
+    const compatibilityRaw = execFileSync(
+      'git',
+      ['show', `${releaseRef}:update-compatibility.json`],
+      { cwd, stdio: 'pipe', timeout: EXEC_TIMEOUT },
+    ).toString();
+    parseReleaseCompatibility(compatibilityRaw, expectedVersion);
   } catch (err) {
     throw new UpdateError(
       `Release package validation failed: ${errorMessage(err)}`,
@@ -119,7 +130,7 @@ export function buildProject(cwd: string): void {
   }
 }
 
-export function migrateDatabase(cwd: string): void {
+export function migrateDatabase(cwd: string, lease: MaintenanceLease): void {
   try {
     execFileSync(
       process.execPath,
@@ -130,8 +141,7 @@ export function migrateDatabase(cwd: string): void {
         timeout: MIGRATION_TIMEOUT,
         env: {
           ...process.env,
-          CONVOSKETCHPAD_MAINTENANCE_LOCK_HELD: '1',
-          CONVOSKETCHPAD_DATABASE_OFFLINE: '1',
+          ...maintenanceLeaseEnvironment(lease, true),
         },
       },
     );
@@ -144,7 +154,7 @@ export function migrateDatabase(cwd: string): void {
   }
 }
 
-export function migrateEnvironment(cwd: string): void {
+export function migrateEnvironment(cwd: string, lease: MaintenanceLease): void {
   try {
     execFileSync(
       process.execPath,
@@ -153,7 +163,7 @@ export function migrateEnvironment(cwd: string): void {
         cwd,
         stdio: 'pipe',
         timeout: MIGRATION_TIMEOUT,
-        env: { ...process.env, CONVOSKETCHPAD_MAINTENANCE_LOCK_HELD: '1' },
+        env: { ...process.env, ...maintenanceLeaseEnvironment(lease, false) },
       },
     );
   } catch (err) {

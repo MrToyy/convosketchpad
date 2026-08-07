@@ -7,14 +7,21 @@ export interface ParsedUpdateCliOptions {
 
 /** Reject option combinations whose apparent safety semantics would conflict. */
 export function validateUpdateOptionCombination(options: UpdateOptions): string | null {
-  if (!options.rollback) return null;
+  const modes = [
+    ...(options.rollback ? ['--rollback'] : []),
+    ...(options.resume ? ['--resume'] : []),
+    ...(options.status ? ['--status'] : []),
+  ];
+  if (modes.length > 1) return `${modes.join(', ')} are mutually exclusive`;
+  if (modes.length === 0) return null;
   const conflicts = [
     ...(options.dryRun ? ['--dry-run'] : []),
     ...(options.version ? ['--version'] : []),
     ...(options.noRestart ? ['--no-restart'] : []),
+    ...(options.leaveStopped ? ['--leave-stopped'] : []),
+    ...(options.yes ? ['--yes'] : []),
   ];
-  if (conflicts.length === 0) return null;
-  return `--rollback cannot be combined with ${conflicts.join(', ')}`;
+  return conflicts.length === 0 ? null : `${modes[0]} cannot be combined with ${conflicts.join(', ')}`;
 }
 
 export function parseUpdateCliOptions(args: string[], cwd: string): ParsedUpdateCliOptions {
@@ -23,7 +30,10 @@ export function parseUpdateCliOptions(args: string[], cwd: string): ParsedUpdate
     dryRun: false,
     verbose: false,
     rollback: false,
+    resume: false,
+    status: false,
     noRestart: false,
+    leaveStopped: false,
     cwd,
   };
   const seen = new Set<string>();
@@ -41,7 +51,7 @@ export function parseUpdateCliOptions(args: string[], cwd: string): ParsedUpdate
         markSeen('--version');
         const value = args[++i];
         if (!value || value.startsWith('-')) {
-          throw new Error('--version requires a value (e.g. --version v0.4.1)');
+          throw new Error('--version requires a value (e.g. --version v0.4.2)');
         }
         options.version = value;
         break;
@@ -64,9 +74,21 @@ export function parseUpdateCliOptions(args: string[], cwd: string): ParsedUpdate
         markSeen('--rollback');
         options.rollback = true;
         break;
+      case '--resume':
+        markSeen('--resume');
+        options.resume = true;
+        break;
+      case '--status':
+        markSeen('--status');
+        options.status = true;
+        break;
       case '--no-restart':
         markSeen('--no-restart');
         options.noRestart = true;
+        break;
+      case '--leave-stopped':
+        markSeen('--leave-stopped');
+        options.leaveStopped = true;
         break;
       case '--help':
       case '-h':
@@ -80,6 +102,9 @@ export function parseUpdateCliOptions(args: string[], cwd: string): ParsedUpdate
 
   if (help && seen.size > 1) throw new Error('--help cannot be combined with other options');
   const combinationError = validateUpdateOptionCombination(options);
+  if (options.noRestart && options.leaveStopped) {
+    throw new Error('--no-restart cannot be combined with --leave-stopped');
+  }
   if (combinationError) throw new Error(combinationError);
   return { options, help };
 }

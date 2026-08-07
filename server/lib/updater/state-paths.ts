@@ -10,6 +10,8 @@ export interface UpdaterStatePaths {
   lockPath: string;
   lastGoodPath: string;
   lastRunPath: string;
+  activeTransactionPath: string;
+  lastTransactionPath: string;
 }
 
 function expandHome(value: string): string {
@@ -36,5 +38,7 @@ export function resolveUpdaterStatePaths(cwd: string): UpdaterStatePaths {
     lockPath: join(stateDir, 'update.lock'),
     lastGoodPath: join(stateDir, 'last-good.json'),
     lastRunPath: join(stateDir, 'last-run.json'),
+    activeTransactionPath: join(stateDir, 'active-transaction.json'),
+    lastTransactionPath: join(stateDir, 'last-transaction.json'),
   };
 }

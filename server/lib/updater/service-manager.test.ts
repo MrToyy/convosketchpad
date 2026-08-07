@@ -6,6 +6,7 @@ import {
   serviceConfigurationMatchesInstallation,
   systemdStateFromOutput,
   systemdControlInvocation,
+  waitForServiceState,
 } from './service-manager.js';
 
 describe('service manager identifiers', () => {
@@ -82,10 +83,25 @@ describe('service manager identifiers', () => {
     expect(systemdStateFromOutput('active\n')).toBe('active');
     expect(systemdStateFromOutput('inactive\n')).toBe('inactive');
     expect(systemdStateFromOutput('failed\n')).toBe('inactive');
-    expect(systemdStateFromOutput('activating\n')).toBe('unknown');
+    expect(systemdStateFromOutput('activating\n')).toBe('transitioning');
     expect(systemdStateFromOutput('')).toBe('unknown');
     expect(launchdStateFromPrintOutput('state = running\npid = 123\n')).toBe('active');
     expect(launchdStateFromPrintOutput('state = spawn scheduled\nlast exit code = 1\n')).toBe('inactive');
     expect(launchdStateFromPrintOutput('')).toBe('unknown');
+  });
+
+  it('waits through transitional states instead of checking only once', async () => {
+    const states: Array<'transitioning' | 'inactive'> = ['transitioning', 'transitioning', 'inactive'];
+    const manager = {
+      name: 'test',
+      detect: () => true,
+      stop: async () => undefined,
+      restart: async () => undefined,
+      status: async () => states.shift() ?? 'inactive',
+      getLogs: async () => '',
+    };
+
+    await expect(waitForServiceState(manager, 'inactive', { timeoutMs: 100, intervalMs: 1 }))
+      .resolves.toBe('inactive');
   });
 });

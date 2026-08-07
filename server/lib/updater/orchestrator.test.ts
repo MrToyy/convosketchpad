@@ -13,6 +13,14 @@ const mocks = vi.hoisted(() => ({
   detectServiceManager: vi.fn(),
   checkHealth: vi.fn(),
   rollback: vi.fn(),
+  beginUpdateTransaction: vi.fn(),
+  advanceUpdateTransaction: vi.fn(),
+  attachTransactionSnapshot: vi.fn(),
+  failUpdateTransaction: vi.fn(),
+  finishUpdateTransaction: vi.fn(),
+  loadActiveTransaction: vi.fn(),
+  loadLastTransaction: vi.fn(),
+  writePrivateJsonAtomic: vi.fn(),
   writeFileSync: vi.fn(),
   mkdirSync: vi.fn(),
 }));
@@ -38,12 +46,25 @@ vi.mock('./installer.js', () => ({
   migrateDatabase: mocks.migrateDatabase,
   migrateEnvironment: mocks.migrateEnvironment,
 }));
-vi.mock('./service-manager.js', () => ({ detectServiceManager: mocks.detectServiceManager }));
+vi.mock('./service-manager.js', () => ({
+  detectServiceManager: mocks.detectServiceManager,
+  waitForServiceState: vi.fn(async (manager: ServiceManager) => manager.status()),
+}));
 vi.mock('./health.js', () => ({
   checkHealth: mocks.checkHealth,
   resolveHealthCheckBaseUrl: vi.fn(() => 'http://127.0.0.1:3080'),
 }));
 vi.mock('./rollback.js', () => ({ rollback: mocks.rollback }));
+vi.mock('./transaction.js', () => ({
+  beginUpdateTransaction: mocks.beginUpdateTransaction,
+  advanceUpdateTransaction: mocks.advanceUpdateTransaction,
+  attachTransactionSnapshot: mocks.attachTransactionSnapshot,
+  failUpdateTransaction: mocks.failUpdateTransaction,
+  finishUpdateTransaction: mocks.finishUpdateTransaction,
+  loadActiveTransaction: mocks.loadActiveTransaction,
+  loadLastTransaction: mocks.loadLastTransaction,
+}));
+vi.mock('./state-file.js', () => ({ writePrivateJsonAtomic: mocks.writePrivateJsonAtomic }));
 
 import { orchestrate } from './orchestrator.js';
 import { EXIT_CODES, UpdateError } from './types.js';
@@ -73,7 +94,10 @@ function makeOptions(): UpdateOptions {
     dryRun: false,
     verbose: false,
     rollback: false,
+    resume: false,
+    status: false,
     noRestart: false,
+    leaveStopped: false,
   };
 }
 
@@ -92,7 +116,39 @@ function makeServiceManager(): ServiceManager {
 describe('updater orchestration around database migration', () => {
   beforeEach(() => {
     vi.resetAllMocks();
-    mocks.acquireLock.mockReturnValue('/state/updater/update.lock');
+    mocks.acquireLock.mockReturnValue({ path: '/state/updater/update.lock', token: 'lease-token' });
+    mocks.loadActiveTransaction.mockReturnValue(null);
+    mocks.loadLastTransaction.mockReturnValue(null);
+    const transaction = {
+      schemaVersion: 1,
+      id: 'transaction-1',
+      pid: 1,
+      startedAt: 1,
+      updatedAt: 1,
+      status: 'in-progress',
+      phase: 'resolved',
+      fromVersion: '0.3.2',
+      toVersion: '0.4.0',
+      targetTag: 'v0.4.0',
+      noRestart: false,
+      databaseConfirmedOffline: false,
+    };
+    mocks.beginUpdateTransaction.mockReturnValue(transaction);
+    mocks.advanceUpdateTransaction.mockImplementation((_cwd, current, phase, patch = {}) => ({
+      ...current,
+      ...patch,
+      phase,
+    }));
+    mocks.attachTransactionSnapshot.mockImplementation((_cwd, current, snapshot) => ({
+      ...current,
+      phase: 'snapshot-created',
+      snapshot,
+    }));
+    mocks.failUpdateTransaction.mockImplementation((_cwd, current, error) => ({
+      ...current,
+      status: 'failed',
+      error,
+    }));
     mocks.runPreflight.mockReturnValue({
       gitVersion: '2.50.0',
       nodeVersion: '22.22.2',
@@ -109,6 +165,7 @@ describe('updater orchestration around database migration', () => {
       source: 'release',
     });
     mocks.createSnapshot.mockReturnValue({
+      kind: 'full',
       ref: '0123456789abcdef',
       version: '0.3.2',
       timestamp: 1,
@@ -139,8 +196,8 @@ describe('updater orchestration around database migration', () => {
 
     expect(result).toBe(EXIT_CODES.SUCCESS);
     expect(mocks.gitFetchAndCheckout).toHaveBeenCalledWith('/project', 'v0.4.0');
-    expect(mocks.migrateDatabase).toHaveBeenCalledWith('/project');
-    expect(mocks.migrateEnvironment).toHaveBeenCalledWith('/project');
+    expect(mocks.migrateDatabase).toHaveBeenCalledWith('/project', expect.any(Object));
+    expect(mocks.migrateEnvironment).toHaveBeenCalledWith('/project', expect.any(Object));
     expect(mocks.checkHealth).toHaveBeenCalledWith('/project', '0.4.0');
     expect(mocks.createSnapshot.mock.invocationCallOrder[0])
       .toBeLessThan(mocks.gitFetchAndCheckout.mock.invocationCallOrder[0]);
@@ -151,7 +208,10 @@ describe('updater orchestration around database migration', () => {
     expect(vi.mocked(serviceManager.restart).mock.invocationCallOrder[0])
       .toBeLessThan(mocks.checkHealth.mock.invocationCallOrder[0]);
     expect(mocks.rollback).not.toHaveBeenCalled();
-    expect(mocks.createSnapshot).toHaveBeenCalledWith('/project', { includeDatabase: true });
+    expect(mocks.createSnapshot).toHaveBeenCalledWith('/project', {
+      includeDatabase: true,
+      recordLastGood: true,
+    });
   });
 
   it('restores the v0.3.2 snapshot when the v0.4.0 migration fails', async () => {
@@ -165,7 +225,7 @@ describe('updater orchestration around database migration', () => {
 
     expect(result).toBe(EXIT_CODES.MIGRATION);
     expect(mocks.rollback).toHaveBeenCalledWith(
-      '/project', serviceManager, expect.any(Object), { restoreDatabase: true },
+      '/project', serviceManager, expect.any(Object), expect.objectContaining({ restoreDatabase: true }),
     );
     expect(serviceManager.restart).not.toHaveBeenCalled();
     expect(mocks.checkHealth).not.toHaveBeenCalled();
@@ -211,8 +271,11 @@ describe('updater orchestration around database migration', () => {
 
     expect(result).toBe(EXIT_CODES.SUCCESS);
     expect(mocks.migrateDatabase).not.toHaveBeenCalled();
-    expect(mocks.migrateEnvironment).toHaveBeenCalledWith('/project');
-    expect(mocks.createSnapshot).toHaveBeenCalledWith('/project', { includeDatabase: false });
+    expect(mocks.migrateEnvironment).toHaveBeenCalledWith('/project', expect.any(Object));
+    expect(mocks.createSnapshot).toHaveBeenCalledWith('/project', {
+      includeDatabase: false,
+      recordLastGood: false,
+    });
     expect(reporter.warn).toHaveBeenCalledWith(
       'No managed service detected — deferring database migration',
     );
@@ -227,13 +290,43 @@ describe('updater orchestration around database migration', () => {
     const result = await orchestrate(makeOptions(), reporter);
 
     expect(result).toBe(EXIT_CODES.SUCCESS);
-    expect(mocks.migrateDatabase).toHaveBeenCalledWith('/project');
+    expect(mocks.migrateDatabase).toHaveBeenCalledWith('/project', expect.any(Object));
     expect(serviceManager.stop).not.toHaveBeenCalled();
     expect(serviceManager.restart).not.toHaveBeenCalled();
     expect(mocks.checkHealth).not.toHaveBeenCalled();
     expect(reporter.ok).toHaveBeenCalledWith(
       'Service remains stopped via systemd (matching its pre-update state)',
     );
+  });
+
+  it('completes migration but preserves an originally active service stopped when requested', async () => {
+    const reporter = makeReporter();
+    const serviceManager = makeServiceManager();
+    mocks.detectServiceManager.mockReturnValue(serviceManager);
+
+    const result = await orchestrate({ ...makeOptions(), leaveStopped: true }, reporter);
+
+    expect(result).toBe(EXIT_CODES.SUCCESS);
+    expect(serviceManager.stop).toHaveBeenCalledOnce();
+    expect(serviceManager.restart).not.toHaveBeenCalled();
+    expect(mocks.migrateDatabase).toHaveBeenCalledWith('/project', expect.any(Object));
+    expect(mocks.checkHealth).not.toHaveBeenCalled();
+    expect(reporter.ok).toHaveBeenCalledWith(
+      'Service remains stopped via systemd (--leave-stopped)',
+    );
+  });
+
+  it('rejects --leave-stopped when no managed service can prove SQLite is offline', async () => {
+    mocks.detectServiceManager.mockReturnValue(null);
+
+    const result = await orchestrate(
+      { ...makeOptions(), leaveStopped: true },
+      makeReporter(),
+    );
+
+    expect(result).toBe(EXIT_CODES.BUILD);
+    expect(mocks.createSnapshot).not.toHaveBeenCalled();
+    expect(mocks.gitFetchAndCheckout).not.toHaveBeenCalled();
   });
 
   it('rolls back a failed update without starting an initially stopped service', async () => {
@@ -248,7 +341,7 @@ describe('updater orchestration around database migration', () => {
 
     expect(result).toBe(EXIT_CODES.BUILD);
     expect(mocks.rollback).toHaveBeenCalledWith(
-      '/project', null, expect.any(Object), { restoreDatabase: true },
+      '/project', null, expect.any(Object), expect.objectContaining({ restoreDatabase: true }),
     );
     expect(serviceManager.stop).not.toHaveBeenCalled();
     expect(serviceManager.restart).not.toHaveBeenCalled();
@@ -260,9 +353,12 @@ describe('updater orchestration around database migration', () => {
     const result = await orchestrate(options, makeReporter());
 
     expect(result).toBe(EXIT_CODES.SUCCESS);
-    expect(mocks.migrateEnvironment).toHaveBeenCalledWith('/project');
+    expect(mocks.migrateEnvironment).toHaveBeenCalledWith('/project', expect.any(Object));
     expect(mocks.migrateDatabase).not.toHaveBeenCalled();
-    expect(mocks.createSnapshot).toHaveBeenCalledWith('/project', { includeDatabase: false });
+    expect(mocks.createSnapshot).toHaveBeenCalledWith('/project', {
+      includeDatabase: false,
+      recordLastGood: false,
+    });
   });
 
   it('classifies a restart command failure and rolls back', async () => {
@@ -274,7 +370,7 @@ describe('updater orchestration around database migration', () => {
 
     expect(result).toBe(EXIT_CODES.RESTART);
     expect(mocks.rollback).toHaveBeenCalledWith(
-      '/project', serviceManager, expect.any(Object), { restoreDatabase: true },
+      '/project', serviceManager, expect.any(Object), expect.objectContaining({ restoreDatabase: true }),
     );
     expect(mocks.checkHealth).not.toHaveBeenCalled();
   });
@@ -298,7 +394,7 @@ describe('updater orchestration around database migration', () => {
       '/project',
       null,
       expect.any(Object),
-      { restoreDatabase: false },
+      expect.objectContaining({ restoreDatabase: false }),
     );
   });
 
@@ -312,7 +408,7 @@ describe('updater orchestration around database migration', () => {
 
     expect(result).toBe(EXIT_CODES.BUILD);
     expect(mocks.rollback).toHaveBeenCalledWith(
-      '/project', null, expect.any(Object), { restoreDatabase: false },
+      '/project', null, expect.any(Object), expect.objectContaining({ restoreDatabase: false }),
     );
   });
 
@@ -337,5 +433,86 @@ describe('updater orchestration around database migration', () => {
     expect(mocks.rollback).toHaveBeenCalledWith(
       '/project', null, expect.any(Object), { restoreDatabase: false },
     );
+  });
+
+  it('refuses manual rollback while a managed service is transitioning', async () => {
+    const serviceManager = makeServiceManager();
+    vi.mocked(serviceManager.status).mockResolvedValue('transitioning');
+    mocks.detectServiceManager.mockReturnValue(serviceManager);
+
+    const result = await orchestrate({ ...makeOptions(), rollback: true }, makeReporter());
+
+    expect(result).toBe(EXIT_CODES.ROLLBACK);
+    expect(mocks.rollback).not.toHaveBeenCalled();
+  });
+
+  it('reports an active transaction without acquiring the maintenance lease', async () => {
+    const reporter = makeReporter();
+    mocks.loadActiveTransaction.mockReturnValue({
+      schemaVersion: 1,
+      id: 'interrupted',
+      pid: 99,
+      startedAt: 1,
+      updatedAt: 2,
+      status: 'failed',
+      phase: 'built',
+      fromVersion: '0.3.2',
+      toVersion: '0.4.0',
+      targetTag: 'v0.4.0',
+      noRestart: false,
+      databaseConfirmedOffline: true,
+    });
+
+    const result = await orchestrate({ ...makeOptions(), status: true }, reporter);
+
+    expect(result).toBe(EXIT_CODES.SUCCESS);
+    expect(mocks.acquireLock).not.toHaveBeenCalled();
+    expect(reporter.info).toHaveBeenCalledWith(expect.stringContaining('interrupted'));
+  });
+
+  it('recovers the exact interrupted snapshot before retrying its target release', async () => {
+    const serviceManager = makeServiceManager();
+    const interrupted = {
+      schemaVersion: 1,
+      id: 'interrupted',
+      pid: 99,
+      startedAt: 1,
+      updatedAt: 2,
+      status: 'failed',
+      phase: 'built',
+      fromVersion: '0.3.2',
+      toVersion: '0.4.0',
+      targetTag: 'v0.4.0',
+      noRestart: false,
+      serviceManagerName: 'systemd',
+      serviceWasActive: true,
+      databaseConfirmedOffline: false,
+      snapshot: {
+        kind: 'partial',
+        ref: 'interrupted-ref',
+        version: '0.3.2',
+        timestamp: 1,
+        envHash: '',
+      },
+    };
+    mocks.loadActiveTransaction.mockReturnValueOnce(interrupted).mockReturnValue(null);
+    mocks.detectServiceManager.mockReturnValue(serviceManager);
+
+    const result = await orchestrate({ ...makeOptions(), resume: true }, makeReporter());
+
+    expect(result).toBe(EXIT_CODES.SUCCESS);
+    expect(mocks.rollback).toHaveBeenCalledWith(
+      '/project',
+      serviceManager,
+      expect.any(Object),
+      expect.objectContaining({
+        restoreDatabase: false,
+        snapshot: interrupted.snapshot,
+      }),
+    );
+    expect(mocks.finishUpdateTransaction).toHaveBeenCalledWith(
+      '/project', interrupted, 'recovered',
+    );
+    expect(mocks.gitFetchAndCheckout).toHaveBeenCalledWith('/project', 'v0.4.0');
   });
 });
