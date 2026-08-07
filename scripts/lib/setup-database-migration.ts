@@ -7,7 +7,14 @@ import {
   restoreSnapshotDatabase,
 } from '../../server/lib/updater/snapshot.js';
 import { MIGRATION_TIMEOUT } from '../../server/lib/updater/installer.js';
-import { detectServiceManager } from '../../server/lib/updater/service-manager.js';
+import {
+  detectServiceManager,
+  waitForServiceState,
+} from '../../server/lib/updater/service-manager.js';
+import {
+  maintenanceLeaseEnvironment,
+  type MaintenanceLease,
+} from '../../server/lib/updater/lock.js';
 import { checkHealth } from '../../server/lib/updater/health.js';
 
 export interface SetupMigrationReporter {
@@ -19,6 +26,7 @@ export interface SetupMigrationReporter {
 export async function migrateDatabaseAfterSetup(
   projectRoot: string,
   reporter: SetupMigrationReporter,
+  lease: MaintenanceLease,
 ): Promise<void> {
   const serviceManager = detectServiceManager(projectRoot);
   if (!serviceManager) {
@@ -26,14 +34,14 @@ export async function migrateDatabaseAfterSetup(
     return;
   }
   const serviceState = await serviceManager.status();
-  if (serviceState === 'unknown') {
+  if (serviceState === 'unknown' || serviceState === 'transitioning') {
     throw new Error(`Could not determine ${serviceManager.name} service state; refusing to migrate SQLite`);
   }
   const wasActive = serviceState === 'active';
   if (serviceManager && wasActive) {
     reporter.info(`Stopping ConvoSketchpad via ${serviceManager.name} before database migration`);
     await serviceManager.stop();
-    if (await serviceManager.status() !== 'inactive') {
+    if (await waitForServiceState(serviceManager, 'inactive') !== 'inactive') {
       throw new Error(`Could not confirm ${serviceManager.name} service is inactive; refusing to migrate SQLite`);
     }
   }
@@ -56,15 +64,14 @@ export async function migrateDatabaseAfterSetup(
       timeout: MIGRATION_TIMEOUT,
       env: {
         ...process.env,
-        CONVOSKETCHPAD_MAINTENANCE_LOCK_HELD: '1',
-        CONVOSKETCHPAD_DATABASE_OFFLINE: '1',
+        ...maintenanceLeaseEnvironment(lease, true),
       },
     });
     reporter.success('Database schema is up to date');
     if (serviceManager && wasActive) {
       restartAttempted = true;
       await serviceManager.restart();
-      if (await serviceManager.status() !== 'active') {
+      if (await waitForServiceState(serviceManager, 'active') !== 'active') {
         throw new Error(`ConvoSketchpad failed to become active via ${serviceManager.name}`);
       }
       const packageJson = JSON.parse(readFileSync(join(projectRoot, 'package.json'), 'utf8')) as { version?: string };
@@ -83,7 +90,7 @@ export async function migrateDatabaseAfterSetup(
       if (restartAttempted && serviceManager) {
         try {
           await serviceManager.stop();
-          offline = await serviceManager.status() === 'inactive';
+          offline = await waitForServiceState(serviceManager, 'inactive') === 'inactive';
         } catch {
           offline = false;
         }

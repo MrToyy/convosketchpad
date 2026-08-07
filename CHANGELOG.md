@@ -4,6 +4,53 @@ ConvoSketchpad 的重要变更均记录在此文件中。格式遵循 [Keep a Ch
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-08-07
+
+### 发布摘要
+
+ConvoSketchpad v0.4.2 将更新器改造为可恢复、可验证的维护事务，重点解决进程中断、部分快照覆盖正式回滚点、SQLite 备份损坏、服务状态不稳定和新旧锁协议交接失败等问题。该补丁不改变 Canvas 数据模型，也不增加数据库迁移；从官方 v0.4.1 升级时保留严格验证的首次交接桥，完成后后续 Release 即使用新事务更新器。
+
+### 当前版本亮点
+
+- 更新阶段持久化到原子事务 Journal，中断后可通过 `--status` 查看并用 `--resume` 恢复准确源快照、重试原目标 Release。
+- 完整与部分快照分离，SQLite 备份经过外键、完整性、大小和 SHA-256 校验后才可成为正式回滚点。
+- systemd/launchd 生命周期等待稳定状态；已 `bootout` 的匹配 launchd Job 可由恢复进程重新识别并 `bootstrap`。
+- Maintenance Lease 绑定 nonce、父进程、安装目录和准确锁路径；Schema Epoch 清单显式限制代码与数据库的回滚兼容范围。
+- 官方 v0.4.1 updater 可通过直接父进程 PID 锁验证，安全调用 v0.4.2 迁移器，不再因锁协议升级必然失败。
+
+### 新增
+
+- 更新器新增持久事务 journal 与 `--status` / `--resume`：每个破坏性阶段原子落盘，进程中断后先恢复准确源快照，再重新执行原目标 Release；普通更新不会覆盖未完成事务。
+- 新增 `--leave-stopped`，完成完整离线快照、环境和数据库迁移后保持受管服务停止；与完全不管理服务和数据库的兼容参数 `--no-restart` 明确分离。
+
+### 变更
+
+- setup、migrate 和 update 的 PID 锁升级为进程绑定 Maintenance Lease，继承迁移器必须验证随机 nonce、准确锁路径、父 PID、安装目录和持有者存活；旧的布尔环境变量不能单独绕过锁或离线检查。
+- 更新快照分为完整与部分类型。只有经 SQLite 外键、完整性、大小与 SHA-256 验证的完整离线快照可以替换 `last-good`；部分快照只属于当前事务，数据库回滚在修改现有文件前强制复核完整清单。
+- Release 新增显式数据库 Schema Epoch 兼容清单；安装前校验目标清单，代码回滚前确认源版本可读取当前数据库，发布工作流强制应用版本和可读区间一致。
+- systemd/launchd 生命周期等待稳定状态并区分转换中与未知；已经 `bootout` 的匹配 launchd plist 仍可被新更新进程识别并恢复。
+
+### 修复
+
+- 为官方 `0.4.1` updater 驱动 `0.4.2` 迁移器增加一次性安全交接：仅当准确的 PID-only 锁属于迁移器直接父进程时接受旧持锁/离线变量，避免首次升级因新旧 Lease 协议不同必然失败。
+- 修复 `--no-restart` 或无服务管理器更新用不含数据库的快照覆盖正式回滚点，以及回滚缺失数据库副本时可能静默继续并报告成功的问题。
+
+### 安装与升级
+
+新安装继续使用正式安装器：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/MrToyy/convosketchpad/main/install.sh | bash
+```
+
+已经安装官方 v0.4.1 的用户可在保留仓库外备份后运行：
+
+```bash
+npm run update -- --version v0.4.2
+```
+
+这一跳仍由 v0.4.1 的源 updater 编排，目标迁移器会严格验证直接父进程持有的 PID-only 锁。升级期间不要强制终止进程或断电，也不要使用 `--no-restart`；安装到 v0.4.2 后，后续更新才完整具备持久事务恢复能力。更早版本继续按[升级文档](https://github.com/MrToyy/convosketchpad/blob/main/docs/UPDATING.md)完成既有桥接路径。
+
 ## [0.4.1] - 2026-08-07
 
 ### 发布摘要
@@ -267,7 +314,8 @@ npm run update -- --version v0.3.1
 
 ConvoSketchpad 源自 OpenClaw Nerve。更早的上游版本历史仍可在 [OpenClaw Nerve 更新日志](https://github.com/daggerhashimoto/openclaw-nerve/blob/master/CHANGELOG.md)中查看。
 
-[Unreleased]: https://github.com/MrToyy/convosketchpad/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/MrToyy/convosketchpad/compare/v0.4.2...HEAD
+[0.4.2]: https://github.com/MrToyy/convosketchpad/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/MrToyy/convosketchpad/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/MrToyy/convosketchpad/compare/v0.3.2...v0.4.0
 [0.3.2]: https://github.com/MrToyy/convosketchpad/compare/v0.3.1...v0.3.2

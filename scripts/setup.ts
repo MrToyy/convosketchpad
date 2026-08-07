@@ -64,12 +64,16 @@ import {
   existingRuntimeIds,
 } from './lib/setup-runtime-selection.js';
 import { migrateDatabaseAfterSetup as runSetupDatabaseMigration } from './lib/setup-database-migration.js';
-import { acquireLock, releaseLock } from '../server/lib/updater/lock.js';
+import {
+  acquireLock,
+  releaseLock,
+  type MaintenanceLease,
+} from '../server/lib/updater/lock.js';
 
 const PROJECT_ROOT = resolve(process.cwd());
 const ENV_PATH = resolve(PROJECT_ROOT, '.env');
 const TOTAL_SECTIONS = 5;
-let activeSetupLockPath: string | null = null;
+let activeSetupLease: MaintenanceLease | null = null;
 
 const supportedRuntimeIds = AGENT_RUNTIME_MANIFEST.map((runtime) => runtime.id);
 let cliOptions: ReturnType<typeof parseSetupCliOptions>;
@@ -108,7 +112,8 @@ function sleep(ms: number): Promise<void> {
 }
 
 async function migrateDatabaseAfterSetup(): Promise<void> {
-  await runSetupDatabaseMigration(PROJECT_ROOT, { info, success, warn });
+  if (!activeSetupLease) throw new Error('Setup maintenance lease is missing');
+  await runSetupDatabaseMigration(PROJECT_ROOT, { info, success, warn }, activeSetupLease);
 }
 
 async function persistConfiguration(config: EnvConfig): Promise<void> {
@@ -134,9 +139,9 @@ async function persistConfiguration(config: EnvConfig): Promise<void> {
 
 process.on('SIGINT', () => {
   cleanupTmp(ENV_PATH);
-  if (activeSetupLockPath) {
-    releaseLock(activeSetupLockPath);
-    activeSetupLockPath = null;
+  if (activeSetupLease) {
+    releaseLock(activeSetupLease);
+    activeSetupLease = null;
   }
   console.log('\n\n  Setup cancelled.\n');
   process.exit(130);
@@ -165,8 +170,8 @@ async function main(): Promise<void> {
 
   // Hold the shared maintenance lock for the complete mutating setup session,
   // so an updater cannot replace the running setup code or race its config.
-  const setupLockPath = isCheck ? null : acquireLock(PROJECT_ROOT);
-  activeSetupLockPath = setupLockPath;
+  const setupLease = isCheck ? null : acquireLock(PROJECT_ROOT);
+  activeSetupLease = setupLease;
   try {
 
   // Load existing config as defaults
@@ -232,8 +237,8 @@ async function main(): Promise<void> {
     printDeploymentGuides();
   }
   } finally {
-    if (setupLockPath) releaseLock(setupLockPath);
-    activeSetupLockPath = null;
+    if (setupLease) releaseLock(setupLease);
+    activeSetupLease = null;
   }
 }
 

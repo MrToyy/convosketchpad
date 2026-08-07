@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   buildProject: vi.fn(),
   existsSync: vi.fn(() => false),
   rmSync: vi.fn(),
+  loadReleaseCompatibility: vi.fn(() => ({ databaseSchemaEpoch: 3 })),
 }));
 
 vi.mock('node:fs', () => ({
@@ -22,6 +23,9 @@ vi.mock('./snapshot.js', () => ({
 vi.mock('./installer.js', () => ({
   gitCheckoutLocal: mocks.gitCheckoutLocal,
   buildProject: mocks.buildProject,
+}));
+vi.mock('./compatibility.js', () => ({
+  loadReleaseCompatibility: mocks.loadReleaseCompatibility,
 }));
 
 import { rollback } from './rollback.js';
@@ -49,12 +53,15 @@ describe('updater rollback', () => {
     vi.resetAllMocks();
     mocks.existsSync.mockReturnValue(false);
     mocks.loadSnapshot.mockReturnValue({
+      kind: 'full',
       ref: '0123456789abcdef',
       version: '0.3.2',
       timestamp: 1,
       envHash: '',
       databaseExisted: true,
       databaseBackupPath: '/snapshot/canvas.sqlite',
+      minimumReadableDatabaseSchemaEpoch: 3,
+      maximumReadableDatabaseSchemaEpoch: 3,
     });
   });
 
@@ -83,6 +90,32 @@ describe('updater rollback', () => {
 
     expect(result.success).toBe(false);
     expect(mocks.restoreSnapshotDatabase).not.toHaveBeenCalled();
+    expect(mocks.gitCheckoutLocal).not.toHaveBeenCalled();
+  });
+
+  it('refuses database rollback from a partial snapshot before changing code', async () => {
+    mocks.loadSnapshot.mockReturnValue({
+      kind: 'partial',
+      ref: 'partial-ref',
+      version: '0.4.0',
+      timestamp: 2,
+      envHash: '',
+    });
+
+    const result = await rollback('/project', null, reporter(), { restoreDatabase: true });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/complete database snapshot/);
+    expect(mocks.gitCheckoutLocal).not.toHaveBeenCalled();
+  });
+
+  it('refuses code-only rollback across an incompatible database schema epoch', async () => {
+    mocks.loadReleaseCompatibility.mockReturnValue({ databaseSchemaEpoch: 4 });
+
+    const result = await rollback('/project', null, reporter());
+
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/schema epoch/);
     expect(mocks.gitCheckoutLocal).not.toHaveBeenCalled();
   });
 });

@@ -12,9 +12,25 @@ import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { execFileSync } from 'node:child_process';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { backupSqliteDatabase, createSnapshot, restoreSnapshotEnvironment } from './snapshot.js';
+import {
+  backupSqliteDatabase,
+  createSnapshot,
+  restoreSnapshotDatabase,
+  restoreSnapshotEnvironment,
+} from './snapshot.js';
 
 const cleanups: Array<() => void> = [];
+
+function writeCompatibilityManifest(dir: string, version = '0.4.1'): void {
+  writeFileSync(path.join(dir, 'update-compatibility.json'), JSON.stringify({
+    schemaVersion: 1,
+    packageName: 'convosketchpad',
+    applicationVersion: version,
+    databaseSchemaEpoch: 3,
+    minimumReadableDatabaseSchemaEpoch: 3,
+    maximumReadableDatabaseSchemaEpoch: 3,
+  }));
+}
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -52,6 +68,7 @@ describe('updater database snapshots', () => {
     writeFileSync(envPath, 'AGENT_RUNTIMES=openclaw\n');
 
     restoreSnapshotEnvironment(dir, {
+      kind: 'partial',
       ref: 'ref',
       version: '0.4.0',
       timestamp: 1,
@@ -68,6 +85,7 @@ describe('updater database snapshots', () => {
     cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
     vi.stubEnv('CONVOSKETCHPAD_DATA_DIR', dataDir);
     writeFileSync(path.join(dir, 'package.json'), '{"version":"0.4.0"}\n');
+    writeCompatibilityManifest(dir, '0.4.0');
     mkdirSync(path.join(dir, 'database'));
     writeFileSync(path.join(dir, 'database/canvas.sqlite'), 'not a sqlite database');
     execFileSync('git', ['init', '-q'], { cwd: dir });
@@ -82,6 +100,7 @@ describe('updater database snapshots', () => {
     const snapshot = createSnapshot(dir, { includeDatabase: false, recordLastGood: false });
 
     expect(snapshot.databaseExisted).toBeUndefined();
+    expect(snapshot.kind).toBe('partial');
     expect(snapshot.databaseBackupPath).toBeUndefined();
     expect(readFileSync(ledgerPath, 'utf-8')).toBe('{"sentinel":true}\n');
   });
@@ -104,5 +123,48 @@ describe('updater database snapshots', () => {
     expect(snapshot.ref).toBe('');
     expect(snapshot.version).toBe('');
     expect(snapshot.databaseBackupPath && existsSync(snapshot.databaseBackupPath)).toBe(true);
+    expect(snapshot.kind).toBe('full');
+  });
+
+  it('verifies the snapshot manifest before replacing the live database', () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'convosketchpad-verified-snapshot-'));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    vi.stubEnv('CONVOSKETCHPAD_DATA_DIR', path.join(dir, 'state'));
+    writeFileSync(path.join(dir, 'package.json'), '{"version":"0.4.1"}\n');
+    writeCompatibilityManifest(dir);
+    mkdirSync(path.join(dir, 'database'));
+    const database = new DatabaseSync(path.join(dir, 'database/canvas.sqlite'));
+    database.exec('CREATE TABLE fixture(id INTEGER PRIMARY KEY); INSERT INTO fixture VALUES (1)');
+    database.close();
+    execFileSync('git', ['init', '-q'], { cwd: dir });
+    execFileSync('git', ['config', 'user.name', 'Snapshot Test'], { cwd: dir });
+    execFileSync('git', ['config', 'user.email', 'snapshot@example.test'], { cwd: dir });
+    execFileSync('git', ['add', 'package.json'], { cwd: dir });
+    execFileSync('git', ['commit', '-qm', 'fixture'], { cwd: dir });
+
+    const snapshot = createSnapshot(dir);
+    expect(snapshot.databaseBackupSha256).toMatch(/^[a-f0-9]{64}$/);
+    writeFileSync(snapshot.databaseBackupPath!, 'tampered');
+
+    expect(() => restoreSnapshotDatabase(dir, snapshot)).toThrow(/verified manifest/);
+    const current = new DatabaseSync(path.join(dir, 'database/canvas.sqlite'), { readOnly: true });
+    expect(current.prepare('SELECT COUNT(*) AS count FROM fixture').get()).toEqual({ count: 1 });
+    current.close();
+  });
+
+  it('refuses to promote a partial snapshot to last-known-good', () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'convosketchpad-partial-snapshot-'));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    vi.stubEnv('CONVOSKETCHPAD_DATA_DIR', path.join(dir, 'state'));
+    writeFileSync(path.join(dir, 'package.json'), '{"version":"0.4.1"}\n');
+    writeCompatibilityManifest(dir);
+    execFileSync('git', ['init', '-q'], { cwd: dir });
+    execFileSync('git', ['config', 'user.name', 'Snapshot Test'], { cwd: dir });
+    execFileSync('git', ['config', 'user.email', 'snapshot@example.test'], { cwd: dir });
+    execFileSync('git', ['add', 'package.json'], { cwd: dir });
+    execFileSync('git', ['commit', '-qm', 'fixture'], { cwd: dir });
+
+    expect(() => createSnapshot(dir, { includeDatabase: false }))
+      .toThrow('partial snapshot cannot replace');
   });
 });

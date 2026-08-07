@@ -9,7 +9,10 @@ function options(overrides: Partial<UpdateOptions> = {}): UpdateOptions {
     dryRun: false,
     verbose: false,
     rollback: false,
+    resume: false,
+    status: false,
     noRestart: false,
+    leaveStopped: false,
     ...overrides,
   };
 }
@@ -28,6 +31,23 @@ describe('updater CLI option validation', () => {
       version: 'v0.4.0',
       noRestart: true,
     }))).toBe('--rollback cannot be combined with --version, --no-restart');
+  });
+
+  it('keeps recovery and status modes standalone', () => {
+    expect(validateUpdateOptionCombination(options({ resume: true }))).toBeNull();
+    expect(validateUpdateOptionCombination(options({ status: true }))).toBeNull();
+    expect(validateUpdateOptionCombination(options({ resume: true, status: true })))
+      .toBe('--resume, --status are mutually exclusive');
+    expect(validateUpdateOptionCombination(options({ resume: true, version: 'v0.4.1' })))
+      .toBe('--resume cannot be combined with --version');
+    expect(parseUpdateCliOptions(['--status'], '/project').options.status).toBe(true);
+    expect(parseUpdateCliOptions(['--resume'], '/project').options.resume).toBe(true);
+  });
+
+  it('distinguishes leaving a migrated service stopped from code-only updates', () => {
+    expect(parseUpdateCliOptions(['--leave-stopped'], '/project').options.leaveStopped).toBe(true);
+    expect(() => parseUpdateCliOptions(['--leave-stopped', '--no-restart'], '/project'))
+      .toThrow('cannot be combined');
   });
 
   it('rejects unknown, duplicate, and missing-value options', () => {

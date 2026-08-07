@@ -11,7 +11,7 @@ ConvoSketchpad（Hono、SQLite、文件存储、发送协调器）
   └─ Codex Adapter    ⇄ 受监督的本地 app-server stdio JSONL
 ```
 
-v0.4.1 的 Canvas 通用运行路径全部通过 `AgentRuntime`，Registry 可同时注册 OpenClaw 与 Codex Adapter，HTTP、前端和数据库均使用通用 Agent/Conversation/Turn/Approval 语义。Codex 直接连接本机 App Server，不经过 OpenClaw。
+v0.4.2 的 Canvas 通用运行路径全部通过 `AgentRuntime`，Registry 可同时注册 OpenClaw 与 Codex Adapter，HTTP、前端和数据库均使用通用 Agent/Conversation/Turn/Approval 语义。Codex 直接连接本机 App Server，不经过 OpenClaw。
 
 浏览器不实现 Runtime 握手，不调用 Gateway RPC 或 Codex App Server，不保存 Runtime URL、Token、设备凭据或本地运行时凭据。服务端是唯一的 Agent Runtime 通信方。
 
@@ -247,7 +247,7 @@ Interaction 上下文快照保存在 `execution_metadata_json` 并以通用 `run
 
 该数据迁移不连接 Gateway，也不重新读取可能已过期的 Transcript，因此结果不依赖升级时 OpenClaw 的保留窗口或在线状态。新版本服务首次打开 `0.2.0` 数据库时会自动执行；从 `0.3.0` 开始的更新器会在停服后显式运行目标版本的 `npm run migrate` 并校验外键与 SQLite 完整性。迁移账本存在后不会再次扫描历史节点。此后服务启动只恢复 `running`、`unconfirmed`、`observing` 或仍有 `artifact_sync_jobs` 的明确任务，不使用全局协调版本重新打开已终止节点。
 
-`server/lib/canvas/persistence/migration-plan.ts` 是发布迁移边界和 ID 的唯一事实来源。截至 `0.4.1` 恰有三项连续迁移：`0.2.0 → 0.3.0` 结构桥接、`0.3.0 → 0.3.2` 媒体维护迁移，以及 `0.3.2 → 0.4.0` Agent Runtime 结构迁移；`0.4.1` 不增加数据库迁移。显式迁移共用维护锁，且只有当前安装的受管服务明确离线或操作者对无管理器场景显式确认离线时才打开 SQLite；setup/update 无法确认离线时推迟到下次服务启动。launchd 维护停服使用 `bootout gui/<uid>/<label>` 真正卸载 KeepAlive Job，恢复时使用 plist `bootstrap` 并以 `kickstart -k` 启动；状态读取针对精确 Domain/Label，不依赖宽泛的 Job 列表。
+`server/lib/canvas/persistence/migration-plan.ts` 是发布迁移边界和 ID 的唯一事实来源。截至 `0.4.2` 恰有三项连续迁移：`0.2.0 → 0.3.0` 结构桥接、`0.3.0 → 0.3.2` 媒体维护迁移，以及 `0.3.2 → 0.4.0` Agent Runtime 结构迁移；`0.4.1` 和 `0.4.2` 均不增加数据库迁移。显式迁移共用维护锁，且只有当前安装的受管服务明确离线或操作者对无管理器场景显式确认离线时才打开 SQLite；setup/update 无法确认离线时推迟到下次服务启动。launchd 维护停服使用 `bootout gui/<uid>/<label>` 真正卸载 KeepAlive Job，恢复时使用 plist `bootstrap` 并以 `kickstart -k` 启动；状态读取针对精确 Domain/Label，不依赖宽泛的 Job 列表。
 
 `0.3.2_to_0.4.0_agent_runtime_v1` 是 `0.4.0` 的结构迁移：在同一迁移边界创建审批与通用事件 Inbox，重建 Canvas、Branch、Interaction、Send Reservation 和 Artifact 表，把 OpenClaw 标识投影成版本化 Runtime Handle，将 Gateway 事件迁入 `runtime_event_inbox`，并物理删除旧 OpenClaw 列与 `gateway_signal_inbox`。旧 Canvas 的 `agent_locked_at` 优先回填为最早 Send Reservation 时间，没有 Reservation 的历史数据再以最早 Interaction 时间兜底；已经完成通用 Schema 但缺失锁定状态的数据库也会幂等修复。修改 Agent 的领域入口还会独立检查历史 Reservation/Interaction，避免异常空锁破坏 Runtime/Conversation 归属。结构事务、触发器安装、外键检查和 `integrity_check` 全部成功后才写入迁移账本；已完成结构但尚未写账本的中断状态可在下次启动幂等补全。全新数据库直接创建当前 Schema 并记录三条既定迁移，不先构造或重建旧 OpenClaw Schema。
 
@@ -268,6 +268,18 @@ Canvas Graph 对本地图片只公开版本化 `thumbnailUri`；外部 HTTP Arti
 节点加载缩略图，只有用户打开预览或下载时才请求原图。
 
 `0.4.0` 不保留旧 OpenClaw 物理列或双写 JSON 兼容源。失败回滚依赖 setup/更新器在停服后创建的完整 SQLite 快照，而不是让旧版本反向读取已经迁移的数据库。Setup 使用完成即删除的临时数据库快照，不登记到更新器正式 `last-good` 账本；更新器状态根目录从项目 `.env` 的 `CONVOSKETCHPAD_DATA_DIR` 解析，确保自定义数据目录下的锁、快照与回滚目标一致。
+
+## 更新事务与维护边界
+
+setup、migrate 和 update 共用进程绑定的 Maintenance Lease。锁文件以 `0600` 保存随机 nonce、父进程 PID、取得时间和规范化安装目录；目标版本迁移器必须同时验证继承 nonce、锁文件路径、直接父进程和仍存活的持有者，不能用普通布尔环境变量伪造“父更新器已持锁”或“数据库已离线”。唯一兼容入口是官方 `0.4.1` 源更新器驱动 `0.4.2` 的首次升级：它只会留下 PID 文本锁和旧布尔变量，因此目标迁移器还要求当前安装的准确锁文件是纯 PID、PID 等于自身直接父进程且仍存活；JSON Lease、错误父 PID、缺失锁或单独设置旧变量都不能触发降级。Setup 即使改写了 `CONVOSKETCHPAD_DATA_DIR`，也通过继承的准确锁路径完成同一维护会话，不会在新旧状态目录各持一把锁。
+
+更新器把每次实际更新记录为 `$CONVOSKETCHPAD_DATA_DIR/updater/active-transaction.json`，阶段依次覆盖 Release 解析、服务检查/停服、快照、Checkout、构建、环境迁移、数据库迁移、服务最终状态和健康验证。每次阶段变化都以临时文件写入、`fsync` 后原子 rename；完成或成功恢复后转存为 `last-transaction.json`。进程被终止时，未完成记录保留，普通新更新失败关闭；`--resume` 使用事务中保存的准确快照保守恢复源版本，再重新执行原目标 Release，不从无法证明一致的中间文件状态继续。
+
+快照明确分为 `full` 与 `partial`。只有服务已确认离线、包含数据库存在性状态、独立 SQLite 副本及其大小、SHA-256、外键和完整性校验的 `full` 快照可以替换正式 `last-good.json`。`--no-restart` 或无受管服务场景只创建当前事务使用的 `partial` 代码/环境快照，不覆盖上一个完整回滚点。数据库回滚在 Checkout 或删除 WAL/SHM 前先要求完整快照并复核清单；缺失、越界、大小或 Hash 不匹配都会保持现状并失败关闭。
+
+每个 Release 根目录的 `update-compatibility.json` 是更新与回滚的显式兼容边界，记录应用版本、当前数据库 Schema Epoch，以及该代码可读取的最小/最大 Epoch。安装器在 Checkout 前校验目标 Release 的清单；代码回滚在接触现有数据库前校验源 Release 是否能读取当前 Epoch。Release Workflow 强制清单版本与 Package 版本一致且区间自洽，避免仅凭 SemVer 推断数据库兼容性。
+
+Service Manager 把 `active`、`inactive`、`transitioning` 和 `unknown` 分开。systemd/launchd 停止与启动都在有界时间内等待稳定目标状态；无法确定状态时不打开 SQLite。launchd 即使已经由上一个进程 `bootout`，仍可通过属于当前安装的 plist 重新识别并在恢复时 `bootstrap`，因此更新器崩溃不会永久丢失 KeepAlive Job 的管理句柄。`--leave-stopped` 完成完整离线迁移后保持服务卸载/停止；它与完全不管理服务和数据库的兼容参数 `--no-restart` 是不同契约。
 
 `send_reservations` 增量新增：
 

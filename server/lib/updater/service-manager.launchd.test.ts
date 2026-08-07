@@ -89,6 +89,17 @@ describe('LaunchdManager maintenance lifecycle', () => {
     loaded = false;
     await expect(manager.status()).resolves.toBe('unknown');
   });
+
+  it('redetects an intentionally unloaded matching plist and can bootstrap it', async () => {
+    loaded = false;
+    active = false;
+    const manager = new LaunchdManager();
+
+    expect(manager.detect('/project')).toBe(true);
+    await expect(manager.status()).resolves.toBe('inactive');
+    await manager.restart();
+    await expect(manager.status()).resolves.toBe('active');
+  });
 });
 
 describe('LaunchdManager platform guard', () => {

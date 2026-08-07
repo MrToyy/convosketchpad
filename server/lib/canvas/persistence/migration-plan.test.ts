@@ -3,7 +3,7 @@ import { packageMetadata } from '../../package-metadata.js';
 import { CANVAS_MIGRATION_PLAN } from './migration-plan.js';
 
 describe('Canvas migration plan', () => {
-  it('retains exactly the three continuous migrations required through v0.4.1', () => {
+  it('retains exactly the three continuous migrations required through v0.4.2', () => {
     expect(CANVAS_MIGRATION_PLAN).toEqual([
       {
         id: '0.2.0_to_0.3.0_v1',

@@ -383,7 +383,7 @@ describe('CanvasStore', () => {
       WHERE id = '0.2.0_to_0.3.0_v1'`).get()).toMatchObject({ count: 1 });
     expect(store.db.prepare(`SELECT app_version FROM schema_migrations
       WHERE id = '0.3.2_to_0.4.0_agent_runtime_v1'`).get()).toMatchObject({
-      app_version: '0.4.1',
+      app_version: '0.4.2',
     });
     const columnNames = (table: string) => (store.db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>)
       .map((column) => column.name);
@@ -473,7 +473,7 @@ describe('CanvasStore', () => {
     });
     expect(store.db.prepare(`SELECT app_version FROM schema_migrations
       WHERE id = '0.3.2_to_0.4.0_agent_runtime_v1'`).get()).toMatchObject({
-      app_version: '0.4.1',
+      app_version: '0.4.2',
     });
 
     store.applyReconciledInteraction('interaction-1', {

@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "packageName": "convosketchpad",
+  "applicationVersion": "0.4.2",
+  "databaseSchemaEpoch": 3,
+  "minimumReadableDatabaseSchemaEpoch": 3,
+  "maximumReadableDatabaseSchemaEpoch": 3
+}

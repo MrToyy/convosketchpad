@@ -74,6 +74,21 @@ jobs:
             throw new Error('workflow input, package.json, and package-lock.json versions must match');
           }
 
+          const compatibility = JSON.parse(fs.readFileSync('update-compatibility.json', 'utf8'));
+          const isEpoch = (value) => Number.isSafeInteger(value) && value >= 0;
+          if (
+            compatibility.schemaVersion !== 1
+            || compatibility.packageName !== pkg.name
+            || compatibility.applicationVersion !== version
+            || !isEpoch(compatibility.databaseSchemaEpoch)
+            || !isEpoch(compatibility.minimumReadableDatabaseSchemaEpoch)
+            || !isEpoch(compatibility.maximumReadableDatabaseSchemaEpoch)
+            || compatibility.minimumReadableDatabaseSchemaEpoch > compatibility.databaseSchemaEpoch
+            || compatibility.maximumReadableDatabaseSchemaEpoch < compatibility.databaseSchemaEpoch
+          ) {
+            throw new Error('update-compatibility.json must describe the release version and a valid readable database schema range');
+          }
+
           const changelog = fs.readFileSync('CHANGELOG.md', 'utf8');
           const escapedVersion = version.replaceAll('.', '\\.');
           const headingPattern = new RegExp(`^## \\[${escapedVersion}\\] - \\d{4}-\\d{2}-\\d{2}$`, 'm');

@@ -108,7 +108,7 @@ Codex 是非幂等派发参考实现：`turn/start` 的 JSON-RPC ID 不提供服
 
 迁移必须事务化、幂等，并通过 `PRAGMA foreign_key_check` 与 `integrity_check`。setup、独立 migrate 与 update 必须共享维护锁，锁按获取时的精确路径释放。服务管理必须同时验证固定名称、工作目录和启动命令属于当前安装，并把运行状态表达为 `active | inactive | unknown`；未知状态失败关闭。只有服务明确离线时才能快照、迁移或恢复 SQLite，恢复前还需再次复核离线。setup 重启后验证状态、健康和版本；若无法停止重启后的服务，不得覆盖数据库，并保留快照。没有匹配服务管理器时 setup/update 推迟到下次启动，独立 migrate 则要求操作者停止全部手工进程并显式确认离线。Runtime 环境键迁移不打开数据库，因此即使没有服务管理器或使用 `--no-restart` 也必须执行。
 
-不要仅因新增 Adapter 或实现已有 Port 方法而创建数据库迁移。先确认通用 Handle、`execution_metadata_json` 或 `dispatch_recovery_ref_json` 是否已能表达；只有持久 Schema 或既有数据必须变化时才新增发布迁移。截至 `0.4.1`，正式账本保持三项。
+不要仅因新增 Adapter 或实现已有 Port 方法而创建数据库迁移。先确认通用 Handle、`execution_metadata_json` 或 `dispatch_recovery_ref_json` 是否已能表达；只有持久 Schema 或既有数据必须变化时才新增发布迁移。截至 `0.4.2`，正式账本保持三项。
 
 ## 测试与文档验收
 

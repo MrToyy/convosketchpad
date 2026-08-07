@@ -28,7 +28,7 @@
 ConvoSketchpad 是 Agent 可视化分支工作台，让你从任意节点回溯并继续探索。它把 Agent 工作过程组织成可缩放的空间画布，让不同思路各自延伸，同时保持任务主线清晰。
 
 > [!IMPORTANT]
-> ConvoSketchpad **不是独立的 Agent 运行环境**，也不负责运行模型、工具或 Agent。它必须连接至少一个 Agent 运行端（Agent Runtime）。当前 v0.4.1 正式适配 [OpenClaw](https://github.com/openclaw/openclaw) Gateway 和本地 Codex App Server；Agent、工具调用、Conversation 和原始运行记录由运行端提供。
+> ConvoSketchpad **不是独立的 Agent 运行环境**，也不负责运行模型、工具或 Agent。它必须连接至少一个 Agent 运行端（Agent Runtime）。当前 v0.4.2 正式适配 [OpenClaw](https://github.com/openclaw/openclaw) Gateway 和本地 Codex App Server；Agent、工具调用、Conversation 和原始运行记录由运行端提供。
 
 ### 为什么做 ConvoSketchpad
 
@@ -226,7 +226,7 @@ PORT=4000 npm run dev
 ConvoSketchpad is a visual branching workspace for agents: revisit any point and continue exploring. It organizes Agent work on a zoomable spatial Canvas, so different ideas can develop independently while the primary task stays focused.
 
 > [!IMPORTANT]
-> ConvoSketchpad is **not a standalone Agent runtime** and does not run models, tools, or Agents by itself. It must connect to at least one Agent Runtime. v0.4.1 officially supports the [OpenClaw](https://github.com/openclaw/openclaw) Gateway and a local Codex App Server; the Runtime provides Agents, tool execution, Conversations, and authoritative run records.
+> ConvoSketchpad is **not a standalone Agent runtime** and does not run models, tools, or Agents by itself. It must connect to at least one Agent Runtime. v0.4.2 officially supports the [OpenClaw](https://github.com/openclaw/openclaw) Gateway and a local Codex App Server; the Runtime provides Agents, tool execution, Conversations, and authoritative run records.
 
 > [!NOTE]
 > Most detailed project documentation is written in Chinese. English-speaking developers are encouraged to use a capable large language model to translate and explain the documents while preserving code identifiers, commands, environment variables, and OpenClaw protocol names.
