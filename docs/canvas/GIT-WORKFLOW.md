@@ -4,8 +4,9 @@
 
 ## 分支职责
 
-- `main` 是 ConvoSketchpad 唯一的长期维护和发布分支，用于维护 Canvas、受管用户认证、Agent Runtime 集成和产品品牌。
-- 功能、修复、文档和 Release 工作都从最新的 `main` 创建短期分支，并通过 Pull Request 合并回 `main`。
+- `main` 是唯一的稳定发布分支，只保存已经通过 Pull Request、必需检查和 Release 验证的版本；日常开发不得直接提交到 `main`。
+- `dev` 是唯一的长期开发分支。功能、修复、文档和 Release 准备都直接在最新的 `dev` 上完成、验证和提交，再通过 `dev → main` Pull Request 发布。
+- 本地常规状态只保留 `main` 与 `dev`。除非用户为并行工作明确要求临时分支，否则不创建其他本地分支；临时分支完成后及时删除。
 - 不从其他长期分支同步或合并外部项目历史；需要采用外部代码时，按其许可证和当前任务范围单独评估。
 - `main` 受 GitHub Ruleset 保护，只接受 Pull Request 合并。
 
@@ -69,20 +70,20 @@ server-dist/
 bin-dist/
 ```
 
-## 推送开发分支与创建 Pull Request
+## 在 `dev` 开发
 
-从最新的 `main` 创建有含义的功能、修复或文档分支：
+开始任务前切换到 `dev` 并刷新远端状态：
 
 ```bash
-git switch main
-git pull --ff-only origin main
-git switch -c <type>/<short-description>
+git switch dev
+git status --short --branch
+git fetch --prune origin
 ```
 
-首次建立 tracking branch：
+修改、验证和提交都留在 `dev`。远端 `dev` 不存在时首次推送并建立 tracking：
 
 ```bash
-git push -u origin <type>/<short-description>
+git push -u origin dev
 ```
 
 后续推送：
@@ -91,13 +92,26 @@ git push -u origin <type>/<short-description>
 git push
 ```
 
-然后向 `main` 创建 Pull Request：
+准备发布时创建 `dev → main` Pull Request：
 
 ```bash
-gh pr create --base main
+gh pr create --base main --head dev
 ```
 
 等待 `build` 检查通过并解决全部 Review 对话后再合并。禁止直接向 `main` 推送、删除 `main` 或 Force Push `main`；Ruleset 不提供管理员绕过。
+
+仓库使用 Squash Merge，合并后的 `main` Commit 与原 `dev` Commit 历史不同；GitHub 还可能自动删除远端 `dev`。发布完成后先确认两者文件树一致，再从最新 `main` 重建本地 `dev`，避免下一次 PR 重复包含已发布提交：
+
+```bash
+git fetch --prune origin
+git diff --quiet dev origin/main
+git switch main
+git merge --ff-only origin/main
+git branch -D dev
+git switch -c dev main
+```
+
+只有 `git diff --quiet dev origin/main` 成功且工作区干净时才能删除并重建 `dev`；否则先检查尚未发布的差异，不得强制覆盖。
 
 ## Canvas 变更的验证建议
 
