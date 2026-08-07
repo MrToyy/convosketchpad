@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const execFileSyncMock = vi.hoisted(() => vi.fn());
 
@@ -16,6 +16,7 @@ describe('LaunchdManager maintenance lifecycle', () => {
   let active = true;
 
   beforeEach(() => {
+    vi.spyOn(process, 'platform', 'get').mockReturnValue('darwin');
     loaded = true;
     active = true;
     execFileSyncMock.mockReset();
@@ -48,6 +49,10 @@ describe('LaunchdManager maintenance lifecycle', () => {
       }
       throw new Error(`Unexpected launchctl arguments ${args.join(' ')}`);
     });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   it('bootouts a KeepAlive job idempotently and bootstraps it before restart', async () => {
@@ -83,5 +88,20 @@ describe('LaunchdManager maintenance lifecycle', () => {
     expect(manager.detect('/project')).toBe(true);
     loaded = false;
     await expect(manager.status()).resolves.toBe('unknown');
+  });
+});
+
+describe('LaunchdManager platform guard', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('does not probe launchd on Linux', () => {
+    vi.spyOn(process, 'platform', 'get').mockReturnValue('linux');
+    execFileSyncMock.mockReset();
+
+    const manager = new LaunchdManager();
+    expect(manager.detect('/project')).toBe(false);
+    expect(execFileSyncMock).not.toHaveBeenCalled();
   });
 });
