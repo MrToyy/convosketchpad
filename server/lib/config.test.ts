@@ -4,10 +4,6 @@ import { config, printStartupBanner, SESSION_COOKIE_NAME, validateConfig } from 
 
 describe('Canvas server config', () => {
   it('contains only the runtime paths and limits used by retained features', () => {
-    expect(config.gatewayUrl).toMatch(/^https?:\/\//);
-    expect(() =>
-      new Intl.DateTimeFormat('en-US', { timeZone: config.gatewayTimezone }).format()
-    ).not.toThrow();
     expect(path.basename(config.canvasDatabasePath)).toBe('canvas.sqlite');
     expect(path.basename(config.canvasArtifactsPath)).toBe('artifacts');
     expect(config.limits.maxBodyBytes).toBeGreaterThan(80 * 1024 * 1024);
@@ -22,11 +18,11 @@ describe('Canvas server config', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     printStartupBanner(
       '1.2.3',
-      'A visual branching workspace for OpenClaw — fork conversations with context, attachments, and artifacts intact',
+      'A visual branching workspace for agents — revisit any point and continue exploring.',
     );
     expect(log.mock.calls.flat().join(' ')).toContain('ConvoSketchpad v1.2.3');
     expect(log.mock.calls.flat().join(' ')).toContain(
-      'A visual branching workspace for OpenClaw — fork conversations with context, attachments, and artifacts intact',
+      'A visual branching workspace for agents — revisit any point and continue exploring.',
     );
     expect(() => validateConfig()).not.toThrow();
     log.mockRestore();

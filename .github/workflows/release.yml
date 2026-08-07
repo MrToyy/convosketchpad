@@ -142,7 +142,7 @@ jobs:
         run: |
           set -euo pipefail
           log_file="${RUNNER_TEMP}/convosketchpad-server.log"
-          PORT=3180 HOST=127.0.0.1 GATEWAY_URL=http://127.0.0.1:9 npm start >"$log_file" 2>&1 &
+          PORT=3180 HOST=127.0.0.1 OPENCLAW_GATEWAY_URL=http://127.0.0.1:9 OPENCLAW_GATEWAY_TOKEN=release-smoke-test npm start >"$log_file" 2>&1 &
           server_pid=$!
           cleanup() {
             kill "$server_pid" 2>/dev/null || true

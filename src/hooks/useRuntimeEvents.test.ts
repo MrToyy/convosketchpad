@@ -5,8 +5,6 @@ import { useRuntimeEvents } from './useRuntimeEvents';
 class FakeEventSource {
   static instances: FakeEventSource[] = [];
   readonly listeners = new Map<string, (event: MessageEvent<string>) => void>();
-  onopen: (() => void) | null = null;
-  onerror: (() => void) | null = null;
   constructor(public url: string) { FakeEventSource.instances.push(this); }
   addEventListener(type: string, listener: EventListenerOrEventListenerObject) {
     this.listeners.set(type, listener as (event: MessageEvent<string>) => void);
@@ -17,51 +15,39 @@ class FakeEventSource {
   }
 }
 
+const connected = {
+  overallState: 'ready',
+  runtimes: [{ runtimeId: 'openclaw', state: 'connected', restartSupported: true }],
+  updatedAt: 1,
+};
+
 describe('product runtime transport', () => {
   beforeEach(() => {
     FakeEventSource.instances = [];
     vi.stubGlobal('EventSource', FakeEventSource);
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
-      state: 'connected',
-      gatewayRestartSupported: true,
-      methods: ['chat.send'],
-      maxPayload: 1024,
-    }), { status: 200, headers: { 'Content-Type': 'application/json' } })));
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(connected), {
+      status: 200, headers: { 'Content-Type': 'application/json' },
+    })));
   });
-
   afterEach(() => vi.unstubAllGlobals());
 
-  it('connects only to ConvoSketchpad HTTP/SSE endpoints', async () => {
+  it('loads aggregate status and connects only to product HTTP/SSE endpoints', async () => {
     const { result } = renderHook(() => useRuntimeEvents());
-    await waitFor(() => expect(result.current.connectionState).toBe('connected'));
+    await waitFor(() => expect(result.current.overallState).toBe('ready'));
+    expect(result.current.runtimeStatuses.openclaw.state).toBe('connected');
     expect(fetch).toHaveBeenCalledWith('/api/runtime/status', { credentials: 'include' });
     expect(FakeEventSource.instances[0]?.url).toBe('/api/runtime/events');
-    expect(result.current.gatewayRestartSupported).toBe(true);
   });
 
-  it('does not confuse EventSource reconnects with Gateway state', async () => {
-    const { result } = renderHook(() => useRuntimeEvents());
-    await waitFor(() => expect(result.current.connectionState).toBe('connected'));
-    act(() => {
-      FakeEventSource.instances[0]?.onerror?.();
-    });
-    expect(result.current.connectionState).toBe('connected');
-  });
-
-  it('uses the runtime stream only for Gateway status', async () => {
+  it('applies only unified Runtime status events', async () => {
     const { result } = renderHook(() => useRuntimeEvents());
     await waitFor(() => expect(FakeEventSource.instances).toHaveLength(1));
-    FakeEventSource.instances[0].emit('interaction.started', {
-      branchId: 'branch-1',
-      interactionId: 'interaction-1',
-    });
-    expect(result.current.connectionState).toBe('connected');
-    act(() => {
-      FakeEventSource.instances[0].emit('runtime.connection_changed', {
-        payload: { state: 'disconnected', gatewayRestartSupported: false, methods: [] },
-      });
-    });
-    expect(result.current.connectionState).toBe('disconnected');
-    expect(result.current.gatewayRestartSupported).toBe(false);
+    act(() => FakeEventSource.instances[0].emit('runtime.status_changed', {
+      overallState: 'unavailable',
+      runtimes: [{ runtimeId: 'openclaw', state: 'disconnected' }],
+      updatedAt: 2,
+    }));
+    expect(result.current.overallState).toBe('unavailable');
+    expect(result.current.runtimeStatuses.openclaw.state).toBe('disconnected');
   });
 });

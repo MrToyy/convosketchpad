@@ -51,11 +51,11 @@ describe('buildAccessPlan', () => {
 describe('applyAccessPlanToConfig', () => {
   it('writes only HOST and browser API ALLOWED_ORIGINS', () => {
     expect(applyAccessPlanToConfig(
-      { PORT: '3080', GATEWAY_URL: 'http://10.0.0.5:18789' },
+      { PORT: '3080', OPENCLAW_GATEWAY_URL: 'http://10.0.0.5:18789' },
       buildAccessPlan({ profile: 'tailscale-ip', port: '3080', tailscale }),
     )).toEqual({
       PORT: '3080',
-      GATEWAY_URL: 'http://10.0.0.5:18789',
+      OPENCLAW_GATEWAY_URL: 'http://10.0.0.5:18789',
       HOST: '100.64.0.42',
       ALLOWED_ORIGINS: 'http://100.64.0.42:3080',
     });

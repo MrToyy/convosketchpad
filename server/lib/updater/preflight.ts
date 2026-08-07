@@ -5,10 +5,9 @@
 import { execSync } from 'node:child_process';
 import { accessSync, constants } from 'node:fs';
 import { isOfficialOriginUrl, OFFICIAL_ORIGIN_URL } from '../release-source.js';
+import { isSupportedNodeVersion, MINIMUM_NODE_VERSION } from '../node-version.js';
 import { EXIT_CODES, UpdateError } from './types.js';
 import type { PreflightResult } from './types.js';
-
-const NODE_MIN_MAJOR = 22;
 
 /**
  * Run all preflight checks. Throws UpdateError on any failure.
@@ -20,10 +19,9 @@ export function runPreflight(cwd: string): PreflightResult {
 
   // Validate Node.js version
   const nodeVersion = nodeVersionRaw.replace(/^v/, '');
-  const major = parseInt(nodeVersion.split('.')[0], 10);
-  if (isNaN(major) || major < NODE_MIN_MAJOR) {
+  if (!isSupportedNodeVersion(nodeVersion)) {
     throw new UpdateError(
-      `Node.js v${NODE_MIN_MAJOR}+ required, found v${nodeVersion}`,
+      `Node.js v${MINIMUM_NODE_VERSION}+ required, found v${nodeVersion}`,
       'preflight',
       EXIT_CODES.PREFLIGHT,
     );

@@ -31,10 +31,16 @@ async function setup() {
     dispatchCanvasSend: mocks.dispatch,
   }));
 
-  const db = await import('../lib/canvas-db.js');
+  const db = await import('../lib/canvas/persistence/canvas-store.js');
+  const { testConversationHandleFactory } = await import('../lib/fixtures/test-conversation-handle.js');
+  db.getCanvasStore(testConversationHandleFactory);
   const route = await import('./canvas.js');
   const app = new Hono();
-  app.route('/', route.default);
+  app.route('/', route.createCanvasRoutes({
+    store: db.getCanvasStore(),
+    runtimes: { get: vi.fn(), list: () => [] } as never,
+    dispatchSend: mocks.dispatch,
+  }));
   return { app, db };
 }
 
@@ -53,7 +59,7 @@ describe('Canvas Interaction resubmit route', () => {
     const current = await setup();
     const store = current.db.getCanvasStore();
     store.ensureUser('owner-a', 'Owner A');
-    const canvas = store.createCanvas('owner-a', 'Canvas', 'main');
+    const canvas = store.createCanvas('owner-a', 'Canvas', { runtimeId: 'openclaw', profileId: 'main' });
     const branch = store.createRootBranch('owner-a', canvas.id);
     const reservation = store.prepareSend('owner-a', {
       branchId: branch.id,
@@ -69,7 +75,7 @@ describe('Canvas Interaction resubmit route', () => {
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ expectedAgentId: 'main' }),
+        body: JSON.stringify({ expectedAgentRef: { runtimeId: 'openclaw', profileId: 'main' } }),
       },
     );
     const payload = await response.json() as {
@@ -81,12 +87,12 @@ describe('Canvas Interaction resubmit route', () => {
     expect(store.getOwnedBranch('owner-a', payload.interaction.branchId)).toMatchObject({
       kind: 'root',
       creationMode: 'direct-submit',
-      sessionState: 'active',
+      conversationState: 'active',
     });
     expect(store.getOwnedInteraction('owner-a', source.id)).toMatchObject({
       id: source.id,
       executionState: 'running',
-      runId: 'run-source',
+      runtimeTurnId: 'run-source',
     });
   });
 });

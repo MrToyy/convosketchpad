@@ -4,6 +4,84 @@ ConvoSketchpad 的重要变更均记录在此文件中。格式遵循 [Keep a Ch
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-08-07
+
+### 发布摘要
+
+ConvoSketchpad v0.4.0 定位为“Agent 可视化分支工作台——从任意节点回溯并继续探索”，将 OpenClaw 从产品内部的固定运行时重构为标准 Agent Runtime Adapter，并通过同一边界直接接入本地 Codex App Server。现有 Canvas 交互保持不变，同时新增节点内审批、平权 Agent 目录和按 Runtime 分组的运行状态与用量。
+
+本版本包含不可逆的数据库结构升级。服务启动会自动迁移；setup 和更新器只有在属于当前安装的受管服务已明确离线时才显式迁移并创建 SQLite 快照，没有可验证的服务管理器时推迟到下次启动。失败恢复同样不会在服务状态未知时替换数据库。
+
+### 当前版本亮点
+
+- 新建 Canvas 仍然一键完成，自动选择 setup 配置的可用默认 Agent（否则回退到首个可用项），并允许在第一次提交前更换。
+- OpenClaw Agent、Codex Agent 和其他 Runtime Agent 使用同一目录与 Canvas 模型，不需要切换 Runtime 模式。
+- 原生执行或插件审批直接出现在所属 Interaction 节点中，支持权限子集和持久授权确认。
+- 设置、状态栏和用量面板按 Runtime 聚合；不完整或不可比较的数据不会被错误相加。
+- OpenClaw 协议与凭据边界收敛到独立 Adapter，新增 Runtime 可遵循统一开发规范。
+- 品牌标语统一为“让想法自由分支 / Let ideas fly free”，README、应用元数据、安装器和宣传图不再把产品描述为 OpenClaw 专属工作台。
+
+### 新增
+
+- 新增统一 `AgentRuntime` 契约、Runtime Registry、语义化 Capabilities 和版本化不透明 Conversation/Turn/Artifact/Approval Handle；当前可同时注册 OpenClaw 与 Codex。
+- 新增本地 Codex App Server Adapter，最低且已验证 Codex CLI `0.146.0`：监督 stdio JSONL 子进程，提供 `codex/default` Agent、Thread/Turn 恢复、文本/图片输入、流式输出、原生图片和通用 Artifact、账户用量/额度及节点内命令/文件/权限审批。多个受管用户共享宿主机 Codex 账户与配置的工作目录。
+- Codex 通用交付物使用 `CODEX_WORKING_DIRECTORY/.convosketchpad-artifacts/<turn-token>/outputs/` 受管目录，经过路径、链接、数量和大小校验后复制到 Canvas Artifact 存储；支持非图片文件下载，失败/中断 Turn 的可用文件保留并标注可能不完整，持久化后释放临时副本。SVG/HTML 等活动内容不内联预览。
+- 统一 Runtime 事件从首阶段覆盖终态、流式输出、Artifact、用量和审批 required/resolved，并用按 Runtime 命名空间隔离的 `runtime_event_inbox` 持久化、去重终态与审批；显式 Turn Handle 严格关联，晚到审批结果仍可在 Interaction 终止后收敛。全局断线由 Runtime 状态流传播，不混入 Canvas Inbox。
+- Interaction 节点内新增审批卡片，展示已净化的风险、权限、作用域、到期和解析状态；支持权限子集选择、持久授权二次确认及统一审批 HTTP API。
+- 新增 Runtime 配置/聚合目录：新建 Canvas 自动选择配置的可用默认 Agent并在必要时回退，首次发送预留前可更换；各 Runtime 的 Agent 平权展示，不提供 Runtime 切换模式。
+- setup 新增 Runtime 只读探测与分组多选，并通过统一 `RuntimeSetupDriver` 仅配置、校验用户选择的 Runtime；配置完成后通过统一 Runtime Port 选择默认 Agent，默认项不可用时安全回退到第一个可用 Agent。非交互模式支持 `--runtimes` 与 `--default-agent`。
+- 新增 Adapter 开发规范和 `server/lib/agent-runtimes/adapters/<runtime-id>/` 目录约束。
+
+### 变更
+
+- 主体代码按职责收敛：Canvas 持久模型、纯领域规则、应用用例与 SQLite 持久化分别进入 `canvas/model.ts`、`canvas/domain/`、`canvas/application/` 和 `canvas/persistence/`；服务启动由显式 `ApplicationContext` 组合并注入 Runtime Registry 与 Store，不再保留导入即创建的全局 Runtime 单例。前端 Flow 类型/自动布局与节点渲染分离，Canvas 列表从页面编排组件拆出；setup 的 Runtime 选择、默认 Agent 与帮助输出也拆成独立模块。
+- 删除浏览器不应直接驱动的 `POST /api/canvas/send-operations/:id/dispatch`；Runtime 重启入口统一为 `POST /api/runtime/:runtimeId/restart`。setup 删除 OpenClaw 专属 `--gateway-timezone` 参数，交互模式继续询问远程 Gateway 时区，自动化使用正式环境变量。
+- Canvas Route、发送 Service/Worker/Coordinator、事件消费、Reconciler、上下文快照、Artifact 物化、运行状态、用量和 Provider 配额改为通过统一 Runtime Port 调用；OpenClaw Gateway 方法名、Session Policy、Transcript 与 Artifact 下载收敛到独立 Adapter 目录。
+- 导航栏/设置聚合所有 Runtime 的连接状态；账户用量和额度按 Runtime 分组，仅在币种、周期与可加性一致时显示费用合计。Canvas Branch、工作中和上下文仍保持当前 Canvas 局部语义。
+- SQLite 在既有 `0.3.2 → 0.4.0` 结构迁移内将旧 OpenClaw 顶层字段彻底迁移为 Runtime/Profile、Conversation/Turn/Artifact Handle、审批和通用事件 Inbox；旧列及 `gateway_signal_inbox` 成功后物理移除，不双写。全新数据库直接创建当前 Schema，不再先构造旧表再重建；setup、更新器和服务启动均自动执行安全迁移。
+- 数据库迁移链收敛为且仅为三项：`0.2.0_to_0.3.0_v1`、`0.3.0_media_derivatives_v1` 和 `0.3.2_to_0.4.0_agent_runtime_v1`。`npm run migrate` 在外键与完整性检查后显式验证三项均已落账，并清理未发布开发版本留下的迁移标识；`0.3.x` 可直接升级，`0.2.0` 数据仍由目标迁移代码完整支持，但安装流程必须先完成既有的 `v0.3.0` 更新器桥接。
+- Agent Runtime Schema 迁移会根据最早 Send Reservation 回填旧 Canvas 的 Agent 锁定时间，并以最早 Interaction 兜底；已经迁移但锁定字段缺失的数据库会被幂等修复，服务端同时拒绝对任何已有 Reservation 或 Interaction 的 Canvas 更换 Agent。
+- 开发期 Backend Schema 会自动原地迁移为 Runtime 物理字段、Handle JSON 与事件表；`AGENT_BACKENDS` 由 setup/update 一次性转换为 `AGENT_RUNTIMES`，正式运行不兼容读取、不双写。
+- 派发可靠性增加完整恢复闭环：未知结果保存不透明恢复引用；非幂等 Runtime 必须先权威核对，无法核对时保持锁定且不盲目重发。图片生成 Capability 改为 `supported | unsupported | unknown` 三态，OpenClaw 当前如实报告 `unknown`。
+- Conversation 连续性判断下放 Adapter：OpenClaw 继续解释 Session 重置策略，Codex `notLoaded` Thread 视为可恢复并继续原 Thread；只有权威记录确认缺失时才由通用层执行历史 Replay。Codex `turn/start` 没有服务端幂等保证，传输结果未知时通过 `thread/read` 与交付 Token 对账。
+- Codex 当前使用 Default 模式并继承宿主机模型、Sandbox、审批与 Reviewer 设置；统一审批暂不表达 execpolicy/network amendment，结构化 ask-user 和 MCP elicitation 无回答通道并会明确拒绝。这些限制不会被伪装成成功。
+- 无副作用 Runtime Manifest 统一 ID/展示名支持清单，Definition 对清单逐项提供 Registry 所有的实例工厂与配置校验；ApplicationContext 独立拥有 Store、Adapter 生命周期和后台协调依赖，OpenClaw 共享传输使用租约避免相互关闭。OpenClaw 专属配置、CLI 定位及 setup 支持面收敛到 Adapter 目录，Runtime 状态事件、Canvas 事件消费和用量模块采用不混淆的独立命名。
+- setup 与服务启动共用 Runtime 选择语义：只有缺失 `AGENT_RUNTIMES` 时默认 OpenClaw，显式空配置统一拒绝。原生审批 resolved 事件会再次校验已声明 Choice 和权限子集，契约外结果保持 `unconfirmed`，不再默认成功。
+- OpenClaw CLI 定位改为显式 `OPENCLAW_BIN` 优先、否则直接通过 `PATH` 执行 `openclaw`；setup 选择页只用 `openclaw --version` 发现入口，不在用户选择前读取 Token 或原生配置，选中后才读取可用预填值。成功发现后持久化实际绝对路径，安装器与服务端不再扫描特定安装器或其他用户目录。本机缺少 CLI 不阻断远程 Gateway 安装。本轮默认 Agent 仅增加环境配置，不增加数据库迁移。
+- Codex setup 只用 `codex --version` 做发现；选择后默认创建并使用 `~/codex-convosketchpad`，更新时优先沿用 `.env` 中的工作目录，再临时启动 App Server 读取账户状态。未登录时提示用户自行运行 `codex login` 后重跑 setup，不阻断其他配置，也不读取或修改 `CODEX_HOME`。Codex 接入复用现有通用 Handle 与派发恢复字段，不增加第四条数据库迁移。
+- 流式 Preview 按统一语义区分追加 Delta、累计快照和消息完成值，服务端按 `messageId` 组装完整 Turn 文本后再发给前端；Codex 多段文字不再只显示最后一个 Delta，OpenClaw 累计 `message` 也不会被重复追加。运行节点在已有文字时继续显示工作指示，并使用固定高度的运行期输出面板，将正文滚动层与底部工作状态层分离；每次快照更新后正文自动跟随到底部，避免未闭合的流式 Markdown 持续改变容器和滚动轨道尺寸。Codex 上下文改用 `tokenUsage.last.totalTokens`，并通用拒绝超出 Context Window 的累计用量快照。
+- Runtime 状态读取改为无副作用快照；Gateway 不可达时，状态聚合和状态订阅不再反向触发即时重连，OpenClaw 严格保持 1–30 秒指数退避，避免启动期热循环和日志风暴。
+- setup、migrate 和 update 共用维护锁，并校验 systemd/launchd 的名称、工作目录、启动命令和三态运行状态；只有属于当前安装且明确离线时才快照、迁移或恢复 SQLite。没有匹配管理器时 setup/update 推迟数据库迁移且失败回滚不替换 SQLite；独立 migrate 要求操作者显式确认手工进程已停止。setup 重启后验证服务状态、健康和版本，无法确认离线时不覆盖数据库并保留临时快照。环境配置迁移仍不依赖服务管理器，`--no-restart` 继续只恢复代码和 `.env`。本轮复用既有派发恢复字段，不增加第四条数据库迁移。
+- 安装器不再读取 OpenClaw 原生配置或直接生成 Runtime `.env`，交互与非交互安装统一经过 setup；`--skip-setup` 只复用已有配置。已有稳定版跨 Release 升级必须使用事务化更新器，安装器只处理新安装和同版本修复，并拒绝覆盖脏工作区及模糊 CLI 参数。setup 严格拒绝未知、重复、缺值和冲突参数；其一次性数据库快照不覆盖正式 `last-good`，迁移或服务恢复失败时恢复 `.env` 与数据库并保持服务停止。Linux 系统级 systemd 的安装与更新统一经最小权限 sudo 路径执行。安装、setup 与 update 统一强制 Node.js `>=22.22.2`。
+
+### 修复
+
+- Canvas 连接边改为静态显示，避免 React Flow 的 SVG 虚线动画在空闲页面持续触发样式重算和 GPU 绘制；运行状态继续由 Interaction 节点和状态栏反馈。
+
+### 安全
+
+- OpenClaw 远程设备权限增加精确的 `operator.approvals` scope，以便统一审批 Port 能真实响应原生审批；已有 read/write 设备需要重新配对或完成 scope upgrade。审批事件持久化前会移除命令环境等敏感原始数据。
+- Runtime 发现 Driver 不再接收完整 `.env`，只获得是否已配置和非敏感可执行文件路径；未选择 Runtime 的发现阶段无法读取连接 Token。
+- 更新 Hono、PostCSS、brace-expansion 与 jsdom/Undici 依赖链，修复正式 Release 审计发现的拒绝服务、响应解析、缓存与 Cookie 处理漏洞；完整依赖和生产依赖审计均不再报告已知漏洞。
+
+### 安装与升级
+
+`v0.4.0` 的安装、更新和源码构建需要 Node.js `22.22.2+`。
+
+新安装需先准备至少一个可访问的 Agent Runtime（OpenClaw Gateway，或已登录的本地 Codex CLI `0.146.0+`），然后运行：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/MrToyy/convosketchpad/main/install.sh | bash
+```
+
+已经安装 `v0.3.0` 或更高版本的用户可运行：
+
+```bash
+npm run update -- --version v0.4.0
+```
+
+从 `v0.2.0` 升级必须先按[升级文档](https://github.com/MrToyy/convosketchpad/blob/main/docs/UPDATING.md)固定升级到 `v0.3.0`，获得停服迁移、SQLite 快照和失败回滚能力后，再升级到 `v0.4.0`。不要用旧版本直接打开已经完成 `0.4.0` 结构迁移的数据库。
+
 ## [0.3.2] - 2026-07-30
 
 ### 发布摘要
@@ -162,7 +240,8 @@ npm run update -- --version v0.3.1
 
 ConvoSketchpad 源自 OpenClaw Nerve。更早的上游版本历史仍可在 [OpenClaw Nerve 更新日志](https://github.com/daggerhashimoto/openclaw-nerve/blob/master/CHANGELOG.md)中查看。
 
-[Unreleased]: https://github.com/MrToyy/convosketchpad/compare/v0.3.2...HEAD
+[Unreleased]: https://github.com/MrToyy/convosketchpad/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/MrToyy/convosketchpad/compare/v0.3.2...v0.4.0
 [0.3.2]: https://github.com/MrToyy/convosketchpad/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/MrToyy/convosketchpad/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/MrToyy/convosketchpad/compare/v0.2.0...v0.3.0

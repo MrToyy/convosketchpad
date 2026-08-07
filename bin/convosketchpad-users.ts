@@ -2,7 +2,7 @@
 
 /** ConvoSketchpad managed-user administration CLI. */
 
-import { CanvasStore } from '../server/lib/canvas-db.js';
+import { CanvasStore } from '../server/lib/canvas/persistence/canvas-store.js';
 import { config } from '../server/lib/config.js';
 import { createManagedUser, rotateManagedToken } from '../server/lib/user-management.js';
 

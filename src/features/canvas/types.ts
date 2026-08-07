@@ -1,14 +1,28 @@
 export type BranchKind = 'root' | 'fork';
-export type BranchSessionState = 'draft' | 'active';
+export type BranchConversationState = 'draft' | 'active';
 export type BranchCreationMode = 'composer' | 'direct-submit';
 export type InteractionStatus = 'streaming' | 'completed' | 'failed';
 export type InteractionExecutionState = 'running' | 'completed' | 'failed' | 'unconfirmed';
 export type ArtifactSyncState = 'not_started' | 'observing' | 'synced' | 'degraded';
 
+export interface AgentRef {
+  runtimeId: string;
+  profileId: string;
+}
+
+export interface AgentCatalogEntry {
+  agentRef: AgentRef;
+  displayName: string;
+  runtimeDisplayName: string;
+  available: boolean;
+  unavailableReason?: string;
+}
+
 export interface CanvasSummary {
   id: string;
   name: string;
-  agentId: string;
+  agentRef: AgentRef;
+  agentMutable: boolean;
   createdAt: number;
   updatedAt: number;
 }
@@ -19,11 +33,11 @@ export interface CanvasBranch {
   kind: BranchKind;
   parentBranchId: string | null;
   forkedFromInteractionId: string | null;
-  sessionKey: string;
-  openClawSessionId: string | null;
-  observedSessionId: string | null;
-  sessionIntegrity: 'unknown' | 'healthy' | 'drifted';
-  sessionState: BranchSessionState;
+  conversationId: string;
+  conversationInstanceId: string | null;
+  observedConversationInstanceId: string | null;
+  conversationIntegrity: 'unknown' | 'healthy' | 'drifted';
+  conversationState: BranchConversationState;
   creationMode: BranchCreationMode;
   headInteractionId: string | null;
   createdAt: number;
@@ -44,7 +58,6 @@ export interface CanvasAttachmentMeta {
 
 export interface CanvasArtifact {
   id?: string;
-  gatewayArtifactId?: string;
   name: string;
   mimeType?: string;
   sizeBytes?: number;
@@ -58,13 +71,37 @@ export interface CanvasArtifact {
 export interface InteractionContextSnapshot {
   usedTokens: number;
   contextLimit: number;
-  sessionKey: string;
-  sessionId: string;
+  runtimeId: string;
+  conversationInstanceId: string;
   model?: string;
   provider?: string;
   compactionCount?: number;
   capturedAt: number;
-  source: 'openclaw-session';
+  source: 'agent-runtime';
+}
+
+export interface InteractionApproval {
+  id: string;
+  category: 'command' | 'plugin' | 'network' | 'filesystem' | 'other';
+  title: string;
+  description?: string;
+  risk: 'low' | 'medium' | 'high';
+  permissions: Array<{ id: string; label: string; description?: string; risk?: 'low' | 'medium' | 'high' }>;
+  choices: Array<{
+    id: string;
+    intent: 'grant' | 'deny';
+    scope: 'item' | 'turn' | 'session' | 'persistent';
+    label: string;
+    requiresConfirmation: boolean;
+  }>;
+  expiresAt: number | null;
+  status: 'pending' | 'resolving' | 'resolved' | 'denied' | 'expired' | 'unconfirmed';
+  resolution: { choiceId: string; grantedPermissionIds?: string[] } | null;
+  resolvedBy: string | null;
+  resolvedAt: number | null;
+  error: string | null;
+  createdAt: number;
+  updatedAt: number;
 }
 
 export interface CanvasInteraction {
@@ -72,7 +109,6 @@ export interface CanvasInteraction {
   version: number;
   branchId: string;
   parentInteractionId: string | null;
-  runId: string | null;
   userInput: string;
   agentOutput: string;
   status: InteractionStatus;
@@ -82,7 +118,8 @@ export interface CanvasInteraction {
   error: string | null;
   attachments: CanvasAttachmentMeta[];
   artifacts: CanvasArtifact[];
-  sessionMetadata: Record<string, unknown>;
+  approvals: InteractionApproval[];
+  executionMetadata: Record<string, unknown>;
   contextSnapshot: InteractionContextSnapshot | null;
   createdAt: number;
   updatedAt: number;
@@ -131,7 +168,7 @@ export interface SendReservation {
   userInput: string;
   attachments: CanvasAttachmentMeta[];
   materialization: 'lazy-root' | 'continue-existing' | 'checkpoint-delta' | 'canonical-replay' | 'session-recovery';
-  sessionKey: string;
+  conversationId: string;
   snapshotVersion?: number;
   status: 'prepared' | 'acknowledged' | 'failed';
   dispatchState: 'reserved' | 'awaiting_media' | 'dispatching' | 'ambiguous' | 'acknowledged' | 'failed';

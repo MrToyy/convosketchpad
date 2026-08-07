@@ -5,7 +5,7 @@
  *
  * Usage:
  *   npm run update
- *   npm run update -- --version v0.2.0
+ *   npm run update -- --version v0.4.0
  *   npm run update -- --dry-run
  *   npm run update -- --rollback
  */
@@ -13,7 +13,7 @@
 import { resolve } from 'node:path';
 import { existsSync } from 'node:fs';
 import { orchestrate, createReporter } from '../server/lib/updater/index.js';
-import type { UpdateOptions } from '../server/lib/updater/index.js';
+import { parseUpdateCliOptions } from '../server/lib/updater/cli-options.js';
 
 // ── Project root detection ───────────────────────────────────────────
 
@@ -32,61 +32,6 @@ function findProjectRoot(): string {
 
 // ── Parse CLI args ───────────────────────────────────────────────────
 
-function parseArgs(argv: string[]): UpdateOptions {
-  const args = argv.slice(2);
-  const options: UpdateOptions = {
-    yes: false,
-    dryRun: false,
-    verbose: false,
-    rollback: false,
-    noRestart: false,
-    cwd: findProjectRoot(),
-  };
-
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i];
-    switch (arg) {
-      case '--version': {
-        const next = args[++i];
-        if (!next || next.startsWith('-')) {
-          process.stderr.write('Error: --version requires a value (e.g. --version v0.2.0)\n');
-          process.exit(1);
-        }
-        options.version = next;
-        break;
-      }
-      case '--yes':
-      case '-y':
-        options.yes = true;
-        break;
-      case '--dry-run':
-        options.dryRun = true;
-        break;
-      case '--verbose':
-      case '-v':
-        options.verbose = true;
-        break;
-      case '--rollback':
-        options.rollback = true;
-        break;
-      case '--no-restart':
-        options.noRestart = true;
-        break;
-      case '--help':
-      case '-h':
-        printHelp();
-        process.exit(0);
-        break;
-      default:
-        process.stderr.write(`Unknown option: ${arg}\n`);
-        printHelp();
-        process.exit(1);
-    }
-  }
-
-  return options;
-}
-
 function printHelp(): void {
   process.stderr.write(`
   Usage: convosketchpad-update [options]
@@ -97,12 +42,12 @@ function printHelp(): void {
     --dry-run            Show what would happen without making changes
     --verbose, -v        Extra logging
     --rollback           Rollback to last-known-good snapshot
-    --no-restart         Skip service restart and health checks
+    --no-restart         Keep service online; skip DB migration, restart, and health checks
     --help, -h           Show this help
 
   Exit codes:
     0   Success
-    1   Already up to date
+    1   Already up to date or invalid CLI arguments
     10  Preflight failure
     20  Version resolution failure
     40  Build failure
@@ -129,7 +74,19 @@ function printBanner(): void {
 // ── Main ─────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
-  const options = parseArgs(process.argv);
+  let parsed;
+  try {
+    parsed = parseUpdateCliOptions(process.argv.slice(2), findProjectRoot());
+  } catch (error) {
+    process.stderr.write(`Error: ${error instanceof Error ? error.message : String(error)}\n`);
+    printHelp();
+    process.exit(1);
+  }
+  if (parsed.help) {
+    printHelp();
+    return;
+  }
+  const options = parsed.options;
   const reporter = createReporter(options.verbose);
 
   printBanner();

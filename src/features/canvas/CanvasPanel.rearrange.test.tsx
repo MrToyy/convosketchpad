@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { NodeChange } from '@xyflow/react';
-import type { CanvasFlowNode } from './CanvasNodes';
+import type { CanvasFlowNode } from './flow-model';
 import type { CanvasGraph } from './types';
 import { CanvasPanel } from './CanvasPanel';
 
@@ -65,8 +65,8 @@ vi.mock('@xyflow/react', async (importOriginal) => {
 
 vi.mock('@/contexts/RuntimeContext', () => ({
   useRuntime: () => ({
-    connectionState: 'connected',
-    gatewayRestartSupported: true,
+    overallState: 'ready',
+    runtimeStatuses: { openclaw: { runtimeId: 'openclaw', state: 'connected' } },
     connect: vi.fn(),
   }),
 }));
@@ -98,7 +98,8 @@ function canvasGraph(executionState: 'completed' | 'running' = 'completed'): Can
     canvas: {
       id: 'canvas-1',
       name: 'Test Canvas',
-      agentId: 'main',
+      agentRef: { runtimeId: 'openclaw', profileId: 'main' },
+      agentMutable: false,
       createdAt: 1,
       updatedAt: 1,
     },
@@ -109,11 +110,11 @@ function canvasGraph(executionState: 'completed' | 'running' = 'completed'): Can
       kind: 'root',
       parentBranchId: null,
       forkedFromInteractionId: null,
-      sessionKey: 'agent:main:canvas:branch-1',
-      openClawSessionId: 'session-1',
-      observedSessionId: 'session-1',
-      sessionIntegrity: 'healthy',
-      sessionState: 'active',
+      conversationId: 'agent:main:canvas:branch-1',
+      conversationInstanceId: 'session-1',
+      observedConversationInstanceId: 'session-1',
+      conversationIntegrity: 'healthy',
+      conversationState: 'active',
       creationMode: 'composer',
       headInteractionId: 'interaction-1',
       createdAt: 1,
@@ -124,7 +125,7 @@ function canvasGraph(executionState: 'completed' | 'running' = 'completed'): Can
       version: 1,
       branchId: 'branch-1',
       parentInteractionId: null,
-      runId: 'run-1',
+      runtimeTurnId: 'run-1',
       userInput: 'hello',
       agentOutput: executionState === 'completed' ? 'done' : '',
       status: executionState === 'completed' ? 'completed' : 'streaming',
@@ -134,7 +135,8 @@ function canvasGraph(executionState: 'completed' | 'running' = 'completed'): Can
       error: null,
       attachments: [],
       artifacts: [],
-      sessionMetadata: {},
+      approvals: [],
+      executionMetadata: {},
       contextSnapshot: null,
       createdAt: 1,
       updatedAt: 1,
@@ -165,7 +167,7 @@ beforeEach(() => {
   });
   apiMocks.list.mockResolvedValue([canvasGraph().canvas]);
   apiMocks.graph.mockResolvedValue(canvasGraph());
-  apiMocks.agents.mockResolvedValue({ agents: [{ id: 'main' }] });
+  apiMocks.agents.mockResolvedValue({ agents: [{ agentRef: { runtimeId: 'openclaw', profileId: 'main' }, displayName: 'Main', runtimeDisplayName: 'OpenClaw', available: true }] });
   apiMocks.saveLayout.mockResolvedValue(undefined);
   apiMocks.resubmit.mockResolvedValue({});
   flowMocks.getViewport
@@ -187,7 +189,7 @@ describe('Canvas rearrange action', () => {
       }
     });
 
-    await waitFor(() => expect(apiMocks.resubmit).toHaveBeenCalledWith('interaction-1', 'main'));
+    await waitFor(() => expect(apiMocks.resubmit).toHaveBeenCalledWith('interaction-1', { runtimeId: 'openclaw', profileId: 'main' }));
     expect(apiMocks.graph).toHaveBeenCalled();
   });
 

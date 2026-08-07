@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import type { OwnedInteractionRecord } from './canvas-db.js';
+import type { OwnedInteractionRecord } from './canvas/model.js';
 
 let tempRoot = '';
 let workspaceRoot = '';
@@ -13,22 +13,30 @@ function interaction(overrides: Partial<OwnedInteractionRecord> = {}): OwnedInte
     id: 'interaction-1',
     branchId: 'branch-1',
     parentInteractionId: null,
-    runId: 'run-1',
+    runtimeTurnId: 'run-1',
+    turnRef: { runtimeId: 'openclaw', schemaVersion: 1, opaque: { runId: 'run-1' } },
     userInput: 'create a file',
     agentOutput: '',
     status: 'completed',
     attachments: [],
     artifacts: [],
-    sessionMetadata: {},
+    approvals: [],
+    executionMetadata: {},
     createdAt: 1,
     updatedAt: 1,
     ownerId: 'owner-1',
     canvasId: 'canvas-1',
-    sessionKey: 'agent:main:canvas:branch-1',
-    agentId: 'main',
-    openClawSessionId: null,
-    observedSessionId: null,
-    sessionIntegrity: 'unknown',
+    conversationId: 'agent:main:canvas:branch-1',
+    runtimeId: 'openclaw',
+    agentProfileId: 'main',
+    conversationRef: {
+      runtimeId: 'openclaw',
+      schemaVersion: 1,
+      opaque: { sessionKey: 'agent:main:canvas:branch-1' },
+    },
+    conversationInstanceId: null,
+    observedConversationInstanceId: null,
+    conversationIntegrity: 'unknown',
     ...overrides,
   };
 }
@@ -42,7 +50,8 @@ async function loadStore(options: { workspaceGet?: boolean } = {}) {
       gatewayToken: 'test-token',
     },
   }));
-  vi.doMock('./gateway-rpc.js', () => ({
+  vi.doMock('./agent-runtimes/adapters/openclaw/gateway-rpc.js', () => ({
+    acquireGatewayRpc: () => () => undefined,
     gatewaySupports: (method: string) =>
       method === 'agents.list' || (options.workspaceGet === true && method === 'agents.workspace.get'),
     gatewayRpcCall: async (method: string) => {
@@ -54,7 +63,18 @@ async function loadStore(options: { workspaceGet?: boolean } = {}) {
     },
     getGatewaySharedHttpAuthToken: () => 'test-token',
   }));
-  return import('./canvas-artifact-store.js');
+  const [store, { createOpenClawAgentRuntime }] = await Promise.all([
+    import('./canvas-artifact-store.js'),
+    import('./agent-runtimes/adapters/openclaw/index.js'),
+  ]);
+  const openClawAgentRuntime = createOpenClawAgentRuntime();
+  return {
+    ...store,
+    materializeCanvasArtifacts: (
+      interactionRecord: OwnedInteractionRecord,
+      artifacts: Parameters<typeof store.materializeCanvasArtifacts>[1],
+    ) => store.materializeCanvasArtifacts(interactionRecord, artifacts, () => openClawAgentRuntime),
+  };
 }
 
 beforeEach(async () => {

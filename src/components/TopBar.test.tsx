@@ -3,23 +3,23 @@ import { fireEvent, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { TopBar } from './TopBar';
 import { renderWithSettings } from '@/test/render-with-settings';
-import type { TokenData } from '@/types';
+import type { RuntimeUsageData } from '@/types';
 
 vi.mock('./ConvoSketchpadLogo', () => ({
   default: () => <div data-testid="convosketchpad-logo" />,
 }));
-vi.mock('@/features/dashboard/TokenUsage', () => ({
-  TokenUsage: () => <div data-testid="token-usage-panel" />,
+vi.mock('@/features/dashboard/RuntimeUsage', () => ({
+  RuntimeUsage: () => <div data-testid="token-usage-panel" />,
 }));
 
 function renderTopBar(opts?: {
-  tokenData?: TokenData | null;
+  usageData?: RuntimeUsageData | null;
   onUsageOpen?: () => void;
 }) {
   return renderWithSettings(
     <TopBar
       onSettings={vi.fn()}
-      tokenData={opts?.tokenData ?? null}
+      usageData={opts?.usageData ?? null}
       usageLoading={false}
       usageError={false}
       onUsageOpen={opts?.onUsageOpen ?? vi.fn()}
@@ -51,13 +51,10 @@ describe('TopBar', () => {
     const onUsageOpen = vi.fn();
     renderTopBar({
       onUsageOpen,
-      tokenData: {
-        totalCost: 1.25,
-        totalInput: 10,
-        totalOutput: 20,
-        totalCacheRead: 30,
+      usageData: {
+        runtimes: [],
+        comparableCostTotal: { currency: 'USD', amount: 1.25 },
         updatedAt: 123,
-        source: 'openclaw-gateway',
       },
     });
 

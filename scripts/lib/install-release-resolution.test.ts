@@ -12,6 +12,8 @@ if (helperStart < 0 || helperEnd < 0) {
 }
 
 const releaseHelpers = installer.slice(helperStart, helperEnd);
+const nodeVersionHelperStart = installer.indexOf('node_version_supported() {');
+const nodeVersionHelperEnd = installer.indexOf('\ncheck_node() {');
 
 function runResolver(
   command: string,
@@ -91,5 +93,55 @@ describe('installer release resolution', () => {
   it('contains no implicit branch fallback', () => {
     expect(installer).not.toContain('branch-fallback');
     expect(installer).not.toContain('falling back to branch');
+  });
+
+  it('delegates Runtime configuration to setup instead of reading or writing OpenClaw config', () => {
+    expect(installer).not.toContain('openclaw_config_value');
+    expect(installer).not.toContain('detect_gateway_token');
+    expect(installer).not.toContain('AGENT_RUNTIMES=openclaw');
+    expect(installer).not.toMatch(/cat\s*>\s*\.env/);
+    expect(installer).toContain('npm run setup');
+    expect(installer).toContain('--skip-setup requires an existing');
+  });
+
+  it('enforces the complete Node.js minimum version', () => {
+    expect(nodeVersionHelperStart).toBeGreaterThanOrEqual(0);
+    expect(nodeVersionHelperEnd).toBeGreaterThan(nodeVersionHelperStart);
+    const helper = installer.slice(nodeVersionHelperStart, nodeVersionHelperEnd);
+    const result = spawnSync('bash', ['-c', `
+${helper}
+node_version_supported 22.22.1 22.22.2 && exit 10
+node_version_supported 22.22.2 22.22.2 || exit 11
+node_version_supported 23.0.0 22.22.2 || exit 12
+`], { encoding: 'utf-8' });
+    expect(result.status).toBe(0);
+  });
+
+  it('rejects ambiguous, duplicate, and mixed help arguments before installation starts', () => {
+    const installerPath = resolve(process.cwd(), 'install.sh');
+    for (const args of [
+      ['--gateway-token', '--dry-run'],
+      ['--dry-run', '--dry-run'],
+      ['--help', '--dry-run'],
+      ['--help', '--unknown'],
+    ]) {
+      const result = spawnSync('bash', [installerPath, ...args], { encoding: 'utf-8' });
+      expect(result.status, `${args.join(' ')}\n${result.stdout}\n${result.stderr}`).not.toBe(0);
+    }
+    expect(spawnSync('bash', [installerPath, '--help'], { encoding: 'utf-8' }).status).toBe(0);
+  });
+
+  it('delegates existing stable Release upgrades to the transactional updater', () => {
+    expect(installer).toContain('The installer cannot upgrade an existing stable Release safely');
+    expect(installer).toContain('npm run update -- --version ${TARGET_REF}');
+    expect(installer).toContain('Refusing to overwrite a dirty installation');
+    expect(installer).not.toContain('Continue and overwrite local changes?');
+  });
+
+  it('installs and restarts systemd units through a single privileged path', () => {
+    expect(installer).toContain('sudo -n "$@"');
+    expect(installer).toContain('systemctl restart convosketchpad.service');
+    expect(installer).not.toContain('sudo systemctl stop convosketchpad.service');
+    expect(installer).not.toContain('To install as a systemd service (requires sudo)');
   });
 });

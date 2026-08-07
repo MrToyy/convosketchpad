@@ -4,6 +4,8 @@ import type {
   CanvasInteraction,
   CanvasLayout,
   CanvasSummary,
+  AgentCatalogEntry,
+  AgentRef,
   SendReservation,
 } from './types';
 
@@ -61,9 +63,9 @@ export const canvasApi = {
       method: 'PATCH', body: JSON.stringify({ name }),
     })).canvas;
   },
-  async updateAgent(id: string, agentId: string): Promise<CanvasSummary> {
+  async updateAgent(id: string, agentRef: AgentRef): Promise<CanvasSummary> {
     return (await request<{ canvas: CanvasSummary }>(`/api/canvas/canvases/${id}`, {
-      method: 'PATCH', body: JSON.stringify({ agentId }),
+      method: 'PATCH', body: JSON.stringify({ agentRef }),
     })).canvas;
   },
   async remove(id: string): Promise<void> {
@@ -72,7 +74,7 @@ export const canvasApi = {
   async graph(id: string): Promise<CanvasGraph> {
     return request<CanvasGraph>(`/api/canvas/canvases/${id}/graph`);
   },
-  async agents(): Promise<{ agents?: Array<{ id: string; name?: string; identity?: { name?: string; emoji?: string } }> }> {
+  async agents(): Promise<{ firstAvailable: AgentRef | null; agents: AgentCatalogEntry[] }> {
     return request('/api/canvas/agents');
   },
   async createRoot(canvasId: string): Promise<CanvasBranch> {
@@ -81,13 +83,13 @@ export const canvasApi = {
   async fork(interactionId: string): Promise<CanvasBranch> {
     return (await request<{ branch: CanvasBranch }>(`/api/canvas/interactions/${interactionId}/fork`, { method: 'POST' })).branch;
   },
-  async resubmit(interactionId: string, expectedAgentId: string): Promise<{
+  async resubmit(interactionId: string, expectedAgentRef: AgentRef): Promise<{
     interaction?: CanvasInteraction;
     operation?: SendReservation;
   }> {
     return request(`/api/canvas/interactions/${interactionId}/resubmit`, {
       method: 'POST',
-      body: JSON.stringify({ expectedAgentId }),
+      body: JSON.stringify({ expectedAgentRef }),
     });
   },
   async saveLayout(canvasId: string, layout: CanvasLayout): Promise<void> {
@@ -95,7 +97,7 @@ export const canvasApi = {
   },
   async send(branchId: string, body: {
     expectedHeadInteractionId?: string | null;
-    expectedAgentId: string;
+    expectedAgentRef: AgentRef;
     userInput: string;
     attachmentIds: string[];
   }): Promise<{ interaction?: CanvasInteraction; operation?: SendReservation }> {
@@ -107,6 +109,15 @@ export const canvasApi = {
     return (await request<{ operation: SendReservation }>(
       `/api/canvas/send-operations/${encodeURIComponent(id)}`,
     )).operation;
+  },
+  async resolveApproval(id: string, body: {
+    choiceId: string;
+    grantedPermissionIds?: string[];
+    confirmed?: true;
+  }): Promise<void> {
+    await request(`/api/canvas/approvals/${encodeURIComponent(id)}/resolve`, {
+      method: 'POST', body: JSON.stringify(body),
+    });
   },
 };
 

@@ -100,21 +100,20 @@ const directions = [
         ${logoLockup({ x: 64, y: 56 })}
         <text x="64" y="180" fill="${palette.text}" font-family="Inter, Arial, sans-serif"
           font-size="45" font-weight="750" letter-spacing="-1.4">
-          <tspan x="64" dy="0">Fork OpenClaw</tspan>
-          <tspan x="64" dy="54">conversations</tspan>
-          <tspan x="64" dy="54">without losing context.</tspan>
+          <tspan x="64" dy="0">Let ideas</tspan>
+          <tspan x="64" dy="54">fly free</tspan>
         </text>
-        <text x="64" y="386" fill="${palette.muted}" font-family="Inter, Arial, sans-serif"
-          font-size="20" font-weight="450">
-          <tspan x="64" dy="0">Context, attachments, and artifacts</tspan>
-          <tspan x="64" dy="30">stay intact across every branch.</tspan>
+        <text x="64" y="330" fill="${palette.muted}" font-family="Inter, Arial, sans-serif"
+          font-size="18" font-weight="450">
+          <tspan x="64" dy="0">A visual branching workspace for agents —</tspan>
+          <tspan x="64" dy="28">revisit any point and continue exploring.</tspan>
         </text>
-        ${badge({ x: 64, y: 474, text: 'OpenClaw' })}
-        ${badge({ x: 172, y: 474, text: 'Visual workspace' })}
-        ${badge({ x: 346, y: 474, text: 'Self-hosted' })}
-        ${badge({ x: 478, y: 474, text: 'MIT', color: palette.green, stroke: '#28523d' })}
-        <text x="64" y="562" fill="${palette.orange}" font-family="Inter, Arial, sans-serif"
-          font-size="18" font-weight="650">让想法自由分支</text>
+        ${badge({ x: 64, y: 438, text: 'Agent Runtime' })}
+        ${badge({ x: 190, y: 438, text: 'OpenClaw' })}
+        ${badge({ x: 298, y: 438, text: 'Self-hosted' })}
+        ${badge({ x: 430, y: 438, text: 'MIT', color: palette.green, stroke: '#28523d' })}
+        <text x="64" y="536" fill="${palette.orange}" font-family="Inter, Arial, sans-serif"
+          font-size="18" font-weight="650">LET IDEAS FLY FREE</text>
         ${screenshotCard({ x: 606, y: 167, w: 610, h: 282, clipId: 'screen-a' })}
         <text x="1216" y="494" text-anchor="end" fill="${palette.muted}"
           font-family="Inter, Arial, sans-serif" font-size="16" font-weight="600">
@@ -132,21 +131,20 @@ const directions = [
         <ellipse cx="830" cy="250" rx="520" ry="440" fill="url(#glow)" />
         ${logoLockup({ x: 64, y: 58, logoSize: 66, nameSize: 35 })}
         <text x="64" y="202" fill="${palette.orange}" font-family="Inter, Arial, sans-serif"
-          font-size="19" font-weight="700" letter-spacing="0.3">VISUAL BRANCHING FOR OPENCLAW</text>
+          font-size="19" font-weight="700" letter-spacing="0.3">LET IDEAS FLY FREE</text>
         <text x="64" y="276" fill="${palette.text}" font-family="Inter, Arial, sans-serif"
-          font-size="40" font-weight="750" letter-spacing="-1">
-          <tspan x="64" dy="0">Explore every path.</tspan>
-          <tspan x="64" dy="50">Keep the main line clear.</tspan>
+          font-size="30" font-weight="750" letter-spacing="-0.8">
+          <tspan x="64" dy="0">A visual branching workspace</tspan>
+          <tspan x="64" dy="40">for agents —</tspan>
         </text>
-        <text x="64" y="404" fill="${palette.muted}" font-family="Inter, Arial, sans-serif"
+        <text x="64" y="390" fill="${palette.muted}" font-family="Inter, Arial, sans-serif"
           font-size="20">
-          <tspan x="64" dy="0">Fork any conversation with context, attachments,</tspan>
-          <tspan x="64" dy="30">and artifacts intact.</tspan>
+          <tspan x="64" dy="0">revisit any point and continue exploring.</tspan>
         </text>
-        ${badge({ x: 64, y: 490, text: 'OpenClaw' })}
-        ${badge({ x: 172, y: 490, text: 'Visual workspace' })}
-        ${badge({ x: 346, y: 490, text: 'Self-hosted' })}
-        ${badge({ x: 478, y: 490, text: 'MIT', color: palette.green, stroke: '#28523d' })}
+        ${badge({ x: 64, y: 472, text: 'Agent Runtime' })}
+        ${badge({ x: 190, y: 472, text: 'OpenClaw' })}
+        ${badge({ x: 298, y: 472, text: 'Self-hosted' })}
+        ${badge({ x: 430, y: 472, text: 'MIT', color: palette.green, stroke: '#28523d' })}
         ${screenshotCard({ x: 574, y: 130, w: 642, h: 297, clipId: 'screen-b' })}
         <text x="1216" y="472" text-anchor="end" fill="${palette.muted}"
           font-family="Inter, Arial, sans-serif" font-size="16" font-weight="600">
@@ -171,16 +169,15 @@ const directions = [
           font-size="58" font-weight="750" letter-spacing="-1.5">让想法自由分支</text>
         <text x="64" y="276" fill="${palette.orange}"
           font-family="PingFang SC, Noto Sans CJK SC, Arial, sans-serif"
-          font-size="31" font-weight="650">OpenClaw 可视化分支工作台</text>
-        <text x="64" y="346" fill="${palette.muted}"
+          font-size="27" font-weight="650">Agent 可视化分支工作台——</text>
+        <text x="64" y="326" fill="${palette.muted}"
           font-family="PingFang SC, Noto Sans CJK SC, Arial, sans-serif"
-          font-size="21">
-          <tspan x="64" dy="0">从任意对话节点携带上下文、附件与生成物</tspan>
-          <tspan x="64" dy="34">继续探索，同时保持任务主线清晰。</tspan>
+          font-size="23">
+          <tspan x="64" dy="0">从任意节点回溯并继续探索</tspan>
         </text>
-        ${badge({ x: 64, y: 452, text: 'OpenClaw' })}
-        ${badge({ x: 172, y: 452, text: '可视化分支', width: 108 })}
-        ${badge({ x: 296, y: 452, text: '开源 · 自托管', width: 126, color: palette.green, stroke: '#28523d' })}
+        ${badge({ x: 64, y: 430, text: 'Agent Runtime', width: 126 })}
+        ${badge({ x: 206, y: 430, text: 'OpenClaw' })}
+        ${badge({ x: 314, y: 430, text: '开源 · 自托管', width: 126, color: palette.green, stroke: '#28523d' })}
         ${screenshotCard({ x: 616, y: 155, w: 600, h: 277, clipId: 'screen-c' })}
         <text x="1216" y="478" text-anchor="end" fill="${palette.muted}"
           font-family="Inter, Arial, sans-serif" font-size="16" font-weight="600">
@@ -198,14 +195,14 @@ const directions = [
         <ellipse cx="640" cy="460" rx="560" ry="330" fill="url(#glow)" />
         ${logoLockup({ x: 68, y: 48, logoSize: 54, nameSize: 30 })}
         <text x="1212" y="84" text-anchor="end" fill="${palette.muted}"
-          font-family="Inter, Arial, sans-serif" font-size="16" font-weight="600">OPENCLAW · SELF-HOSTED · MIT</text>
+          font-family="Inter, Arial, sans-serif" font-size="16" font-weight="600">AGENT RUNTIME · SELF-HOSTED · MIT</text>
         <text x="640" y="202" text-anchor="middle" fill="${palette.text}"
           font-family="Inter, Arial, sans-serif" font-size="52" font-weight="760" letter-spacing="-1.5">
-          Branch conversations visually.
+          Let ideas fly free
         </text>
         <text x="640" y="252" text-anchor="middle" fill="${palette.muted}"
-          font-family="Inter, Arial, sans-serif" font-size="22">
-          Context, attachments, and artifacts stay intact.
+          font-family="Inter, Arial, sans-serif" font-size="19">
+          A visual branching workspace for agents — revisit any point and continue exploring.
         </text>
         <rect x="82" y="302" width="1116" height="286" rx="24"
           fill="#111923" stroke="${palette.border}" stroke-width="1.5" filter="url(#shadow)" />

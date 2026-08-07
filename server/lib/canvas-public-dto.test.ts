@@ -1,11 +1,27 @@
 import { describe, expect, it } from 'vitest';
 import {
+  publicCanvasArtifact,
   publicCanvasAttachment,
+  publicCanvasInteraction,
   publicCanvasSendReservation,
 } from './canvas-public-dto.js';
-import type { SendReservation } from './canvas-db.js';
+import type { InteractionRecord, SendReservation } from './canvas/model.js';
 
 describe('Canvas public DTO mapping', () => {
+  it('does not expose an active thumbnail for SVG Artifacts', () => {
+    const artifact = publicCanvasArtifact({
+      id: 'artifact-1',
+      name: 'diagram.svg',
+      mimeType: 'image/svg+xml',
+      sizeBytes: 100,
+      uri: '/api/canvas/artifacts/canvas-1/interaction-1/artifact-1',
+      storage: 'canvas',
+      available: true,
+    });
+
+    expect(artifact).not.toHaveProperty('thumbnailUri');
+  });
+
   it('projects safe attachment fields without content identity or source locations', () => {
     const attachment = publicCanvasAttachment({
       id: 'a'.repeat(40),
@@ -36,7 +52,7 @@ describe('Canvas public DTO mapping', () => {
       userInput: 'hello',
       attachments: [],
       materialization: 'canonical-replay',
-      sessionKey: 'agent:main:canvas:branch-1',
+      conversationId: 'agent:main:canvas:branch-1',
       outgoingMessage: '<canvas-context-snapshot>internal</canvas-context-snapshot>',
       snapshotVersion: 2,
       bootstrapResources: [{
@@ -66,5 +82,31 @@ describe('Canvas public DTO mapping', () => {
     });
     expect(publicOperation).not.toHaveProperty('outgoingMessage');
     expect(publicOperation).not.toHaveProperty('bootstrapResources');
+  });
+
+  it('does not expose opaque Runtime handles through the legacy Interaction DTO', () => {
+    const interaction: InteractionRecord = {
+      id: 'interaction-1',
+      version: 1,
+      branchId: 'branch-1',
+      parentInteractionId: null,
+      runtimeTurnId: 'run-1',
+      turnRef: { runtimeId: 'openclaw', schemaVersion: 1, opaque: { runtimeTurnId: 'run-1' } },
+      userInput: 'hello',
+      agentOutput: 'done',
+      status: 'completed',
+      executionState: 'completed',
+      artifactSyncState: 'synced',
+      terminalAt: 2,
+      error: null,
+      attachments: [],
+      artifacts: [],
+      approvals: [],
+      executionMetadata: {},
+      contextSnapshot: null,
+      createdAt: 1,
+      updatedAt: 2,
+    };
+    expect(publicCanvasInteraction(interaction)).not.toHaveProperty('turnRef');
   });
 });

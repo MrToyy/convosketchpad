@@ -1,25 +1,23 @@
-/**
- * GET /health — Health check endpoint.
- * Includes optional gateway connectivity probe.
- */
-
+/** Process health plus non-sensitive Agent Runtime aggregate state. */
 import { Hono } from 'hono';
-import { config } from '../lib/config.js';
+import type { AgentRuntimeRegistry } from '../lib/agent-runtimes/registry.js';
+import { aggregateRuntimeStatuses } from '../lib/agent-runtimes/catalog.js';
 
-const app = new Hono();
-
-app.get('/health', async (c) => {
-  let gateway: 'ok' | 'unreachable' = 'unreachable';
-  try {
-    const res = await fetch(`${config.gatewayUrl}/health`, {
-      signal: AbortSignal.timeout(3000),
+export function createHealthRoutes(agentRuntimeRegistry: AgentRuntimeRegistry) {
+  const app = new Hono();
+  app.get('/health', (c) => {
+    const aggregate = aggregateRuntimeStatuses(
+      agentRuntimeRegistry.list().map((runtime) => runtime.getStatus()),
+    );
+    return c.json({
+      status: 'ok',
+      uptime: process.uptime(),
+      agentRuntimes: {
+        overallState: aggregate.overallState,
+        runtimes: aggregate.runtimes.map(({ runtimeId, state }) => ({ runtimeId, state })),
+      },
     });
-    if (res.ok) gateway = 'ok';
-  } catch {
-    // gateway unreachable — not a server failure
-  }
+  });
 
-  return c.json({ status: 'ok', uptime: process.uptime(), gateway });
-});
-
-export default app;
+  return app;
+}

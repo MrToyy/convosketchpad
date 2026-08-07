@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   autoLayoutCanvasNodes,
   type CanvasFlowNode,
-} from './CanvasNodes';
+} from './flow-model';
 import {
   DEFAULT_NODE_HEIGHT,
   INTERACTION_NODE_WIDTH,
@@ -26,7 +26,7 @@ function flowNode(
         version: 1,
         branchId: id,
         parentInteractionId: null,
-        runId: null,
+        runtimeTurnId: null,
         userInput: '',
         agentOutput: '',
         status: 'completed',
@@ -36,7 +36,8 @@ function flowNode(
         error: null,
         attachments: [],
         artifacts: [],
-        sessionMetadata: {},
+        approvals: [],
+        executionMetadata: {},
         contextSnapshot: null,
         createdAt: 1,
         updatedAt: 1,

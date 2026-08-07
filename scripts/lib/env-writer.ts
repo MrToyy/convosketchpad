@@ -6,11 +6,16 @@ import { readFileSync, writeFileSync, renameSync, copyFileSync, existsSync, unli
 
 /** All supported env config keys. */
 export interface EnvConfig {
-  GATEWAY_URL?: string;
-  GATEWAY_TOKEN?: string;
-  CONVOSKETCHPAD_GATEWAY_TIMEZONE?: string;
+  AGENT_RUNTIMES?: string;
+  CONVOSKETCHPAD_DEFAULT_AGENT_RUNTIME?: string;
+  CONVOSKETCHPAD_DEFAULT_AGENT_PROFILE?: string;
+  OPENCLAW_GATEWAY_URL?: string;
+  OPENCLAW_GATEWAY_TOKEN?: string;
+  OPENCLAW_GATEWAY_TIMEZONE?: string;
   OPENCLAW_CONFIG_PATH?: string;
   OPENCLAW_BIN?: string;
+  CODEX_BIN?: string;
+  CODEX_WORKING_DIRECTORY?: string;
   PORT?: string;
   HOST?: string;
   ALLOWED_ORIGINS?: string;
@@ -28,7 +33,7 @@ export interface EnvConfig {
 
 /** Default values (matching server/lib/config.ts). */
 export const DEFAULTS: Record<string, string> = {
-  GATEWAY_URL: 'http://127.0.0.1:18789',
+  OPENCLAW_GATEWAY_URL: 'http://127.0.0.1:18789',
   PORT: '3080',
   HOST: '127.0.0.1',
 };
@@ -36,7 +41,8 @@ export const DEFAULTS: Record<string, string> = {
 /**
  * Generate a clean .env file.
  * Only writes values that differ from defaults (keeps .env minimal).
- * Always writes GATEWAY_TOKEN since it has no default.
+ * Writes each selected Runtime's required keys; OpenClaw always gets an
+ * explicit token entry because it has no default.
  */
 export function generateEnvContent(config: EnvConfig): string {
   const lines: string[] = [
@@ -46,18 +52,36 @@ export function generateEnvContent(config: EnvConfig): string {
     '',
   ];
 
-  // Gateway (always written — most important)
-  lines.push('# OpenClaw Gateway');
-  if (config.GATEWAY_URL && config.GATEWAY_URL !== DEFAULTS.GATEWAY_URL) {
-    lines.push(`GATEWAY_URL=${config.GATEWAY_URL}`);
+  // Agent Runtime selection
+  const runtimeIds = (config.AGENT_RUNTIMES ?? 'openclaw')
+    .split(',')
+    .map((runtimeId) => runtimeId.trim().toLowerCase())
+    .filter(Boolean);
+  lines.push(`AGENT_RUNTIMES=${runtimeIds.join(',')}`);
+  if (config.CONVOSKETCHPAD_DEFAULT_AGENT_RUNTIME && config.CONVOSKETCHPAD_DEFAULT_AGENT_PROFILE) {
+    lines.push(`CONVOSKETCHPAD_DEFAULT_AGENT_RUNTIME=${config.CONVOSKETCHPAD_DEFAULT_AGENT_RUNTIME}`);
+    lines.push(`CONVOSKETCHPAD_DEFAULT_AGENT_PROFILE=${config.CONVOSKETCHPAD_DEFAULT_AGENT_PROFILE}`);
   }
-  lines.push(`GATEWAY_TOKEN=${config.GATEWAY_TOKEN || ''}`);
-  if (config.CONVOSKETCHPAD_GATEWAY_TIMEZONE) {
-    lines.push(`CONVOSKETCHPAD_GATEWAY_TIMEZONE=${config.CONVOSKETCHPAD_GATEWAY_TIMEZONE}`);
-  }
-  if (config.OPENCLAW_CONFIG_PATH) lines.push(`OPENCLAW_CONFIG_PATH=${config.OPENCLAW_CONFIG_PATH}`);
-  if (config.OPENCLAW_BIN) lines.push(`OPENCLAW_BIN=${config.OPENCLAW_BIN}`);
   lines.push('');
+  if (runtimeIds.includes('openclaw')) {
+    lines.push('# OpenClaw Gateway');
+    if (config.OPENCLAW_GATEWAY_URL && config.OPENCLAW_GATEWAY_URL !== DEFAULTS.OPENCLAW_GATEWAY_URL) {
+      lines.push(`OPENCLAW_GATEWAY_URL=${config.OPENCLAW_GATEWAY_URL}`);
+    }
+    lines.push(`OPENCLAW_GATEWAY_TOKEN=${config.OPENCLAW_GATEWAY_TOKEN || ''}`);
+    if (config.OPENCLAW_GATEWAY_TIMEZONE) {
+      lines.push(`OPENCLAW_GATEWAY_TIMEZONE=${config.OPENCLAW_GATEWAY_TIMEZONE}`);
+    }
+    if (config.OPENCLAW_CONFIG_PATH) lines.push(`OPENCLAW_CONFIG_PATH=${config.OPENCLAW_CONFIG_PATH}`);
+    if (config.OPENCLAW_BIN) lines.push(`OPENCLAW_BIN=${config.OPENCLAW_BIN}`);
+    lines.push('');
+  }
+  if (runtimeIds.includes('codex')) {
+    lines.push('# Codex App Server');
+    if (config.CODEX_BIN) lines.push(`CODEX_BIN=${JSON.stringify(config.CODEX_BIN)}`);
+    lines.push(`CODEX_WORKING_DIRECTORY=${JSON.stringify(config.CODEX_WORKING_DIRECTORY || '')}`);
+    lines.push('');
+  }
 
   // Server — always write PORT for clarity (even if default)
   const serverLines: string[] = [];
@@ -133,9 +157,25 @@ export function loadExistingEnv(envPath: string): EnvConfig {
       if (value.length >= 2 && ((value[0] === '"' && value[value.length - 1] === '"') || (value[0] === "'" && value[value.length - 1] === "'"))) {
         value = value.slice(1, -1);
       }
-      if (value) config[key] = value;
+      if (value || key === 'AGENT_RUNTIMES') config[key] = value;
     }
   }
+  const legacyMappings = [
+    ['AGENT_BACKENDS', 'AGENT_RUNTIMES'],
+    ['GATEWAY_URL', 'OPENCLAW_GATEWAY_URL'],
+    ['GATEWAY_TOKEN', 'OPENCLAW_GATEWAY_TOKEN'],
+    ['CONVOSKETCHPAD_GATEWAY_TIMEZONE', 'OPENCLAW_GATEWAY_TIMEZONE'],
+  ] as const;
+  for (const [legacyKey, currentKey] of legacyMappings) {
+    const legacy = config[legacyKey];
+    const current = config[currentKey];
+    if (legacy !== undefined && current !== undefined && legacy !== current) {
+      throw new Error(`Conflicting ${legacyKey} and ${currentKey} values`);
+    }
+    if (legacy !== undefined && current === undefined) config[currentKey] = legacy;
+    delete config[legacyKey];
+  }
+  if (config.AGENT_RUNTIMES === undefined) config.AGENT_RUNTIMES = 'openclaw';
   return config as EnvConfig;
 }
 
@@ -154,6 +194,22 @@ export function backupExistingEnv(envPath: string): string {
   copyFileSync(envPath, backupPath);
   try { chmodSync(backupPath, 0o600); } catch { /* non-fatal */ }
   return backupPath;
+}
+
+/** Restore the exact pre-setup .env state after a later setup phase fails. */
+export function restoreEnvAfterFailedSetup(envPath: string, backupPath?: string): void {
+  if (backupPath) {
+    copyFileSync(backupPath, envPath);
+    try { chmodSync(envPath, 0o600); } catch { /* non-fatal on Windows */ }
+    return;
+  }
+  try {
+    unlinkSync(envPath);
+  } catch (error) {
+    if (!(error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT')) {
+      throw error;
+    }
+  }
 }
 
 /**

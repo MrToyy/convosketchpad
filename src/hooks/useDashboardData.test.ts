@@ -1,21 +1,23 @@
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useDashboardData } from './useDashboardData';
-import type { TokenData } from '@/types';
+import type { RuntimeUsageData } from '@/types';
 
-function tokenData(totalCost: number): TokenData {
+function usageData(totalCost: number): RuntimeUsageData {
   return {
-    totalCost,
-    totalInput: 10,
-    totalOutput: 20,
-    totalCacheRead: 30,
+    runtimes: [{
+      runtimeId: 'openclaw',
+      displayName: 'OpenClaw',
+      available: true,
+      usage: { totalCost, totalInput: 10, totalOutput: 20, totalCacheRead: 30, updatedAt: 123, source: 'openclaw-gateway', currency: 'USD', period: 'all-time', additive: true },
+    }],
+    comparableCostTotal: { currency: 'USD', amount: totalCost },
     updatedAt: 123,
-    source: 'openclaw-gateway',
   };
 }
 
 function tokenResponse(totalCost: number): Response {
-  return new Response(JSON.stringify(tokenData(totalCost)), {
+  return new Response(JSON.stringify(usageData(totalCost)), {
     status: 200,
     headers: { 'Content-Type': 'application/json' },
   });
@@ -31,13 +33,13 @@ describe('useDashboardData', () => {
     const { result } = renderHook(() => useDashboardData());
 
     expect(fetchMock).not.toHaveBeenCalled();
-    await act(async () => result.current.ensureTokens());
+    await act(async () => result.current.ensureUsage());
 
-    expect(result.current.tokenData).toEqual(tokenData(42));
+    expect(result.current.usageData).toEqual(usageData(42));
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(fetchMock).toHaveBeenCalledWith('/api/tokens', expect.objectContaining({ signal: expect.any(AbortSignal) }));
+    expect(fetchMock).toHaveBeenCalledWith('/api/runtime/usage', expect.objectContaining({ signal: expect.any(AbortSignal) }));
 
-    await act(async () => result.current.ensureTokens());
+    await act(async () => result.current.ensureUsage());
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
@@ -47,13 +49,13 @@ describe('useDashboardData', () => {
       .mockResolvedValueOnce(tokenResponse(2));
     const { result } = renderHook(() => useDashboardData());
 
-    await act(async () => result.current.ensureTokens());
-    expect(result.current.tokenData).toEqual(tokenData(1));
+    await act(async () => result.current.ensureUsage());
+    expect(result.current.usageData).toEqual(usageData(1));
 
-    await act(async () => result.current.refreshTokens());
+    await act(async () => result.current.refreshUsage());
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(result.current.tokenData).toEqual(tokenData(2));
+    expect(result.current.usageData).toEqual(usageData(2));
   });
 
   it('keeps stale data and exposes a non-blocking error after refresh failure', async () => {
@@ -63,10 +65,10 @@ describe('useDashboardData', () => {
       .mockResolvedValueOnce(new Response(null, { status: 503 }));
     const { result } = renderHook(() => useDashboardData());
 
-    await act(async () => result.current.ensureTokens());
-    await act(async () => result.current.refreshTokens());
+    await act(async () => result.current.ensureUsage());
+    await act(async () => result.current.refreshUsage());
 
-    expect(result.current.tokenData).toEqual(tokenData(1));
+    expect(result.current.usageData).toEqual(usageData(1));
     expect(result.current.loadError).toBe(true);
     expect(result.current.isLoading).toBe(false);
   });
@@ -79,7 +81,7 @@ describe('useDashboardData', () => {
     });
     const { result, unmount } = renderHook(() => useDashboardData());
 
-    act(() => { void result.current.ensureTokens(); });
+    act(() => { void result.current.ensureUsage(); });
     unmount();
 
     expect(requestSignal?.aborted).toBe(true);

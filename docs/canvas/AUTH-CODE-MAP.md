@@ -12,7 +12,7 @@
 - `CONVOSKETCHPAD_AUTH=false` 时使用固定 Local User；启用认证后所有 Canvas 查询按 Cookie 中的 owner 过滤。
 - 产品级隔离面向少量可信用户；用户仍共享同一个 OpenClaw Gateway 能力边界。
 - 同一客户端 IP 默认 30 分钟内失败 3 次后锁定 30 分钟；记录只在内存中保存。
-- loopback Gateway 使用共享 Token且不发送设备身份；远程 Gateway 设备身份固定请求 `operator.read` / `operator.write`，设备 Token 只保存在服务端。
+- loopback Gateway 使用共享 Token且不发送设备身份；远程 Gateway 设备身份固定请求 `operator.read` / `operator.write` / `operator.approvals`，设备 Token 只保存在服务端。
 - 远程配对审批和状态由 OpenClaw 原生 `devices list/approve` 管理，setup 不直接改写 OpenClaw 配对文件，也不为远程 Gateway 自动取得 admin 权限。
 - 启用受管认证时不向用户暴露宿主机项目路径，并禁用设置面板中的升级入口；升级只能由宿主机管理员在终端执行。
 
@@ -27,12 +27,12 @@
 | Cookie 签名、解析、Token hash | [`server/lib/session.ts`](../../server/lib/session.ts) | [`server/lib/config.ts`](../../server/lib/config.ts) |
 | Token 验证、Cookie 用户解析、状态/version 复查 | [`server/lib/managed-users.ts`](../../server/lib/managed-users.ts) | [`server/lib/managed-users.test.ts`](../../server/lib/managed-users.test.ts) |
 | 用户创建、随机 Token、轮换和唯一性 | [`server/lib/user-management.ts`](../../server/lib/user-management.ts) | [`bin/convosketchpad-users.ts`](../../bin/convosketchpad-users.ts) |
-| 用户表、状态、Token version、首用户接管 | [`server/lib/canvas-db.ts`](../../server/lib/canvas-db.ts) | [`server/lib/canvas-db.test.ts`](../../server/lib/canvas-db.test.ts) |
+| 用户表、状态、Token version、首用户接管 | [`server/lib/canvas/persistence/canvas-store.ts`](../../server/lib/canvas/persistence/canvas-store.ts) | [`server/lib/canvas/persistence/canvas-store.test.ts`](../../server/lib/canvas/persistence/canvas-store.test.ts) |
 | 登录失败次数和 IP 锁定 | [`server/lib/login-failures.ts`](../../server/lib/login-failures.ts) | [`server/lib/login-failures.test.ts`](../../server/lib/login-failures.test.ts) |
 | Canvas owner 解析 | [`server/lib/canvas-auth.ts`](../../server/lib/canvas-auth.ts) | [`server/routes/canvas.ts`](../../server/routes/canvas.ts) |
-| Gateway/Canvas SSE 与运行中会话撤销 | [`server/routes/runtime.ts`](../../server/routes/runtime.ts)、[`server/routes/canvas.ts`](../../server/routes/canvas.ts) | [`server/middleware/auth.test.ts`](../../server/middleware/auth.test.ts) |
-| Gateway 本机/远程模式、设备身份、签名和服务端 Token 存储 | [`server/lib/gateway-client-identity.ts`](../../server/lib/gateway-client-identity.ts)、[`server/lib/device-identity.ts`](../../server/lib/device-identity.ts) | [`server/lib/device-identity.test.ts`](../../server/lib/device-identity.test.ts)、[`server/lib/gateway-rpc.ts`](../../server/lib/gateway-rpc.ts) |
-| OpenClaw 原生配置与配对安装流程 | [`scripts/lib/gateway-detect.ts`](../../scripts/lib/gateway-detect.ts) | [`scripts/lib/gateway-pairing.ts`](../../scripts/lib/gateway-pairing.ts)、[`scripts/setup.ts`](../../scripts/setup.ts) |
+| Runtime/Canvas SSE 与运行中会话撤销 | [`server/routes/runtime.ts`](../../server/routes/runtime.ts)、[`server/routes/canvas.ts`](../../server/routes/canvas.ts) | [`server/middleware/auth.test.ts`](../../server/middleware/auth.test.ts) |
+| OpenClaw 本机/远程模式、设备身份、签名和服务端 Token 存储 | [`server/lib/agent-runtimes/adapters/openclaw/gateway-client-identity.ts`](../../server/lib/agent-runtimes/adapters/openclaw/gateway-client-identity.ts)、[`device-identity.ts`](../../server/lib/agent-runtimes/adapters/openclaw/device-identity.ts) | [`device-identity.test.ts`](../../server/lib/agent-runtimes/adapters/openclaw/device-identity.test.ts)、[`gateway-rpc.ts`](../../server/lib/agent-runtimes/adapters/openclaw/gateway-rpc.ts) |
+| OpenClaw 原生配置与配对安装流程 | [`scripts/lib/agent-runtimes/openclaw/detect.ts`](../../scripts/lib/agent-runtimes/openclaw/detect.ts) | [`pairing.ts`](../../scripts/lib/agent-runtimes/openclaw/pairing.ts)、[`scripts/setup.ts`](../../scripts/setup.ts) |
 | 真实客户端 IP 和可信反向代理 | [`server/middleware/rate-limit.ts`](../../server/middleware/rate-limit.ts) | [`server/middleware/rate-limit.test.ts`](../../server/middleware/rate-limit.test.ts) |
 | 精确 Origin、远程暴露与启动拒绝 | [`server/lib/browser-origin-policy.ts`](../../server/lib/browser-origin-policy.ts) | [`server/lib/config.ts`](../../server/lib/config.ts)、[`server/lib/origin-utils.ts`](../../server/lib/origin-utils.ts) |
 | 认证模式下禁用升级入口与路径返回 | [`server/routes/version-check.ts`](../../server/routes/version-check.ts) | [`src/components/UpdateBadge.tsx`](../../src/components/UpdateBadge.tsx) |
@@ -93,7 +93,7 @@ POST /api/auth/login
 ### 每次请求与即时撤销
 
 - HTTP middleware 每次请求都用数据库中的 `status` 和 `token_version` 复查 Cookie。
-- Gateway 与 Canvas SSE 建立时复查，之后每 15 秒心跳再次复查；普通 HTTP 请求逐次复查。
+- Runtime 状态与 Canvas SSE 建立时复查，之后每 15 秒心跳再次复查；普通 HTTP 请求逐次复查。
 - Rotate、disable 和 enable 都递增 version；旧 Cookie 永久失效，用户必须重新登录。
 
 ### 防暴力破解
@@ -128,8 +128,7 @@ npm test -- --run \
   server/routes/auth.test.ts \
   server/middleware/auth.test.ts \
   server/lib/managed-users.test.ts \
-  server/lib/login-failures.test.ts \
-  server/routes/auth.test.ts
+  server/lib/login-failures.test.ts
 ```
 
 改变用户表或 owner 语义时，同时运行 Canvas DB 和 Canvas route 相关测试。

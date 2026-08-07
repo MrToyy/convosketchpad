@@ -4,7 +4,12 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { DEFAULT_GATEWAY_URL, DEFAULT_HOST, DEFAULT_PORT } from './constants.js';
+import { DEFAULT_HOST, DEFAULT_PORT } from './constants.js';
+import {
+  configuredAgentRuntimeIds,
+  validateConfiguredAgentRuntimes,
+} from './agent-runtimes/configuration.js';
+import { configuredDefaultAgent } from './agent-runtimes/default-agent.js';
 import {
   hasRemoteConfiguredOrigin,
   isLoopbackHostname,
@@ -24,7 +29,6 @@ function findProjectRoot(startDir: string): string | null {
 }
 
 const projectRoot = findProjectRoot(moduleDir) ?? findProjectRoot(process.cwd()) ?? path.resolve(process.cwd());
-const localTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
 const DEPRECATED_ENV = [
   'CONVOSKETCHPAD_WORKSPACE_ROOT',
   'CONVOSKETCHPAD_UPLOAD_STAGING_TEMP_DIR',
@@ -45,11 +49,9 @@ function positiveNumber(value: string | undefined, fallback: number): number {
 }
 
 export const config = {
+  projectRoot,
   port: Number(process.env.PORT || DEFAULT_PORT),
   host: process.env.HOST || DEFAULT_HOST,
-  gatewayUrl: process.env.GATEWAY_URL || DEFAULT_GATEWAY_URL,
-  gatewayToken: process.env.GATEWAY_TOKEN || process.env.OPENCLAW_GATEWAY_TOKEN || '',
-  gatewayTimezone: process.env.CONVOSKETCHPAD_GATEWAY_TIMEZONE?.trim() || localTimezone,
   canvasDatabasePath: path.join(projectRoot, 'database', 'canvas.sqlite'),
   canvasArtifactsPath: path.join(projectRoot, 'artifacts'),
   limits: {
@@ -73,18 +75,8 @@ export const SESSION_COOKIE_NAME = `convosketchpad_session_${config.port}`;
 export function printStartupBanner(version: string, tagline: string): void {
   console.log(`\n  \x1b[33m◆ ConvoSketchpad v${version}\x1b[0m`);
   console.log(`  ${tagline}`);
-  console.log(`  Gateway: ${config.gatewayUrl}`);
+  console.log(`  Agent Runtimes: ${process.env.AGENT_RUNTIMES ?? 'openclaw'}`);
   if (config.auth) console.log('  \x1b[32mAuthentication enabled\x1b[0m');
-}
-
-export async function probeGateway(): Promise<void> {
-  try {
-    const response = await fetch(`${config.gatewayUrl}/health`, { signal: AbortSignal.timeout(3_000) });
-    if (response.ok) console.log('  \x1b[32mGateway reachable\x1b[0m');
-    else console.warn(`  Gateway returned HTTP ${response.status}`);
-  } catch {
-    console.warn('  Gateway unreachable — is it running?');
-  }
 }
 
 export function validateConfig(): void {
@@ -93,16 +85,24 @@ export function validateConfig(): void {
       console.warn(`${key} is deprecated and ignored by ConvoSketchpad runtime configuration.`);
     }
   }
-  try {
-    new Intl.DateTimeFormat('en-US', { timeZone: config.gatewayTimezone }).format();
-  } catch {
-    console.error(
-      `Invalid CONVOSKETCHPAD_GATEWAY_TIMEZONE: ${config.gatewayTimezone}. Expected an IANA timezone such as Asia/Shanghai.`,
-    );
+  const runtimeValidation = validateConfiguredAgentRuntimes();
+  runtimeValidation.warnings.forEach((warning) => console.warn(warning));
+  if (runtimeValidation.errors.length > 0) {
+    runtimeValidation.errors.forEach((error) => console.error(error));
     process.exit(1);
   }
-  if (!config.gatewayToken) {
-    console.warn('GATEWAY_TOKEN is not set; Canvas Gateway calls will fail until it is configured.');
+  const defaultAgent = configuredDefaultAgent();
+  if (defaultAgent.error) {
+    console.error(defaultAgent.error);
+    process.exit(1);
+  }
+  if (
+    defaultAgent.ref
+    && !configuredAgentRuntimeIds()
+      .some((runtimeId) => runtimeId === defaultAgent.ref?.runtimeId.toLowerCase())
+  ) {
+    console.error('The configured default Agent belongs to a Runtime that is not enabled by AGENT_RUNTIMES.');
+    process.exit(1);
   }
   if (config.auth && !config.sessionSecret) {
     console.warn('CONVOSKETCHPAD_SESSION_SECRET is not set; generated sessions will not survive a restart.');

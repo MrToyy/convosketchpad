@@ -2,7 +2,8 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { CanvasStore } from './canvas-db.js';
+import { CanvasStore } from './canvas/persistence/canvas-store.js';
+import { testConversationHandleFactory } from './fixtures/test-conversation-handle.js';
 import { authenticateManagedToken, resolveManagedSession } from './managed-users.js';
 import { createManagedUser, rotateManagedToken } from './user-management.js';
 
@@ -12,7 +13,9 @@ const dirs: string[] = [];
 function createStore(): CanvasStore {
   const dir = mkdtempSync(path.join(tmpdir(), 'convosketchpad-users-'));
   dirs.push(dir);
-  const store = new CanvasStore(path.join(dir, 'canvas.sqlite'));
+  const store = new CanvasStore(path.join(dir, 'canvas.sqlite'), {
+    createConversationHandle: testConversationHandleFactory,
+  });
   stores.push(store);
   return store;
 }
@@ -47,7 +50,7 @@ describe('managed users', () => {
   it('moves Local User canvases to the first managed account only', async () => {
     const store = createStore();
     store.ensureUser('local', 'Local User');
-    store.createCanvas('local', 'Existing Canvas', 'main');
+    store.createCanvas('local', 'Existing Canvas', { runtimeId: 'openclaw', profileId: 'main' });
     const first = await createManagedUser('First', 'one', store);
     const second = await createManagedUser('Second', 'two', store);
     expect(first.claimedCanvasCount).toBe(1);
@@ -70,7 +73,7 @@ describe('managed users', () => {
   it('disables and enables an account while preserving its data', async () => {
     const store = createStore();
     const created = await createManagedUser('User', 'token', store);
-    store.createCanvas(created.user.id, 'Kept', 'main');
+    store.createCanvas(created.user.id, 'Kept', { runtimeId: 'openclaw', profileId: 'main' });
     const disabled = store.setManagedUserStatus('User', 'disabled');
     expect(disabled.tokenVersion).toBe(2);
     expect(await authenticateManagedToken('token', store)).toBeNull();

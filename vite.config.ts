@@ -9,15 +9,14 @@ const pkg = JSON.parse(readFileSync('./package.json', 'utf-8'))
 // `npm run dev` supplies these internal values. Users configure only HOST/PORT.
 const port = parseInt(process.env.CONVOSKETCHPAD_DEV_ENTRY_PORT || process.env.PORT || '3080', 10)
 const host = process.env.CONVOSKETCHPAD_DEV_ENTRY_HOST || process.env.HOST || '127.0.0.1'
-const backendPort = process.env.CONVOSKETCHPAD_DEV_BACKEND_PORT || '3081'
-const apiTarget = `http://127.0.0.1:${backendPort}`
+const internalServerPort = process.env.CONVOSKETCHPAD_DEV_SERVER_PORT || '3081'
+const apiTarget = `http://127.0.0.1:${internalServerPort}`
 
 export default defineConfig({
   clearScreen: false,
   plugins: [react(), tailwindcss()],
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),
-    __APP_TAGLINE__: JSON.stringify(pkg.description),
   },
   resolve: {
     alias: {

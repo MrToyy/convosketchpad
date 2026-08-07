@@ -26,39 +26,42 @@ async function setup() {
   }));
   vi.doMock('../lib/canvas-auth.js', () => ({ getCanvasIdentity: () => ({ userId: 'owner-a', name: 'Owner A' }) }));
   vi.doMock('../middleware/rate-limit.js', () => ({ rateLimitGeneral: async (_c: unknown, next: () => Promise<void>) => next() }));
-  vi.doMock('../lib/gateway-rpc.js', () => ({
-    gatewayRpcCall: vi.fn(async () => ({ sessions: [] })),
-    gatewaySupports: () => false,
-    getGatewaySharedHttpAuthToken: () => 'test-token',
-  }));
-
-  const db = await import('../lib/canvas-db.js');
+  const db = await import('../lib/canvas/persistence/canvas-store.js');
+  const { testConversationHandleFactory } = await import('../lib/fixtures/test-conversation-handle.js');
+  db.getCanvasStore(testConversationHandleFactory);
   const artifacts = await import('../lib/canvas-artifact-store.js');
   const reconciler = await import('../lib/canvas-reconciler.js');
   const route = await import('./canvas.js');
   const app = new Hono();
-  app.route('/', route.default);
+  app.route('/', route.createCanvasRoutes({
+    store: db.getCanvasStore(),
+    runtimes: { get: vi.fn(), list: () => [] } as never,
+  }));
   return { app, db, artifacts, reconciler };
 }
 
 async function seedPersistedArtifact(setupResult: Awaited<ReturnType<typeof setup>>, ownerId = 'owner-a') {
   const store = setupResult.db.getCanvasStore();
   store.ensureUser(ownerId, ownerId);
-  const canvas = store.createCanvas(ownerId, 'Artifacts', 'main');
+  const canvas = store.createCanvas(ownerId, 'Artifacts', { runtimeId: 'openclaw', profileId: 'main' });
   const branch = store.createRootBranch(ownerId, canvas.id);
   const reservation = store.prepareSend(ownerId, { branchId: branch.id, userInput: 'create', attachments: [] });
   const base = store.acknowledgeSend(ownerId, reservation.id, 'run-1');
   const owned = store.getOwnedInteraction(ownerId, base.id)!;
-  const materialized = await setupResult.artifacts.materializeCanvasArtifacts(owned, [{
-    name: 'result.txt', mimeType: 'text/plain', uri: 'data:text/plain;base64,cGVyc2lzdGVk',
-  }]);
+  const artifact = await setupResult.artifacts.persistCanvasArtifactBytes(
+    owned,
+    { name: 'result.txt', mimeType: 'text/plain', uri: 'data:text/plain;base64,cGVyc2lzdGVk' },
+    'data:text/plain;base64,cGVyc2lzdGVk',
+    Buffer.from('persisted'),
+    'text/plain',
+  );
   store.applyReconciledInteraction(base.id, {
     status: 'completed',
     agentOutput: 'done',
-    artifacts: materialized.artifacts,
+    artifacts: [artifact],
     reconciliation: { phase: 'synced', artifactSync: 'synced' },
   });
-  return { canvas, interactionId: base.id, artifact: materialized.artifacts[0] };
+  return { canvas, interactionId: base.id, artifact };
 }
 
 beforeEach(async () => {
@@ -78,7 +81,7 @@ describe('Canvas Artifact routes', () => {
     const current = await setup();
     const store = current.db.getCanvasStore();
     store.ensureUser('owner-a', 'Owner A');
-    const canvas = store.createCanvas('owner-a', 'Image attachment', 'main');
+    const canvas = store.createCanvas('owner-a', 'Image attachment', { runtimeId: 'openclaw', profileId: 'main' });
     const branch = store.createRootBranch('owner-a', canvas.id);
     const original = await sharp({
       create: {
@@ -129,7 +132,7 @@ describe('Canvas Artifact routes', () => {
     const current = await setup();
     const store = current.db.getCanvasStore();
     store.ensureUser('owner-a', 'Owner A');
-    const canvas = store.createCanvas('owner-a', 'Image artifact', 'main');
+    const canvas = store.createCanvas('owner-a', 'Image artifact', { runtimeId: 'openclaw', profileId: 'main' });
     const branch = store.createRootBranch('owner-a', canvas.id);
     const reservation = store.prepareSend('owner-a', {
       branchId: branch.id,
@@ -176,7 +179,7 @@ describe('Canvas Artifact routes', () => {
     const current = await setup();
     const store = current.db.getCanvasStore();
     store.ensureUser('owner-a', 'Owner A');
-    const canvas = store.createCanvas('owner-a', 'Attachments', 'main');
+    const canvas = store.createCanvas('owner-a', 'Attachments', { runtimeId: 'openclaw', profileId: 'main' });
     const branch = store.createRootBranch('owner-a', canvas.id);
     const attachment = await current.artifacts.persistCanvasAttachment('owner-a', canvas.id, {
       name: 'source.png',
@@ -209,6 +212,7 @@ describe('Canvas Artifact routes', () => {
     expect(response.status).toBe(200);
     expect(await response.text()).toBe('persisted');
     expect(response.headers.get('Content-Type')).toBe('text/plain');
+    expect(response.headers.get('Content-Disposition')).toMatch(/^attachment;/);
     expect(response.headers.get('Cache-Control')).toContain('immutable');
   });
 
@@ -226,7 +230,7 @@ describe('Canvas Artifact routes', () => {
     const current = await setup();
     const store = current.db.getCanvasStore();
     store.ensureUser('owner-a', 'Owner A');
-    const canvas = store.createCanvas('owner-a', 'Pending media', 'main');
+    const canvas = store.createCanvas('owner-a', 'Pending media', { runtimeId: 'openclaw', profileId: 'main' });
     const branch = store.createRootBranch('owner-a', canvas.id);
     const attachment = await current.artifacts.persistCanvasAttachment('owner-a', canvas.id, {
       name: 'source.png',
@@ -250,11 +254,11 @@ describe('Canvas Artifact routes', () => {
     expect(graph.pendingSends[0].attachments[0]).not.toHaveProperty('contentHash');
   });
 
-  it('reports pending backend work without making Graph reads start reconciliation', async () => {
+  it('reports pending runtime work without making Graph reads start reconciliation', async () => {
     const current = await setup();
     const store = current.db.getCanvasStore();
     store.ensureUser('owner-a', 'Owner A');
-    const canvas = store.createCanvas('owner-a', 'Pending', 'main');
+    const canvas = store.createCanvas('owner-a', 'Pending', { runtimeId: 'openclaw', profileId: 'main' });
     const branch = store.createRootBranch('owner-a', canvas.id);
     const reservation = store.prepareSend('owner-a', { branchId: branch.id, userInput: 'create', attachments: [] });
     const interaction = store.acknowledgeSend('owner-a', reservation.id, 'run-pending');
@@ -271,7 +275,7 @@ describe('Canvas Artifact routes', () => {
     const current = await setup();
     const store = current.db.getCanvasStore();
     store.ensureUser('owner-a', 'Owner A');
-    const canvas = store.createCanvas('owner-a', 'Terminal hint', 'main');
+    const canvas = store.createCanvas('owner-a', 'Terminal hint', { runtimeId: 'openclaw', profileId: 'main' });
     const branch = store.createRootBranch('owner-a', canvas.id);
     const reservation = store.prepareSend('owner-a', { branchId: branch.id, userInput: 'edit image', attachments: [] });
     const interaction = store.acknowledgeSend('owner-a', reservation.id, 'run-terminal');

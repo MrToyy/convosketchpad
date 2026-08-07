@@ -1,27 +1,25 @@
 import { readCanvasArtifact, readCanvasAttachment } from './canvas-artifact-store.js';
-import {
-  getCanvasStore,
-  type DispatchableSendReservation,
-} from './canvas-db.js';
-import type { CanvasContextResource } from './canvas-domain.js';
+import type { CanvasStore } from './canvas/persistence/canvas-store.js';
+import type { DispatchableSendReservation } from './canvas/model.js';
+import type { CanvasContextResource } from './canvas/domain/send-policy.js';
 import {
   CANVAS_DELIVERY_MAX_BYTES,
   ensureCanvasMediaDerivative,
 } from './canvas-media-derivatives.js';
-import { canvasReplayResourceFileName } from './canvas-replay-plan.js';
+import { canvasReplayResourceFileName } from './canvas/domain/replay-plan.js';
 import { locateCanvasResource } from './canvas-resource-locator.js';
 
-export interface OpenClawDeliveryAttachment {
+export interface RuntimeDeliveryAttachment {
   fileName: string;
   mimeType: string;
   content: string;
 }
 
 async function loadContextResource(
+  store: CanvasStore,
   reservation: DispatchableSendReservation,
   resource: CanvasContextResource,
-): Promise<OpenClawDeliveryAttachment> {
-  const store = getCanvasStore();
+): Promise<RuntimeDeliveryAttachment> {
   const locator = locateCanvasResource(resource.uri);
   let bytes: Uint8Array | null = null;
   let recordContentHash: ((contentHash: string) => void) | undefined;
@@ -116,17 +114,17 @@ async function loadContextResource(
 
 export async function buildCanvasDelivery(
   reservation: DispatchableSendReservation,
+  store: CanvasStore,
 ): Promise<{
   message: string;
-  attachments: OpenClawDeliveryAttachment[];
+  attachments: RuntimeDeliveryAttachment[];
   bootstrapWarnings: string[];
 }> {
-  const store = getCanvasStore();
-  const attachments: OpenClawDeliveryAttachment[] = [];
+  const attachments: RuntimeDeliveryAttachment[] = [];
   const bootstrapWarnings: string[] = [];
   for (const resource of reservation.bootstrapResources) {
     try {
-      attachments.push(await loadContextResource(reservation, resource));
+      attachments.push(await loadContextResource(store, reservation, resource));
     } catch (error) {
       const message = error instanceof Error ? error.message : '';
       if (!['resource_unavailable', 'media_source_unavailable'].includes(message)) throw error;
@@ -172,21 +170,4 @@ export async function buildCanvasDelivery(
     message += `\n\nCanvas replay note: Some restored files could not be attached: ${bootstrapWarnings.join('; ')}`;
   }
   return { message, attachments, bootstrapWarnings };
-}
-
-export function assertCanvasReplayPayloadFits(
-  reservation: DispatchableSendReservation,
-  params: Record<string, unknown>,
-  maxPayload: number | undefined,
-): void {
-  if (!['canonical-replay', 'session-recovery'].includes(reservation.materialization)) return;
-  if (!maxPayload) return;
-  const estimatedBytes = Buffer.byteLength(JSON.stringify({
-    type: 'req',
-    id: reservation.id,
-    method: 'chat.send',
-    params,
-  }));
-  const safeLimit = Math.max(0, maxPayload - 8 * 1024);
-  if (estimatedBytes > safeLimit) throw new Error('replay_payload_too_large');
 }

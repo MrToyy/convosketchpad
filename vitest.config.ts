@@ -9,7 +9,6 @@ export default defineConfig({
   plugins: [react()],
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),
-    __APP_TAGLINE__: JSON.stringify(pkg.description),
   },
   test: {
     globals: true,

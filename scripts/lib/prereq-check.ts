@@ -5,6 +5,7 @@
 import { execSync } from 'node:child_process';
 import { success, warn, fail } from './banner.js';
 import { getTailscaleState, type TailscaleState } from './tailscale.js';
+import { isSupportedNodeVersion, MINIMUM_NODE_VERSION } from '../../server/lib/node-version.js';
 
 export interface PrereqResult {
   nodeOk: boolean;
@@ -16,18 +17,17 @@ export interface PrereqResult {
 }
 
 /** Check all prerequisites and print results. */
-export function checkPrerequisites(opts?: { quiet?: boolean }): PrereqResult {
+export function checkPrerequisites(opts?: { quiet?: boolean; nodeVersion?: string }): PrereqResult {
   const quiet = opts?.quiet ?? false;
 
   if (!quiet) console.log('  Checking prerequisites...');
 
-  const nodeVersion = process.version;
-  const nodeMajor = parseInt(nodeVersion.slice(1), 10);
-  const nodeOk = nodeMajor >= 22;
+  const nodeVersion = opts?.nodeVersion ?? process.version;
+  const nodeOk = isSupportedNodeVersion(nodeVersion);
 
   if (!quiet) {
-    if (nodeOk) success(`Node.js ${nodeVersion} (≥22 required)`);
-    else fail(`Node.js ${nodeVersion} — version 22 or later is required`);
+    if (nodeOk) success(`Node.js ${nodeVersion} (≥${MINIMUM_NODE_VERSION} required)`);
+    else fail(`Node.js ${nodeVersion} — version ${MINIMUM_NODE_VERSION} or later is required`);
   }
 
   const npmOk = commandExists('npm');

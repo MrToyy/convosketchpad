@@ -2,26 +2,26 @@
  * ConvoSketchpad server entry point.
  *
  * Starts the HTTP server behind an optional external TLS terminator, starts
- * the backend-owned OpenClaw connection, and registers graceful shutdown
+ * all configured Agent Runtime connections, and registers graceful shutdown
  * handlers.
  * @module
  */
 
 import { serve } from '@hono/node-server';
-import app from './app.js';
-import { config, validateConfig, printStartupBanner, probeGateway } from './lib/config.js';
-import { startCanvasReconciler, stopCanvasReconciler } from './lib/canvas-reconciler.js';
-import { closeGatewayRpc } from './lib/gateway-rpc.js';
-import { startCanvasSendCoordinator, stopCanvasSendCoordinator } from './lib/canvas-send-coordinator.js';
-import { getCanvasStore } from './lib/canvas-db.js';
+import { createApp } from './app.js';
+import { config, validateConfig, printStartupBanner } from './lib/config.js';
 import { runCanvasMediaBackfillMigration } from './lib/canvas-media-derivatives.js';
 import { packageMetadata } from './lib/package-metadata.js';
+import { createApplicationContext } from './application-context.js';
 
 // ── Startup banner + validation ──────────────────────────────────────
 
 printStartupBanner(packageMetadata.version, packageMetadata.description);
 validateConfig();
-const canvasStore = getCanvasStore();
+const applicationContext = createApplicationContext();
+const canvasStore = applicationContext.store;
+if (!config.auth) canvasStore.ensureUser('local', 'Local User');
+const app = createApp(applicationContext);
 
 // ── HTTP server ──────────────────────────────────────────────────────
 
@@ -65,19 +65,14 @@ const httpServer = serve(
   throw err;
 });
 
-// Non-blocking gateway health check
-probeGateway();
-startCanvasReconciler();
-startCanvasSendCoordinator();
+applicationContext.start();
 
 // ── Graceful shutdown ────────────────────────────────────────────────
 
 function shutdown(signal: string) {
   console.log(`\n[convosketchpad] ${signal} received, shutting down...`);
 
-  stopCanvasReconciler();
-  stopCanvasSendCoordinator();
-  closeGatewayRpc();
+  applicationContext.close();
 
   httpServer.close(() => {
     console.log('[convosketchpad] HTTP server closed');

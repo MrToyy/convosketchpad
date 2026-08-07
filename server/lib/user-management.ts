@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
-import { CanvasStore, getCanvasStore, type CanvasUserRecord } from './canvas-db.js';
+import { CanvasStore, getCanvasStore } from './canvas/persistence/canvas-store.js';
+import type { CanvasUserRecord } from './canvas/model.js';
 import { hashManagedToken, verifyManagedTokenHash } from './session.js';
 
 const MAX_DISPLAY_NAME_LENGTH = 120;

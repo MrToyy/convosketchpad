@@ -6,9 +6,9 @@
 #   curl -fsSL https://raw.githubusercontent.com/MrToyy/convosketchpad/main/install.sh | bash
 #
 # Or with options:
-#   curl -fsSL ... | bash -s -- --dir ~/convosketchpad --version v0.2.0
+#   curl -fsSL ... | bash -s -- --dir ~/convosketchpad --version v0.4.0
 #   curl -fsSL ... | bash -s -- --dir ~/convosketchpad --branch main
-#   curl -fsSL ... | bash -s -- --gateway-url https://gw.example.com --gateway-token <token> --skip-setup
+#   curl -fsSL ... | bash -s -- --gateway-url https://gw.example.com --gateway-token <token>
 # ──────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
@@ -34,14 +34,16 @@ BRANCH="main"
 BRANCH_EXPLICIT=false
 VERSION=""
 REPO="https://github.com/MrToyy/convosketchpad.git"
-PRODUCT_TAGLINE="A branching AI workspace for visual thinkers"
-NODE_MIN=22
+PRODUCT_TAGLINE="A visual branching workspace for agents — revisit any point and continue exploring."
+NODE_MIN=22.22.2
 SKIP_SETUP=false
 DRY_RUN=false
 GATEWAY_TOKEN=""
 GATEWAY_URL_OVERRIDE=""
 ACCESS_MODE=""
-ENV_MISSING=false
+SHOW_HELP=false
+SEEN_OPTIONS=""
+SEEN_OPTION_COUNT=0
 
 # ── Colors ────────────────────────────────────────────────────────────
 RED='\033[0;31m'
@@ -107,19 +109,6 @@ EOF
   printf '%s\n' "$rendered_guides"
 }
 
-# Check if a port is already in use. Returns 0 if port is free, 1 if occupied.
-check_port() {
-  local port="$1"
-  if command -v ss &>/dev/null; then
-    ss -tlnH "sport = :${port}" 2>/dev/null | grep -q . && return 1
-  elif command -v lsof &>/dev/null; then
-    lsof -iTCP:"${port}" -sTCP:LISTEN -P -n &>/dev/null && return 1
-  elif command -v netstat &>/dev/null; then
-    netstat -tlnp 2>/dev/null | grep -q ":${port} " && return 1
-  fi
-  return 0
-}
-
 repo_has_local_changes() {
   local repo_dir="$1"
   git -C "$repo_dir" status --porcelain --untracked-files=normal 2>/dev/null | grep -q .
@@ -154,31 +143,6 @@ run_with_dots() {
     done < "$stderr_file"
   fi
   return $RWD_EXIT
-}
-
-openclaw_config_value() {
-  local key="$1"
-  local openclaw_cmd="${OPENCLAW_BIN:-openclaw}"
-  "$openclaw_cmd" config get "$key" --json 2>/dev/null | node -e '
-    let input = "";
-    process.stdin.on("data", chunk => input += chunk);
-    process.stdin.on("end", () => {
-      try {
-        const value = JSON.parse(input);
-        if (typeof value === "string" || typeof value === "number") process.stdout.write(String(value));
-      } catch {}
-    });
-  ' 2>/dev/null
-}
-
-# Read the Gateway token through OpenClaw's native configuration interface.
-# OPENCLAW_CONFIG_PATH is inherited by the CLI when a custom instance is used.
-detect_gateway_token() {
-  if [[ -n "${OPENCLAW_GATEWAY_TOKEN:-}" ]]; then
-    echo "$OPENCLAW_GATEWAY_TOKEN"
-    return 0
-  fi
-  openclaw_config_value "gateway.auth.token"
 }
 
 normalize_version_tag() {
@@ -266,6 +230,41 @@ fetch_latest_release_tag() {
   fetch_stable_release_tag
 }
 
+print_help() {
+  echo "ConvoSketchpad Installer"
+  echo "$PRODUCT_TAGLINE"
+  echo ""
+  echo "Options:"
+  echo "  --dir <path>         Install directory (default: ~/convosketchpad)"
+  echo "  --version <vX.Y.Z>   Install a specific release version"
+  echo "  --branch <name>      Install from a branch (dev override; bypasses release mode)"
+  echo "  --repo <url>         Git repo URL (custom repositories require --branch)"
+  echo "  --skip-setup         Keep an existing .env; fail if none exists"
+  echo "  --gateway-token <t>  Gateway token (for non-interactive installs)"
+  echo "  --gateway-url <url>  Gateway URL (for remote/non-interactive installs)"
+  echo "  --access-mode <m>    Non-interactive mode: local|network|tailscale-ip|tailscale-serve"
+  echo "  --dry-run            Simulate the install without changing anything"
+  echo "  --help               Show this help"
+}
+
+mark_option_seen() {
+  local option="$1"
+  case " ${SEEN_OPTIONS} " in
+    *" ${option} "*) fail "Duplicate option: ${option}"; exit 1 ;;
+  esac
+  SEEN_OPTIONS="${SEEN_OPTIONS} ${option}"
+  SEEN_OPTION_COUNT=$((SEEN_OPTION_COUNT + 1))
+}
+
+require_option_value() {
+  local option="$1"
+  local value="${2:-}"
+  if [[ -z "$value" || "$value" == -* ]]; then
+    fail "${option} requires a value"
+    exit 1
+  fi
+}
+
 STAGE_CURRENT=0
 STAGE_TOTAL=5
 stage() {
@@ -284,38 +283,38 @@ stage_done() {
 # ── Parse args ────────────────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --dir)       [[ $# -ge 2 ]] || { echo "Missing value for --dir"; exit 1; }; INSTALL_DIR="$2"; shift 2 ;;
-    --branch)    [[ $# -ge 2 ]] || { echo "Missing value for --branch"; exit 1; }; BRANCH="$2"; BRANCH_EXPLICIT=true; shift 2 ;;
-    --version)   [[ $# -ge 2 ]] || { echo "Missing value for --version"; exit 1; }; VERSION="$2"; shift 2 ;;
-    --repo)      [[ $# -ge 2 ]] || { echo "Missing value for --repo"; exit 1; }; REPO="$2"; shift 2 ;;
-    --skip-setup) SKIP_SETUP=true; shift ;;
-    --dry-run)    DRY_RUN=true; shift ;;
-    --gateway-token) [[ $# -ge 2 ]] || { echo "Missing value for --gateway-token"; exit 1; }; GATEWAY_TOKEN="$2"; shift 2 ;;
-    --gateway-url) [[ $# -ge 2 ]] || { echo "Missing value for --gateway-url"; exit 1; }; GATEWAY_URL_OVERRIDE="$2"; shift 2 ;;
-    --access-mode) [[ $# -ge 2 ]] || { echo "Missing value for --access-mode"; exit 1; }; ACCESS_MODE="$2"; shift 2 ;;
+    --dir)       mark_option_seen --dir; require_option_value --dir "${2:-}"; INSTALL_DIR="$2"; shift 2 ;;
+    --branch)    mark_option_seen --branch; require_option_value --branch "${2:-}"; BRANCH="$2"; BRANCH_EXPLICIT=true; shift 2 ;;
+    --version)   mark_option_seen --version; require_option_value --version "${2:-}"; VERSION="$2"; shift 2 ;;
+    --repo)      mark_option_seen --repo; require_option_value --repo "${2:-}"; REPO="$2"; shift 2 ;;
+    --skip-setup) mark_option_seen --skip-setup; SKIP_SETUP=true; shift ;;
+    --dry-run)    mark_option_seen --dry-run; DRY_RUN=true; shift ;;
+    --gateway-token) mark_option_seen --gateway-token; require_option_value --gateway-token "${2:-}"; GATEWAY_TOKEN="$2"; shift 2 ;;
+    --gateway-url) mark_option_seen --gateway-url; require_option_value --gateway-url "${2:-}"; GATEWAY_URL_OVERRIDE="$2"; shift 2 ;;
+    --access-mode) mark_option_seen --access-mode; require_option_value --access-mode "${2:-}"; ACCESS_MODE="$2"; shift 2 ;;
     --help|-h)
-      echo "ConvoSketchpad Installer"
-      echo "$PRODUCT_TAGLINE"
-      echo ""
-      echo "Options:"
-      echo "  --dir <path>         Install directory (default: ~/convosketchpad)"
-      echo "  --version <vX.Y.Z>   Install a specific release version"
-      echo "  --branch <name>      Install from a branch (dev override; bypasses release mode)"
-      echo "  --repo <url>         Git repo URL (custom repositories require --branch)"
-      echo "  --skip-setup         Skip the interactive setup wizard"
-      echo "  --gateway-token <t>  Gateway token (for non-interactive installs)"
-      echo "  --gateway-url <url>  Gateway URL (for remote/non-interactive installs)"
-      echo "  --access-mode <m>    Non-interactive mode: local|network|tailscale-ip|tailscale-serve"
-      echo "  --dry-run            Simulate the install without changing anything"
-      echo "  --help               Show this help"
-      exit 0
+      mark_option_seen --help; SHOW_HELP=true; shift
       ;;
     *) echo "Unknown option: $1"; exit 1 ;;
   esac
 done
 
+if [[ "$SHOW_HELP" == "true" ]]; then
+  if [[ $SEEN_OPTION_COUNT -ne 1 ]]; then
+    fail "--help cannot be combined with other options"
+    exit 1
+  fi
+  print_help
+  exit 0
+fi
+
 if [[ -n "$VERSION" && "$BRANCH_EXPLICIT" == "true" ]]; then
   fail "Use either --version or --branch, not both"
+  exit 1
+fi
+
+if [[ "$SKIP_SETUP" == "true" && ( -n "$GATEWAY_TOKEN" || -n "$GATEWAY_URL_OVERRIDE" || -n "$ACCESS_MODE" ) ]]; then
+  fail "--skip-setup cannot be combined with setup configuration options"
   exit 1
 fi
 
@@ -355,6 +354,15 @@ if [[ -n "$GATEWAY_URL_OVERRIDE" ]]; then
   GATEWAY_URL_OVERRIDE="$normalized_gateway_url"
 fi
 
+# Pass explicit installer overrides through to the setup wizard. setup remains
+# the authority that validates and writes the final Runtime configuration.
+if [[ -n "$GATEWAY_TOKEN" ]]; then
+  export OPENCLAW_GATEWAY_TOKEN="$GATEWAY_TOKEN"
+fi
+if [[ -n "$GATEWAY_URL_OVERRIDE" ]]; then
+  export OPENCLAW_GATEWAY_URL="$GATEWAY_URL_OVERRIDE"
+fi
+
 # ── Detect interactive mode ───────────────────────────────────────────
 # When piped via curl | bash, stdin is the pipe — but /dev/tty still
 # provides access to the controlling terminal for interactive prompts.
@@ -377,43 +385,21 @@ if [[ "$DRY_RUN" == "true" ]]; then
 fi
 echo -e "  ${DIM}│${NC}"
 
-# ── Check: OpenClaw installed ─────────────────────────────────────────
-check_openclaw() {
-  if command -v openclaw &>/dev/null; then
-    local ver
-    ver=$(openclaw --version 2>/dev/null | head -1 || echo "unknown")
-    ok "OpenClaw found: ${ver}"
-    return 0
-  fi
-
-  # Check common paths
-  local candidates=(
-    "${HOME}/.nvm/versions/node/"*/bin/openclaw
-    /opt/homebrew/bin/openclaw
-    /usr/local/bin/openclaw
-    /usr/bin/openclaw
-    "${HOME}/.volta/bin/openclaw"
-    "${HOME}/.fnm/aliases/default/bin/openclaw"
-  )
-  for c in "${candidates[@]}"; do
-    if [[ -x "$c" ]]; then
-      ok "OpenClaw found: ${c}"
-      export PATH="$(dirname "$c"):$PATH"
-      return 0
-    fi
-  done
-
-  fail "OpenClaw not found"
-  echo ""
-  hint "Install OpenClaw:"
-  cmd "npm install -g openclaw"
-  echo ""
-  echo -e "  ${RAIL}  ${DIM}Docs: https://github.com/openclaw/openclaw${NC}"
-  echo ""
-  exit 1
+# ── Check: Node.js ────────────────────────────────────────────────────
+node_version_supported() {
+  local version="$1"
+  local minimum="$2"
+  [[ "$version" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+) ]] || return 1
+  local major="${BASH_REMATCH[1]}" minor="${BASH_REMATCH[2]}" patch="${BASH_REMATCH[3]}"
+  [[ "$minimum" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]] || return 1
+  local min_major="${BASH_REMATCH[1]}" min_minor="${BASH_REMATCH[2]}" min_patch="${BASH_REMATCH[3]}"
+  (( major > min_major )) && return 0
+  (( major < min_major )) && return 1
+  (( minor > min_minor )) && return 0
+  (( minor < min_minor )) && return 1
+  (( patch >= min_patch ))
 }
 
-# ── Check: Node.js ────────────────────────────────────────────────────
 check_node() {
   if ! command -v node &>/dev/null; then
     fail "Node.js not found — version ${NODE_MIN}+ is required"
@@ -424,7 +410,7 @@ check_node() {
     cmd "nvm install ${NODE_MIN}"
     echo ""
     if $IS_MAC; then
-      echo -e "  ${RAIL}  ${DIM}Or via Homebrew: brew install node@${NODE_MIN}${NC}"
+      echo -e "  ${RAIL}  ${DIM}Or via Homebrew: brew install node@${NODE_MIN%%.*}${NC}"
     elif $IS_DEBIAN; then
       echo -e "  ${RAIL}  ${DIM}Or via apt: https://deb.nodesource.com${NC}"
     fi
@@ -434,10 +420,7 @@ check_node() {
 
   local node_ver
   node_ver=$(node -v | sed 's/^v//')
-  local node_major
-  node_major=$(echo "$node_ver" | cut -d. -f1)
-
-  if [[ "$node_major" -ge "$NODE_MIN" ]]; then
+  if node_version_supported "$node_ver" "$NODE_MIN"; then
     ok "Node.js v${node_ver} (≥${NODE_MIN} required)"
   else
     fail "Node.js v${node_ver} — version ${NODE_MIN}+ is required"
@@ -451,7 +434,7 @@ check_node() {
       cmd "nvm use ${NODE_MIN}"
     elif [[ "$node_path" == *"homebrew"* || "$node_path" == *"Cellar"* ]]; then
       hint "Upgrade via Homebrew:"
-      cmd "brew install node@${NODE_MIN}"
+      cmd "brew install node@${NODE_MIN%%.*}"
     elif $IS_DEBIAN; then
       hint "Upgrade via nvm (recommended):"
       cmd "curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash"
@@ -506,44 +489,12 @@ check_git() {
   fi
 }
 
-# ── Check: Gateway reachable ──────────────────────────────────────────
-check_gateway() {
-  local gw_url="${GATEWAY_URL_OVERRIDE:-http://127.0.0.1:18789}"
-
-  # Ask the OpenClaw CLI for the active local Gateway port.
-  if [[ -z "$GATEWAY_URL_OVERRIDE" ]]; then
-    local port
-    port=$(openclaw_config_value "gateway.port")
-    port="${port:-18789}"
-    gw_url="http://127.0.0.1:${port}"
-  fi
-
-  if curl -sf "${gw_url}/health" &>/dev/null || curl -sf "${gw_url}/" &>/dev/null; then
-    ok "OpenClaw gateway reachable at ${gw_url}"
-  else
-    warn "Gateway not reachable at ${gw_url} — start it with: openclaw gateway start"
-  fi
-
-  # Verify auth token exists (needed for .env generation and service connectivity)
-  local gw_token="${GATEWAY_TOKEN:-}"
-  if [[ -z "$gw_token" ]]; then
-    gw_token=$(detect_gateway_token)
-  fi
-  if [[ -n "$gw_token" ]]; then
-    ok "Gateway auth token present"
-  else
-    warn "No gateway auth token found — run: ${CYAN}openclaw onboard --install-daemon${NC}"
-  fi
-}
-
 # ── [1/5] Prerequisites ───────────────────────────────────────────────
 stage "Prerequisites"
 
 check_node
 check_npm
 check_git
-check_openclaw
-check_gateway
 
 # ── [2/5] Clone or update ────────────────────────────────────────────
 stage "Download"
@@ -574,10 +525,23 @@ fi
 
 info "Using ref ${TARGET_REF} (${TARGET_REF_KIND})"
 
+if [[ -d "$INSTALL_DIR/.git" && "$TARGET_REF_KIND" != "branch" && -f "$INSTALL_DIR/package.json" ]]; then
+  installed_version=$(node -e 'const p=require(process.argv[1]); if(typeof p.version!=="string") process.exit(1); process.stdout.write(`v${p.version.replace(/^v/, "")}`)' "$INSTALL_DIR/package.json") || {
+    fail "Could not determine the installed ConvoSketchpad version"
+    exit 1
+  }
+  if [[ "$installed_version" != "$TARGET_REF" ]]; then
+    fail "The installer cannot upgrade an existing stable Release safely"
+    info "Use the transactional updater so code, configuration, and SQLite can roll back together:"
+    cmd "cd ${INSTALL_DIR} && npm run update -- --version ${TARGET_REF}"
+    exit 1
+  fi
+fi
+
 if [[ "$DRY_RUN" == "true" ]]; then
   if [[ -d "$INSTALL_DIR/.git" ]]; then
     dry "Would update existing installation in ${INSTALL_DIR}"
-    dry "Would warn before overwriting local repo changes"
+    dry "Would refuse a dirty working tree"
     dry "Would checkout ${TARGET_REF}"
   else
     dry "Would clone ${REPO}"
@@ -587,24 +551,9 @@ if [[ "$DRY_RUN" == "true" ]]; then
 else
   if [[ -d "$INSTALL_DIR/.git" ]]; then
     if repo_has_local_changes "$INSTALL_DIR"; then
-      warn "Existing installation has local repo changes"
-      info "Updating will discard tracked edits in ${INSTALL_DIR}"
-      if [[ "$INTERACTIVE" == "true" ]]; then
-        printf "  ${RAIL}  ${YELLOW}?${NC} Continue and overwrite local changes? (y/N) "
-        if read -r answer < /dev/tty 2>/dev/null; then
-          if [[ "$(echo "$answer" | tr "[:upper:]" "[:lower:]")" != "y" ]]; then
-            fail "Aborted to avoid overwriting local changes"
-            exit 1
-          fi
-        else
-          fail "Cannot confirm destructive update safely"
-          exit 1
-        fi
-      else
-        fail "Refusing to overwrite a dirty install in non-interactive mode"
-        info "Commit, stash, or back up ${INSTALL_DIR}, then rerun the installer"
-        exit 1
-      fi
+      fail "Refusing to overwrite a dirty installation"
+      info "Commit, stash, or back up ${INSTALL_DIR}, then rerun the installer"
+      exit 1
     fi
 
     cd "$INSTALL_DIR"
@@ -729,102 +678,60 @@ else
 
 fi
 
-# ── Auto-generate .env from OpenClaw gateway config ───────────────────
-generate_env_from_gateway() {
-  # Already have an .env? Don't overwrite.
-  if [[ -f .env ]]; then
-    ok "Existing .env found — keeping current configuration"
-    return 0
-  fi
-
-  local gw_token="${GATEWAY_TOKEN:-}"
-  local gw_url="${GATEWAY_URL_OVERRIDE:-}"
-  local gw_port="18789"
-
-  # Read token through OpenClaw if no --gateway-token was passed.
-  if [[ -z "$gw_token" ]]; then
-    gw_token=$(detect_gateway_token)
-  fi
-  if [[ -z "$gw_url" ]]; then
-    gw_port=$(openclaw_config_value "gateway.port")
-    gw_port="${gw_port:-18789}"
-    gw_url="http://127.0.0.1:${gw_port}"
-  fi
-  if [[ -z "$gw_url" ]]; then
-    gw_url="http://127.0.0.1:${gw_port}"
-  fi
-
-  if [[ -n "$gw_token" ]]; then
-    local convosketchpad_port=3080
-    if ! check_port "$convosketchpad_port"; then
-      if [[ "$INTERACTIVE" != "true" ]]; then
-        fail "Port ${convosketchpad_port} is already in use. Set a different PORT in .env or free the port."
-        exit 1
-      else
-        warn "Port ${convosketchpad_port} is already in use"
-        while true; do
-          printf "  ${RAIL}  ${CYAN}→${NC} Enter an available port: "
-          if ! read -r convosketchpad_port < /dev/tty 2>/dev/null; then
-            fail "Cannot read from terminal"
-            exit 1
-          fi
-          if [[ ! "$convosketchpad_port" =~ ^[0-9]+$ ]] || (( convosketchpad_port < 1 || convosketchpad_port > 65535 )); then
-            warn "Invalid port number"
-            continue
-          fi
-          if check_port "$convosketchpad_port"; then
-            break
-          fi
-          warn "Port ${convosketchpad_port} is also in use"
-        done
-      fi
-    fi
-    cat > .env <<ENVEOF
-GATEWAY_URL=${gw_url}
-GATEWAY_TOKEN=${gw_token}
-PORT=${convosketchpad_port}
-ENVEOF
-    ok "Generated .env from OpenClaw gateway config"
-  else
-    warn "Cannot auto-generate .env — no gateway token found"
-    warn "Run: ${CYAN}npm run setup${NC} to configure manually"
-    ENV_MISSING=true
-  fi
-}
-
 # ── [4/5] Configure ──────────────────────────────────────────────────
 stage "Configure"
 
+run_defaults_setup() {
+  local setup_args=(--defaults)
+  if [[ -n "$ACCESS_MODE" ]]; then
+    setup_args+=(--access-mode "$ACCESS_MODE")
+  fi
+  CONVOSKETCHPAD_INSTALLER=1 npm run setup -- "${setup_args[@]}"
+}
+
 if [[ "$DRY_RUN" == "true" ]]; then
   if [[ "$SKIP_SETUP" == "true" ]]; then
-    dry "Would skip setup wizard (--skip-setup)"
-  elif [[ -n "$ACCESS_MODE" ]]; then
-    dry "Would run non-interactive setup wizard (--defaults --access-mode ${ACCESS_MODE})"
+    dry "Would keep the existing .env, or fail if it does not exist (--skip-setup)"
+  elif [[ "$INTERACTIVE" == "true" && -z "$ACCESS_MODE" && -z "$GATEWAY_TOKEN" && -z "$GATEWAY_URL_OVERRIDE" ]]; then
+    dry "Would launch the unified interactive setup wizard"
+    dry "Would discover and select Runtimes, configure connections, then select a default Agent"
   else
-    dry "Would launch interactive setup wizard"
-    dry "Would prompt for: gateway token, access mode, and authentication"
+    setup_description="--defaults"
+    [[ -n "$ACCESS_MODE" ]] && setup_description+=" --access-mode ${ACCESS_MODE}"
+    dry "Would run the unified non-interactive setup wizard (${setup_description})"
   fi
   if [[ -n "$GATEWAY_URL_OVERRIDE" ]]; then
-    dry "Would write GATEWAY_URL=${GATEWAY_URL_OVERRIDE}"
+    dry "Would pass OPENCLAW_GATEWAY_URL to the selected OpenClaw setup Driver"
+  fi
+  if [[ -n "$GATEWAY_TOKEN" ]]; then
+    dry "Would pass OPENCLAW_GATEWAY_TOKEN to the selected OpenClaw setup Driver"
   fi
 else
   if [[ "$SKIP_SETUP" == "true" ]]; then
     if [[ -f .env ]]; then
       ok "Skipping setup (--skip-setup flag, .env exists)"
     else
-      info "Skipping wizard — generating .env from gateway config..."
-      generate_env_from_gateway
+      fail "--skip-setup requires an existing ${INSTALL_DIR}/.env"
+      info "Run without --skip-setup so the unified Runtime setup can create it"
+      exit 1
     fi
   else
     if [[ -f .env ]]; then
-      if [[ "$INTERACTIVE" == "true" && -z "$ACCESS_MODE" ]]; then
+      if [[ -n "$ACCESS_MODE" || -n "$GATEWAY_TOKEN" || -n "$GATEWAY_URL_OVERRIDE" ]]; then
+        info "Explicit configuration override supplied — running unified non-interactive setup..."
+        run_defaults_setup || {
+          fail "Setup failed; the existing .env was not replaced unless setup completed successfully"
+          exit 1
+        }
+      elif [[ "$INTERACTIVE" == "true" ]]; then
         ok "Existing .env found"
         printf "  ${RAIL}  ${YELLOW}?${NC} Run setup wizard anyway? (y/N) "
         if read -r answer < /dev/tty 2>/dev/null; then
           if [[ "$(echo "$answer" | tr "[:upper:]" "[:lower:]")" == "y" ]]; then
             echo ""
             CONVOSKETCHPAD_INSTALLER=1 npm run setup < /dev/tty 2>/dev/null || {
-              warn "Setup wizard failed (no TTY?) — run ${CYAN}npm run setup${NC} manually"
+              fail "Setup wizard failed"
+              exit 1
             }
           else
             ok "Keeping existing configuration"
@@ -835,20 +742,18 @@ else
       else
         ok "Existing .env found — keeping current configuration"
       fi
-    elif [[ -n "$ACCESS_MODE" ]]; then
-      info "Explicit access mode requested — running non-interactive setup wizard..."
-      CONVOSKETCHPAD_INSTALLER=1 npm run setup -- --defaults --access-mode "$ACCESS_MODE" || {
-        fail "Setup failed for --access-mode ${ACCESS_MODE}"
+    elif [[ "$INTERACTIVE" == "true" && -z "$ACCESS_MODE" && -z "$GATEWAY_TOKEN" && -z "$GATEWAY_URL_OVERRIDE" ]]; then
+      CONVOSKETCHPAD_INSTALLER=1 npm run setup < /dev/tty 2>/dev/null || {
+        fail "Setup wizard failed; no configuration was generated"
         exit 1
       }
-    elif [[ "$INTERACTIVE" == "true" ]]; then
-      CONVOSKETCHPAD_INSTALLER=1 npm run setup < /dev/tty 2>/dev/null || {
-        warn "Setup wizard failed — attempting auto-config from gateway..."
-        generate_env_from_gateway
-      }
     else
-      info "Non-interactive mode — generating .env from gateway config..."
-      generate_env_from_gateway
+      info "Non-interactive mode — running unified Runtime setup..."
+      run_defaults_setup || {
+        fail "Non-interactive Runtime setup failed"
+        info "Rerun interactively with: cd ${INSTALL_DIR} && npm run setup"
+        exit 1
+      }
     fi
   fi
 fi
@@ -865,8 +770,11 @@ setup_systemd() {
   local node_dir
   node_dir=$(dirname "${node_bin}")
 
-  # Run as the installing user (who has openclaw config)
+  # Run as the installing user so Runtime configuration and persisted data keep
+  # the same ownership as the installation.
   local install_user="${SUDO_USER:-${USER}}"
+  local install_group
+  install_group=$(id -gn "$install_user" 2>/dev/null || printf '%s' "$install_user")
   local install_home="${HOME}"
   
   # If running via sudo, get the real user's home (no eval — safe from injection)
@@ -884,34 +792,9 @@ setup_systemd() {
     fi
   fi
   
-  # Fallback: Detect from openclaw binary location (handles root installs where openclaw is in /home/user)
-  # Note: glob may match multiple users — picks first (alphabetical)
-  if [[ "${install_user}" == "root" ]]; then
-    local openclaw_bin
-    openclaw_bin=$(command -v openclaw 2>/dev/null || echo "")
-    if [[ -z "$openclaw_bin" ]]; then
-      # Check common nvm locations
-      for candidate in /home/*/.nvm/versions/node/*/bin/openclaw; do
-        if [[ -x "$candidate" ]]; then
-          openclaw_bin="$candidate"
-          break
-        fi
-      done
-    fi
-    
-    if [[ -n "$openclaw_bin" ]]; then
-      # Extract user from path like /home/username/.nvm/...
-      if [[ "$openclaw_bin" =~ ^/home/([^/]+)/ ]]; then
-        local detected_user="${BASH_REMATCH[1]}"
-        install_user="$detected_user"
-        install_home="/home/$detected_user"
-        info "Detected openclaw owner: ${detected_user}"
-      fi
-    fi
-  fi
-
   local tmp_service
   tmp_service=$(mktemp /tmp/convosketchpad.service.XXXXXX)
+  TEMP_FILES+=("$tmp_service")
 
   cat > "$tmp_service" <<EOF
 [Unit]
@@ -921,7 +804,7 @@ After=network.target
 [Service]
 Type=simple
 User=${install_user}
-Group=${install_user}
+Group=${install_group}
 WorkingDirectory=${working_dir}
 ExecStart=${node_bin} server-dist/index.js
 EnvironmentFile=${working_dir}/.env
@@ -935,32 +818,36 @@ RestartSec=5
 WantedBy=multi-user.target
 EOF
 
-  if [[ $EUID -eq 0 ]]; then
-    mv "$tmp_service" "$service_file"
-    if [[ -f "${working_dir}/.env" ]]; then
-      run_with_dots "Systemd service" bash -c "systemctl daemon-reload && systemctl enable convosketchpad.service &>/dev/null && systemctl start convosketchpad.service"
-      if [[ $RWD_EXIT -eq 0 ]]; then
-        ok "Systemd service installed and started"
-      else
-        warn "Systemd service install failed — try: sudo systemctl start convosketchpad.service"
-      fi
+  systemd_privileged() {
+    if [[ $EUID -eq 0 ]]; then
+      "$@"
+    elif [[ "$INTERACTIVE" == "true" ]]; then
+      sudo "$@" < /dev/tty
     else
-      systemctl daemon-reload
-      systemctl enable convosketchpad.service &>/dev/null
-      ok "Systemd service installed (not started — run ${CYAN}npm run setup${NC} first, then ${CYAN}systemctl start convosketchpad.service${NC})"
+      sudo -n "$@"
     fi
-  else
-    echo ""
-    info "To install as a systemd service (requires sudo):"
-    echo ""
-    echo "    sudo mv ${tmp_service} ${service_file}"
-    echo "    sudo systemctl daemon-reload"
-    echo "    sudo systemctl enable convosketchpad.service"
-    echo "    sudo systemctl start convosketchpad.service"
-    echo ""
-    info "Service will run as: ${install_user}"
-    echo ""
+  }
+
+  if ! systemd_privileged install -m 0644 "$tmp_service" "$service_file"; then
+    fail "Could not install the systemd unit (root permission is required)"
+    return 1
   fi
+  if ! systemd_privileged systemctl daemon-reload \
+    || ! systemd_privileged systemctl enable convosketchpad.service >/dev/null; then
+    fail "Could not register the systemd service"
+    return 1
+  fi
+
+  if [[ -f "${working_dir}/.env" ]]; then
+    if ! systemd_privileged systemctl restart convosketchpad.service; then
+      fail "Systemd service was installed but could not be restarted"
+      return 1
+    fi
+    ok "Systemd service installed and running"
+  else
+    ok "Systemd service installed (not started — run ${CYAN}npm run setup${NC} first, then ${CYAN}sudo systemctl start convosketchpad.service${NC})"
+  fi
+  info "Service runs as: ${install_user}"
 }
 
 setup_launchd() {
@@ -1091,11 +978,6 @@ elif command -v systemctl &>/dev/null; then
     echo ""
     if [[ -f /etc/systemd/system/convosketchpad.service ]]; then
       info "Updating existing systemd service..."
-      if [[ $EUID -eq 0 ]]; then
-        systemctl stop convosketchpad.service 2>/dev/null || true
-      else
-        sudo systemctl stop convosketchpad.service 2>/dev/null || true
-      fi
       setup_systemd
     elif [[ "$INTERACTIVE" == "true" ]]; then
       printf "  ${RAIL}  ${YELLOW}?${NC} Install as a systemd service? (Y/n) "
@@ -1109,11 +991,8 @@ elif command -v systemctl &>/dev/null; then
         info "Cannot read input — installing systemd service by default"
         setup_systemd
       fi
-    elif [[ $EUID -eq 0 ]]; then
-      info "Non-interactive mode — installing systemd service automatically"
-      setup_systemd
     else
-      info "Non-interactive mode — generating systemd service file"
+      info "Non-interactive mode — installing systemd service"
       setup_systemd
     fi
     echo ""
@@ -1185,7 +1064,7 @@ if [[ "$DRY_RUN" == "true" ]]; then
   exit 0
 fi
 
-if [[ "$ENV_MISSING" == "true" ]] || [[ ! -f "${INSTALL_DIR}/.env" ]]; then
+if [[ ! -f "${INSTALL_DIR}/.env" ]]; then
   warn "Install complete but ConvoSketchpad is not fully configured"
   info "Run: cd ${INSTALL_DIR} && npm run setup"
   exit 2  # partial success — installed but non-functional

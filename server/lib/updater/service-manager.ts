@@ -1,13 +1,42 @@
 /**
- * Service management — detect and control systemd / launchd services.
- * Detection order: systemd first, then launchd.
+ * Service management — detect and control systemd / launchd services owned by
+ * the current installation. Detection order: systemd first, then launchd.
  */
 
-import { execSync } from 'node:child_process';
-import type { ServiceManager } from './types.js';
+import { execFileSync } from 'node:child_process';
+import { existsSync, realpathSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join, resolve } from 'node:path';
+import type { ServiceManager, ServiceState } from './types.js';
 
 const SYSTEMD_UNIT = 'convosketchpad.service';
 const LAUNCHD_LABEL = 'com.mrtoyy.convosketchpad';
+
+function canonicalPath(value: string): string {
+  const absolute = resolve(value.trim());
+  if (!existsSync(absolute)) return absolute;
+  try { return realpathSync.native(absolute); } catch { return absolute; }
+}
+
+export function serviceConfigurationMatchesInstallation(
+  workingDirectory: string,
+  command: string,
+  cwd: string,
+): boolean {
+  if (!workingDirectory.trim() || canonicalPath(workingDirectory) !== canonicalPath(cwd)) return false;
+  const normalizedCommand = command.replaceAll('\\', '/');
+  const installation = canonicalPath(cwd).replaceAll('\\', '/').replace(/\/+$/, '');
+  return normalizedCommand.includes(`${installation}/server-dist/index.js`)
+    || normalizedCommand.includes(`${installation}/start.sh`)
+    || /(?:^|[\s=;])server-dist\/index\.js(?:$|[\s;}])/u.test(normalizedCommand);
+}
+
+export function systemdStateFromOutput(output: string): ServiceState {
+  const state = output.trim().toLowerCase();
+  if (state === 'active') return 'active';
+  if (state === 'inactive' || state === 'failed') return 'inactive';
+  return 'unknown';
+}
 
 export function findSystemdUnitFromOutput(output: string): string | null {
   for (const line of output.split('\n')) {
@@ -25,6 +54,30 @@ export function findLaunchdLabelFromOutput(output: string): string | null {
   return null;
 }
 
+export interface SystemdInvocationOptions {
+  isRoot?: boolean;
+  interactive?: boolean;
+}
+
+/** Build the least-privileged systemctl invocation for a mutating operation. */
+export function systemdControlInvocation(
+  isUserUnit: boolean,
+  args: string[],
+  options: SystemdInvocationOptions = {},
+): { command: string; args: string[]; stdio: 'inherit' | 'pipe' } {
+  if (isUserUnit) {
+    return { command: 'systemctl', args: ['--user', ...args], stdio: 'pipe' };
+  }
+  const isRoot = options.isRoot ?? (typeof process.getuid === 'function' && process.getuid() === 0);
+  if (isRoot) return { command: 'systemctl', args, stdio: 'pipe' };
+  const interactive = options.interactive ?? Boolean(process.stdin.isTTY && process.stderr.isTTY);
+  return {
+    command: 'sudo',
+    args: [...(interactive ? [] : ['-n']), 'systemctl', ...args],
+    stdio: interactive ? 'inherit' : 'pipe',
+  };
+}
+
 // ── Systemd adapter ──────────────────────────────────────────────────
 
 class SystemdManager implements ServiceManager {
@@ -32,22 +85,22 @@ class SystemdManager implements ServiceManager {
   private unit = '';
   private isUserUnit = false;
 
-  detect(): boolean {
+  detect(cwd: string): boolean {
     try {
-      execSync('systemctl --version', { stdio: 'pipe' });
+      execFileSync('systemctl', ['--version'], { stdio: 'pipe' });
     } catch {
       return false;
     }
 
     // Search system units first, then user units
-    const systemUnit = this.findUnit(false);
+    const systemUnit = this.findUnit(false, cwd);
     if (systemUnit) {
       this.unit = systemUnit;
       this.isUserUnit = false;
       return true;
     }
 
-    const userUnit = this.findUnit(true);
+    const userUnit = this.findUnit(true, cwd);
     if (userUnit) {
       this.unit = userUnit;
       this.isUserUnit = true;
@@ -58,34 +111,30 @@ class SystemdManager implements ServiceManager {
   }
 
   async restart(): Promise<void> {
-    const flag = this.isUserUnit ? '--user ' : '';
-    execSync(`systemctl ${flag}restart ${this.unit}`.trim(), { stdio: 'pipe' });
+    this.control('restart');
   }
 
   async stop(): Promise<void> {
-    const flag = this.isUserUnit ? '--user ' : '';
-    execSync(`systemctl ${flag}stop ${this.unit}`.trim(), { stdio: 'pipe' });
+    this.control('stop');
   }
 
-  async isActive(): Promise<boolean> {
+  async status(): Promise<ServiceState> {
+    const args = [...(this.isUserUnit ? ['--user'] : []), 'is-active', this.unit];
     try {
-      const flag = this.isUserUnit ? '--user ' : '';
-      const result = execSync(`systemctl ${flag}is-active ${this.unit}`.trim(), {
-        stdio: 'pipe',
-      })
-        .toString()
-        .trim();
-      return result === 'active';
-    } catch {
-      return false;
+      return systemdStateFromOutput(execFileSync('systemctl', args, { stdio: 'pipe' }).toString());
+    } catch (error) {
+      const stdout = error && typeof error === 'object' && 'stdout' in error
+        ? (error as { stdout?: Buffer | string }).stdout
+        : undefined;
+      return stdout ? systemdStateFromOutput(String(stdout)) : 'unknown';
     }
   }
 
   async getLogs(lines: number): Promise<string> {
     try {
-      const flag = this.isUserUnit ? '--user ' : '';
-      return execSync(
-        `journalctl ${flag}-u ${this.unit} -n ${lines} --no-pager`.trim(),
+      return execFileSync(
+        'journalctl',
+        [...(this.isUserUnit ? ['--user'] : []), '-u', this.unit, '-n', String(lines), '--no-pager'],
         { stdio: 'pipe' },
       ).toString();
     } catch {
@@ -93,19 +142,37 @@ class SystemdManager implements ServiceManager {
     }
   }
 
-  private findUnit(user: boolean): string | null {
+  private findUnit(user: boolean, cwd: string): string | null {
     try {
-      const flag = user ? '--user ' : '';
-      const output = execSync(
-        `systemctl ${flag}list-units --type=service --all --no-legend`.trim(),
+      const output = execFileSync(
+        'systemctl',
+        [...(user ? ['--user'] : []), 'list-units', '--type=service', '--all', '--no-legend'],
         { stdio: 'pipe' },
       ).toString();
 
-      return findSystemdUnitFromOutput(output);
+      const unit = findSystemdUnitFromOutput(output);
+      if (!unit) return null;
+      const scope = user ? ['--user'] : [];
+      const workingDirectory = execFileSync(
+        'systemctl',
+        [...scope, 'show', unit, '--property=WorkingDirectory', '--value'],
+        { stdio: 'pipe' },
+      ).toString().trim();
+      const command = execFileSync(
+        'systemctl',
+        [...scope, 'show', unit, '--property=ExecStart', '--value'],
+        { stdio: 'pipe' },
+      ).toString().trim();
+      return serviceConfigurationMatchesInstallation(workingDirectory, command, cwd) ? unit : null;
     } catch {
       // systemd not available for this scope
     }
     return null;
+  }
+
+  private control(action: 'restart' | 'stop'): void {
+    const invocation = systemdControlInvocation(this.isUserUnit, [action, this.unit]);
+    execFileSync(invocation.command, invocation.args, { stdio: invocation.stdio });
   }
 }
 
@@ -115,13 +182,18 @@ class LaunchdManager implements ServiceManager {
   readonly name = 'launchd';
   private label = '';
 
-  detect(): boolean {
+  detect(cwd: string): boolean {
     if (process.platform !== 'darwin') return false;
 
     try {
-      const output = execSync('launchctl list', { stdio: 'pipe' }).toString();
+      const output = execFileSync('launchctl', ['list'], { stdio: 'pipe' }).toString();
       const label = findLaunchdLabelFromOutput(output);
       if (label) {
+        const plist = join(homedir(), 'Library', 'LaunchAgents', `${LAUNCHD_LABEL}.plist`);
+        if (!existsSync(plist)) return false;
+        const workingDirectory = this.readPlistValue(plist, 'WorkingDirectory');
+        const command = this.readPlistValue(plist, 'ProgramArguments:0');
+        if (!serviceConfigurationMatchesInstallation(workingDirectory, command, cwd)) return false;
         this.label = label;
         return true;
       }
@@ -133,49 +205,59 @@ class LaunchdManager implements ServiceManager {
   }
 
   async restart(): Promise<void> {
-    const uid = execSync('id -u', { stdio: 'pipe' }).toString().trim();
+    const uid = execFileSync('id', ['-u'], { stdio: 'pipe' }).toString().trim();
     try {
-      execSync(`launchctl kickstart -k gui/${uid}/${this.label}`, { stdio: 'pipe' });
+      execFileSync('launchctl', ['kickstart', '-k', `gui/${uid}/${this.label}`], { stdio: 'pipe' });
     } catch {
       // Fallback to stop + start
       try {
-        execSync(`launchctl stop ${this.label}`, { stdio: 'pipe' });
+        execFileSync('launchctl', ['stop', this.label], { stdio: 'pipe' });
       } catch {
         // may already be stopped
       }
-      execSync(`launchctl start ${this.label}`, { stdio: 'pipe' });
+      execFileSync('launchctl', ['start', this.label], { stdio: 'pipe' });
     }
   }
 
   async stop(): Promise<void> {
-    execSync(`launchctl stop ${this.label}`, { stdio: 'pipe' });
+    execFileSync('launchctl', ['stop', this.label], { stdio: 'pipe' });
   }
 
-  async isActive(): Promise<boolean> {
+  async status(): Promise<ServiceState> {
     try {
-      const output = execSync('launchctl list', { stdio: 'pipe' }).toString();
+      const output = execFileSync('launchctl', ['list'], { stdio: 'pipe' }).toString();
       for (const line of output.split('\n')) {
         const parts = line.trim().split(/\s+/);
         if (parts[parts.length - 1] === this.label) {
           const pid = line.trim().split(/\s+/)[0];
-          return pid !== '-' && pid !== '' && !isNaN(Number(pid));
+          return pid !== '-' && pid !== '' && !isNaN(Number(pid)) ? 'active' : 'inactive';
         }
       }
     } catch {
       // can't determine
     }
-    return false;
+    return 'unknown';
   }
 
   async getLogs(lines: number): Promise<string> {
     try {
-      return execSync(
-        `log show --predicate 'processImagePath contains "convosketchpad"' --last 5m --info | tail -${lines}`,
+      const output = execFileSync(
+        'log',
+        ['show', '--predicate', 'processImagePath contains "convosketchpad"', '--last', '5m', '--info'],
         { stdio: 'pipe' },
       ).toString();
+      return output.split('\n').slice(-lines).join('\n');
     } catch {
       return '';
     }
+  }
+
+  private readPlistValue(plist: string, key: string): string {
+    return execFileSync(
+      '/usr/libexec/PlistBuddy',
+      ['-c', `Print :${key}`, plist],
+      { stdio: 'pipe' },
+    ).toString().trim();
   }
 }
 
@@ -185,12 +267,12 @@ class LaunchdManager implements ServiceManager {
  * Detect the active service manager, or null if neither is found.
  * Tries systemd first, then launchd.
  */
-export function detectServiceManager(): ServiceManager | null {
+export function detectServiceManager(cwd: string): ServiceManager | null {
   const systemd = new SystemdManager();
-  if (systemd.detect()) return systemd;
+  if (systemd.detect(cwd)) return systemd;
 
   const launchd = new LaunchdManager();
-  if (launchd.detect()) return launchd;
+  if (launchd.detect(cwd)) return launchd;
 
   return null;
 }

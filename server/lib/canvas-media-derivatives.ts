@@ -9,13 +9,13 @@ import {
 import type {
   CanvasMediaDerivative,
   CanvasMediaDerivativePurpose,
-  CanvasStore,
-} from './canvas-db.js';
+} from './canvas/model.js';
+import type { CanvasStore } from './canvas/persistence/canvas-store.js';
+import { CANVAS_MEDIA_BACKFILL_MIGRATION } from './canvas/persistence/migration-plan.js';
 import { packageMetadata } from './package-metadata.js';
 
 export const CANVAS_DELIVERY_POLICY_VERSION = 'delivery-v1';
 export const CANVAS_THUMBNAIL_POLICY_VERSION = 'thumbnail-v1';
-export const CANVAS_MEDIA_BACKFILL_MIGRATION = '0.3.0_media_derivatives_v1';
 export const CANVAS_DELIVERY_MAX_BYTES = 1_800_000;
 const CANVAS_DELIVERY_TARGET_BYTES = 1_650_000;
 const CANVAS_THUMBNAIL_MAX_BYTES = 160 * 1024;

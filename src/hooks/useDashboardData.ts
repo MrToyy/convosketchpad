@@ -1,22 +1,22 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { TokenData } from '@/types';
+import type { RuntimeUsageData } from '@/types';
 
 interface DashboardData {
-  tokenData: TokenData | null;
+  usageData: RuntimeUsageData | null;
   isLoading: boolean;
   loadError: boolean;
-  ensureTokens: () => Promise<void>;
-  refreshTokens: () => Promise<void>;
+  ensureUsage: () => Promise<void>;
+  refreshUsage: () => Promise<void>;
 }
 
 export function useDashboardData(): DashboardData {
-  const [tokenData, setTokenData] = useState<TokenData | null>(null);
+  const [usageData, setUsageData] = useState<RuntimeUsageData | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [loadError, setLoadError] = useState(false);
   const inFlightRef = useRef<Promise<void> | null>(null);
   const controllerRef = useRef<AbortController | null>(null);
 
-  const refreshTokens = useCallback((): Promise<void> => {
+  const refreshUsage = useCallback((): Promise<void> => {
     if (inFlightRef.current) return inFlightRef.current;
 
     const controller = new AbortController();
@@ -26,10 +26,10 @@ export function useDashboardData(): DashboardData {
 
     const request = (async () => {
       try {
-        const response = await fetch('/api/tokens', { signal: controller.signal });
+        const response = await fetch('/api/runtime/usage', { signal: controller.signal });
         if (!response.ok) throw new Error(`Usage request failed with HTTP ${response.status}`);
-        const nextData = await response.json() as TokenData;
-        if (!controller.signal.aborted) setTokenData(nextData);
+        const nextData = await response.json() as RuntimeUsageData;
+        if (!controller.signal.aborted) setUsageData(nextData);
       } catch (error) {
         if (error instanceof Error && error.name !== 'AbortError') {
           console.debug('[Usage] refresh failed:', error.message);
@@ -47,14 +47,14 @@ export function useDashboardData(): DashboardData {
     return request;
   }, []);
 
-  const ensureTokens = useCallback(
-    () => tokenData ? Promise.resolve() : refreshTokens(),
-    [refreshTokens, tokenData],
+  const ensureUsage = useCallback(
+    () => usageData ? Promise.resolve() : refreshUsage(),
+    [refreshUsage, usageData],
   );
 
   useEffect(() => {
     return () => controllerRef.current?.abort();
   }, []);
 
-  return { tokenData, isLoading, loadError, ensureTokens, refreshTokens };
+  return { usageData, isLoading, loadError, ensureUsage, refreshUsage };
 }

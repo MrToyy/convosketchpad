@@ -1,6 +1,6 @@
 # 文档
 
-ConvoSketchpad 的目标是“让想法自由分支”。以下文档描述当前产品、OpenClaw 集成方式以及运行和维护要求。
+ConvoSketchpad 的目标是“让想法自由分支”。以下文档描述通用 Agent 可视化分支工作台、Agent 运行端集成方式以及运行和维护要求。
 
 ## 智能体开发入口
 
@@ -11,6 +11,7 @@ ConvoSketchpad 的目标是“让想法自由分支”。以下文档描述当�
 
 - [产品目标与原则](PRODUCT.md)
 - [架构与运行时数据流](ARCHITECTURE.md)
+- [Agent Runtime Adapter 开发规范](agent-runtimes/ADAPTER-DEVELOPMENT.md)
 - [Canvas 功能索引](canvas/README.md)
 
 ## 安装与运维

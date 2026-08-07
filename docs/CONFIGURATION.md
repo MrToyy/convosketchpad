@@ -6,15 +6,30 @@
 
 | 环境变量 | 默认值 | 用途 |
 |---|---|---|
-| `GATEWAY_URL` | `http://127.0.0.1:18789` | 后端连接的 OpenClaw Gateway HTTP Origin |
-| `GATEWAY_TOKEN` | 空 | Gateway 共享密钥；本机 RPC、所有 Gateway HTTP 请求和远程配对 bootstrap 使用，不会发给浏览器 |
-| `CONVOSKETCHPAD_GATEWAY_TIMEZONE` | 应用宿主机时区 | 预测 Gateway 每日 Session 重置的 IANA 时区 |
+| `AGENT_RUNTIMES` | `openclaw` | 启用的 Agent 运行端类型，逗号分隔；同一类型最多一个实例，未知或空配置会拒绝启动 |
+| `CONVOSKETCHPAD_DEFAULT_AGENT_RUNTIME` | 未设置 | 新建 Canvas 优先选择的 Runtime ID；必须与 Profile 同时设置且属于 `AGENT_RUNTIMES` |
+| `CONVOSKETCHPAD_DEFAULT_AGENT_PROFILE` | 未设置 | 新建 Canvas 优先选择的 Agent Profile ID；不可用时回退到第一个可用 Agent |
+| `OPENCLAW_GATEWAY_URL` | `http://127.0.0.1:18789` | OpenClaw Adapter 连接的 Gateway HTTP Origin |
+| `OPENCLAW_GATEWAY_TOKEN` | 空 | Gateway 共享密钥；本机 RPC、Gateway HTTP 和远程配对 bootstrap 使用，不会发给浏览器 |
+| `OPENCLAW_GATEWAY_TIMEZONE` | 应用宿主机时区 | OpenClaw Adapter 预测每日 Session 重置的 IANA 时区 |
 | `PORT` | `3080` | ConvoSketchpad 浏览器入口端口 |
 | `HOST` | `127.0.0.1` | ConvoSketchpad 浏览器入口监听地址 |
 | `OPENCLAW_CONFIG_PATH` | 未设置 | 只透传给 OpenClaw CLI 的实例选择器 |
-| `OPENCLAW_BIN` | 自动发现 | OpenClaw CLI 路径 |
+| `OPENCLAW_BIN` | `openclaw` | OpenClaw CLI 命令或显式绝对路径；未设置时直接通过服务进程的 `PATH` 查找 |
+| `CODEX_BIN` | `codex` | Codex CLI 命令或显式绝对路径；用于启动受监督的本地 App Server，最低且已验证版本为 `0.146.0` |
+| `CODEX_WORKING_DIRECTORY` | `~/codex-convosketchpad` | Codex 可读写的项目目录；setup 按需创建，不得位于 `CODEX_HOME` / `~/.codex` 内 |
 
 `HOST` / `PORT` 在生产和开发模式下含义一致：都是用户打开的 ConvoSketchpad 入口。生产模式由 Hono 在该地址同时提供前端静态文件与 API；开发模式由 Vite 使用该地址，启动脚本自动为 Hono 分配仅监听 `127.0.0.1` 的内部端口，并代理 `/api` 和 `/health`。内部端口不属于用户配置。
+
+Runtime ID 与展示名在无副作用的 `server/lib/agent-runtimes/manifest.ts` 维护；`definitions.ts` 必须为清单中的每项提供 Registry 所有的实例工厂，通用配置选择与校验位于 `configuration.ts`。每个 Adapter 的专属环境变量、默认值和校验位于自身 `adapters/<runtime-id>/config.ts`。通用 `server/lib/config.ts` 不承载 OpenClaw/Codex 专属字段。只有 `AGENT_RUNTIMES` 完全缺失时才默认启用 `openclaw`；显式空值与未知、重复项一样会被 setup 检查和服务启动拒绝。
+
+setup 先执行只读 Runtime 发现，只用无凭据命令确认本机入口与版本，将已探测和未探测的支持项分组展示并允许多选；发现 Driver 只接收“是否已配置”和可选可执行文件路径，不接收 Token，也不读取原生配置。用户选中后才由对应 Driver 逐项配置。CLI 未探测到不代表 OpenClaw 远程 Gateway 不可接入；Codex 当前只支持本机 CLI/App Server。配置完成后 setup 通过统一 Runtime Port 获取 Profile 并选择默认 Agent；若目录暂时不可用，保留已有默认值或不写显式默认值，运行时再安全回退。非交互模式可使用 `--runtimes openclaw,codex` 和 `--default-agent codex/default`；Codex 工作目录会使用默认值，也可通过环境变量覆盖。
+
+## Codex 配置
+
+Codex Adapter 直接监督 `codex app-server` 的 stdio JSONL 进程，不经过 OpenClaw，也不连接远程 Codex。setup 只用 `codex --version` 发现入口；用户选择 Codex 后才临时启动 App Server，通过 `account/read` 验证登录状态。未登录不会阻断 ConvoSketchpad 的其他 setup 步骤，向导会提示先运行 `codex login`，再重跑 setup；ConvoSketchpad 不代办 Runtime 登录，也不读取 `~/.codex` 中的凭据。
+
+`CODEX_WORKING_DIRECTORY` 是 Codex Thread 的 `cwd` 和文件系统权限边界之一，不是 Codex 默认状态目录 `CODEX_HOME`。新配置在目录提示处直接回车会使用并创建 `~/codex-convosketchpad`；更新配置时优先把现有 `.env` 值作为提示默认值。自定义输入同样会按需创建，并以展开后的绝对路径写回 `.env`。同一部署中的受管用户共享宿主机当前 Codex 账户和该工作目录，但 Canvas 数据仍按所有者隔离；因此只应选择部署者愿意向全部受管用户开放的专用工作区。Codex 生成的临时交付物写入 `<CODEX_WORKING_DIRECTORY>/.convosketchpad-artifacts/<turn-token>/outputs/`，经路径、链接、数量和大小校验复制到 Canvas Artifact 存储后删除。不要把这个目录加入源代码，也不要将工作目录设在 `~/.codex` 内。
 
 ConvoSketchpad 运行时和 Vite 都只提供 HTTP。HTTPS 必须由 Caddy、Nginx、Traefik、Tailscale Serve 等外部入口终止；项目不会读取 `certs/`。
 
@@ -24,8 +39,8 @@ ConvoSketchpad 使用 `gateway-client/backend/node` 身份连接，不发送浏�
 
 | Gateway 地址 | WebSocket RPC | Gateway HTTP | 设备配对 |
 |---|---|---|---|
-| loopback（`localhost`、`127.0.0.0/8`、`::1`） | 共享 `GATEWAY_TOKEN`，不发送设备身份 | 共享 `GATEWAY_TOKEN` | 不需要 |
-| 远程地址 | 精确 read/write 的设备 Token | 共享 `GATEWAY_TOKEN` | 需要 |
+| loopback（`localhost`、`127.0.0.0/8`、`::1`） | 共享 `OPENCLAW_GATEWAY_TOKEN`，不发送设备身份 | 共享 `OPENCLAW_GATEWAY_TOKEN` | 不需要 |
+| 远程地址 | 精确 read/write/approvals 的设备 Token | 共享 `OPENCLAW_GATEWAY_TOKEN` | 需要 |
 
 因此：
 
@@ -41,7 +56,7 @@ openclaw devices list --json
 openclaw devices approve <requestId>
 ```
 
-远程 ConvoSketchpad 只申请 `operator.read` 和 `operator.write`。setup 会创建或验证 request，但不会跨主机自动取得管理权限；必须由 Gateway 宿主机上的操作者审批。repair 若保留了更宽权限，应在宿主机把最终设备 Token 降为精确 read/write。
+远程 ConvoSketchpad 只申请 `operator.read`、`operator.write` 和 `operator.approvals`。setup 会创建或验证 request，但不会跨主机自动取得管理权限；必须由 Gateway 宿主机上的操作者审批。旧设备缺少 approvals scope 时必须重新配对或完成 scope upgrade；repair 若保留了更宽权限，应在宿主机把最终 Token 降为上述精确集合。
 
 设备 Token 按 Gateway URL 保存在 `$CONVOSKETCHPAD_DATA_DIR/gateway-auth.json`，默认是 `~/.convosketchpad/gateway-auth.json`，权限为 `0600`。
 切换到 loopback Gateway 时已有记录会保留但被忽略；以后切回同一远程 Gateway 时可以继续复用。
@@ -87,17 +102,23 @@ Custom 的“HTTPS reverse proxy”还会询问额外可信代理 IP。回环代
 - `VITE_HOST`
 - `VITE_PORT`
 
+旧 `.env` 中的 `GATEWAY_URL`、`GATEWAY_TOKEN` 和 `CONVOSKETCHPAD_GATEWAY_TIMEZONE` 仅由 setup 读取并原子改写为 `OPENCLAW_*` 名称；开发期使用过的 `AGENT_BACKENDS` 会由 setup 或目标版本迁移器一次性改写为 `AGENT_RUNTIMES`。正式运行只读取新名称，不保留别名或双写；旧、新名称同时存在且值冲突时迁移会明确失败。
+
 浏览器 CSP 的 `connect-src` 固定为 `'self'`，因为产品通信只有同源 HTTP/SSE。
 
 ## 存储
 
 | 环境变量 | 默认值 | 用途 |
 |---|---|---|
-| `CONVOSKETCHPAD_DATA_DIR` | `~/.convosketchpad` | 远程 Gateway 设备身份与设备 Token、更新器状态 |
+| `CONVOSKETCHPAD_DATA_DIR` | `~/.convosketchpad` | 远程 Gateway 设备身份与设备 Token、更新器状态；相对路径以项目根目录为基准 |
 
 Canvas SQLite 位于 `database/canvas.sqlite`，附件和 Artifact 位于项目内 `artifacts/`。二者必须一起备份。
 
-ConvoSketchpad 不检查 Codex/Claude 本地凭据，也不调用它们的 CLI。
+ConvoSketchpad 不检查 Codex/Claude 本地凭据，也不调用它们的 CLI 获取 Provider、用量或配额；Codex 用量和额度只通过已初始化的 App Server API 读取。
+
+更新器按“进程环境 → 项目 `.env` → 默认值”解析 `CONVOSKETCHPAD_DATA_DIR`，因此锁、正式回滚账本、快照和最近运行记录始终位于同一个配置目录。`~/...` 会展开为当前用户目录；相对路径按项目根目录解析。
+
+setup 写入 Agent 运行端配置后，只在受管服务的工作目录和启动命令属于当前安装、且服务状态明确时自动迁移数据库：运行中先停服并复核离线，创建一次性 SQLite 快照，成功重启后验证状态、健康接口和版本；原本停止的服务保持停止。迁移或服务恢复失败时，只有再次确认离线后才恢复数据库与 `.env`；无法确认离线时不覆盖 SQLite，并保留快照供人工处理。Setup 不会改写更新器的正式 `last-good.json`。没有匹配服务管理器时只保存配置并推迟迁移，服务下次手动启动会在监听前幂等检查 Schema。setup 与更新器的显式迁移超时统一为 60 分钟。
 
 ## 受管认证
 
