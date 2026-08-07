@@ -75,22 +75,25 @@ Agent 运行端负责 Agent 执行、工具、Conversation 和原始运行记录
 
 ### 已适配的 Agent 运行端
 
-- **OpenClaw Gateway**：v0.4.0 正式支持；提供多 Agent Profile、Conversation、附件、Artifact、用量、连接状态和节点内审批。
+- **OpenClaw Gateway**：v0.4.0 正式支持；当前验证基线为 OpenClaw `2026.6.8`。setup 尚未强制最低 OpenClaw 版本，更早版本不在 Release 兼容保证内。适配能力包括多 Agent Profile、Conversation、附件、Artifact、用量、连接状态和节点内审批。
 - **Codex App Server**：v0.4.0 正式支持 Codex CLI `0.146.0` 及以上版本的本地受监督接入；提供一个共享宿主机账户的 Codex Agent、Thread 恢复、文本/图片输入、流式输出、图片与通用 Artifact、用量/额度和节点内审批。
 
-以下是路线图候选，不代表已经适配或承诺具体版本：
+以下是计划支持候选，不代表已经适配或承诺具体版本。排序以图片设计用途的直接性为准：原生图片生成/编辑优先于明确的设计工作流和多模态输入，仅能通过外部 MCP 扩展图片能力的候选排在后面。
 
-- **Hermes Agent**
-- **Qwen Code**
-- **Kimi Code CLI**
-- **iFlow CLI**
+| 顺序 | 候选 Runtime | 图片设计适用性 | 基本接入条件 |
+|---:|---|---|---|
+| 1 | [CodeBuddy Code](https://www.codebuddy.ai/docs/cli/cli-reference) | CLI [内置 `ImageGen`、`ImageEdit` 和 `VideoGen`](https://www.codebuddy.ai/docs/cli/tools-reference)，支持文生图、图生图和图片编辑，也能[处理多图片上下文](https://www.codebuddy.ai/docs/cli/common-workflows)，最贴近图片设计主流程 | 具备 ACP、REST API、Agent SDK、`stream-json` 和后台服务，结构化接入条件较完整 |
+| 2 | [Qoder CLI](https://docs.qoder.com/en/cli/quick-start) | Qoder 提供面向海报、横幅和落地页的 [Design 工作台](https://docs.qoder.com/qoderwork/design)，CLI 的 [ACP 也明确支持图片](https://docs.qoder.com/en/cli/acp)；仍需确认设计产物能否通过 CLI/ACP 完整导出 | 具备 Agent SDK、ACP、流式消息、Session 和权限回调，结构化接入条件较完整 |
+| 3 | [Kimi Code](https://www.kimi.com/code/docs/en/kimi-code-cli/reference/kimi-command.html) | 原生支持[图片和视频输入](https://www.kimi.com/code/docs/en/kimi-code-cli/guides/interaction)、媒体文件读取，并可通过 [MCP](https://www.kimi.com/code/docs/en/kimi-code-cli/customization/mcp.html) 接入图片生成与编辑工具 | 具备 ACP JSON-RPC，以及本地 REST 与 WebSocket API，结构化接入条件较完整 |
+| 4 | [Claude Code](https://code.claude.com/docs/en/cli-usage) | 支持[在终端输入截图、UI Mockup 和 Figma 导出图](https://code.claude.com/docs/en/common-workflows)，并可通过 [MCP](https://code.claude.com/docs/en/agent-sdk/mcp) 调用图片生成或设计工具 | 具备 Agent SDK、`stream-json`、Session 恢复和权限回调，结构化接入条件较完整 |
+| 5 | [OpenCode](https://dev.opencode.ai/docs/cli/) | 未发现官方内置图片生成或专用设计流程；可通过本地或远程 [MCP Server](https://opencode.ai/docs/mcp-servers/) 调用图片工具，因此作为扩展型候选保留 | 具备 ACP、无头 HTTP Server、Session 与导入导出接口，结构化接入条件较完整 |
 
-新运行端优先通过 App Server、ACP、Gateway 或 SDK 等结构化协议接入，不解析终端 UI 或非稳定 stdout。
+新运行端必须优先通过 App Server、ACP、Gateway、SDK 或稳定的机器可解析无头模式接入，不解析终端 UI 或非稳定 stdout。图片能力还必须覆盖输入媒体、生成或编辑工具调用、二进制 Artifact 发现与持久化；正式实现仍以事件完整性、审批安全、Session 恢复和 Adapter 一致性测试为准。
 
 ### 环境要求
 
 - macOS 或 Linux
-- Node.js 22.13 或更高版本
+- Node.js 22.22.2 或更高版本
 - npm 和 Git
 - 至少一个已配置且可访问的 Agent 运行端：OpenClaw Gateway，或已登录的本地 Codex CLI `0.146.0+`
 
@@ -176,7 +179,8 @@ PORT=4000 npm run dev
 
 ### 产品路线图
 
-- **更多 Agent 运行端**：评估 Hermes Agent、Qwen Code、Kimi Code CLI、iFlow CLI 等具备结构化协议或 CLI 能力的 Coding Agent。
+- **更多 Agent 运行端**：按上方图片设计适用性顺序验证候选；正式实现以媒体与 Artifact 传输、结构化协议完备度、安全审批、Session 恢复和 Adapter 一致性为准，不因排名绕过准入条件。
+- **Windows 支持**：补齐 Windows 原生安装、setup、服务管理、路径与权限处理、Runtime 探测以及构建和自动化测试，使其达到与 macOS、Linux 一致的受支持状态。
 - **`@图片` 与资源引用**：在输入中引用 Canvas 图片、附件和节点产物，并保留所有者、路径与运行端能力校验。
 - **分支合并**：选择一个或多个分支生成新的 Interaction，保留来源和历史，不改写既有 Conversation。
 - **后续方向**：运行端能力发现、Adapter 一致性测试、跨 Agent 交接、多 Agent 协作和更多多模态能力。
@@ -272,22 +276,25 @@ Agent Runtimes own Agent execution, tools, Conversations, and authoritative run 
 
 ### Supported Agent Runtimes
 
-- **OpenClaw Gateway**: officially supported in v0.4.0, including multiple Agent Profiles, Conversations, attachments, Artifacts, usage, connection health, and in-node approvals.
+- **OpenClaw Gateway**: officially supported in v0.4.0, with OpenClaw `2026.6.8` as the current validated baseline. Setup does not yet enforce a minimum OpenClaw version, so earlier versions are outside the Release compatibility guarantee. The integration includes multiple Agent Profiles, Conversations, attachments, Artifacts, usage, connection health, and in-node approvals.
 - **Codex App Server**: officially supported in v0.4.0 through a supervised local Codex CLI `0.146.0` or newer, including one shared-host-account Agent, Thread resume, text/image input, streaming output, image and general Artifacts, usage/quotas, and in-node approvals.
 
-The following are roadmap candidates, not completed integrations or release commitments:
+The following are planned-support candidates, not completed integrations or release commitments. They are ordered by how directly they fit image-design work: native image generation and editing rank ahead of explicit design workflows and multimodal input, while candidates that depend entirely on external MCP tools rank lower.
 
-- **Hermes Agent**
-- **Qwen Code**
-- **Kimi Code CLI**
-- **iFlow CLI**
+| Order | Candidate Runtime | Image-design fit | Basic integration surface |
+|---:|---|---|---|
+| 1 | [CodeBuddy Code](https://www.codebuddy.ai/docs/cli/cli-reference) | Its CLI has built-in [`ImageGen`, `ImageEdit`, and `VideoGen`](https://www.codebuddy.ai/docs/cli/tools-reference) for text-to-image, image-to-image, and image editing, and can [work with multiple images](https://www.codebuddy.ai/docs/cli/common-workflows); this is the closest fit for the core image-design flow | ACP, REST API, Agent SDK, `stream-json`, and a background service provide a comparatively complete structured surface |
+| 2 | [Qoder CLI](https://docs.qoder.com/en/cli/quick-start) | Qoder offers a [Design workbench](https://docs.qoder.com/qoderwork/design) for posters, banners, and landing pages, while its CLI [ACP explicitly supports images](https://docs.qoder.com/en/cli/acp); complete design-output export through CLI/ACP still requires validation | Agent SDK, ACP, streamed messages, Sessions, and permission callbacks provide a comparatively complete structured surface |
+| 3 | [Kimi Code](https://www.kimi.com/code/docs/en/kimi-code-cli/reference/kimi-command.html) | Native [image and video input](https://www.kimi.com/code/docs/en/kimi-code-cli/guides/interaction), media-file reading, and [MCP access](https://www.kimi.com/code/docs/en/kimi-code-cli/customization/mcp.html) make it suitable for image-generation and editing tools | ACP JSON-RPC plus local REST and WebSocket APIs provide a comparatively complete structured surface |
+| 4 | [Claude Code](https://code.claude.com/docs/en/cli-usage) | Accepts [screenshots, UI mockups, and Figma exports in the terminal](https://code.claude.com/docs/en/common-workflows) and can invoke image-generation or design tools through [MCP](https://code.claude.com/docs/en/agent-sdk/mcp) | Agent SDK, `stream-json`, Session resume, and permission callbacks provide a comparatively complete structured surface |
+| 5 | [OpenCode](https://dev.opencode.ai/docs/cli/) | No official built-in image generator or dedicated design workflow was found; local or remote [MCP servers](https://opencode.ai/docs/mcp-servers/) can supply image tools, so it remains an extensibility-first candidate | ACP, headless HTTP server, Sessions, and import/export APIs provide a comparatively complete structured surface |
 
-New Runtimes should use structured protocols such as App Server, ACP, Gateway, or SDK instead of parsing terminal UI or unstable stdout.
+New Runtimes must prefer App Server, ACP, Gateway, SDK, or a stable machine-readable headless mode instead of parsing terminal UI or unstable stdout. Image support must also cover media input, generation or editing tool calls, and binary-Artifact discovery and persistence; implementation still depends on event completeness, approval safety, Session recovery, and Adapter conformance tests.
 
 ### Requirements
 
 - macOS or Linux
-- Node.js 22.13 or newer
+- Node.js 22.22.2 or newer
 - npm and Git
 - At least one configured and reachable Agent Runtime: OpenClaw Gateway or a logged-in local Codex CLI `0.146.0+`
 
@@ -373,7 +380,8 @@ Before exposing the service to a network, enable managed-user authentication and
 
 ### Product roadmap
 
-- **More Agent Runtimes**: evaluate Hermes Agent, Qwen Code, Kimi Code CLI, iFlow CLI, and other Coding Agents with structured protocols or CLI capabilities.
+- **More Agent Runtimes**: validate candidates in the image-design order above; implementation still depends on protocol completeness, media and Artifact transport, safe approvals, Session recovery, and Adapter conformance rather than rank alone.
+- **Windows support**: add native Windows installation, setup, service management, path and permission handling, Runtime detection, builds, and automated tests to reach the same supported status as macOS and Linux.
 - **`@image` and resource references**: reference Canvas images, attachments, and node outputs while preserving ownership, path, and Runtime-capability checks.
 - **Branch merging**: create a new Interaction from selected branches while preserving provenance and history instead of rewriting existing Conversations.
 - **Later directions**: Runtime capability discovery, Adapter conformance tests, cross-Agent handoff, multi-Agent collaboration, and broader multimodal support.

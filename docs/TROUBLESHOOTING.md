@@ -164,4 +164,4 @@ npm run lint
 npm run build
 ```
 
-需要 Node.js 22.13 或更高版本。
+需要 Node.js 22.22.2 或更高版本。

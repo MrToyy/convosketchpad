@@ -46,7 +46,7 @@ describe('checkPrerequisites', () => {
   it('enforces the complete Node.js minimum version', async () => {
     const { checkPrerequisites } = await import('./prereq-check.js');
 
-    expect(checkPrerequisites({ quiet: true, nodeVersion: 'v22.12.9' }).nodeOk).toBe(false);
-    expect(checkPrerequisites({ quiet: true, nodeVersion: 'v22.13.0' }).nodeOk).toBe(true);
+    expect(checkPrerequisites({ quiet: true, nodeVersion: 'v22.22.1' }).nodeOk).toBe(false);
+    expect(checkPrerequisites({ quiet: true, nodeVersion: 'v22.22.2' }).nodeOk).toBe(true);
   });
 });

@@ -6,7 +6,7 @@ ConvoSketchpad 的目标是“让想法自由分支”。贡献内容应增强 C
 
 环境要求：
 
-- Node.js 22.13 或更高版本
+- Node.js 22.22.2 或更高版本
 - npm
 - 可访问的 OpenClaw Gateway
 

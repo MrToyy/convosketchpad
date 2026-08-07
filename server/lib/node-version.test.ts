@@ -11,9 +11,9 @@ describe('Node.js version requirement', () => {
   });
 
   it.each([
-    ['v22.12.9', false],
-    ['22.13.0', true],
-    ['v22.14.0', true],
+    ['v22.22.1', false],
+    ['22.22.2', true],
+    ['v22.23.0', true],
     ['v23.0.0', true],
     ['not-a-version', false],
   ])('evaluates %s', (version, expected) => {

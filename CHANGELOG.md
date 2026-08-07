@@ -4,11 +4,7 @@ ConvoSketchpad 的重要变更均记录在此文件中。格式遵循 [Keep a Ch
 
 ## [Unreleased]
 
-### 修复
-
-- Canvas 连接边改为静态显示，避免 React Flow 的 SVG 虚线动画在空闲页面持续触发样式重算和 GPU 绘制；运行状态继续由 Interaction 节点和状态栏反馈。
-
-## [0.4.0] - 2026-08-02
+## [0.4.0] - 2026-08-07
 
 ### 发布摘要
 
@@ -56,14 +52,21 @@ ConvoSketchpad v0.4.0 定位为“Agent 可视化分支工作台——从任意�
 - 流式 Preview 按统一语义区分追加 Delta、累计快照和消息完成值，服务端按 `messageId` 组装完整 Turn 文本后再发给前端；Codex 多段文字不再只显示最后一个 Delta，OpenClaw 累计 `message` 也不会被重复追加。运行节点在已有文字时继续显示工作指示，并使用固定高度的运行期输出面板，将正文滚动层与底部工作状态层分离；每次快照更新后正文自动跟随到底部，避免未闭合的流式 Markdown 持续改变容器和滚动轨道尺寸。Codex 上下文改用 `tokenUsage.last.totalTokens`，并通用拒绝超出 Context Window 的累计用量快照。
 - Runtime 状态读取改为无副作用快照；Gateway 不可达时，状态聚合和状态订阅不再反向触发即时重连，OpenClaw 严格保持 1–30 秒指数退避，避免启动期热循环和日志风暴。
 - setup、migrate 和 update 共用维护锁，并校验 systemd/launchd 的名称、工作目录、启动命令和三态运行状态；只有属于当前安装且明确离线时才快照、迁移或恢复 SQLite。没有匹配管理器时 setup/update 推迟数据库迁移且失败回滚不替换 SQLite；独立 migrate 要求操作者显式确认手工进程已停止。setup 重启后验证服务状态、健康和版本，无法确认离线时不覆盖数据库并保留临时快照。环境配置迁移仍不依赖服务管理器，`--no-restart` 继续只恢复代码和 `.env`。本轮复用既有派发恢复字段，不增加第四条数据库迁移。
-- 安装器不再读取 OpenClaw 原生配置或直接生成 Runtime `.env`，交互与非交互安装统一经过 setup；`--skip-setup` 只复用已有配置。已有稳定版跨 Release 升级必须使用事务化更新器，安装器只处理新安装和同版本修复，并拒绝覆盖脏工作区及模糊 CLI 参数。setup 严格拒绝未知、重复、缺值和冲突参数；其一次性数据库快照不覆盖正式 `last-good`，迁移或服务恢复失败时恢复 `.env` 与数据库并保持服务停止。Linux 系统级 systemd 的安装与更新统一经最小权限 sudo 路径执行。安装、setup 与 update 统一强制 Node.js `>=22.13.0`。
+- 安装器不再读取 OpenClaw 原生配置或直接生成 Runtime `.env`，交互与非交互安装统一经过 setup；`--skip-setup` 只复用已有配置。已有稳定版跨 Release 升级必须使用事务化更新器，安装器只处理新安装和同版本修复，并拒绝覆盖脏工作区及模糊 CLI 参数。setup 严格拒绝未知、重复、缺值和冲突参数；其一次性数据库快照不覆盖正式 `last-good`，迁移或服务恢复失败时恢复 `.env` 与数据库并保持服务停止。Linux 系统级 systemd 的安装与更新统一经最小权限 sudo 路径执行。安装、setup 与 update 统一强制 Node.js `>=22.22.2`。
+
+### 修复
+
+- Canvas 连接边改为静态显示，避免 React Flow 的 SVG 虚线动画在空闲页面持续触发样式重算和 GPU 绘制；运行状态继续由 Interaction 节点和状态栏反馈。
 
 ### 安全
 
 - OpenClaw 远程设备权限增加精确的 `operator.approvals` scope，以便统一审批 Port 能真实响应原生审批；已有 read/write 设备需要重新配对或完成 scope upgrade。审批事件持久化前会移除命令环境等敏感原始数据。
 - Runtime 发现 Driver 不再接收完整 `.env`，只获得是否已配置和非敏感可执行文件路径；未选择 Runtime 的发现阶段无法读取连接 Token。
+- 更新 Hono、PostCSS、brace-expansion 与 jsdom/Undici 依赖链，修复正式 Release 审计发现的拒绝服务、响应解析、缓存与 Cookie 处理漏洞；完整依赖和生产依赖审计均不再报告已知漏洞。
 
 ### 安装与升级
+
+`v0.4.0` 的安装、更新和源码构建需要 Node.js `22.22.2+`。
 
 新安装需先准备至少一个可访问的 Agent Runtime（OpenClaw Gateway，或已登录的本地 Codex CLI `0.146.0+`），然后运行：
 

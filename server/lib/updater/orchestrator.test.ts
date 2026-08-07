@@ -95,7 +95,7 @@ describe('updater orchestration around database migration', () => {
     mocks.acquireLock.mockReturnValue('/state/updater/update.lock');
     mocks.runPreflight.mockReturnValue({
       gitVersion: '2.50.0',
-      nodeVersion: '22.13.0',
+      nodeVersion: '22.22.2',
       npmVersion: '10.0.0',
       isGitRepo: true,
       hasWritePermission: true,

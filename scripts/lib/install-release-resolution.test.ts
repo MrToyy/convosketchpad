@@ -110,9 +110,9 @@ describe('installer release resolution', () => {
     const helper = installer.slice(nodeVersionHelperStart, nodeVersionHelperEnd);
     const result = spawnSync('bash', ['-c', `
 ${helper}
-node_version_supported 22.12.9 22.13.0 && exit 10
-node_version_supported 22.13.0 22.13.0 || exit 11
-node_version_supported 23.0.0 22.13.0 || exit 12
+node_version_supported 22.22.1 22.22.2 && exit 10
+node_version_supported 22.22.2 22.22.2 || exit 11
+node_version_supported 23.0.0 22.22.2 || exit 12
 `], { encoding: 'utf-8' });
     expect(result.status).toBe(0);
   });

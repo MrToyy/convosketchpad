@@ -1,6 +1,6 @@
 # 安装 ConvoSketchpad
 
-ConvoSketchpad 的目标是“让想法自由分支”。它支持 macOS 和 Linux，需要 Node.js 22.13 或更高版本，并依赖至少一个可访问的 Agent Runtime：OpenClaw Gateway 或本地 Codex App Server。
+ConvoSketchpad 的目标是“让想法自由分支”。它支持 macOS 和 Linux，需要 Node.js 22.22.2 或更高版本，并依赖至少一个可访问的 Agent Runtime：OpenClaw Gateway 或本地 Codex App Server。
 
 ## 推荐安装方式
 
@@ -14,7 +14,7 @@ curl -fsSL https://raw.githubusercontent.com/MrToyy/convosketchpad/main/install.
 
 安装器依次执行五个阶段：
 
-1. **前置检查**：严格检查 Node.js 22.13.0、npm 和 Git；Runtime 探测统一留给后续 setup，安装器不读取任何 Runtime 配置或凭据。
+1. **前置检查**：严格检查 Node.js 22.22.2、npm 和 Git；Runtime 探测统一留给后续 setup，安装器不读取任何 Runtime 配置或凭据。
 2. **下载**：校验并安装所选稳定 Release，或显式指定的开发分支；已有脏工作区一律拒绝覆盖。
 3. **安装与构建**：安装 npm 依赖（包括当前平台的 Sharp 图片处理组件）并生成生产构建。
 4. **配置**：除非使用 `--skip-setup`，否则一律运行统一配置向导；安装器不直接生成 `.env`。

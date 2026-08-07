@@ -1,4 +1,4 @@
-export const MINIMUM_NODE_VERSION = '22.13.0';
+export const MINIMUM_NODE_VERSION = '22.22.2';
 
 function parseNodeVersion(value: string): [number, number, number] | null {
   const match = value.trim().match(/^v?(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/);
