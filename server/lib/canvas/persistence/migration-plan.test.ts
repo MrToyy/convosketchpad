@@ -3,7 +3,7 @@ import { packageMetadata } from '../../package-metadata.js';
 import { CANVAS_MIGRATION_PLAN } from './migration-plan.js';
 
 describe('Canvas migration plan', () => {
-  it('contains exactly the three continuous migrations required by v0.4.0', () => {
+  it('retains exactly the three continuous migrations required through v0.4.1', () => {
     expect(CANVAS_MIGRATION_PLAN).toEqual([
       {
         id: '0.2.0_to_0.3.0_v1',
@@ -33,6 +33,10 @@ describe('Canvas migration plan', () => {
     }
     expect(new Set(CANVAS_MIGRATION_PLAN.map(({ id }) => id)).size)
       .toBe(CANVAS_MIGRATION_PLAN.length);
-    expect(CANVAS_MIGRATION_PLAN.at(-1)?.toVersion).toBe(packageMetadata.version);
+    expect(CANVAS_MIGRATION_PLAN.at(-1)?.toVersion.localeCompare(
+      packageMetadata.version,
+      undefined,
+      { numeric: true },
+    )).toBeLessThanOrEqual(0);
   });
 });

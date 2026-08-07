@@ -3,6 +3,7 @@
  */
 
 import { readFileSync, writeFileSync, renameSync, copyFileSync, existsSync, unlinkSync, chmodSync } from 'node:fs';
+import { LEGACY_RUNTIME_ENV_MAPPINGS } from '../../server/lib/agent-runtimes/env-keys.js';
 
 /** All supported env config keys. */
 export interface EnvConfig {
@@ -160,13 +161,7 @@ export function loadExistingEnv(envPath: string): EnvConfig {
       if (value || key === 'AGENT_RUNTIMES') config[key] = value;
     }
   }
-  const legacyMappings = [
-    ['AGENT_BACKENDS', 'AGENT_RUNTIMES'],
-    ['GATEWAY_URL', 'OPENCLAW_GATEWAY_URL'],
-    ['GATEWAY_TOKEN', 'OPENCLAW_GATEWAY_TOKEN'],
-    ['CONVOSKETCHPAD_GATEWAY_TIMEZONE', 'OPENCLAW_GATEWAY_TIMEZONE'],
-  ] as const;
-  for (const [legacyKey, currentKey] of legacyMappings) {
+  for (const [legacyKey, currentKey] of LEGACY_RUNTIME_ENV_MAPPINGS) {
     const legacy = config[legacyKey];
     const current = config[currentKey];
     if (legacy !== undefined && current !== undefined && legacy !== current) {

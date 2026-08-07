@@ -41,7 +41,7 @@ export function parseUpdateCliOptions(args: string[], cwd: string): ParsedUpdate
         markSeen('--version');
         const value = args[++i];
         if (!value || value.startsWith('-')) {
-          throw new Error('--version requires a value (e.g. --version v0.4.0)');
+          throw new Error('--version requires a value (e.g. --version v0.4.1)');
         }
         options.version = value;
         break;

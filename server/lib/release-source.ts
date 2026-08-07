@@ -55,6 +55,32 @@ function releaseHeaders(): Record<string, string> {
   return headers;
 }
 
+function githubRequestError(response: Response): string {
+  const status = response.status;
+  const retryAfterHeader = response.headers.get('retry-after')?.trim() || '';
+  const retryAfter = /^\d+$/.test(retryAfterHeader) ? retryAfterHeader : null;
+  const rateLimitRemaining = response.headers.get('x-ratelimit-remaining');
+  const resetSeconds = Number(response.headers.get('x-ratelimit-reset'));
+
+  if ((status === 403 || status === 429) && rateLimitRemaining === '0') {
+    const resetDate = new Date(resetSeconds * 1_000);
+    const reset = Number.isFinite(resetSeconds) && resetSeconds > 0 && !Number.isNaN(resetDate.getTime())
+      ? ` The limit resets at ${resetDate.toISOString()}.`
+      : '';
+    const hint = process.env.GITHUB_TOKEN || process.env.GH_TOKEN
+      ? ' Wait for the reset or use a token with available quota.'
+      : ' Set GITHUB_TOKEN or GH_TOKEN to increase the request limit.';
+    return `GitHub API rate limit exceeded.${reset}${hint}`;
+  }
+  if ((status === 403 || status === 429) && retryAfter) {
+    return `GitHub temporarily rejected the release request; retry after ${retryAfter} seconds.`;
+  }
+  if (status === 401 && (process.env.GITHUB_TOKEN || process.env.GH_TOKEN)) {
+    return 'GitHub rejected GITHUB_TOKEN or GH_TOKEN; refresh the token or unset it to use unauthenticated requests.';
+  }
+  return `GitHub release request failed with HTTP ${status}`;
+}
+
 async function requestRelease(path: string): Promise<ReleaseLookupResult> {
   let response: Response;
   try {
@@ -76,7 +102,7 @@ async function requestRelease(path: string): Promise<ReleaseLookupResult> {
   if (!response.ok) {
     return {
       status: 'unavailable',
-      error: `GitHub release request failed with HTTP ${response.status}`,
+      error: githubRequestError(response),
     };
   }
 

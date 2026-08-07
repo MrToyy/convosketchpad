@@ -4,6 +4,33 @@ ConvoSketchpad 的重要变更均记录在此文件中。格式遵循 [Keep a Ch
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-08-07
+
+### 发布摘要
+
+ConvoSketchpad v0.4.1 修复 v0.4.0 更新链路中暴露的维护停服、旧配置迁移、GitHub 限流诊断与关闭竞态，并为从 v0.3.x 升级提供明确的一次性离线桥接。该补丁不改变 Canvas 数据模型，不增加数据库迁移。
+
+### 修复
+
+- macOS 更新器以 `launchctl bootout gui/<uid>/<label>` 真正卸载 `KeepAlive` Job，恢复时从已验证 plist 执行 `bootstrap` 并用 `kickstart -k` 启动；状态查询改为精确 Domain/Label，避免服务在迁移期间被自动拉起或把未知状态误判为停止。
+- 目标迁移器一次性原子转换 v0.3.x 的 `AGENT_BACKENDS`、`GATEWAY_URL`、`GATEWAY_TOKEN` 和 `CONVOSKETCHPAD_GATEWAY_TIMEZONE`。旧、新键冲突会在任何写入前失败，错误不包含配置值。
+- GitHub Release 请求现在区分主 API 限流、带 `Retry-After` 的临时限制和被拒绝的 Token；错误提供 UTC 重置时间或安全处理建议，不返回响应正文，也不降级到非 Release 更新源。
+- 进程关闭先通过内部 AbortSignal 终止 Canvas/Runtime SSE 的订阅、心跳和 catch-up 定时器，再关闭 Runtime 与 SQLite；SIGTERM/SIGINT 重入也会被忽略，避免停机或回滚期间定时器读取已关闭数据库。
+
+### 文档
+
+- 更新文档明确说明 v0.3.0–v0.3.2 的源更新器会与目标迁移器发生维护锁自冲突，应使用 `--no-restart` 后离线迁移；v0.4.0 的 macOS launchd 安装升级到本版时也需先 `bootout`。补充已恢复数据库但旧服务重启失败时的判断与 GitHub 403 排障，并让 CLI 准确说明 `--no-restart` 不管理服务。
+
+### 安装与升级
+
+新安装可以使用正式安装器。v0.4.0 的 systemd 安装可直接运行：
+
+```bash
+npm run update -- --version v0.4.1
+```
+
+v0.3.0–v0.3.2，以及 v0.4.0 的 macOS launchd 安装，必须按[升级文档](https://github.com/MrToyy/convosketchpad/blob/main/docs/UPDATING.md)先完全停服，再执行 `npm run update -- --version v0.4.1 --no-restart`、`npm run migrate -- --confirm-offline` 并恢复服务。不要删除维护锁或手工编辑 SQLite。
+
 ## [0.4.0] - 2026-08-07
 
 ### 发布摘要
@@ -240,7 +267,8 @@ npm run update -- --version v0.3.1
 
 ConvoSketchpad 源自 OpenClaw Nerve。更早的上游版本历史仍可在 [OpenClaw Nerve 更新日志](https://github.com/daggerhashimoto/openclaw-nerve/blob/master/CHANGELOG.md)中查看。
 
-[Unreleased]: https://github.com/MrToyy/convosketchpad/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/MrToyy/convosketchpad/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/MrToyy/convosketchpad/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/MrToyy/convosketchpad/compare/v0.3.2...v0.4.0
 [0.3.2]: https://github.com/MrToyy/convosketchpad/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/MrToyy/convosketchpad/compare/v0.3.0...v0.3.1

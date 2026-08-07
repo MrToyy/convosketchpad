@@ -11,7 +11,7 @@ ConvoSketchpad（Hono、SQLite、文件存储、发送协调器）
   └─ Codex Adapter    ⇄ 受监督的本地 app-server stdio JSONL
 ```
 
-v0.4.0 的 Canvas 通用运行路径全部通过 `AgentRuntime`，Registry 可同时注册 OpenClaw 与 Codex Adapter，HTTP、前端和数据库均使用通用 Agent/Conversation/Turn/Approval 语义。Codex 直接连接本机 App Server，不经过 OpenClaw。
+v0.4.1 的 Canvas 通用运行路径全部通过 `AgentRuntime`，Registry 可同时注册 OpenClaw 与 Codex Adapter，HTTP、前端和数据库均使用通用 Agent/Conversation/Turn/Approval 语义。Codex 直接连接本机 App Server，不经过 OpenClaw。
 
 浏览器不实现 Runtime 握手，不调用 Gateway RPC 或 Codex App Server，不保存 Runtime URL、Token、设备凭据或本地运行时凭据。服务端是唯一的 Agent Runtime 通信方。
 
@@ -46,7 +46,7 @@ runtime.disconnected
 
 `output.imageGeneration` 使用 `supported | unsupported | unknown` 三态；无法从原生协议可靠判断时必须保留 `unknown`。`approval.required` 必须带不透明 Approval Handle、所属 Conversation/Turn、审批类别、可展示摘要、风险、权限、选择、作用域和到期时间；`approval.resolved` 记录最终决定及来源。审批和终态信号使用统一持久化 Inbox 去重。全局断线只走 Runtime Status/SSE，不写 Canvas Inbox。审批摘要保存前移除原始环境等敏感字段，前端只在所属 Interaction 节点内处理；持久/会话级授权需由 UI 确认且服务端再次校验 `confirmed: true`。原生 resolved 事件的 Choice 和权限子集也以已持久化摘要为准再次校验，未知或越权结果进入 `unconfirmed`，不能默认成功。HTTP Route 只调用统一 `resolveApproval`。
 
-无副作用的 `manifest.ts` 是 Runtime ID 与展示名的支持清单，供服务启动和 setup 共同读取；`configuration.ts` 负责已配置 Runtime 的选择与通用校验，`definitions.ts` 必须对清单逐项提供实例工厂，`registry.ts` 不包含按类型分支。`server/application-context.ts` 是进程组合根，显式创建 Registry 与 Canvas Store，并负责后台协调器和资源的启动/关闭；Worker、投递、事件消费和 Reconciler 使用同一显式 Store 依赖。模块导入不会隐式创建全局 Registry、Store 或连接 Runtime。OpenClaw Adapter 独占 Gateway 方法名、Session Reset Policy、CLI 定位和原始事件投影；Codex Adapter 独占 App Server 子进程、JSONL、Thread/Turn/Item、原生审批和受管交付物目录。Canvas Route、Service、Worker、Coordinator、Reconciler、Context Snapshot 和 Artifact 逻辑不得根据 Runtime 类型增加协议分支；ESLint 边界规则会阻止全部通用 Canvas 模块和 Route 直接导入具体 Adapter。
+无副作用的 `manifest.ts` 是 Runtime ID 与展示名的支持清单，供服务启动和 setup 共同读取；`configuration.ts` 负责已配置 Runtime 的选择与通用校验，`definitions.ts` 必须对清单逐项提供实例工厂，`registry.ts` 不包含按类型分支。`server/application-context.ts` 是进程组合根，显式创建 Registry 与 Canvas Store，并负责后台协调器和资源的启动/关闭；Worker、投递、事件消费和 Reconciler 使用同一显式 Store 依赖。关闭时 ApplicationContext 先同步触发内部 AbortSignal，让 Canvas/Runtime SSE 取消订阅和定时器，再关闭 Runtime 与 SQLite，避免停机窗口继续访问已关闭数据库。模块导入不会隐式创建全局 Registry、Store 或连接 Runtime。OpenClaw Adapter 独占 Gateway 方法名、Session Reset Policy、CLI 定位和原始事件投影；Codex Adapter 独占 App Server 子进程、JSONL、Thread/Turn/Item、原生审批和受管交付物目录。Canvas Route、Service、Worker、Coordinator、Reconciler、Context Snapshot 和 Artifact 逻辑不得根据 Runtime 类型增加协议分支；ESLint 边界规则会阻止全部通用 Canvas 模块和 Route 直接导入具体 Adapter。
 
 setup 先以只读方式执行各 Adapter 的本机发现，只确认入口和版本，把已探测和未探测项分组展示，再把用户多选结果写入 `AGENT_RUNTIMES`；之后仅调用已选 Runtime 的 `RuntimeSetupDriver` 完成配置、校验与摘要。发现 Driver 只接收净化后的配置状态和可执行文件路径，不接收凭据；未选 Runtime 不调用原生配置命令、不发起连接或配对。OpenClaw 可在 CLI 未探测到时手工配置远程 Gateway；Codex 当前只接受本机 CLI/App Server。Codex 被选择后才启动临时 App Server 读取 `account/read`；未登录只提示运行 `codex login` 后重跑 setup，不由本项目处理登录。当前每种 Adapter 最多一个实例。Registry 按配置顺序组合实例，Catalog 并行发现 Profile，并按 Runtime 顺序、默认 Profile、原生顺序生成扁平 Agent 目录。setup 配置与配对完成后通过同一个 Runtime Port 读取 Profile，让用户选择产品级默认 Agent，并写入 `CONVOSKETCHPAD_DEFAULT_AGENT_RUNTIME` 与 `CONVOSKETCHPAD_DEFAULT_AGENT_PROFILE`。所有 Agent 平权，不存在运行时 Runtime 切换器。新建 Canvas 优先绑定可用的配置默认项，否则回退到第一个可用 Agent；首次持久 Send Reservation 前可以更新，Reservation 创建事务同时写 `agent_locked_at`，此后不因失败、刷新或重启解锁。
 
@@ -247,7 +247,7 @@ Interaction 上下文快照保存在 `execution_metadata_json` 并以通用 `run
 
 该数据迁移不连接 Gateway，也不重新读取可能已过期的 Transcript，因此结果不依赖升级时 OpenClaw 的保留窗口或在线状态。新版本服务首次打开 `0.2.0` 数据库时会自动执行；从 `0.3.0` 开始的更新器会在停服后显式运行目标版本的 `npm run migrate` 并校验外键与 SQLite 完整性。迁移账本存在后不会再次扫描历史节点。此后服务启动只恢复 `running`、`unconfirmed`、`observing` 或仍有 `artifact_sync_jobs` 的明确任务，不使用全局协调版本重新打开已终止节点。
 
-`server/lib/canvas/persistence/migration-plan.ts` 是发布迁移边界和 ID 的唯一事实来源。截至 `0.4.0` 恰有三项连续迁移：`0.2.0 → 0.3.0` 结构桥接、`0.3.0 → 0.3.2` 媒体维护迁移，以及 `0.3.2 → 0.4.0` Agent Runtime 结构迁移。媒体迁移保留已经发布的 `0.3.0_media_derivatives_v1` ID，不以重命名表达目标版本。显式迁移共用维护锁，且只有当前安装的受管服务明确离线或操作者对无管理器场景显式确认离线时才打开 SQLite；setup/update 无法确认离线时推迟到下次服务启动。
+`server/lib/canvas/persistence/migration-plan.ts` 是发布迁移边界和 ID 的唯一事实来源。截至 `0.4.1` 恰有三项连续迁移：`0.2.0 → 0.3.0` 结构桥接、`0.3.0 → 0.3.2` 媒体维护迁移，以及 `0.3.2 → 0.4.0` Agent Runtime 结构迁移；`0.4.1` 不增加数据库迁移。显式迁移共用维护锁，且只有当前安装的受管服务明确离线或操作者对无管理器场景显式确认离线时才打开 SQLite；setup/update 无法确认离线时推迟到下次服务启动。launchd 维护停服使用 `bootout gui/<uid>/<label>` 真正卸载 KeepAlive Job，恢复时使用 plist `bootstrap` 并以 `kickstart -k` 启动；状态读取针对精确 Domain/Label，不依赖宽泛的 Job 列表。
 
 `0.3.2_to_0.4.0_agent_runtime_v1` 是 `0.4.0` 的结构迁移：在同一迁移边界创建审批与通用事件 Inbox，重建 Canvas、Branch、Interaction、Send Reservation 和 Artifact 表，把 OpenClaw 标识投影成版本化 Runtime Handle，将 Gateway 事件迁入 `runtime_event_inbox`，并物理删除旧 OpenClaw 列与 `gateway_signal_inbox`。旧 Canvas 的 `agent_locked_at` 优先回填为最早 Send Reservation 时间，没有 Reservation 的历史数据再以最早 Interaction 时间兜底；已经完成通用 Schema 但缺失锁定状态的数据库也会幂等修复。修改 Agent 的领域入口还会独立检查历史 Reservation/Interaction，避免异常空锁破坏 Runtime/Conversation 归属。结构事务、触发器安装、外键检查和 `integrity_check` 全部成功后才写入迁移账本；已完成结构但尚未写账本的中断状态可在下次启动幂等补全。全新数据库直接创建当前 Schema 并记录三条既定迁移，不先构造或重建旧 OpenClaw Schema。
 
