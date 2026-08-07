@@ -153,6 +153,10 @@ sudo systemctl status convosketchpad.service --no-pager
 
 如果项目 `.env` 自定义了 `CONVOSKETCHPAD_DATA_DIR`，但当前 Shell 没有导出它，应把上面的路径替换为 `.env` 中的实际值。系统级 systemd 更新在交互终端会请求 sudo；CI、SSH 无终端任务或其他非交互执行必须事先提供无提示授权，否则 `sudo -n` 会让更新明确失败。不要在更新器失败后再次运行安装器跨版本覆盖；排除权限或构建问题后重试 `npm run update`，或用 `npm run update -- --rollback` 恢复正式 `last-good` 快照。
 
+`Could not query official ConvoSketchpad releases` 后面的诊断用于区分 GitHub 主限流、带 `Retry-After` 的临时限制和无效 Token。主限流可等待提示的 UTC 重置时间，或在当前 Shell 配置有效的 `GITHUB_TOKEN` / `GH_TOKEN`；401 应刷新或取消已配置 Token。更新器不会把 GitHub 响应正文或 Token 写入错误，也不会回退到本地或远程 Git Tag。
+
+从 `0.3.0`–`0.3.2` 直接升级并在 migrate 阶段看到 `Another ConvoSketchpad maintenance operation is already running` 时，不要删除锁文件：旧源更新器没有向目标迁移器传递父级持锁标记。若随后已经显示旧 Commit checkout 和数据库快照恢复，数据回滚已完成，最后的服务启动失败不推翻这一结果。macOS 上用 `launchctl bootout` 完全卸载 KeepAlive Job，然后按[更新文档](UPDATING.md#从-030032-升级到-041)执行 `--no-restart` 离线桥接；`0.4.0` 的 macOS launchd 安装升级到 `0.4.1` 时也使用该流程。
+
 Setup 失败不会改变上述正式回滚目标。它会恢复迁移前的 `.env`；SQLite 只在服务再次确认离线后恢复。若重启后的服务无法停止或状态无法确认，setup 不会覆盖数据库并会保留临时快照，先人工停止服务再处理。没有匹配服务管理器时 setup 不打开数据库，迁移由下次手动启动完成。
 
 ## 构建或测试失败

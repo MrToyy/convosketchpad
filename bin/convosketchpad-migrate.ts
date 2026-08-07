@@ -8,8 +8,8 @@ import {
 } from '../server/lib/canvas/persistence/migration-plan.js';
 import { runCanvasMediaBackfillMigration } from '../server/lib/canvas-media-derivatives.js';
 import {
-  migrateLegacyAgentRuntimeEnv,
-  validateLegacyAgentRuntimeEnv,
+  migrateLegacyRuntimeEnv,
+  validateLegacyRuntimeEnv,
 } from '../server/lib/agent-runtimes/env-migration.js';
 import { acquireLock, releaseLock } from '../server/lib/updater/lock.js';
 import { assertDatabaseMigrationOffline } from '../server/lib/migration-maintenance.js';
@@ -37,12 +37,12 @@ async function main(options: MigrateCliOptions): Promise<void> {
   const inheritedOffline = process.env.CONVOSKETCHPAD_DATABASE_OFFLINE === '1';
   const lockPath = inheritedLock ? null : acquireLock(projectRoot);
   try {
-    validateLegacyAgentRuntimeEnv(projectRoot);
+    validateLegacyRuntimeEnv(projectRoot);
     if (options.envOnly) {
-      const migrated = migrateLegacyAgentRuntimeEnv(projectRoot);
+      const migrated = migrateLegacyRuntimeEnv(projectRoot);
       process.stdout.write(migrated
-        ? 'AGENT_RUNTIMES configuration migrated\n'
-        : 'AGENT_RUNTIMES configuration already current\n');
+        ? 'Legacy Runtime environment configuration migrated\n'
+        : 'Runtime environment configuration already current\n');
       return;
     }
     if (!inheritedOffline) {
@@ -74,10 +74,10 @@ async function main(options: MigrateCliOptions): Promise<void> {
       if (missingMigrations.length > 0) {
         throw new Error(`Required migration(s) not applied: ${missingMigrations.join(', ')}`);
       }
-      const migratedRuntimeEnv = migrateLegacyAgentRuntimeEnv(projectRoot);
+      const migratedRuntimeEnv = migrateLegacyRuntimeEnv(projectRoot);
       process.stdout.write(
         `${CANVAS_MIGRATION_PLAN.map((migration) => `${migration.id} verified`).join('\n')}\n`
-        + (migratedRuntimeEnv ? 'AGENT_RUNTIMES configuration migrated\n' : '')
+        + (migratedRuntimeEnv ? 'Legacy Runtime environment configuration migrated\n' : '')
         + (media
           ? `${CANVAS_MEDIA_BACKFILL_MIGRATION} details: `
             + `${media.hashed} hashed, ${media.generated} generated, `

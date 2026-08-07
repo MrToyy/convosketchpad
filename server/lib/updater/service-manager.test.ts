@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   findLaunchdLabelFromOutput,
   findSystemdUnitFromOutput,
+  launchdStateFromPrintOutput,
   serviceConfigurationMatchesInstallation,
   systemdStateFromOutput,
   systemdControlInvocation,
@@ -83,5 +84,8 @@ describe('service manager identifiers', () => {
     expect(systemdStateFromOutput('failed\n')).toBe('inactive');
     expect(systemdStateFromOutput('activating\n')).toBe('unknown');
     expect(systemdStateFromOutput('')).toBe('unknown');
+    expect(launchdStateFromPrintOutput('state = running\npid = 123\n')).toBe('active');
+    expect(launchdStateFromPrintOutput('state = spawn scheduled\nlast exit code = 1\n')).toBe('inactive');
+    expect(launchdStateFromPrintOutput('')).toBe('unknown');
   });
 });

@@ -20,6 +20,7 @@ describe('removed API surfaces', () => {
     const { createApp } = await import('./app.js');
     return createApp({
       store: {} as never,
+      shutdownSignal: new AbortController().signal,
       runtimes: {
         list: () => [],
         get: vi.fn(),

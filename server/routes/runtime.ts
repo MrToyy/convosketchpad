@@ -17,7 +17,10 @@ function sseFrame(event: string, data: unknown, id?: string): Uint8Array {
   return encoder.encode(`${id ? `id: ${id}\n` : ''}event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
 }
 
-export function createRuntimeRoutes(agentRuntimeRegistry: AgentRuntimeRegistry) {
+export function createRuntimeRoutes(
+  agentRuntimeRegistry: AgentRuntimeRegistry,
+  shutdownSignal?: AbortSignal,
+) {
   const app = new Hono();
 
   app.get('/api/runtime/status', rateLimitGeneral, (c) => {
@@ -33,6 +36,7 @@ export function createRuntimeRoutes(agentRuntimeRegistry: AgentRuntimeRegistry) 
     let unsubscribe: () => void = () => undefined;
     let heartbeat: ReturnType<typeof setInterval> | null = null;
     let closed = false;
+    let shutdownListener: (() => void) | null = null;
     const stream = new ReadableStream<Uint8Array>({
       start(controller) {
         const close = () => {
@@ -40,8 +44,18 @@ export function createRuntimeRoutes(agentRuntimeRegistry: AgentRuntimeRegistry) 
           closed = true;
           unsubscribe();
           if (heartbeat) clearInterval(heartbeat);
+          if (shutdownListener) {
+            shutdownSignal?.removeEventListener('abort', shutdownListener);
+            shutdownListener = null;
+          }
           try { controller.close(); } catch { /* stream already closed */ }
         };
+        shutdownListener = close;
+        shutdownSignal?.addEventListener('abort', shutdownListener, { once: true });
+        if (shutdownSignal?.aborted) {
+          close();
+          return;
+        }
         try {
           controller.enqueue(sseFrame('runtime.status_changed', publicRuntimeStatus(agentRuntimeRegistry)));
         } catch {
@@ -70,9 +84,14 @@ export function createRuntimeRoutes(agentRuntimeRegistry: AgentRuntimeRegistry) 
         }, 15_000);
       },
       cancel() {
+        if (closed) return;
         closed = true;
         unsubscribe();
         if (heartbeat) clearInterval(heartbeat);
+        if (shutdownListener) {
+          shutdownSignal?.removeEventListener('abort', shutdownListener);
+          shutdownListener = null;
+        }
       },
     });
 

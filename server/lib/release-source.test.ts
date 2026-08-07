@@ -7,13 +7,21 @@ import {
 
 describe('official release source', () => {
   const originalFetch = global.fetch;
+  const originalGithubToken = process.env.GITHUB_TOKEN;
+  const originalGhToken = process.env.GH_TOKEN;
 
   beforeEach(() => {
     global.fetch = vi.fn<typeof fetch>();
+    delete process.env.GITHUB_TOKEN;
+    delete process.env.GH_TOKEN;
   });
 
   afterEach(() => {
     global.fetch = originalFetch;
+    if (originalGithubToken === undefined) delete process.env.GITHUB_TOKEN;
+    else process.env.GITHUB_TOKEN = originalGithubToken;
+    if (originalGhToken === undefined) delete process.env.GH_TOKEN;
+    else process.env.GH_TOKEN = originalGhToken;
     vi.restoreAllMocks();
   });
 
@@ -92,5 +100,45 @@ describe('official release source', () => {
       status: 'unavailable',
       error: 'offline',
     });
+  });
+
+  it('diagnoses the primary API rate limit and reports its reset time', async () => {
+    vi.mocked(global.fetch).mockResolvedValue(new Response('', {
+      status: 403,
+      headers: {
+        'x-ratelimit-remaining': '0',
+        'x-ratelimit-reset': '1786089600',
+      },
+    }));
+
+    await expect(lookupLatestRelease()).resolves.toEqual({
+      status: 'unavailable',
+      error: 'GitHub API rate limit exceeded. The limit resets at 2026-08-07T08:00:00.000Z. Set GITHUB_TOKEN or GH_TOKEN to increase the request limit.',
+    });
+  });
+
+  it('diagnoses a temporary secondary rate limit without returning the response body', async () => {
+    vi.mocked(global.fetch).mockResolvedValue(new Response('sensitive diagnostic body', {
+      status: 403,
+      headers: { 'retry-after': '60' },
+    }));
+
+    await expect(lookupLatestRelease()).resolves.toEqual({
+      status: 'unavailable',
+      error: 'GitHub temporarily rejected the release request; retry after 60 seconds.',
+    });
+  });
+
+  it('diagnoses a rejected configured token without exposing it', async () => {
+    process.env.GITHUB_TOKEN = 'top-secret-token';
+    vi.mocked(global.fetch).mockResolvedValue(new Response('bad credentials', { status: 401 }));
+
+    const result = await lookupLatestRelease();
+    expect(result).toEqual({
+      status: 'unavailable',
+      error: 'GitHub rejected GITHUB_TOKEN or GH_TOKEN; refresh the token or unset it to use unauthenticated requests.',
+    });
+    expect(JSON.stringify(result)).not.toContain('top-secret-token');
+    expect(JSON.stringify(result)).not.toContain('bad credentials');
   });
 });

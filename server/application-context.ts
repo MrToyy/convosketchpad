@@ -9,6 +9,7 @@ import { CanvasStore } from './lib/canvas/persistence/canvas-store.js';
 export interface ApplicationContext {
   runtimes: AgentRuntimeRegistry;
   store: CanvasStore;
+  shutdownSignal: AbortSignal;
   start(): void;
   close(): void;
 }
@@ -19,6 +20,7 @@ export interface ApplicationContextOptions {
 }
 
 export function createApplicationContext(options: ApplicationContextOptions = {}): ApplicationContext {
+  const shutdownController = new AbortController();
   const runtimes = createConfiguredAgentRuntimeRegistry(options.runtimeIds);
   const store = new CanvasStore(options.databasePath || config.canvasDatabasePath, {
     createConversationHandle: (input) =>
@@ -29,6 +31,7 @@ export function createApplicationContext(options: ApplicationContextOptions = {}
   return {
     runtimes,
     store,
+    shutdownSignal: shutdownController.signal,
     start() {
       if (closed) throw new Error('Application context is closed');
       if (started) return;
@@ -44,6 +47,7 @@ export function createApplicationContext(options: ApplicationContextOptions = {}
     close() {
       if (closed) return;
       closed = true;
+      shutdownController.abort();
       if (started) {
         stopCanvasSendCoordinator();
         stopCanvasReconciler();

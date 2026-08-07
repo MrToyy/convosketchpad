@@ -8,9 +8,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import path from 'node:path';
-
-const LEGACY_KEY = 'AGENT_BACKENDS';
-const CURRENT_KEY = 'AGENT_RUNTIMES';
+import { LEGACY_RUNTIME_ENV_MAPPINGS } from './env-keys.js';
 
 function unquote(value: string): string {
   const trimmed = value.trim();
@@ -39,44 +37,55 @@ function singleValue(values: string[], key: string): string | null {
   return unique[0] ?? null;
 }
 
-export function validateLegacyAgentRuntimeEnv(projectRoot: string): void {
+export function validateLegacyRuntimeEnv(projectRoot: string): void {
   const envPath = path.join(projectRoot, '.env');
   if (!existsSync(envPath)) return;
   const lines = readFileSync(envPath, 'utf8').split(/\r?\n/);
-  const legacyValue = singleValue(configuredValues(lines, LEGACY_KEY), LEGACY_KEY);
-  const currentValue = singleValue(configuredValues(lines, CURRENT_KEY), CURRENT_KEY);
-  if (legacyValue !== null && currentValue !== null && currentValue !== legacyValue) {
-    throw new Error(`Conflicting ${LEGACY_KEY} and ${CURRENT_KEY} values in .env`);
+  for (const [legacyKey, currentKey] of LEGACY_RUNTIME_ENV_MAPPINGS) {
+    const legacyValue = singleValue(configuredValues(lines, legacyKey), legacyKey);
+    const currentValue = singleValue(configuredValues(lines, currentKey), currentKey);
+    if (legacyValue !== null && currentValue !== null && currentValue !== legacyValue) {
+      throw new Error(`Conflicting ${legacyKey} and ${currentKey} values in .env`);
+    }
   }
 }
 
 /**
- * Atomically replace the unreleased AGENT_BACKENDS key without retaining an
- * alias or writing both names. Values are never logged or returned.
+ * Atomically replace v0.3.x Runtime keys without retaining aliases or writing
+ * both names. Every conflict is validated before writing, and values are never
+ * logged or returned.
  */
-export function migrateLegacyAgentRuntimeEnv(projectRoot: string): boolean {
+export function migrateLegacyRuntimeEnv(projectRoot: string): boolean {
   const envPath = path.join(projectRoot, '.env');
   if (!existsSync(envPath)) return false;
   const content = readFileSync(envPath, 'utf8');
   const lines = content.split(/\r?\n/);
-  const legacyValue = singleValue(configuredValues(lines, LEGACY_KEY), LEGACY_KEY);
-  if (legacyValue === null) return false;
-  const currentValue = singleValue(configuredValues(lines, CURRENT_KEY), CURRENT_KEY);
-  if (currentValue !== null && currentValue !== legacyValue) {
-    throw new Error(`Conflicting ${LEGACY_KEY} and ${CURRENT_KEY} values in .env`);
+  const migrations = LEGACY_RUNTIME_ENV_MAPPINGS.map(([legacyKey, currentKey]) => {
+    const legacyValue = singleValue(configuredValues(lines, legacyKey), legacyKey);
+    const currentValue = singleValue(configuredValues(lines, currentKey), currentKey);
+    if (legacyValue !== null && currentValue !== null && currentValue !== legacyValue) {
+      throw new Error(`Conflicting ${legacyKey} and ${currentKey} values in .env`);
+    }
+    return { legacyKey, currentKey, legacyValue, currentValue };
+  });
+  if (!migrations.some(({ legacyValue }) => legacyValue !== null)) return false;
+
+  let migrated = lines;
+  for (const { legacyKey, currentKey, legacyValue, currentValue } of migrations) {
+    if (legacyValue === null) continue;
+    let wroteCurrent = currentValue !== null;
+    const legacyExpression = new RegExp(`^(\\s*)${legacyKey}(\\s*=.*)$`);
+    migrated = migrated.flatMap((line) => {
+      const match = legacyExpression.exec(line);
+      if (!match) return [line];
+      if (wroteCurrent) return [];
+      wroteCurrent = true;
+      return [`${match[1] || ''}${currentKey}${match[2] || ''}`];
+    });
   }
 
-  let wroteCurrent = currentValue !== null;
-  const legacyExpression = new RegExp(`^(\\s*)${LEGACY_KEY}(\\s*=.*)$`);
-  const migrated = lines.flatMap((line) => {
-    const match = legacyExpression.exec(line);
-    if (!match) return [line];
-    if (wroteCurrent) return [];
-    wroteCurrent = true;
-    return [`${match[1] || ''}${CURRENT_KEY}${match[2] || ''}`];
-  });
-  const trailingNewline = content.endsWith('\n');
-  const next = migrated.join('\n').replace(/\n+$/, '') + (trailingNewline ? '\n' : '');
+  const newline = content.includes('\r\n') ? '\r\n' : '\n';
+  const next = migrated.join(newline);
   const tmpPath = `${envPath}.runtime-migration.tmp`;
   try {
     writeFileSync(tmpPath, next, { encoding: 'utf8', mode: statSync(envPath).mode });

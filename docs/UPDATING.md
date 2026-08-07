@@ -1,7 +1,8 @@
 # 更新 ConvoSketchpad
 
-`0.2.0` 首次提供终端更新器；`0.2.0 → 0.3.0` 是一次性桥接升级。从已经安装的 `0.3.0`
-开始，ConvoSketchpad 支持直接升级到任意后续受支持的稳定版本，无需依次安装中间版本。
+`0.2.0` 首次提供终端更新器；`0.2.0 → 0.3.0` 是一次性桥接升级。数据库迁移链支持从
+`0.3.x` 直接迁移到当前版本，但 `0.3.0`–`0.3.2` 自带的更新器还需要按下文完成一次离线桥接。
+从已经安装的 `0.4.1` 开始，可直接升级到后续受支持的稳定版本，无需依次安装中间版本。
 
 更新器只接受 `https://github.com/MrToyy/convosketchpad` 发布的 Release。本地标签、非本仓库发行的历史标签、Fork、分支、Draft 和预发布版本都不能作为更新源。
 
@@ -46,8 +47,9 @@ sudo systemctl stop convosketchpad.service
 # systemd 用户服务
 systemctl --user stop convosketchpad.service
 
-# macOS launchd
-launchctl stop com.mrtoyy.convosketchpad
+# macOS launchd（KeepAlive Job 必须从 Domain 中卸载）
+uid="$(id -u)"
+launchctl bootout "gui/${uid}/com.mrtoyy.convosketchpad"
 ```
 
 手动运行的服务直接在原终端中停止。
@@ -77,7 +79,14 @@ echo "Backup saved to $backup_dir"
 npm run update -- --version v0.3.0
 ```
 
-已注册的 systemd 或 launchd 服务即使已经停止，仍会被更新器识别并在升级后启动。没有服务管理器时手动运行：
+已停止的 systemd 服务会在升级后恢复。macOS 上面的 `bootout` 会卸载 Job，升级完成后运行：
+
+```bash
+uid="$(id -u)"
+launchctl bootstrap "gui/${uid}" "$HOME/Library/LaunchAgents/com.mrtoyy.convosketchpad.plist"
+```
+
+没有服务管理器时手动运行：
 
 ```bash
 npm start
@@ -105,7 +114,54 @@ sudo systemctl start convosketchpad.service
 systemd 用户服务或 launchd 部署应把最后一条命令替换成对应的启动命令。这个流程同样依赖第 3 步的手动备份；
 `0.2.0` 旧更新器生成的回滚状态不包含数据库副本。
 
-## 从 0.3.0 开始更新
+## 从 0.3.0–0.3.2 升级到 0.4.1
+
+`0.3.0`–`0.3.2` 更新器启动目标版本迁移器时不会传递“维护锁已由父更新器持有”的内部标记。因此直接运行
+`npm run update` 会让目标迁移器正确拒绝重入，并报告 `Another ConvoSketchpad maintenance operation is already running`。
+这不是另一个人工启动的 migrate；不要删除锁文件或结束错误的 PID。使用下面的一次性离线桥接：
+
+1. 确认 `git status --short` 没有输出，并按前文方法把 `.env`、`database/`、`artifacts/` 备份到仓库外。
+2. 停止全部 ConvoSketchpad 进程。systemd 使用 `systemctl stop`；macOS 必须使用 `launchctl bootout`，不能用会被 `KeepAlive` 自动拉起的 `launchctl stop`：
+
+```bash
+# macOS
+uid="$(id -u)"
+launchctl bootout "gui/${uid}/com.mrtoyy.convosketchpad"
+```
+
+3. 确认配置端口已不再监听，然后只更新代码和环境，不让旧更新器调用数据库迁移器：
+
+```bash
+npm run update -- --version v0.4.1 --no-restart
+```
+
+4. 上一个命令退出并释放维护锁后，在完全停服状态运行目标版本迁移器：
+
+```bash
+npm run migrate -- --confirm-offline
+```
+
+5. 恢复原来的服务并验证版本：
+
+```bash
+# systemd 系统服务
+sudo systemctl start convosketchpad.service
+
+# systemd 用户服务
+systemctl --user start convosketchpad.service
+
+# macOS launchd
+uid="$(id -u)"
+launchctl bootstrap "gui/${uid}" "$HOME/Library/LaunchAgents/com.mrtoyy.convosketchpad.plist"
+
+curl -fsS http://127.0.0.1:3080/health
+curl -fsS http://127.0.0.1:3080/api/version
+```
+
+`0.4.0` 的 systemd 安装可正常使用一条更新命令。`0.4.0` 的 macOS launchd 更新器仍使用不能可靠压制
+`KeepAlive` 的旧停服方式，因此升级到 `0.4.1` 时也应使用上述 `bootout → --no-restart → migrate → bootstrap` 流程。
+
+## 从 0.4.1 开始更新
 
 只解析和预览目标 Release，不修改文件：
 
@@ -142,13 +198,13 @@ npm run update
 
 `0.4.0` 的 Agent Runtime 结构迁移标识为 `0.3.2_to_0.4.0_agent_runtime_v1`。所有 `0.3.x` 数据库会在目标版本迁移流程中补齐上述维护迁移和该结构步骤；`0.2.0` 数据库还会先完成结构桥接。Agent Runtime 结构迁移会在同一边界创建审批与通用事件 Inbox，重建核心表、写入通用 Handle 和事件数据，并按最早 Send Reservation、最早 Interaction 的优先级回填旧 Canvas 的 Agent 锁定时间；已完成通用 Schema 但缺失锁定时间的数据库会在下次迁移检查中自动修复。全新数据库直接创建当前 Schema 并记录既定三项，不先创建旧 OpenClaw Schema。校验外键与完整性后才记录完成标识。由于媒体维护代码依赖目标结构，实际执行时允许先完成目标 Schema、再处理媒体；统一清单表达的是发布边界和最终必备项，而不是数据库事务的调用先后。
 
-截至 `0.4.0`，统一迁移清单中仅有以上三项，版本边界连续为 `0.2.0 → 0.3.0 → 0.3.2 → 0.4.0`。结构迁移会在数据库打开时幂等执行，并删除未进入任何正式 Release 的 `0.2.0_to_single_chain_v1`、`0.3.0_to_0.4.0_agent_backend_v1` 与 `0.3.2_to_0.4.0_agent_backend_v1` 开发态账本记录；已经使用开发期 Backend Schema 的数据库会原地改名物理字段、事件表和 Handle JSON。显式迁移器随后完成媒体维护，并在最终外键和完整性检查后确认三个正式迁移 ID 全部存在，否则更新失败并触发回滚。
+截至 `0.4.1`，统一迁移清单中仅有以上三项，版本边界连续为 `0.2.0 → 0.3.0 → 0.3.2 → 0.4.0`；`0.4.1` 不增加数据库迁移。结构迁移会在数据库打开时幂等执行，并删除未进入任何正式 Release 的 `0.2.0_to_single_chain_v1`、`0.3.0_to_0.4.0_agent_backend_v1` 与 `0.3.2_to_0.4.0_agent_backend_v1` 开发态账本记录；已经使用开发期 Backend Schema 的数据库会原地改名物理字段、事件表和 Handle JSON。显式迁移器随后完成媒体维护，并在最终外键和完整性检查后确认三个正式迁移 ID 全部存在，否则更新失败并触发回滚。
 
 `npm run migrate -- --help` 只显示帮助，不打开数据库。迁移命令会在任何环境迁移或数据库操作前拒绝未知、重复参数，以及 `--env-only`、`--rescan-media` 等互斥模式的组合，避免输入错误被当成普通全量迁移执行。独立运行迁移器会取得与 setup/update 相同的维护锁；匹配当前安装的受管服务必须明确处于停止状态。没有匹配的服务管理器时，先停止所有手工进程，再显式运行 `npm run migrate -- --confirm-offline`；`--rescan-media` 可以和该确认参数组合。
 
 如果没有检测到指向当前安装的受支持服务管理器，更新器不会假设手动启动的进程已经停止，不会打开、快照、显式迁移或失败回滚 SQLite；但不需要打开数据库的 `.env` Runtime 键迁移仍会在更新过程中完成。目标服务下次手动启动时会先自动迁移数据库。
 
-Agent Runtime Schema 迁移会把旧 OpenClaw 顶层列转换为通用 Runtime/Profile、Conversation/Turn/Artifact Handle 和 `runtime_event_inbox`，随后物理删除旧列及 `gateway_signal_inbox`，不会双写。目标版本显式迁移器还会把开发期 `.env` 的 `AGENT_BACKENDS` 一次性改写为 `AGENT_RUNTIMES`；运行时不读取旧键。该迁移本身不可由新版本“降级反向执行”；安全回滚依赖更新器在停服后创建的整库 SQLite 快照。不要绕过快照直接用旧版本打开已经迁移的数据库。
+Agent Runtime Schema 迁移会把旧 OpenClaw 顶层列转换为通用 Runtime/Profile、Conversation/Turn/Artifact Handle 和 `runtime_event_inbox`，随后物理删除旧列及 `gateway_signal_inbox`，不会双写。目标版本显式迁移器还会把 `.env` 中的 `AGENT_BACKENDS`、`GATEWAY_URL`、`GATEWAY_TOKEN` 和 `CONVOSKETCHPAD_GATEWAY_TIMEZONE` 一次性改写为对应的 `AGENT_RUNTIMES` / `OPENCLAW_*` 稳定键；运行时不读取旧键。旧、新键同时存在且值不同时会在写文件前失败，且错误不会输出 Token 值。该迁移本身不可由新版本“降级反向执行”；安全回滚依赖更新器在停服后创建的整库 SQLite 快照。不要绕过快照直接用旧版本打开已经迁移的数据库。
 
 重新运行 `npm run setup` 会先取得和更新器相同的维护锁。只有服务配置属于当前安装且状态明确时，setup 才会停止原本运行的服务、创建一次性 SQLite 快照并迁移；重启后还会验证服务状态、健康接口和版本。迁移或服务恢复失败时，在确认服务已经离线后恢复数据库和 `.env` 并保持服务停止；若无法确认重启后的服务已停止，则不覆盖 SQLite，并保留临时快照供人工恢复。Setup 临时快照不会覆盖更新器的 `last-good.json`。没有匹配服务管理器时 setup 只保存配置并推迟数据库迁移，目标服务下次手动启动会幂等完成尚未应用的迁移。
 
@@ -177,7 +233,7 @@ Agent Runtime Schema 迁移会把旧 OpenClaw 顶层列转换为通用 Runtime/P
 npm run update -- --dry-run
 
 # 选择一个已发布且不低于当前版本的稳定版本
-npm run update -- --version v0.4.0
+npm run update -- --version v0.4.1
 
 # 回滚到上一个快照
 npm run update -- --rollback
@@ -289,6 +345,21 @@ Agent 准备 Release 说明时必须直接检查目标版本的实际差异、�
 ### 无法解析稳定 Release
 
 检查仓库 Releases 页面和 GitHub API 可用性。安装器会直接失败，不会安装未发布分支。本地标签、继承标签、Draft 和预发布版本都会被忽略；只有明确安装开发版时才使用 `--branch main`。
+
+若错误是 HTTP 403，先查看更新器的新诊断：主限流会显示 UTC 重置时间，可为当前 Shell 设置有效的
+`GITHUB_TOKEN` 或 `GH_TOKEN` 后重试；带 `Retry-After` 的临时限制应等待提示秒数；401 表示已配置 Token 被拒绝，
+应刷新或取消该 Token。更新器不会输出 Token 或 GitHub 响应正文，也不会降级为未发布的 Git Tag。
+
+### 从 0.3.2 更新时迁移器报告维护锁被占用
+
+这是 `0.3.0`–`0.3.2` 源更新器的兼容问题，不表示用户同时运行了第二个 migrate。不要删除
+`update.lock`。如果失败输出已经包含 `Checked out <旧版本 Commit>` 和 `Database snapshot restored`，代码与数据库已恢复；
+后续的 `Service failed to start after rollback` 只表示旧 launchd 重启失败。保留更新前快照，确认服务完全停止后，按
+“从 0.3.0–0.3.2 升级到 0.4.1”的 `--no-restart` 离线桥接继续。
+
+若输出没有确认代码和数据库均已恢复，先保留整个 updater 快照目录并查看 `last-good.json`。只有正式
+`last-good` 存在、且更新器仍能确认受管服务离线时才运行 `npm run update -- --rollback`；否则不要手工编辑 SQLite，
+应依据保留的快照单独恢复。任何恢复完成后仍使用上述离线桥接，不再直接重试旧的一键更新路径。
 
 ### 工作区不干净
 

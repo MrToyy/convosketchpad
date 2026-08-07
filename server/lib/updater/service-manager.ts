@@ -178,9 +178,12 @@ class SystemdManager implements ServiceManager {
 
 // ── Launchd adapter ──────────────────────────────────────────────────
 
-class LaunchdManager implements ServiceManager {
+export class LaunchdManager implements ServiceManager {
   readonly name = 'launchd';
   private label = '';
+  private plist = '';
+  private uid = '';
+  private unloadedForMaintenance = false;
 
   detect(cwd: string): boolean {
     if (process.platform !== 'darwin') return false;
@@ -195,6 +198,9 @@ class LaunchdManager implements ServiceManager {
         const command = this.readPlistValue(plist, 'ProgramArguments:0');
         if (!serviceConfigurationMatchesInstallation(workingDirectory, command, cwd)) return false;
         this.label = label;
+        this.plist = plist;
+        this.uid = execFileSync('id', ['-u'], { stdio: 'pipe' }).toString().trim();
+        this.unloadedForMaintenance = false;
         return true;
       }
     } catch {
@@ -205,38 +211,31 @@ class LaunchdManager implements ServiceManager {
   }
 
   async restart(): Promise<void> {
-    const uid = execFileSync('id', ['-u'], { stdio: 'pipe' }).toString().trim();
-    try {
-      execFileSync('launchctl', ['kickstart', '-k', `gui/${uid}/${this.label}`], { stdio: 'pipe' });
-    } catch {
-      // Fallback to stop + start
-      try {
-        execFileSync('launchctl', ['stop', this.label], { stdio: 'pipe' });
-      } catch {
-        // may already be stopped
-      }
-      execFileSync('launchctl', ['start', this.label], { stdio: 'pipe' });
+    const target = `gui/${this.uid}/${this.label}`;
+    if (this.unloadedForMaintenance) {
+      execFileSync('launchctl', ['bootstrap', `gui/${this.uid}`, this.plist], { stdio: 'pipe' });
+      this.unloadedForMaintenance = false;
     }
+    execFileSync('launchctl', ['kickstart', '-k', target], { stdio: 'pipe' });
   }
 
   async stop(): Promise<void> {
-    execFileSync('launchctl', ['stop', this.label], { stdio: 'pipe' });
+    if (this.unloadedForMaintenance) return;
+    execFileSync('launchctl', ['bootout', `gui/${this.uid}/${this.label}`], { stdio: 'pipe' });
+    this.unloadedForMaintenance = true;
   }
 
   async status(): Promise<ServiceState> {
     try {
-      const output = execFileSync('launchctl', ['list'], { stdio: 'pipe' }).toString();
-      for (const line of output.split('\n')) {
-        const parts = line.trim().split(/\s+/);
-        if (parts[parts.length - 1] === this.label) {
-          const pid = line.trim().split(/\s+/)[0];
-          return pid !== '-' && pid !== '' && !isNaN(Number(pid)) ? 'active' : 'inactive';
-        }
-      }
+      const output = execFileSync(
+        'launchctl',
+        ['print', `gui/${this.uid}/${this.label}`],
+        { stdio: 'pipe' },
+      ).toString();
+      return launchdStateFromPrintOutput(output);
     } catch {
-      // can't determine
+      return this.unloadedForMaintenance ? 'inactive' : 'unknown';
     }
-    return 'unknown';
   }
 
   async getLogs(lines: number): Promise<string> {
@@ -259,6 +258,13 @@ class LaunchdManager implements ServiceManager {
       { stdio: 'pipe' },
     ).toString().trim();
   }
+}
+
+export function launchdStateFromPrintOutput(output: string): ServiceState {
+  if (/^\s*pid\s*=\s*\d+\s*$/mu.test(output) || /^\s*state\s*=\s*running\s*$/mu.test(output)) {
+    return 'active';
+  }
+  return output.trim() ? 'inactive' : 'unknown';
 }
 
 // ── Factory ──────────────────────────────────────────────────────────

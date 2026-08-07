@@ -102,7 +102,7 @@ Custom 的“HTTPS reverse proxy”还会询问额外可信代理 IP。回环代
 - `VITE_HOST`
 - `VITE_PORT`
 
-旧 `.env` 中的 `GATEWAY_URL`、`GATEWAY_TOKEN` 和 `CONVOSKETCHPAD_GATEWAY_TIMEZONE` 仅由 setup 读取并原子改写为 `OPENCLAW_*` 名称；开发期使用过的 `AGENT_BACKENDS` 会由 setup 或目标版本迁移器一次性改写为 `AGENT_RUNTIMES`。正式运行只读取新名称，不保留别名或双写；旧、新名称同时存在且值冲突时迁移会明确失败。
+旧 `.env` 中的 `GATEWAY_URL`、`GATEWAY_TOKEN`、`CONVOSKETCHPAD_GATEWAY_TIMEZONE` 和 `AGENT_BACKENDS` 会由 setup 或目标版本迁移器一次性原子改写为对应的 `OPENCLAW_*` / `AGENT_RUNTIMES` 稳定名称。正式运行只读取新名称，不保留别名或双写；旧、新名称同时存在且值冲突时，迁移会在写文件前明确失败且不会输出配置值。
 
 浏览器 CSP 的 `connect-src` 固定为 `'self'`，因为产品通信只有同源 HTTP/SSE。
 

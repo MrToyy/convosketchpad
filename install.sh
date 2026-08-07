@@ -6,7 +6,7 @@
 #   curl -fsSL https://raw.githubusercontent.com/MrToyy/convosketchpad/main/install.sh | bash
 #
 # Or with options:
-#   curl -fsSL ... | bash -s -- --dir ~/convosketchpad --version v0.4.0
+#   curl -fsSL ... | bash -s -- --dir ~/convosketchpad --version v0.4.1
 #   curl -fsSL ... | bash -s -- --dir ~/convosketchpad --branch main
 #   curl -fsSL ... | bash -s -- --gateway-url https://gw.example.com --gateway-token <token>
 # ──────────────────────────────────────────────────────────────────────
@@ -919,13 +919,13 @@ EOF
     info "ConvoSketchpad will start automatically on login"
   else
     ok "launchd plist created at ${plist_file}"
-    info "Load it with: launchctl load ${plist_file}"
+    info "Load it with: launchctl bootstrap gui/$(id -u) ${plist_file}"
   fi
   echo ""
   info "Manage:"
-  echo "    launchctl stop com.mrtoyy.convosketchpad"
-  echo "    launchctl start com.mrtoyy.convosketchpad"
-  echo "    launchctl unload ${plist_file}"
+  echo "    launchctl kickstart -k gui/${uid}/com.mrtoyy.convosketchpad"
+  echo "    launchctl bootout gui/${uid}/com.mrtoyy.convosketchpad"
+  echo "    launchctl bootstrap gui/${uid} ${plist_file}"
   echo ""
 }
 
@@ -944,7 +944,7 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
     if [[ -f "$plist_check" ]]; then
       info "Updating existing launchd service..."
       uid=$(id -u)
-      launchctl bootout "gui/${uid}/com.mrtoyy.convosketchpad" 2>/dev/null || launchctl stop com.mrtoyy.convosketchpad 2>/dev/null || true
+      launchctl bootout "gui/${uid}/com.mrtoyy.convosketchpad" 2>/dev/null || launchctl unload "$plist_check" 2>/dev/null || true
       setup_launchd
     elif [[ "$INTERACTIVE" == "true" ]]; then
       printf "  ${RAIL}  ${YELLOW}?${NC} Install as a launchd service (starts on login)? (Y/n) "
@@ -1048,7 +1048,7 @@ else
   echo ""
   echo -e "     ${DIM}Directory:  cd ${INSTALL_DIR}${NC}"
   if $IS_MAC; then
-    echo -e "     ${DIM}Restart:   launchctl stop com.mrtoyy.convosketchpad && launchctl start com.mrtoyy.convosketchpad${NC}"
+    echo -e "     ${DIM}Restart:   launchctl kickstart -k gui/$(id -u)/com.mrtoyy.convosketchpad${NC}"
     echo -e "     ${DIM}Logs:      tail -f ${INSTALL_DIR}/convosketchpad.log${NC}"
   elif command -v systemctl &>/dev/null; then
     echo -e "     ${DIM}Restart:   sudo systemctl restart convosketchpad.service${NC}"

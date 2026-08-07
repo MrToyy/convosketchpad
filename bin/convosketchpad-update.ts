@@ -5,7 +5,7 @@
  *
  * Usage:
  *   npm run update
- *   npm run update -- --version v0.4.0
+ *   npm run update -- --version v0.4.1
  *   npm run update -- --dry-run
  *   npm run update -- --rollback
  */
@@ -42,7 +42,7 @@ function printHelp(): void {
     --dry-run            Show what would happen without making changes
     --verbose, -v        Extra logging
     --rollback           Rollback to last-known-good snapshot
-    --no-restart         Keep service online; skip DB migration, restart, and health checks
+    --no-restart         Do not manage the service; skip DB migration and health checks
     --help, -h           Show this help
 
   Exit codes:

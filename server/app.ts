@@ -32,7 +32,7 @@ import { createCanvasRoutes } from './routes/canvas.js';
 import { createRuntimeRoutes } from './routes/runtime.js';
 import type { ApplicationContext } from './application-context.js';
 
-export function createApp(context: Pick<ApplicationContext, 'runtimes' | 'store'>): Hono {
+export function createApp(context: Pick<ApplicationContext, 'runtimes' | 'store' | 'shutdownSignal'>): Hono {
   const app = new Hono();
 
   // ── Middleware ────────────────────────────────────────────────────────
@@ -78,8 +78,12 @@ export function createApp(context: Pick<ApplicationContext, 'runtimes' | 'store'
     versionCheckRoutes,
     createRuntimeActionRoutes(context.runtimes),
     createUploadReferenceRoutes(context.store),
-    createCanvasRoutes({ store: context.store, runtimes: context.runtimes }),
-    createRuntimeRoutes(context.runtimes),
+    createCanvasRoutes({
+      store: context.store,
+      runtimes: context.runtimes,
+      shutdownSignal: context.shutdownSignal,
+    }),
+    createRuntimeRoutes(context.runtimes, context.shutdownSignal),
   ];
   for (const route of routes) app.route('/', route);
 

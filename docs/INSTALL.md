@@ -131,9 +131,11 @@ ConvoSketchpad 不提供内置 TLS。远程 HTTPS 由反向代理或 Tailscale S
 sudo systemctl restart convosketchpad.service
 
 # macOS
-launchctl stop com.mrtoyy.convosketchpad || true
-launchctl start com.mrtoyy.convosketchpad
+launchctl kickstart -k "gui/$(id -u)/com.mrtoyy.convosketchpad"
 ```
+
+macOS 维护数据库时不能用 `launchctl stop`，因为 plist 的 `KeepAlive` 会立即拉起进程；应先
+`launchctl bootout "gui/$(id -u)/com.mrtoyy.convosketchpad"`，维护完成后再对 plist 执行 `launchctl bootstrap`。
 
 ## 现有安装
 

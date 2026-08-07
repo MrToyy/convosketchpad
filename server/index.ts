@@ -69,7 +69,10 @@ applicationContext.start();
 
 // ── Graceful shutdown ────────────────────────────────────────────────
 
+let shuttingDown = false;
 function shutdown(signal: string) {
+  if (shuttingDown) return;
+  shuttingDown = true;
   console.log(`\n[convosketchpad] ${signal} received, shutting down...`);
 
   applicationContext.close();

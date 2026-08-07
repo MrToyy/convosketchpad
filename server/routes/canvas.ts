@@ -92,6 +92,7 @@ export interface CanvasRouteDependencies {
   store: CanvasStore;
   runtimes: AgentRuntimeRegistry;
   dispatchSend?: typeof dispatchCanvasSend;
+  shutdownSignal?: AbortSignal;
 }
 
 export function createCanvasRoutes(dependencies: CanvasRouteDependencies) {
@@ -192,9 +193,22 @@ app.get('/api/canvas/canvases/:id/events', (c) => {
   let heartbeat: ReturnType<typeof setInterval> | null = null;
   let catchup: ReturnType<typeof setInterval> | null = null;
   let closed = false;
+  let shutdownListener: (() => void) | null = null;
 
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
+      const close = () => {
+        if (closed) return;
+        closed = true;
+        unsubscribe();
+        if (heartbeat) clearInterval(heartbeat);
+        if (catchup) clearInterval(catchup);
+        if (shutdownListener) {
+          dependencies.shutdownSignal?.removeEventListener('abort', shutdownListener);
+          shutdownListener = null;
+        }
+        try { controller.close(); } catch { /* stream already closed */ }
+      };
       const flush = () => {
         if (closed) return;
         const batch = store.getCanvasSyncBatch(identity.userId, canvasId, cursor);
@@ -207,10 +221,17 @@ app.get('/api/canvas/canvases/:id/events', (c) => {
             sendOperations: batch.sendOperations.map(publicSendReservation),
           }, cursor));
         } catch {
-          closed = true;
+          close();
         }
       };
+      shutdownListener = close;
+      dependencies.shutdownSignal?.addEventListener('abort', shutdownListener, { once: true });
+      if (dependencies.shutdownSignal?.aborted) {
+        close();
+        return;
+      }
       flush();
+      if (closed) return;
       unsubscribe = subscribeCanvasSync((signal) => {
         if (signal.ownerId !== identity.userId || signal.canvasId !== canvasId || closed) return;
         if (signal.kind === 'preview') {
@@ -220,7 +241,7 @@ app.get('/api/canvas/canvases/:id/events', (c) => {
               text: signal.text,
             }));
           } catch {
-            closed = true;
+            close();
           }
           return;
         }
@@ -229,21 +250,22 @@ app.get('/api/canvas/canvases/:id/events', (c) => {
       catchup = setInterval(flush, 2_000);
       heartbeat = setInterval(() => {
         if (!getCanvasIdentity(c)) {
-          closed = true;
-          unsubscribe();
-          if (heartbeat) clearInterval(heartbeat);
-          if (catchup) clearInterval(catchup);
-          controller.close();
+          close();
           return;
         }
-        try { controller.enqueue(encoder.encode(': heartbeat\n\n')); } catch { closed = true; }
+        try { controller.enqueue(encoder.encode(': heartbeat\n\n')); } catch { close(); }
       }, 15_000);
     },
     cancel() {
+      if (closed) return;
       closed = true;
       unsubscribe();
       if (heartbeat) clearInterval(heartbeat);
       if (catchup) clearInterval(catchup);
+      if (shutdownListener) {
+        dependencies.shutdownSignal?.removeEventListener('abort', shutdownListener);
+        shutdownListener = null;
+      }
     },
   });
 
