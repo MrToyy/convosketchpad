@@ -30,6 +30,9 @@ ConvoSketchpad 是 Agent 可视化分支工作台，让你从任意节点回溯�
 > [!IMPORTANT]
 > ConvoSketchpad **不是独立的 Agent 运行环境**，也不负责运行模型、工具或 Agent。它必须连接至少一个 Agent 运行端（Agent Runtime）。当前 v0.4.2 正式适配 [OpenClaw](https://github.com/openclaw/openclaw) Gateway 和本地 Codex App Server；Agent、工具调用、Conversation 和原始运行记录由运行端提供。
 
+> [!TIP]
+> 这种架构带来两个互补优势：Canvas 分支把不同探索隔离在各自的上下文链路中，保护任务主线；连接现有 Agent Runtime，则让你直接复用自己已经配置好、也已经熟悉的 Agent，以及运行端为它们提供的模型、技能（Skills）、记忆（Memory）、插件和工具，无需在 ConvoSketchpad 中重新搭建或维护一套 Agent 环境。
+
 ### 为什么做 ConvoSketchpad
 
 Agent 运行端中的单个 Conversation 通常以线性消息流推进。在同一条对话中穿插创意试验、图片生成、临时调研或补充提问时，这些过程都会进入后续上下文，逐渐稀释主线目标；如果另开 Conversation，又需要重新组织分叉点之前的背景。
@@ -227,6 +230,9 @@ ConvoSketchpad is a visual branching workspace for agents: revisit any point and
 
 > [!IMPORTANT]
 > ConvoSketchpad is **not a standalone Agent runtime** and does not run models, tools, or Agents by itself. It must connect to at least one Agent Runtime. v0.4.2 officially supports the [OpenClaw](https://github.com/openclaw/openclaw) Gateway and a local Codex App Server; the Runtime provides Agents, tool execution, Conversations, and authoritative run records.
+
+> [!TIP]
+> This architecture provides two complementary advantages: Canvas branches isolate different explorations in their own context chains to protect the primary task, while connecting an existing Agent Runtime lets you reuse the Agents you have already configured and know well, together with the models, skills, memory, plugins, and tools the Runtime provides for them—without rebuilding or maintaining a separate Agent environment inside ConvoSketchpad.
 
 > [!NOTE]
 > Most detailed project documentation is written in Chinese. English-speaking developers are encouraged to use a capable large language model to translate and explain the documents while preserving code identifiers, commands, environment variables, and OpenClaw protocol names.
