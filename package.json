@@ -1,7 +1,7 @@
 {
   "name": "convosketchpad",
   "version": "0.4.2",
-  "description": "A visual branching workspace for agents — revisit any point and continue exploring.",
+  "description": "Self-hosted visual canvas for branching AI conversations—reuse your existing OpenClaw and Codex agents, skills, memory, and tools.",
   "license": "MIT",
   "engines": {
     "node": ">=22.22.2"
@@ -14,12 +14,19 @@
   "keywords": [
     "openclaw",
     "convosketchpad",
+    "ai-agents",
+    "ai-chat",
+    "ai-workspace",
+    "branching-conversations",
     "canvas",
-    "design",
+    "content-creation",
+    "design-tools",
     "visual-workspace",
-    "branching",
-    "ai",
-    "agent"
+    "infinite-canvas",
+    "agent-runtime",
+    "self-hosted",
+    "codex",
+    "codex-cli"
   ],
   "type": "module",
   "scripts": {

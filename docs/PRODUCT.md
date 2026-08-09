@@ -2,7 +2,7 @@
 
 **让想法自由分支 · Let ideas fly free**
 
-**Agent 可视化分支工作台——从任意节点回溯并继续探索**
+**一张画布，多条思路，熟悉的 Agent · One canvas. Many paths. The agents you know.**
 
 ConvoSketchpad 可连接一个或多个 Agent 运行端（Agent Runtime），让用户从任意节点回溯并继续探索，而不是把所有方向压缩到一条线性对话中。一个 Canvas 可以同时呈现不同思路，保留每个方向的演进过程，并把对应的提示词、输出、参考资料、附件和生成结果组织在一起。
 
@@ -18,7 +18,7 @@ ConvoSketchpad 让用户从任意已完成的 Interaction 携带当时上下文�
 
 - 优先服务自媒体与内容创作者，帮助他们并行管理选题、叙事、文案和视觉方案，在不同分支生成与比较图片。
 - 服务研究、产品及其他知识工作者，把临时调研、验证和补充询问放到侧支，使主线上下文持续聚焦于目标任务。
-- 继续使用所选 Agent Runtime 已配置的 Agent Profile、模型、插件、技能与工具，不在 ConvoSketchpad 内实现第二套模型或工具运行时。
+- 继续使用所选 Agent Runtime 已配置的 Agent Profile、模型、插件、技能、记忆与工具，不在 ConvoSketchpad 内实现第二套模型或工具运行时。
 
 ## 核心体验
 

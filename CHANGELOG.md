@@ -4,6 +4,10 @@ ConvoSketchpad 的重要变更均记录在此文件中。格式遵循 [Keep a Ch
 
 ## [Unreleased]
 
+### 变更
+
+- 产品定位更新为“一张画布，多条思路，熟悉的 Agent / One canvas. Many paths. The agents you know.”，强调 Canvas 上的多路径探索与既有 Agent 的直接复用；README 以分支 AI 对话、OpenClaw/Codex 复用和线性聊天对比重组中英文介绍，并集中呈现当前支持、候选 Agent Runtime 与产品能力路线图；GitHub、网页与 Package 元数据同步使用可搜索的功能描述。“让想法自由分支 / Let ideas fly free”继续作为品牌标语。
+
 ## [0.4.2] - 2026-08-07
 
 ### 发布摘要

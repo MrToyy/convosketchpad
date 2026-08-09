@@ -12,7 +12,7 @@ const fallback: PackageMetadata = {
   name: 'convosketchpad',
   version: '0.0.0',
   description:
-    'A visual branching workspace for agents — revisit any point and continue exploring.',
+    'Self-hosted visual canvas for branching AI conversations—reuse your existing OpenClaw and Codex agents, skills, memory, and tools.',
 };
 
 export function readPackageMetadata(moduleUrl = import.meta.url): PackageMetadata {

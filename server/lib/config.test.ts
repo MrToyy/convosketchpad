@@ -18,11 +18,11 @@ describe('Canvas server config', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     printStartupBanner(
       '1.2.3',
-      'A visual branching workspace for agents — revisit any point and continue exploring.',
+      'Self-hosted visual canvas for branching AI conversations—reuse your existing OpenClaw and Codex agents, skills, memory, and tools.',
     );
     expect(log.mock.calls.flat().join(' ')).toContain('ConvoSketchpad v1.2.3');
     expect(log.mock.calls.flat().join(' ')).toContain(
-      'A visual branching workspace for agents — revisit any point and continue exploring.',
+      'Self-hosted visual canvas for branching AI conversations—reuse your existing OpenClaw and Codex agents, skills, memory, and tools.',
     );
     expect(() => validateConfig()).not.toThrow();
     log.mockRestore();
