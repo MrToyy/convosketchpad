@@ -8,11 +8,34 @@ import {
   canvasArtifactThumbnailUri,
   canvasAttachmentThumbnailUri,
 } from './canvas-media-derivatives.js';
+import { textInputDocument } from './canvas/domain/input-document.js';
+import type { CanvasResourceReferenceSnapshot } from './canvas/domain/input-document.js';
 
 const SAFE_RASTER_IMAGE_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
 
 function hasSafeRasterPreview(mimeType?: string): boolean {
   return SAFE_RASTER_IMAGE_MIME_TYPES.has(mimeType?.toLowerCase() || '');
+}
+
+export function publicCanvasResourceThumbnailUri(
+  resource: Pick<CanvasResourceReferenceSnapshot, 'mimeType' | 'uri'>,
+): string | undefined {
+  if (!hasSafeRasterPreview(resource.mimeType)) return undefined;
+  const attachmentMatch = resource.uri.match(/^\/api\/canvas\/attachments\/([^/]+)\/([^/]+)$/);
+  if (attachmentMatch) {
+    return canvasAttachmentThumbnailUri(
+      decodeURIComponent(attachmentMatch[1]),
+      decodeURIComponent(attachmentMatch[2]),
+    );
+  }
+  const artifactMatch = resource.uri.match(/^\/api\/canvas\/artifacts\/([^/]+)\/([^/]+)\/([^/]+)$/);
+  return artifactMatch
+    ? canvasArtifactThumbnailUri(
+      decodeURIComponent(artifactMatch[1]),
+      decodeURIComponent(artifactMatch[2]),
+      decodeURIComponent(artifactMatch[3]),
+    )
+    : undefined;
 }
 
 export function publicCanvasAttachment(attachment: CanvasAttachment): CanvasAttachment {
@@ -62,6 +85,25 @@ export function publicCanvasArtifact(artifact: CanvasArtifact): CanvasArtifact {
   };
 }
 
+function publicResourceReference(reference: CanvasResourceReferenceSnapshot) {
+  const thumbnailUri = publicCanvasResourceThumbnailUri(reference);
+  return {
+    key: reference.key,
+    origin: reference.origin,
+    kind: reference.kind,
+    sourceInteractionId: reference.sourceInteractionId,
+    resourceId: reference.resourceId,
+    ordinal: reference.ordinal,
+    name: reference.name,
+    mimeType: reference.mimeType,
+    sizeBytes: reference.sizeBytes,
+    uri: reference.uri.startsWith('/api/canvas/') ? reference.uri : '',
+    ...(thumbnailUri ? { thumbnailUri } : {}),
+    available: reference.available,
+    warning: reference.warning,
+  };
+}
+
 export function publicCanvasInteraction(interaction: InteractionRecord) {
   return {
     id: interaction.id,
@@ -69,6 +111,8 @@ export function publicCanvasInteraction(interaction: InteractionRecord) {
     branchId: interaction.branchId,
     parentInteractionId: interaction.parentInteractionId,
     userInput: interaction.userInput,
+    inputDocument: interaction.inputDocument || textInputDocument(interaction.userInput),
+    resourceReferences: (interaction.resourceReferences || []).map(publicResourceReference),
     agentOutput: interaction.agentOutput,
     status: interaction.status,
     executionState: interaction.executionState,
@@ -119,6 +163,8 @@ export function publicCanvasSendReservation(operation: SendReservation) {
     branchId: operation.branchId,
     expectedHeadInteractionId: operation.expectedHeadInteractionId,
     userInput: operation.userInput,
+    inputDocument: operation.inputDocument || textInputDocument(operation.userInput),
+    resourceReferences: (operation.resourceReferences || []).map(publicResourceReference),
     attachments: operation.attachments.map(publicCanvasAttachment),
     materialization: operation.materialization,
     conversationId: operation.conversationId,

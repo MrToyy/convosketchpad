@@ -9,6 +9,7 @@ import {
   configuredAgentRuntimeIds,
   validateConfiguredAgentRuntimes,
 } from './agent-runtimes/configuration.js';
+import { RETIRED_RUNTIME_ENV_KEYS } from './agent-runtimes/env-keys.js';
 import { configuredDefaultAgent } from './agent-runtimes/default-agent.js';
 import {
   hasRemoteConfiguredOrigin,
@@ -30,6 +31,7 @@ function findProjectRoot(startDir: string): string | null {
 
 const projectRoot = findProjectRoot(moduleDir) ?? findProjectRoot(process.cwd()) ?? path.resolve(process.cwd());
 const DEPRECATED_ENV = [
+  ...RETIRED_RUNTIME_ENV_KEYS,
   'CONVOSKETCHPAD_WORKSPACE_ROOT',
   'CONVOSKETCHPAD_UPLOAD_STAGING_TEMP_DIR',
   'SESSIONS_DIR',

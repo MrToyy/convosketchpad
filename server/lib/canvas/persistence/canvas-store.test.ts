@@ -81,6 +81,53 @@ afterEach(() => {
 });
 
 describe('CanvasStore', () => {
+  it('persists structured input and promotes current attachment references atomically', () => {
+    const store = createStore();
+    const canvas = seedUser(store);
+    const branch = store.createRootBranch('user-a', canvas.id);
+    const attachmentId = 'a'.repeat(40);
+    const attachment = store.recordCanvasAttachment('user-a', canvas.id, {
+      id: attachmentId,
+      contentHash: 'b'.repeat(64),
+      name: 'brief.pdf',
+      mimeType: 'application/pdf',
+      sizeBytes: 20,
+      uri: `/api/canvas/attachments/${canvas.id}/${attachmentId}`,
+      storage: 'canvas',
+      available: true,
+    });
+    const inputDocument = {
+      version: 1 as const,
+      segments: [{ type: 'text' as const, text: 'read ' }, { type: 'resource' as const, key: 'brief' }],
+      references: [{ key: 'brief', origin: 'current_turn_attachment' as const, attachmentId }],
+    };
+    const reservation = store.prepareSend('user-a', {
+      branchId: branch.id,
+      userInput: 'read @[brief.pdf]',
+      inputDocument,
+      attachments: [attachment],
+      resourceReferences: [{
+        key: 'brief', origin: 'current_turn_attachment', kind: 'canvas_attachment',
+        sourceInteractionId: null, resourceId: attachmentId, ordinal: 0,
+        name: attachment.name, mimeType: attachment.mimeType, sizeBytes: attachment.sizeBytes,
+        uri: attachment.uri!, contentHash: attachment.contentHash, available: true,
+      }],
+    });
+    expect(reservation.inputDocument).toEqual(inputDocument);
+    expect(reservation.resourceReferences?.[0].sourceInteractionId).toBeNull();
+
+    const interaction = store.acknowledgeSend('user-a', reservation.id, 'turn-structured');
+    expect(interaction.inputDocument).toEqual(inputDocument);
+    expect(interaction.resourceReferences).toEqual([
+      expect.objectContaining({
+        key: 'brief',
+        sourceInteractionId: interaction.id,
+        resourceId: attachmentId,
+      }),
+    ]);
+    expect(store.db.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
+  });
+
   it('creates fresh databases directly at the current Runtime schema', () => {
     const store = createStore();
     const tableNames = (store.db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{ name: string }>)
@@ -89,6 +136,7 @@ describe('CanvasStore', () => {
       .map(({ id }) => id);
 
     expect(tableNames).toEqual(expect.arrayContaining(['runtime_event_inbox', 'interaction_approvals']));
+    expect(tableNames).toContain('turn_resource_references');
     expect(tableNames).not.toEqual(expect.arrayContaining(['gateway_signal_inbox', 'backend_event_inbox']));
     expect((store.db.prepare('PRAGMA table_info(canvases)').all() as Array<{ name: string }>)
       .map(({ name }) => name)).not.toContain('agent_id');
@@ -96,6 +144,7 @@ describe('CanvasStore', () => {
       '0.2.0_to_0.3.0_v1',
       '0.3.0_media_derivatives_v1',
       '0.3.2_to_0.4.0_agent_runtime_v1',
+      '0.4.0_to_0.5.0_resource_references_v1',
     ]);
     expect(store.db.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'trigger' AND name LIKE '%_v1'").get())
       .toEqual({ count: 0 });
@@ -204,6 +253,7 @@ describe('CanvasStore', () => {
         '0.2.0_to_0.3.0_v1',
         '0.3.0_media_derivatives_v1',
         '0.3.2_to_0.4.0_agent_runtime_v1',
+        '0.4.0_to_0.5.0_resource_references_v1',
       ]);
     expect(verified.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
     expect(verified.prepare('PRAGMA integrity_check').get()).toEqual({ integrity_check: 'ok' });
@@ -383,7 +433,7 @@ describe('CanvasStore', () => {
       WHERE id = '0.2.0_to_0.3.0_v1'`).get()).toMatchObject({ count: 1 });
     expect(store.db.prepare(`SELECT app_version FROM schema_migrations
       WHERE id = '0.3.2_to_0.4.0_agent_runtime_v1'`).get()).toMatchObject({
-      app_version: '0.4.2',
+      app_version: '0.5.0',
     });
     const columnNames = (table: string) => (store.db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>)
       .map((column) => column.name);
@@ -473,7 +523,7 @@ describe('CanvasStore', () => {
     });
     expect(store.db.prepare(`SELECT app_version FROM schema_migrations
       WHERE id = '0.3.2_to_0.4.0_agent_runtime_v1'`).get()).toMatchObject({
-      app_version: '0.4.2',
+      app_version: '0.5.0',
     });
 
     store.applyReconciledInteraction('interaction-1', {

@@ -28,6 +28,10 @@ export interface CanvasCopy {
   composerPlaceholder: string;
   addAttachment: string;
   removeAttachment: string;
+  removeReferencedAttachmentConfirm: (name: string) => string;
+  currentAttachments: string;
+  upstreamResources: string;
+  materialSlots: (used: number, limit: number) => string;
   send: string;
   attachmentReadFailed: (name: string) => string;
   attachmentTooLarge: (name: string) => string;
@@ -94,6 +98,10 @@ const knownErrors = {
     interaction_not_completed: '只能从已完成的历史交互创建分支',
     reservation_not_prepared: '发送请求已失效，请重试',
     source_attachment_unavailable: '原节点的附件已不可用，无法原样重试',
+    resource_reference_unavailable: '引用的资源已不可用或不属于当前节点的上游',
+    turn_material_limit_exceeded: '本轮附件和引用资源合计不能超过 9 个',
+    runtime_input_unsupported: '当前 Agent 运行端不支持所选资源类型',
+    invalid_resource_reference: '资源引用无效，请重新选择',
     conflict: '当前位置已有一个未发送的输入框',
     'Not found': '未找到对应内容',
     'Invalid canvas': '画布信息无效',
@@ -123,6 +131,10 @@ const knownErrors = {
     interaction_not_completed: 'You can only fork from a completed historical interaction.',
     reservation_not_prepared: 'The send request expired. Try again.',
     source_attachment_unavailable: 'A source attachment is unavailable, so this input cannot be retried.',
+    resource_reference_unavailable: 'A referenced resource is unavailable or is not upstream of this node.',
+    turn_material_limit_exceeded: 'A turn can contain at most 9 attachments and referenced resources.',
+    runtime_input_unsupported: 'The current Agent Runtime does not support one of the selected resource types.',
+    invalid_resource_reference: 'A resource reference is invalid. Select it again.',
     conflict: 'An unsent composer already exists here.',
     'Not found': 'The requested item was not found.',
     'Invalid canvas': 'The Canvas data is invalid.',
@@ -170,6 +182,10 @@ export const canvasCopy = {
     composerPlaceholder: '接下来希望智能体做什么？',
     addAttachment: '添加附件',
     removeAttachment: '移除附件',
+    removeReferencedAttachmentConfirm: (name) => `“${name}”已在文本中被引用。移除附件时也会删除对应引用，是否继续？`,
+    currentAttachments: '本次附件',
+    upstreamResources: '上游资源',
+    materialSlots: (used, limit) => `素材 ${used} / ${limit}`,
     send: '发送',
     attachmentReadFailed: (name) => `无法读取附件：${name}`,
     attachmentTooLarge: (name) => `附件“${name}”超过 20 MB，无法发送给智能体`,
@@ -244,6 +260,10 @@ export const canvasCopy = {
     composerPlaceholder: 'What should the agent do next?',
     addAttachment: 'Add attachment',
     removeAttachment: 'Remove attachment',
+    removeReferencedAttachmentConfirm: (name) => `“${name}” is referenced in the message. Removing it will also remove those references. Continue?`,
+    currentAttachments: 'Current attachments',
+    upstreamResources: 'Upstream resources',
+    materialSlots: (used, limit) => `Materials ${used} / ${limit}`,
     send: 'Send',
     attachmentReadFailed: (name) => `Unable to read attachment: ${name}`,
     attachmentTooLarge: (name) => `Attachment “${name}” exceeds 20 MB and cannot be sent to the agent`,

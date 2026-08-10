@@ -5,7 +5,7 @@ import { persistCanvasAttachment } from '../lib/canvas-artifact-store.js';
 import { rateLimitGeneral } from '../middleware/rate-limit.js';
 import type { CanvasStore } from '../lib/canvas/persistence/canvas-store.js';
 
-const MAX_CANVAS_FILES = 4;
+const MAX_CANVAS_FILES = 9;
 const MAX_CANVAS_FILE_BYTES = 20 * 1024 * 1024;
 
 export function createUploadReferenceRoutes(store?: CanvasStore) {
@@ -19,7 +19,7 @@ export function createUploadReferenceRoutes(store?: CanvasStore) {
       const files = values.filter((value): value is File => value instanceof File);
 
       if (!/^[a-f0-9-]{36}$/i.test(canvasId)) return c.json({ ok: false, error: 'Valid Canvas upload metadata is required.' }, 400);
-      if (files.length === 0 || files.length > MAX_CANVAS_FILES) return c.json({ ok: false, error: 'Canvas uploads require between one and four files.' }, 400);
+      if (files.length === 0 || files.length > MAX_CANVAS_FILES) return c.json({ ok: false, error: 'Canvas uploads require between one and nine files.' }, 400);
       if (files.some((file) => file.size > MAX_CANVAS_FILE_BYTES)) return c.json({ ok: false, error: 'Canvas files must not exceed 20 MiB.' }, 413);
 
       const identity = getCanvasIdentity(c);

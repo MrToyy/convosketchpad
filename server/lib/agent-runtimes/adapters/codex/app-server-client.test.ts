@@ -1,25 +1,25 @@
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CodexAppServerClient } from './app-server-client.js';
 
 describe('Codex App Server supervision', () => {
   const originalBinary = process.env.CODEX_BIN;
-  const originalWorkingDirectory = process.env.CODEX_WORKING_DIRECTORY;
   let temporaryDirectory = '';
 
   afterEach(() => {
     if (originalBinary === undefined) delete process.env.CODEX_BIN;
     else process.env.CODEX_BIN = originalBinary;
-    if (originalWorkingDirectory === undefined) delete process.env.CODEX_WORKING_DIRECTORY;
-    else process.env.CODEX_WORKING_DIRECTORY = originalWorkingDirectory;
+    vi.restoreAllMocks();
     if (temporaryDirectory) rmSync(temporaryDirectory, { recursive: true, force: true });
     temporaryDirectory = '';
   });
 
   it('restarts an unexpectedly exited process with backoff and stops after close', async () => {
     temporaryDirectory = mkdtempSync(path.join(os.tmpdir(), 'codex-app-server-client-'));
+    vi.spyOn(os, 'homedir').mockReturnValue(temporaryDirectory);
+    mkdirSync(path.join(temporaryDirectory, '.convosketchpad', 'workspace'), { recursive: true });
     const launches = path.join(temporaryDirectory, 'launches.txt');
     const executable = path.join(temporaryDirectory, 'codex-stub');
     writeFileSync(executable, `#!/usr/bin/env node
@@ -36,7 +36,6 @@ process.exit(64);
 `);
     chmodSync(executable, 0o700);
     process.env.CODEX_BIN = executable;
-    process.env.CODEX_WORKING_DIRECTORY = temporaryDirectory;
 
     const client = new CodexAppServerClient();
     await expect(client.connect()).rejects.toThrow();

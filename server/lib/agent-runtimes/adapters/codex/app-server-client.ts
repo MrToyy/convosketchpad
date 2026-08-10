@@ -2,6 +2,7 @@ import { execFile, spawn, type ChildProcessWithoutNullStreams } from 'node:child
 import { EventEmitter } from 'node:events';
 import readline from 'node:readline';
 import { promisify } from 'node:util';
+import { packageMetadata } from '../../../package-metadata.js';
 import type { RuntimeStatus } from '../../contract.js';
 import { codexConfig, compareVersions, MINIMUM_CODEX_VERSION, parseCodexVersion } from './config.js';
 
@@ -128,7 +129,7 @@ export class CodexAppServerClient {
         clientInfo: {
           name: 'convosketchpad',
           title: 'ConvoSketchpad',
-          version: process.env.npm_package_version || '0.4.2',
+          version: process.env.npm_package_version || packageMetadata.version,
         },
       }, 10_000);
       this.notify('initialized', {});

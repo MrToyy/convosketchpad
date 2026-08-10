@@ -8,7 +8,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import path from 'node:path';
-import { LEGACY_RUNTIME_ENV_MAPPINGS } from './env-keys.js';
+import { LEGACY_RUNTIME_ENV_MAPPINGS, RETIRED_RUNTIME_ENV_KEYS } from './env-keys.js';
 
 function unquote(value: string): string {
   const trimmed = value.trim();
@@ -51,9 +51,9 @@ export function validateLegacyRuntimeEnv(projectRoot: string): void {
 }
 
 /**
- * Atomically replace v0.3.x Runtime keys without retaining aliases or writing
- * both names. Every conflict is validated before writing, and values are never
- * logged or returned.
+ * Atomically replace v0.3.x Runtime keys and remove retired Runtime settings.
+ * Every conflict is validated before writing, and values are never logged or
+ * returned.
  */
 export function migrateLegacyRuntimeEnv(projectRoot: string): boolean {
   const envPath = path.join(projectRoot, '.env');
@@ -68,7 +68,11 @@ export function migrateLegacyRuntimeEnv(projectRoot: string): boolean {
     }
     return { legacyKey, currentKey, legacyValue, currentValue };
   });
-  if (!migrations.some(({ legacyValue }) => legacyValue !== null)) return false;
+  const retiredExpressions = RETIRED_RUNTIME_ENV_KEYS.map(
+    (key) => new RegExp(`^\\s*${key}\\s*=`),
+  );
+  const hasRetiredKeys = lines.some((line) => retiredExpressions.some((expression) => expression.test(line)));
+  if (!migrations.some(({ legacyValue }) => legacyValue !== null) && !hasRetiredKeys) return false;
 
   let migrated = lines;
   for (const { legacyKey, currentKey, legacyValue, currentValue } of migrations) {
@@ -83,6 +87,9 @@ export function migrateLegacyRuntimeEnv(projectRoot: string): boolean {
       return [`${match[1] || ''}${currentKey}${match[2] || ''}`];
     });
   }
+  migrated = migrated.filter(
+    (line) => !retiredExpressions.some((expression) => expression.test(line)),
+  );
 
   const newline = content.includes('\r\n') ? '\r\n' : '\n';
   const next = migrated.join(newline);

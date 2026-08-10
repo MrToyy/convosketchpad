@@ -25,11 +25,18 @@ export interface CanvasContextResource {
   uri: string;
   available: boolean;
   warning?: string;
+  required?: boolean;
 }
 
 export interface CanonicalCanvasSnapshot {
-  version: 2;
-  interactions: Array<{ id: string; user: string; assistant: string }>;
+  version: 2 | 3;
+  interactions: Array<{
+    id: string;
+    user: string;
+    assistant: string;
+    inputDocument?: import('./input-document.js').CanvasInputDocument;
+    resourceReferences?: import('./input-document.js').CanvasResourceReferenceSnapshot[];
+  }>;
   resources: CanvasContextResource[];
 }
 

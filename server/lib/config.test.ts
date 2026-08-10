@@ -1,3 +1,5 @@
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { config, printStartupBanner, SESSION_COOKIE_NAME, validateConfig } from './config.js';
@@ -14,18 +16,23 @@ describe('Canvas server config', () => {
   });
 
   it('prints the Canvas product name and validates without throwing', () => {
+    const temporaryHome = mkdtempSync(path.join(os.tmpdir(), 'config-runtime-home-'));
+    vi.spyOn(os, 'homedir').mockReturnValue(temporaryHome);
+    mkdirSync(path.join(temporaryHome, '.convosketchpad', 'workspace'), { recursive: true });
     const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     printStartupBanner(
       '1.2.3',
-      'A visual branching workspace for agents — revisit any point and continue exploring.',
+      'Self-hosted visual canvas for branching AI conversations—reuse your existing OpenClaw, Codex, and OpenCode agents, skills, memory, and tools.',
     );
     expect(log.mock.calls.flat().join(' ')).toContain('ConvoSketchpad v1.2.3');
     expect(log.mock.calls.flat().join(' ')).toContain(
-      'A visual branching workspace for agents — revisit any point and continue exploring.',
+      'Self-hosted visual canvas for branching AI conversations—reuse your existing OpenClaw, Codex, and OpenCode agents, skills, memory, and tools.',
     );
     expect(() => validateConfig()).not.toThrow();
     log.mockRestore();
     warn.mockRestore();
+    vi.restoreAllMocks();
+    rmSync(temporaryHome, { recursive: true, force: true });
   });
 });

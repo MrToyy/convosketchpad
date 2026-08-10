@@ -3,7 +3,10 @@
  */
 
 import { readFileSync, writeFileSync, renameSync, copyFileSync, existsSync, unlinkSync, chmodSync } from 'node:fs';
-import { LEGACY_RUNTIME_ENV_MAPPINGS } from '../../server/lib/agent-runtimes/env-keys.js';
+import {
+  LEGACY_RUNTIME_ENV_MAPPINGS,
+  RETIRED_RUNTIME_ENV_KEYS,
+} from '../../server/lib/agent-runtimes/env-keys.js';
 
 /** All supported env config keys. */
 export interface EnvConfig {
@@ -16,7 +19,7 @@ export interface EnvConfig {
   OPENCLAW_CONFIG_PATH?: string;
   OPENCLAW_BIN?: string;
   CODEX_BIN?: string;
-  CODEX_WORKING_DIRECTORY?: string;
+  OPENCODE_BIN?: string;
   PORT?: string;
   HOST?: string;
   ALLOWED_ORIGINS?: string;
@@ -80,7 +83,11 @@ export function generateEnvContent(config: EnvConfig): string {
   if (runtimeIds.includes('codex')) {
     lines.push('# Codex App Server');
     if (config.CODEX_BIN) lines.push(`CODEX_BIN=${JSON.stringify(config.CODEX_BIN)}`);
-    lines.push(`CODEX_WORKING_DIRECTORY=${JSON.stringify(config.CODEX_WORKING_DIRECTORY || '')}`);
+    lines.push('');
+  }
+  if (runtimeIds.includes('opencode')) {
+    lines.push('# OpenCode Server');
+    if (config.OPENCODE_BIN) lines.push(`OPENCODE_BIN=${JSON.stringify(config.OPENCODE_BIN)}`);
     lines.push('');
   }
 
@@ -170,6 +177,7 @@ export function loadExistingEnv(envPath: string): EnvConfig {
     if (legacy !== undefined && current === undefined) config[currentKey] = legacy;
     delete config[legacyKey];
   }
+  for (const retiredKey of RETIRED_RUNTIME_ENV_KEYS) delete config[retiredKey];
   if (config.AGENT_RUNTIMES === undefined) config.AGENT_RUNTIMES = 'openclaw';
   return config as EnvConfig;
 }

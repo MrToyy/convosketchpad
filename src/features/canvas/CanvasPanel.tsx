@@ -37,6 +37,7 @@ import {
   type CanvasFlowNode,
 } from './flow-model';
 import { EMPTY_CANVAS_DRAFT } from './constants';
+import { documentForSend, draftDocumentText } from './input-document';
 import {
   contextForComposerSource,
   deriveCanvasStatusCounts,
@@ -264,6 +265,7 @@ export function CanvasPanel({ onStatusStatsChange }: { onStatusStatsChange?: (st
       draft.sending
       || (
         !draft.text.trim()
+        && draft.inputDocument.segments.length === 0
         && draft.files.length === 0
         && draft.persistedAttachments.length === 0
       )
@@ -285,10 +287,14 @@ export function CanvasPanel({ onStatusStatsChange }: { onStatusStatsChange?: (st
         ...draft.persistedAttachments.map((attachment) => attachment.id),
         ...attachmentMeta.map((attachment) => attachment.id),
       ];
+      const attachmentIdByDraftKey = new Map(draft.fileKeys.map((key, index) => [
+        key,
+        attachmentMeta[index]?.id || '',
+      ]));
       const result = await canvasApi.send(branch.id, {
         expectedHeadInteractionId: branch.conversationState === 'active' ? branch.headInteractionId : null,
         expectedAgentRef: canvasAgentRef,
-        userInput: draft.text,
+        inputDocument: documentForSend(draft.inputDocument, attachmentIdByDraftKey),
         attachmentIds,
       });
       if (result.interaction && (composerPosition || composerSize)) {
@@ -404,8 +410,13 @@ export function CanvasPanel({ onStatusStatsChange }: { onStatusStatsChange?: (st
       onAdd: addFromInteraction,
       onResubmit: (interaction) => void resubmitInteraction(interaction),
       onApprovalChanged: () => { void loadGraph(); },
-      onTextChange: (branchId, value) => {
-        updateDraft(branchId, (draft) => ({ ...draft, text: value, error: null }));
+      onDocumentChange: (branchId, value) => {
+        updateDraft(branchId, (draft) => ({
+          ...draft,
+          text: draftDocumentText(value),
+          inputDocument: value,
+          error: null,
+        }));
       },
       onFiles: addFiles,
       onRemoveFile: removeFile,

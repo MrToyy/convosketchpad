@@ -8,7 +8,12 @@ import {
   NODE_VERTICAL_GAP,
   type CanvasNodeBounds,
 } from './layout';
-import type { CanvasBranch, CanvasDraft, CanvasInteraction } from './types';
+import type {
+  CanvasBranch,
+  CanvasDraft,
+  CanvasDraftInputDocument,
+  CanvasInteraction,
+} from './types';
 
 export interface InteractionNodeData extends Record<string, unknown> {
   interaction: CanvasInteraction;
@@ -27,7 +32,7 @@ export interface ComposerNodeData extends Record<string, unknown> {
   draft: CanvasDraft;
   label: string;
   resizeEnabled: boolean;
-  onTextChange: (value: string) => void;
+  onDocumentChange: (value: CanvasDraftInputDocument) => void;
   onFiles: (files: File[]) => void;
   onRemoveFile: (index: number) => void;
   onRemovePersistedAttachment: (index: number) => void;

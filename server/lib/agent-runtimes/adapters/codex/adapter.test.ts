@@ -58,17 +58,20 @@ class FakeClient {
 
 describe('Codex Agent Runtime Adapter', () => {
   let workspace = '';
+  let temporaryHome = '';
   let client: FakeClient;
 
   beforeEach(async () => {
-    workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'codex-adapter-'));
-    process.env.CODEX_WORKING_DIRECTORY = workspace;
+    temporaryHome = await fs.mkdtemp(path.join(os.tmpdir(), 'codex-adapter-'));
+    vi.spyOn(os, 'homedir').mockReturnValue(temporaryHome);
+    workspace = path.join(temporaryHome, '.convosketchpad', 'workspace');
+    await fs.mkdir(workspace, { recursive: true });
     client = new FakeClient();
   });
 
   afterEach(async () => {
-    delete process.env.CODEX_WORKING_DIRECTORY;
-    await fs.rm(workspace, { recursive: true, force: true });
+    vi.restoreAllMocks();
+    await fs.rm(temporaryHome, { recursive: true, force: true });
   });
 
   it('starts a stable Default-mode turn with a managed Artifact directory', async () => {

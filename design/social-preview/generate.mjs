@@ -104,9 +104,9 @@ const directions = [
           <tspan x="64" dy="54">fly free</tspan>
         </text>
         <text x="64" y="330" fill="${palette.muted}" font-family="Inter, Arial, sans-serif"
-          font-size="18" font-weight="450">
-          <tspan x="64" dy="0">A visual branching workspace for agents —</tspan>
-          <tspan x="64" dy="28">revisit any point and continue exploring.</tspan>
+          font-size="22" font-weight="500">
+          <tspan x="64" dy="0">One canvas. Many paths.</tspan>
+          <tspan x="64" dy="32">The agents you know.</tspan>
         </text>
         ${badge({ x: 64, y: 438, text: 'Agent Runtime' })}
         ${badge({ x: 190, y: 438, text: 'OpenClaw' })}
@@ -134,12 +134,8 @@ const directions = [
           font-size="19" font-weight="700" letter-spacing="0.3">LET IDEAS FLY FREE</text>
         <text x="64" y="276" fill="${palette.text}" font-family="Inter, Arial, sans-serif"
           font-size="30" font-weight="750" letter-spacing="-0.8">
-          <tspan x="64" dy="0">A visual branching workspace</tspan>
-          <tspan x="64" dy="40">for agents —</tspan>
-        </text>
-        <text x="64" y="390" fill="${palette.muted}" font-family="Inter, Arial, sans-serif"
-          font-size="20">
-          <tspan x="64" dy="0">revisit any point and continue exploring.</tspan>
+          <tspan x="64" dy="0">One canvas. Many paths.</tspan>
+          <tspan x="64" dy="40">The agents you know.</tspan>
         </text>
         ${badge({ x: 64, y: 472, text: 'Agent Runtime' })}
         ${badge({ x: 190, y: 472, text: 'OpenClaw' })}
@@ -169,11 +165,9 @@ const directions = [
           font-size="58" font-weight="750" letter-spacing="-1.5">让想法自由分支</text>
         <text x="64" y="276" fill="${palette.orange}"
           font-family="PingFang SC, Noto Sans CJK SC, Arial, sans-serif"
-          font-size="27" font-weight="650">Agent 可视化分支工作台——</text>
-        <text x="64" y="326" fill="${palette.muted}"
-          font-family="PingFang SC, Noto Sans CJK SC, Arial, sans-serif"
-          font-size="23">
-          <tspan x="64" dy="0">从任意节点回溯并继续探索</tspan>
+          font-size="27" font-weight="650">
+          <tspan x="64" dy="0">一张画布，多条思路</tspan>
+          <tspan x="64" dy="44">熟悉的 Agent</tspan>
         </text>
         ${badge({ x: 64, y: 430, text: 'Agent Runtime', width: 126 })}
         ${badge({ x: 206, y: 430, text: 'OpenClaw' })}
@@ -202,7 +196,7 @@ const directions = [
         </text>
         <text x="640" y="252" text-anchor="middle" fill="${palette.muted}"
           font-family="Inter, Arial, sans-serif" font-size="19">
-          A visual branching workspace for agents — revisit any point and continue exploring.
+          One canvas. Many paths. The agents you know.
         </text>
         <rect x="82" y="302" width="1116" height="286" rx="24"
           fill="#111923" stroke="${palette.border}" stroke-width="1.5" filter="url(#shadow)" />

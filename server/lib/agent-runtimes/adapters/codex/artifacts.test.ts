@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -11,15 +11,18 @@ import {
 
 describe('Codex managed Artifacts', () => {
   let workspace = '';
+  let temporaryHome = '';
 
   beforeEach(async () => {
-    workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'codex-artifacts-'));
-    process.env.CODEX_WORKING_DIRECTORY = workspace;
+    temporaryHome = await fs.mkdtemp(path.join(os.tmpdir(), 'codex-artifacts-'));
+    vi.spyOn(os, 'homedir').mockReturnValue(temporaryHome);
+    workspace = path.join(temporaryHome, '.convosketchpad', 'workspace');
+    await fs.mkdir(workspace, { recursive: true });
   });
 
   afterEach(async () => {
-    delete process.env.CODEX_WORKING_DIRECTORY;
-    await fs.rm(workspace, { recursive: true, force: true });
+    vi.restoreAllMocks();
+    await fs.rm(temporaryHome, { recursive: true, force: true });
   });
 
   it('collects, materializes, and releases arbitrary regular files', async () => {

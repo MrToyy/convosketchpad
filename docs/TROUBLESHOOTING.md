@@ -29,7 +29,19 @@ codex login status
 curl -sS http://127.0.0.1:3080/api/runtime/status
 ```
 
-Codex 最低且已验证版本为 `0.146.0`。确认 `.env` 中 `AGENT_RUNTIMES` 包含 `codex`、`CODEX_BIN` 可由受管服务执行、`CODEX_WORKING_DIRECTORY` 是存在且可读写的绝对项目目录。它不能是 `CODEX_HOME` / `~/.codex`。未登录时运行 `codex login`，然后重跑 `npm run setup` 并重启 ConvoSketchpad；setup 不会代办登录，也不会读取 Codex 凭据文件。App Server 异常退出后会显示 Runtime 局部不可用，既有 Codex Thread 不因此失效。
+Codex 最低且已验证版本为 `0.146.0`。确认 `.env` 中 `AGENT_RUNTIMES` 包含 `codex`、`CODEX_BIN` 可由受管服务执行，并且运行服务的用户可读写 `~/.convosketchpad/workspace`。未登录时运行 `codex login`，然后重跑 `npm run setup` 并重启 ConvoSketchpad；setup 不会代办登录，也不会读取 Codex 凭据文件。App Server 异常退出后会显示 Runtime 局部不可用，既有 Codex Thread 不因此失效。
+
+## OpenCode 连接或默认模型不可用
+
+确认 `.env` 中 `AGENT_RUNTIMES` 包含 `opencode`，`OPENCODE_BIN` 对受管服务可执行，版本不低于 `1.18.16`，并且运行服务的用户可读写固定共享工作区 `~/.convosketchpad/workspace`。运行 `npm run setup` 可创建工作区，并用临时受管 Server 检查健康状态和默认 Provider；若提示没有默认模型，请先用 OpenCode 自身配置至少一个已连接 Provider 的默认模型。
+
+ConvoSketchpad 自动选择 loopback 端口并监督 `opencode serve`，无需配置固定端口。异常退出或 SSE 断开后按最长 30 秒的指数退避重启。浏览器不应直接连接该端口，`.env` 也不需要保存 `OPENCODE_SERVER_USERNAME` 或 `OPENCODE_SERVER_PASSWORD`。
+
+## OpenCode 附件或图片生成失败
+
+OpenCode Adapter 会转交文本、图片、音频、PDF 和其他文件，不按默认模型元数据预先拦截。如果默认模型拒绝某种 MIME，发送会显示经过脱敏的 OpenCode 原生原因；这不表示 Canvas 上传损坏。请更换 OpenCode 默认模型或配置能够处理该输入的 MCP/工具。
+
+图片生成是测试能力：Adapter 只捕获模型、MCP 或自定义工具返回的图片 FilePart/Artifact，不内置第三方图片 API。没有支持图片输出的默认模型或图片工具时，要求生成图片可能只得到文本说明。通用交付物应写入 `~/.convosketchpad/workspace/.convosketchpad-artifacts/<turn-token>/outputs/`；限额与 Codex 相同，且不会扫描整个 Workspace 猜测输出。
 
 ## 配对提示 `missing scope: operator.admin`
 
@@ -61,7 +73,7 @@ GET /api/canvas/send-operations/:id
 - `reserved`：确认请求没有写出，等待连接后重试。
 - `awaiting_media`：后端正在读取或生成大图投递派生文件；浏览器无需执行操作。长时间不推进时检查服务日志、
   `artifacts/` 写权限、可用磁盘空间和源图片是否有效。
-- `ambiguous`：请求可能已写出。OpenClaw 使用同一幂等键重试；Codex 先通过 `thread/read` 核对，无法确认时保持锁定，不会盲目重发。
+- `ambiguous`：请求可能已写出。OpenClaw 使用同一幂等键重试；Codex 先通过 `thread/read` 核对；OpenCode 按确切用户 Message ID 读取原生记录。无法确认时保持锁定，不会盲目重发。
 - `failed`：Runtime 明确拒绝，或附件/载荷无法构造。
 
 不要直接修改 SQLite 解锁。
@@ -82,16 +94,18 @@ Gateway 终止事件只是提示。服务端会从权威对话记录协调最终
 
 ## 附件发送失败
 
-- 最多四个原始文件，每个最大 20 MiB。
+- 最多九个原始文件，每个最大 20 MiB；本轮附件与上游引用共用九个材料槽位，同一引用在文本中重复出现仍只占一槽。
 - 大图由后端按需生成投递派生文件，原件始终保存在 Canvas 且不被改写。
 - 最终 Base64 `chat.send` Frame 必须小于 Gateway `maxPayload`。
 - 图片格式无效、不受支持或超过后端安全解码限制时，发送会明确失败；检查 Send Operation 错误与服务日志。
-- Codex 当前只接收图片附件；任意文件、音频输入会明确拒绝。OpenClaw 的附件能力按 Gateway 原生规则处理。
+- Codex 当前只接收图片附件；任意文件、音频输入会明确拒绝。OpenClaw 的附件能力按 Gateway 原生规则处理。OpenCode Adapter 会转交所有 MIME，是否实际可处理由默认模型或工具决定，原生拒绝会反馈给用户。
 
 Fork 与 Session 恢复会完整投递目标历史中仍可用的附件和 Artifact，不会根据本轮指令自动裁剪。相同内容
 只占一个物理附件，后端生成的历史大图会按真实内容哈希在同一 Canvas 内复用。若 operation 报告
 `replay_payload_too_large`，说明完整 Replay Package 即使经过物理去重仍超过 Gateway `maxPayload`；
 服务端不会静默删文件。应提高 Gateway 的受支持载荷上限，或从较短历史位置创建新 Branch。
+
+若资源 Token 发送失败，先检查候选是否仍属于当前 Branch 的父链、原 Attachment/Artifact 是否可用，以及所选 Runtime 是否支持其 MIME。根节点的上游目录本来为空，但本次上传附件仍可通过 `@` 使用；旁支资源必须等分支合并阶段建立明确上游关系，不能通过手工请求绕过。
 
 OpenClaw 的 Session 记录可能把收到的原生附件显示为 `MediaPaths` / `MediaTypes`，而不是保留 RPC
 `attachments` 字段。判断媒体是否传入 Agent 时应同时检查这些字段。
@@ -100,7 +114,9 @@ OpenClaw 的 Session 记录可能把收到的原生附件显示为 `MediaPaths` 
 
 Artifact 与文本完成相互独立。所有完成节点由后端稀疏观察晚到 Artifact 至 2 分钟；已发现 Artifact、同步失败或 Gateway Artifact 能力不完整时继续退避观察到 1 小时。已发现文件全部持久化后节点立即显示同步完成，剩余观察在后端静默进行；超过 25 MiB、无法安全读取或最终仍不可用时才进入终态 `degraded`。刷新页面不会无限重启同步。检查 `artifacts/` 权限和 Gateway `artifacts.list/download` 能力。
 
-Codex 通用交付物必须实际写入 `<CODEX_WORKING_DIRECTORY>/.convosketchpad-artifacts/<turn-token>/outputs/`；普通 Workspace 修改不会自动成为 Artifact。每轮最多 100 个文件、单文件 25 MiB、总计 100 MiB，符号链接、硬链接、特殊文件和越界路径会被拒绝。成功持久化后临时源文件自动清理；失败或中断 Turn 的文件仍可下载，但会显示可能不完整的警告。SVG、HTML、文档和压缩包按附件下载，不提供活动内容预览。
+Codex 通用交付物必须实际写入 `~/.convosketchpad/workspace/.convosketchpad-artifacts/<turn-token>/outputs/`；普通 Workspace 修改不会自动成为 Artifact。每轮最多 100 个文件、单文件 25 MiB、总计 100 MiB，符号链接、硬链接、特殊文件和越界路径会被拒绝。成功持久化后临时源文件自动清理；失败或中断 Turn 的文件仍可下载，但会显示可能不完整的警告。SVG、HTML、文档和压缩包按附件下载，不提供活动内容预览。
+
+OpenCode 受管交付物使用相同的目录结构和限额；原生 Assistant/Tool 返回的 FilePart 也会作为结构化 Artifact 捕获。外部 HTTP URL 不由后端携带凭据主动抓取，只保留降级引用。
 
 从 `0.2.0` 升级时会执行一次本地数据库迁移。迁移只依据已有 SQLite 数据合并等价 Artifact、修正旧同步状态并恢复明确的未完成任务，不会重新读取 Gateway 历史。已终止节点不会因服务重启再次进入协调；旧 run 无法反查 Session 本身也不会被判定为 Artifact 失败。
 
@@ -116,7 +132,7 @@ npm run migrate
 
 如果 OpenClaw 已完成而节点仍显示运行中，优先检查数据库中的 `execution_state`、`turn_ref_json` 和 `runtime_event_inbox`，再检查 OpenClaw Adapter 能否调用 `sessions.get/list`。不要在新 Schema 中寻找 `run_id` 或 `gateway_signal_inbox`，它们会在迁移后移除；也不要依据浏览器调试事件或手工修改节点状态。带显式 Turn Handle 但未命中的事件会保留为待处理且不会回退猜测；只有缺少 Turn Handle 且 Conversation 恰好只有一个候选节点时才允许恢复关联。
 
-审批卡片未出现时，先确认 `/api/runtime/status` 中对应 Runtime 已连接；OpenClaw 还需确认设备 Token 含 `operator.approvals`。检查服务端日志是否报告审批方法不受支持，并检查 `runtime_event_inbox` 是否记录 `approval.required`。公开 Runtime 状态不会返回 `interactiveApprovals` Capability、原生方法表或诊断数据。`409` 通常表示审批已处理、选择无效或权限集合越界；`410` 表示已过期；`202` 表示结果未知，应等待原生 resolved 事件，不要反复点击。Codex 的结构化 ask-user 与 MCP elicitation 本版本不提供回答 UI；依赖它们的工具会被明确拒绝，应改为让 Codex 在普通文本回复中提问。
+审批卡片未出现时，先确认 `/api/runtime/status` 中对应 Runtime 已连接；OpenClaw 还需确认设备 Token 含 `operator.approvals`。检查服务端日志是否报告审批方法不受支持，并检查 `runtime_event_inbox` 是否记录 `approval.required`。公开 Runtime 状态不会返回 `interactiveApprovals` Capability、原生方法表或诊断数据。`409` 通常表示审批已处理、选择无效或权限集合越界；`410` 表示已过期；`202` 表示结果未知，应等待原生 resolved 事件，不要反复点击。OpenCode 只映射原生 permission 请求；Codex 的结构化 ask-user 与 MCP elicitation 本版本不提供回答 UI，依赖它们的工具会被明确拒绝，应改为让 Codex 在普通文本回复中提问。
 
 状态栏显示“部分可用”是正常聚合结果：在设置中查看各 Runtime 错误。用量缺少全局费用合计通常表示币种/统计周期不一致、某个 Runtime 未声明可加，或只返回额度而不返回费用；这不是数据丢失。
 

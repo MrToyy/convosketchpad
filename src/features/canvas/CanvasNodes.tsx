@@ -26,7 +26,9 @@ import { MarkdownRenderer } from '@/features/markdown/MarkdownRenderer';
 import { useSettings } from '@/contexts/SettingsContext';
 import { canvasApi, canvasArtifactUrl } from './api';
 import { CanvasSendButton } from './CanvasSendButton';
-import { MAX_CANVAS_ATTACHMENTS } from './constants';
+import { MAX_TURN_MATERIALS } from './constants';
+import { ResourceComposerEditor } from './ResourceComposerEditor';
+import { upstreamReferenceCount } from './input-document';
 import {
   MAX_NODE_HEIGHT,
   MAX_NODE_WIDTH,
@@ -58,6 +60,32 @@ function interactionStatusLabel(interaction: CanvasInteraction, copy: CanvasCopy
   if (interaction.executionState === 'completed') return copy.status.completed;
   if (interaction.executionState === 'unconfirmed') return copy.status.unconfirmed;
   return copy.status.failed;
+}
+
+function StructuredInput({ interaction }: { interaction: CanvasInteraction }) {
+  const references = new Map(interaction.resourceReferences.map((reference) => [reference.key, reference]));
+  if (!interaction.inputDocument) return <>{interaction.userInput}</>;
+  return <>{interaction.inputDocument.segments.map((segment, index) => {
+    if (segment.type === 'text') return <span key={`text-${index}`}>{segment.text}</span>;
+    const reference = references.get(segment.key);
+    if (!reference) return <span key={`missing-${index}`}>@[resource]</span>;
+    return reference.uri ? (
+      <a
+        key={`resource-${index}`}
+        href={reference.uri}
+        target="_blank"
+        rel="noreferrer"
+        title={reference.sourceInteractionId || undefined}
+        className="mx-0.5 inline-flex max-w-48 items-center rounded-md border border-primary/30 bg-primary/10 px-1.5 py-0.5 text-xs font-medium text-primary hover:bg-primary/20"
+      >
+        @{reference.name}
+      </a>
+    ) : (
+      <span key={`resource-${index}`} className="mx-0.5 rounded-md bg-secondary px-1.5 py-0.5 text-xs">
+        @{reference.name}
+      </span>
+    );
+  })}</>;
 }
 
 export function CanvasNodeResizeHandle({
@@ -267,7 +295,11 @@ export function InteractionNode({ data }: NodeProps<InteractionFlowNode>) {
 
       <details className="nodrag mt-3 cursor-text select-text rounded-2xl border border-border/60 bg-background/45 px-3 py-2">
         <summary className="cursor-pointer text-xs font-medium text-muted-foreground">{copy.userInput}</summary>
-        <p className="mt-2 whitespace-pre-wrap text-sm text-foreground">{interaction.userInput || copy.attachmentsOnly}</p>
+        <p className="mt-2 whitespace-pre-wrap text-sm text-foreground">
+          {interaction.inputDocument?.segments.length
+            ? <StructuredInput interaction={interaction} />
+            : interaction.userInput || copy.attachmentsOnly}
+        </p>
         {fileAttachments.length > 0 && (
           <div className="mt-2 flex flex-wrap gap-2">
             {fileAttachments.map((item, index) => (
@@ -421,15 +453,19 @@ export function ComposerNode({ data }: NodeProps<ComposerFlowNode>) {
           <button type="button" className="nodrag text-muted-foreground hover:text-foreground" onClick={data.onClose} aria-label={copy.closeComposer}><X size={15} /></button>
         )}
       </header>
-      <textarea
-        autoFocus
-        value={data.draft.text}
-        onChange={(event) => data.onTextChange(event.target.value)}
+      <ResourceComposerEditor
+        branchId={data.branch.id}
+        value={data.draft.inputDocument}
+        files={data.draft.files}
+        fileKeys={data.draft.fileKeys}
+        persistedAttachments={data.draft.persistedAttachments}
+        disabled={data.draft.sending}
+        placeholder={copy.composerPlaceholder}
+        currentGroupLabel={copy.currentAttachments}
+        upstreamGroupLabel={copy.upstreamResources}
+        onChange={data.onDocumentChange}
         onFocus={data.onFocus}
         onBlur={data.onBlur}
-        placeholder={copy.composerPlaceholder}
-        className="nodrag nowheel min-h-28 w-full resize-none rounded-2xl border border-border bg-background/65 px-3 py-3 text-sm outline-none focus:border-primary"
-        disabled={data.draft.sending}
       />
       {data.draft.persistedAttachments.length > 0 && (
         <div className="nodrag mt-3 grid gap-2">
@@ -442,7 +478,14 @@ export function ComposerNode({ data }: NodeProps<ComposerFlowNode>) {
               <span className="text-muted-foreground">{formatBytes(attachment.sizeBytes)}</span>
               <button
                 type="button"
-                onClick={() => data.onRemovePersistedAttachment(index)}
+                onClick={() => {
+                  const referenced = data.draft.inputDocument.references.some((reference) =>
+                    reference.origin === 'current_turn_attachment'
+                    && reference.attachmentId === attachment.id);
+                  if (!referenced || window.confirm(copy.removeReferencedAttachmentConfirm(attachment.name))) {
+                    data.onRemovePersistedAttachment(index);
+                  }
+                }}
                 disabled={data.draft.sending}
                 aria-label={`${copy.removeAttachment}: ${attachment.name}`}
               >
@@ -456,18 +499,36 @@ export function ComposerNode({ data }: NodeProps<ComposerFlowNode>) {
         <div className="nodrag mt-3 grid gap-2">
           {data.draft.files.map((file, index) => (
             <div key={`${file.name}-${file.lastModified}-${index}`} className="flex items-center gap-2 rounded-xl bg-secondary/75 px-2 py-2 text-xs">
-              {file.type.startsWith('image/') && data.draft.previews[`${file.name}-${file.lastModified}`]
-                ? <img src={data.draft.previews[`${file.name}-${file.lastModified}`]} alt="" className="size-9 rounded-lg object-cover" />
+              {file.type.startsWith('image/') && data.draft.previews[data.draft.fileKeys[index]]
+                ? <img src={data.draft.previews[data.draft.fileKeys[index]]} alt="" className="size-9 rounded-lg object-cover" />
                 : <File size={15} />}
               <span className="min-w-0 flex-1 truncate">{file.name}</span>
               <span className="text-muted-foreground">{formatBytes(file.size)}</span>
-              <button type="button" onClick={() => data.onRemoveFile(index)} disabled={data.draft.sending}><X size={14} /></button>
+              <button
+                type="button"
+                onClick={() => {
+                  const referenced = data.draft.inputDocument.references.some((reference) =>
+                    reference.origin === 'draft_attachment'
+                    && reference.draftAttachmentKey === data.draft.fileKeys[index]);
+                  if (!referenced || window.confirm(copy.removeReferencedAttachmentConfirm(file.name))) {
+                    data.onRemoveFile(index);
+                  }
+                }}
+                disabled={data.draft.sending}
+              ><X size={14} /></button>
             </div>
           ))}
         </div>
       )}
       {data.draft.error && <p translate="no" className="notranslate nodrag mt-2 flex items-start gap-2 text-xs text-destructive"><AlertCircle size={14} />{data.draft.error}</p>}
       <footer className="nodrag mt-3 flex items-center justify-between gap-2">
+        <span className="text-[0.667rem] text-muted-foreground">
+          {copy.materialSlots(
+            data.draft.files.length + data.draft.persistedAttachments.length
+              + upstreamReferenceCount(data.draft.inputDocument),
+            MAX_TURN_MATERIALS,
+          )}
+        </span>
         <Button
           type="button"
           variant="outline"
@@ -476,7 +537,7 @@ export function ComposerNode({ data }: NodeProps<ComposerFlowNode>) {
           disabled={
             data.draft.sending
             || data.draft.files.length + data.draft.persistedAttachments.length
-              >= MAX_CANVAS_ATTACHMENTS
+              + upstreamReferenceCount(data.draft.inputDocument) >= MAX_TURN_MATERIALS
           }
         >
           <Paperclip size={14} /> {copy.addAttachment}

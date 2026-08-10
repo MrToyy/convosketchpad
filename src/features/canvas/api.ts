@@ -7,6 +7,8 @@ import type {
   AgentCatalogEntry,
   AgentRef,
   SendReservation,
+  CanvasInputDocument,
+  CanvasResourceCatalogItem,
 } from './types';
 
 export class CanvasApiError extends Error {
@@ -77,6 +79,13 @@ export const canvasApi = {
   async agents(): Promise<{ firstAvailable: AgentRef | null; agents: AgentCatalogEntry[] }> {
     return request('/api/canvas/agents');
   },
+  async resources(branchId: string, query = '', signal?: AbortSignal): Promise<CanvasResourceCatalogItem[]> {
+    const params = new URLSearchParams({ q: query, limit: '100' });
+    return (await request<{ items: CanvasResourceCatalogItem[] }>(
+      `/api/canvas/branches/${encodeURIComponent(branchId)}/resources?${params}`,
+      { signal },
+    )).items;
+  },
   async createRoot(canvasId: string): Promise<CanvasBranch> {
     return (await request<{ branch: CanvasBranch }>(`/api/canvas/canvases/${canvasId}/root-branches`, { method: 'POST' })).branch;
   },
@@ -98,7 +107,7 @@ export const canvasApi = {
   async send(branchId: string, body: {
     expectedHeadInteractionId?: string | null;
     expectedAgentRef: AgentRef;
-    userInput: string;
+    inputDocument: CanvasInputDocument;
     attachmentIds: string[];
   }): Promise<{ interaction?: CanvasInteraction; operation?: SendReservation }> {
     return request(`/api/canvas/branches/${branchId}/send`, {

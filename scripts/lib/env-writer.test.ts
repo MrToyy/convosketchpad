@@ -74,21 +74,33 @@ describe('ConvoSketchpad env writer', () => {
 
     expect(content).toContain('AGENT_RUNTIMES=codex');
     expect(content).toContain('# Codex App Server');
-    expect(content).toContain('CODEX_WORKING_DIRECTORY=""');
+    expect(content).not.toContain('CODEX_WORKING_DIRECTORY');
     expect(content).not.toContain('# OpenClaw Gateway');
     expect(content).not.toContain('OPENCLAW_');
     expect(content).not.toContain('stale-openclaw-token');
   });
 
-  it('quotes Codex executable and working-directory paths', () => {
+  it('quotes the Codex executable without exposing a working-directory setting', () => {
     const content = generateEnvContent({
       AGENT_RUNTIMES: 'codex',
       CODEX_BIN: '/Applications/Codex Tools/bin/codex',
-      CODEX_WORKING_DIRECTORY: '/Users/example/Agent Work',
     });
 
     expect(content).toContain('CODEX_BIN="/Applications/Codex Tools/bin/codex"');
-    expect(content).toContain('CODEX_WORKING_DIRECTORY="/Users/example/Agent Work"');
+    expect(content).not.toContain('CODEX_WORKING_DIRECTORY');
+  });
+
+  it('writes only selected OpenCode settings with quoted paths', () => {
+    const content = generateEnvContent({
+      AGENT_RUNTIMES: 'opencode',
+      OPENCODE_BIN: '/Applications/OpenCode Tools/bin/opencode',
+      CODEX_BIN: '/stale/codex',
+    });
+    expect(content).toContain('AGENT_RUNTIMES=opencode');
+    expect(content).toContain('# OpenCode Server');
+    expect(content).toContain('OPENCODE_BIN="/Applications/OpenCode Tools/bin/opencode"');
+    expect(content).not.toContain('OPENCODE_WORKING_DIRECTORY');
+    expect(content).not.toContain('# Codex App Server');
   });
 
   it('drops legacy Vite listener settings from regenerated env files', () => {
@@ -115,6 +127,24 @@ describe('ConvoSketchpad env writer', () => {
         AGENT_RUNTIMES: 'openclaw',
         OPENCLAW_GATEWAY_TOKEN: 'token',
       });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('drops retired Runtime working-directory settings when loading an existing env', () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'convosketchpad-env-writer-'));
+    const envPath = path.join(dir, '.env');
+    writeFileSync(envPath, [
+      'AGENT_RUNTIMES=codex,opencode',
+      'CODEX_WORKING_DIRECTORY=/old/codex',
+      'OPENCODE_WORKING_DIRECTORY=/old/opencode',
+      '',
+    ].join('\n'), 'utf8');
+    try {
+      const config = loadExistingEnv(envPath) as Record<string, string>;
+      expect(config.CODEX_WORKING_DIRECTORY).toBeUndefined();
+      expect(config.OPENCODE_WORKING_DIRECTORY).toBeUndefined();
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

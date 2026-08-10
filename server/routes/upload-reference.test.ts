@@ -69,12 +69,12 @@ describe('POST /api/canvas/canvases/:canvasId/attachments', () => {
     expect(response.status).toBe(404);
   });
 
-  it('requires Canvas metadata and enforces the four-file limit', async () => {
+  it('requires Canvas metadata and enforces the nine-file limit', async () => {
     const { app } = await buildApp();
     const missing = await app.request(`/api/canvas/canvases/${canvasId}/attachments`, { method: 'POST', body: new FormData() });
     expect(missing.status).toBe(400);
 
-    const files = Array.from({ length: 5 }, (_, index) => new File(['x'], `${index}.txt`));
+    const files = Array.from({ length: 10 }, (_, index) => new File(['x'], `${index}.txt`));
     const excessive = await app.request(`/api/canvas/canvases/${canvasId}/attachments`, { method: 'POST', body: canvasForm(files) });
     expect(excessive.status).toBe(400);
   });

@@ -98,8 +98,9 @@ npm run build
 
 ## Git 与 Pull Request
 
-- 从 `main` 创建功能分支，并向 `main` 发起 Pull Request。
-- `main` 是唯一的长期维护和发布分支。
+- 维护者在仅限本地的长期 `dev` 分支完成开发；`dev` 不设置远端 Upstream，也不推送为 `origin/dev`。
+- `main` 是唯一长期远端分支。需要发布或提交评审时，把本地 `dev` 的准确快照推送为临时 `release/vX.Y.Z` 分支，并由该分支向 `main` 发起 Pull Request。
+- 临时远端分支在 Pull Request 合并或放弃后删除；完整命令和安全检查以 [Git 工作流](docs/canvas/GIT-WORKFLOW.md)为准。
 - 每个 Pull Request 应保持聚焦，并在可行时包含回归测试。
 - 使用 Conventional Commits，例如：
 

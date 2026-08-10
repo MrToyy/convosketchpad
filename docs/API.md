@@ -43,6 +43,7 @@ Layout 节点兼容仅包含 `x/y` 的旧数据。用户缩放后的 `width/heig
 | 方法 | 路径 | 用途 |
 |---|---|---|
 | POST | `/api/canvas/branches/:id/send` | 原子预留并由后端派发 |
+| GET | `/api/canvas/branches/:id/resources` | 查询当前 Branch 父链上游可引用资源 |
 | GET | `/api/canvas/send-operations/:id` | 读取发送状态 |
 | POST | `/api/canvas/send-operations/:id/retry` | 使用相同幂等键立即重试 |
 | POST | `/api/canvas/send-operations/:id/cancel` | 只取消确认尚未发出的 `reserved`/`awaiting_media` 预留 |
@@ -61,22 +62,40 @@ Layout 节点兼容仅包含 `x/y` 的旧数据。用户缩放后的 `width/heig
 即时接受返回 `201 { interaction }`，排队或结果不确定返回 `202 { operation }`，明确拒绝返回包含 operation 的
 `422`/`503`。
 
-发送请求：
+发送请求使用结构化 `inputDocument` 保留资源 Token 在文本中的位置；`attachmentIds` 包含本轮全部上传附件，附件即使没有 Token 也会随本轮投递：
 
 ```json
 {
   "expectedHeadInteractionId": null,
   "expectedAgentRef": { "runtimeId": "openclaw", "profileId": "main" },
-  "userInput": "请分析这些资料",
-  "attachmentIds": ["40-character-content-hash"]
+  "inputDocument": {
+    "version": 1,
+    "segments": [
+      { "type": "text", "text": "请重点分析 " },
+      { "type": "resource", "key": "cover" },
+      { "type": "text", "text": " 的构图" }
+    ],
+    "references": [
+      {
+        "key": "cover",
+        "origin": "current_turn_attachment",
+        "attachmentId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    ]
+  },
+  "attachmentIds": ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]
 }
 ```
 
-服务端不接受附件路径或可变元数据。即时接受返回 `201 { interaction }`；已排队或结果不确定返回 `202 { operation }`；头节点、Agent 或并发冲突返回 `409`；附件问题返回 `422`；所选 Runtime 缺少文本输入能力返回 `503`。首次成功写入 Send Reservation 时 Canvas 的 `agentMutable` 变为 `false`，即使派发随后失败也不会解锁。
+上游引用使用 `origin: "upstream"`，并提交目录返回的 `kind`、`sourceInteractionId` 和 `resourceId`。同一个引用 key 可以在多个 segment 中重复出现而只占一个材料槽位；本轮附件与不同上游引用合计最多九项。兼容客户端仍可提交纯文本 `userInput`，但 `userInput` 与 `inputDocument` 必须且只能提供一个。
 
-公开的 Send Operation 只包含状态和原始用户输入/附件元数据。内部 `outgoingMessage`、完整历史资源清单、
+服务端不接受附件路径或可变元数据，并重新解析所有引用的所有者、Canvas、父链范围和 Runtime Capability。即时接受返回 `201 { interaction }`；已排队或结果不确定返回 `202 { operation }`；头节点、Agent 或并发冲突返回 `409`；附件/引用缺失、越界或九槽位超限返回 `422`；所选 Runtime 不支持必需输入返回 `503`。首次成功写入 Send Reservation 时 Canvas 的 `agentMutable` 变为 `false`，即使派发随后失败也不会解锁。
+
+公开的 Interaction 和 Send Operation 返回规范化 `inputDocument` 及安全的 `resourceReferences`（名称、MIME、大小、来源 Interaction、读取 URI、可用性和安全栅格缩略图）；旧文本记录投影为仅含文本 segment 的 v1 文档。内部 `outgoingMessage`、完整历史资源清单、
 内容哈希和媒体派生信息不返回浏览器。`awaiting_media` 表示后端正在生成或读取发送所需的大图派生文件，
 浏览器无需上传压缩副本；服务重启后协调器会从该状态恢复。
+
+资源目录支持 `q`、`kind=all|image|file`、数字 `cursor` 和 `limit`（最大 100），返回 `{ items, nextCursor? }`。根 Branch 没有上游，因此目录为空，但 Composer 仍可直接 `@` 本次附件；目录只列父链上游，不包含旁支。候选项带 `selectable` 和可选 `unavailableReason`，客户端显示禁用状态，发送端仍会再次校验。
 
 Fork 和 Session 恢复使用同一完整 Replay Package。历史逻辑引用不会按当前指令裁剪；内容相同的历史文件
 只物理投递一次，已生成的大图投递派生文件可在同一 Canvas 的后续重放中复用。完整载荷超过 Gateway
@@ -124,7 +143,7 @@ Canvas 本地安全栅格图片（PNG/JPEG/WebP/GIF）附件和 Artifact 额外�
 
 | 方法 | 路径 | 用途 |
 |---|---|---|
-| POST | `/api/canvas/canvases/:canvasId/attachments` | 持久化最多四个原始附件并登记元数据 |
+| POST | `/api/canvas/canvases/:canvasId/attachments` | 持久化最多九个原始附件并登记元数据 |
 | GET | `/api/canvas/attachments/:canvasId/:attachmentId` | 读取原始附件 |
 | GET | `/api/canvas/attachments/:canvasId/:attachmentId/thumbnail` | 生成或读取 Canvas 本地图片附件的版本化缩略图 |
 | GET | `/api/canvas/artifacts/:canvasId/:interactionId/:artifactId` | 读取持久化 Artifact |
@@ -169,7 +188,7 @@ Canvas 本地安全栅格图片（PNG/JPEG/WebP/GIF）附件和 Artifact 额外�
 
 重启接口使用 `runtime_not_found`、`runtime_restart_unsupported` 和 `runtime_restart_failed` 错误码，不保留 Backend 命名别名。
 
-`GET /api/runtime/usage` 并行读取全部 Runtime；OpenClaw Adapter 调用 `usage.cost`/`usage.status`，Codex Adapter 只调用 App Server 的 `account/usage/read` 与 `account/rateLimits/read`。响应保留来源边界：
+`GET /api/runtime/usage` 并行读取全部 Runtime；OpenClaw Adapter 调用 `usage.cost`/`usage.status`，Codex Adapter 只调用 App Server 的 `account/usage/read` 与 `account/rateLimits/read`，OpenCode Adapter 明确声明账户用量和额度不受支持。响应保留来源边界：
 
 ```json
 {

@@ -9,7 +9,7 @@ export interface PackageMetadata {
 const fallback: PackageMetadata = {
   version: '0.0.0',
   description:
-    'A visual branching workspace for agents — revisit any point and continue exploring.',
+    'Self-hosted visual canvas for branching AI conversations—reuse your existing OpenClaw, Codex, and OpenCode agents, skills, memory, and tools.',
 };
 
 export function readPackageMetadata(): PackageMetadata {

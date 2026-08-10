@@ -1,6 +1,6 @@
 # 文档
 
-ConvoSketchpad 的目标是“让想法自由分支”。以下文档描述通用 Agent 可视化分支工作台、Agent 运行端集成方式以及运行和维护要求。
+ConvoSketchpad 的目标是“让想法自由分支”。以下文档描述如何在一张 Canvas 中展开多条思路、接入用户熟悉的 Agent Runtime，以及相关运行和维护要求。
 
 ## 智能体开发入口
 
@@ -13,6 +13,7 @@ ConvoSketchpad 的目标是“让想法自由分支”。以下文档描述通�
 - [架构与运行时数据流](ARCHITECTURE.md)
 - [Agent Runtime Adapter 开发规范](agent-runtimes/ADAPTER-DEVELOPMENT.md)
 - [Canvas 功能索引](canvas/README.md)
+- [资源引用实现与后续 Canvas 能力规划](canvas/RESOURCE-REFERENCES.md)
 
 ## 安装与运维
 

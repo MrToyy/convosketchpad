@@ -17,19 +17,29 @@
 | `OPENCLAW_CONFIG_PATH` | 未设置 | 只透传给 OpenClaw CLI 的实例选择器 |
 | `OPENCLAW_BIN` | `openclaw` | OpenClaw CLI 命令或显式绝对路径；未设置时直接通过服务进程的 `PATH` 查找 |
 | `CODEX_BIN` | `codex` | Codex CLI 命令或显式绝对路径；用于启动受监督的本地 App Server，最低且已验证版本为 `0.146.0` |
-| `CODEX_WORKING_DIRECTORY` | `~/codex-convosketchpad` | Codex 可读写的项目目录；setup 按需创建，不得位于 `CODEX_HOME` / `~/.codex` 内 |
+| `OPENCODE_BIN` | `opencode` | OpenCode CLI 命令或显式绝对路径；用于启动受监督的本地 HTTP/SSE Server，最低且已验证版本为 `1.18.16` |
 
 `HOST` / `PORT` 在生产和开发模式下含义一致：都是用户打开的 ConvoSketchpad 入口。生产模式由 Hono 在该地址同时提供前端静态文件与 API；开发模式由 Vite 使用该地址，启动脚本自动为 Hono 分配仅监听 `127.0.0.1` 的内部端口，并代理 `/api` 和 `/health`。内部端口不属于用户配置。
 
-Runtime ID 与展示名在无副作用的 `server/lib/agent-runtimes/manifest.ts` 维护；`definitions.ts` 必须为清单中的每项提供 Registry 所有的实例工厂，通用配置选择与校验位于 `configuration.ts`。每个 Adapter 的专属环境变量、默认值和校验位于自身 `adapters/<runtime-id>/config.ts`。通用 `server/lib/config.ts` 不承载 OpenClaw/Codex 专属字段。只有 `AGENT_RUNTIMES` 完全缺失时才默认启用 `openclaw`；显式空值与未知、重复项一样会被 setup 检查和服务启动拒绝。
+Runtime ID 与展示名在无副作用的 `server/lib/agent-runtimes/manifest.ts` 维护；`definitions.ts` 必须为清单中的每项提供 Registry 所有的实例工厂，通用配置选择与校验位于 `configuration.ts`。每个 Adapter 的专属环境变量、默认值和校验位于自身 `adapters/<runtime-id>/config.ts`。通用 `server/lib/config.ts` 不承载 OpenClaw、Codex 或 OpenCode 专属字段。只有 `AGENT_RUNTIMES` 完全缺失时才默认启用 `openclaw`；显式空值与未知、重复项一样会被 setup 检查和服务启动拒绝。
 
-setup 先执行只读 Runtime 发现，只用无凭据命令确认本机入口与版本，将已探测和未探测的支持项分组展示并允许多选；发现 Driver 只接收“是否已配置”和可选可执行文件路径，不接收 Token，也不读取原生配置。用户选中后才由对应 Driver 逐项配置。CLI 未探测到不代表 OpenClaw 远程 Gateway 不可接入；Codex 当前只支持本机 CLI/App Server。配置完成后 setup 通过统一 Runtime Port 获取 Profile 并选择默认 Agent；若目录暂时不可用，保留已有默认值或不写显式默认值，运行时再安全回退。非交互模式可使用 `--runtimes openclaw,codex` 和 `--default-agent codex/default`；Codex 工作目录会使用默认值，也可通过环境变量覆盖。
+setup 先执行只读 Runtime 发现，只用无凭据命令确认本机入口与版本，将已探测和未探测的支持项分组展示并允许多选；发现 Driver 只接收“是否已配置”和可选可执行文件路径，不接收 Token，也不读取原生配置。用户选中后才由对应 Driver 逐项配置。CLI 未探测到不代表 OpenClaw 远程 Gateway 不可接入；Codex 与 OpenCode 当前只支持同机 CLI/受管 Server。配置完成后 setup 通过统一 Runtime Port 获取 Profile 并选择默认 Agent；若目录暂时不可用，保留已有默认值或不写显式默认值，运行时再安全回退。非交互模式可使用 `--runtimes openclaw,codex,opencode`。
 
 ## Codex 配置
 
 Codex Adapter 直接监督 `codex app-server` 的 stdio JSONL 进程，不经过 OpenClaw，也不连接远程 Codex。setup 只用 `codex --version` 发现入口；用户选择 Codex 后才临时启动 App Server，通过 `account/read` 验证登录状态。未登录不会阻断 ConvoSketchpad 的其他 setup 步骤，向导会提示先运行 `codex login`，再重跑 setup；ConvoSketchpad 不代办 Runtime 登录，也不读取 `~/.codex` 中的凭据。
 
-`CODEX_WORKING_DIRECTORY` 是 Codex Thread 的 `cwd` 和文件系统权限边界之一，不是 Codex 默认状态目录 `CODEX_HOME`。新配置在目录提示处直接回车会使用并创建 `~/codex-convosketchpad`；更新配置时优先把现有 `.env` 值作为提示默认值。自定义输入同样会按需创建，并以展开后的绝对路径写回 `.env`。同一部署中的受管用户共享宿主机当前 Codex 账户和该工作目录，但 Canvas 数据仍按所有者隔离；因此只应选择部署者愿意向全部受管用户开放的专用工作区。Codex 生成的临时交付物写入 `<CODEX_WORKING_DIRECTORY>/.convosketchpad-artifacts/<turn-token>/outputs/`，经路径、链接、数量和大小校验复制到 Canvas Artifact 存储后删除。不要把这个目录加入源代码，也不要将工作目录设在 `~/.codex` 内。
+Codex 与 OpenCode 固定共用 `~/.convosketchpad/workspace`。setup 在启用任一运行端时按需创建该目录并设为仅当前用户可访问；路径通过 Node.js 的用户主目录解析，在 Linux 与 macOS 上均有效，不跟随 `CONVOSKETCHPAD_DATA_DIR`，也不提供环境变量覆盖。旧 `.env` 中的 `CODEX_WORKING_DIRECTORY` / `OPENCODE_WORKING_DIRECTORY` 会在 setup 或 update 时移除，运行时始终忽略。该目录是 Codex Thread、OpenCode Session 与工具共享的 `cwd` 和文件系统权限边界；同一部署中的受管用户共享它，因此只应在其中放置愿意向全部受管用户开放的内容。
+
+Codex 与 OpenCode 的临时交付物写入 `~/.convosketchpad/workspace/.convosketchpad-artifacts/<turn-token>/outputs/`，经路径、链接、数量和大小校验复制到 Canvas Artifact 存储后删除。不要把共享工作区当作 Runtime 凭据或配置目录，也不要在其中放置 `~/.codex`、`~/.config/opencode` 或 `~/.local/share/opencode` 的内容。
+
+## OpenCode 配置
+
+OpenCode Adapter 监督同机的 `opencode serve`，只绑定自动分配的 `127.0.0.1` 端口，并使用每次启动随机生成、只存在于内存中的 Basic Auth 凭据。Adapter 暴露单一 `opencode/default` Profile，不指定原生 Agent 或模型，始终沿用宿主机 OpenCode 的默认配置；setup 通过健康接口与 Provider 目录确认至少存在一个已连接且有默认模型的 Provider，不读取凭据文件，也不发送 Prompt。
+
+OpenCode Session 与工具使用上节所述的固定共享工作区。所有受管用户共享该宿主机 OpenCode 配置、工具、额度与工作目录。
+
+OpenCode 输入 Capability 表示“Adapter 接受并转交”：文本、图片、音频、PDF 和其他文件都映射为原生 Prompt Part，不依据当前默认模型能力预先拒绝。默认模型或工具不支持时，OpenCode 的脱敏原生错误会反馈到发送结果。图片生成是测试能力，实际生成取决于默认模型，或用户配置的第三方 MCP/自定义工具；Adapter 本身不调用独立图片 API。
 
 ConvoSketchpad 运行时和 Vite 都只提供 HTTP。HTTPS 必须由 Caddy、Nginx、Traefik、Tailscale Serve 等外部入口终止；项目不会读取 `certs/`。
 

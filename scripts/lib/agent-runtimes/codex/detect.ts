@@ -7,6 +7,7 @@ import {
   MINIMUM_CODEX_VERSION,
   parseCodexVersion,
 } from '../../../../server/lib/agent-runtimes/adapters/codex/setup-support.js';
+import { packageMetadata } from '../../package-metadata.js';
 
 export interface CodexRuntimeDetection {
   detected: boolean;
@@ -142,7 +143,7 @@ export async function probeCodexAccount(input: {
   });
   try {
     await request('initialize', {
-      clientInfo: { name: 'convosketchpad_setup', title: 'ConvoSketchpad Setup', version: '0.4.2' },
+      clientInfo: { name: 'convosketchpad_setup', title: 'ConvoSketchpad Setup', version: packageMetadata.version },
     });
     child.stdin.write(`${JSON.stringify({ method: 'initialized', params: {} })}\n`);
     const result = await request('account/read', { refreshToken: false }) as {

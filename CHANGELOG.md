@@ -4,6 +4,56 @@ ConvoSketchpad 的重要变更均记录在此文件中。格式遵循 [Keep a Ch
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-08-10
+
+### 发布摘要
+
+ConvoSketchpad v0.5.0 让 Canvas 中的材料能够在用户指令的准确位置被引用，并新增测试阶段的 OpenCode Agent Runtime Adapter。用户可以通过 `@` 复用本次上传或当前父链上游的附件与 Artifact，无需重新上传；OpenClaw、Codex 与 OpenCode 继续通过同一 Agent Runtime 边界接入，不改变既有 Canvas 的执行归属和恢复模型。
+
+本版本包含资源引用数据库迁移，并将 Schema Epoch 提升到 4。更新器会在安全停服和快照边界内完成迁移；不要用旧版本代码直接打开已经迁移的数据库。
+
+### 当前版本亮点
+
+- Composer 新增位置化 `@` 资源 Token，可引用本次附件和当前 Branch 父链上游的 Attachment/Artifact。
+- 资源引用在草稿、发送预留、Interaction、失败恢复与 Canonical Replay 中保持结构化位置；重复引用只占一个材料槽位。
+- 服务端统一校验上游范围、所有者、Canvas、资源可用性、Runtime Capability 与九项材料上限，旁支或其他用户资源不能通过伪造请求发送。
+- 新增测试阶段的本地 OpenCode `1.18.16+` Adapter，支持默认 Profile、流式输出、审批、恢复核对和受管 Artifact。
+- Codex 与 OpenCode 固定共用 `~/.convosketchpad/workspace`，Runtime 专属工作目录覆盖被移除。
+
+### 新增
+
+- Composer 新增文本内 `@` 资源 Token；候选按本次附件和上游资源分组，图片支持安全缩略图，菜单使用可键盘选择的 `listbox` / `option` 语义。
+- 新增结构化输入文档、父链上游解析器、发送材料编译器与 `turn_resource_references` 持久化。结构化位置贯穿失败恢复、Interaction 和 Canonical Replay，同一资源重复出现只占一个槽位，本轮附件和上游引用合计最多九项。
+- 新增 `0.4.0_to_0.5.0_resource_references_v1` 迁移与 Schema Epoch 4；公开 API 返回安全引用元数据和缩略图，不暴露内容哈希、文件路径或 Runtime Handle。
+- 新增测试阶段的 OpenCode Agent Runtime Adapter：监督本机 OpenCode `1.18.16+` HTTP/SSE Server，提供单一 `opencode/default` Profile、Session/Message 恢复、流式输出、审批、受管 Artifact 与上下文快照。所有附件类型均原样转交 OpenCode，默认模型或工具拒绝时反馈脱敏原生原因；图片生成取决于默认模型或第三方 MCP/工具。
+
+### 变更
+
+- 产品定位更新为“一张画布，多条思路，熟悉的 Agent / One canvas. Many paths. The agents you know.”，强调 Canvas 上的多路径探索与既有 Agent 的直接复用；README 以分支 AI 对话、OpenClaw/Codex/OpenCode 复用和线性聊天对比重组中英文介绍，并集中呈现当前支持、候选 Agent Runtime 与产品能力路线图；GitHub、网页与 Package 元数据同步使用可搜索的功能描述。“让想法自由分支 / Let ideas fly free”继续作为品牌标语。
+- 记录“资源引用 → 分支合并 → 跨 Agent 交接”的能力依赖与实施顺序；`0.5.0` 完成第一阶段资源引用，Windows 支持排在上述产品能力之后。
+- Codex 与 OpenCode 固定共用 `~/.convosketchpad/workspace`，不提供 Runtime 专属工作目录环境变量覆盖；Runtime 展示名统一为 `OpenCode`。
+
+### 安全
+
+- 资源候选和发送复用同一父链解析与所有者校验，其他 Canvas、其他用户和无上游关系的旁支资源不会进入目录，也不能通过伪造稳定 ID 推断或发送。
+- OpenCode Server 只监听自动分配的 loopback 端口并使用进程内临时 Basic Auth；受管 Artifact 只从结构化 FilePart/Tool attachment 或固定受管目录解析，并复用路径、链接、数量和大小限制。
+
+### 安装与升级
+
+新安装需要 Node.js `22.22.2+`，并准备至少一个可访问的 Agent Runtime：OpenClaw Gateway、已登录的本地 Codex CLI `0.146.0+`，或已配置默认模型的本地 OpenCode `1.18.16+`。随后运行：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/MrToyy/convosketchpad/main/install.sh | bash
+```
+
+已经安装官方 v0.4.2 的用户应先把 `.env`、`database/` 和 `artifacts/` 备份到仓库外，再运行：
+
+```bash
+npm run update -- --version v0.5.0
+```
+
+本次更新会应用 `0.4.0_to_0.5.0_resource_references_v1` 并把数据库 Schema Epoch 提升到 4。不要绕过更新器快照，也不要用 v0.4.x 代码直接打开已经迁移的数据库；安全回滚必须同时恢复更新器保存的代码、环境与 SQLite 快照。更早版本继续按[升级文档](https://github.com/MrToyy/convosketchpad/blob/main/docs/UPDATING.md)完成既有桥接路径。
+
 ## [0.4.2] - 2026-08-07
 
 ### 发布摘要
@@ -99,7 +149,7 @@ ConvoSketchpad v0.4.0 定位为“Agent 可视化分支工作台——从任意�
 
 - 新增统一 `AgentRuntime` 契约、Runtime Registry、语义化 Capabilities 和版本化不透明 Conversation/Turn/Artifact/Approval Handle；当前可同时注册 OpenClaw 与 Codex。
 - 新增本地 Codex App Server Adapter，最低且已验证 Codex CLI `0.146.0`：监督 stdio JSONL 子进程，提供 `codex/default` Agent、Thread/Turn 恢复、文本/图片输入、流式输出、原生图片和通用 Artifact、账户用量/额度及节点内命令/文件/权限审批。多个受管用户共享宿主机 Codex 账户与配置的工作目录。
-- Codex 通用交付物使用 `CODEX_WORKING_DIRECTORY/.convosketchpad-artifacts/<turn-token>/outputs/` 受管目录，经过路径、链接、数量和大小校验后复制到 Canvas Artifact 存储；支持非图片文件下载，失败/中断 Turn 的可用文件保留并标注可能不完整，持久化后释放临时副本。SVG/HTML 等活动内容不内联预览。
+- Codex 通用交付物使用固定共享工作区内的 `.convosketchpad-artifacts/<turn-token>/outputs/` 受管目录，经过路径、链接、数量和大小校验后复制到 Canvas Artifact 存储；支持非图片文件下载，失败/中断 Turn 的可用文件保留并标注可能不完整，持久化后释放临时副本。SVG/HTML 等活动内容不内联预览。
 - 统一 Runtime 事件从首阶段覆盖终态、流式输出、Artifact、用量和审批 required/resolved，并用按 Runtime 命名空间隔离的 `runtime_event_inbox` 持久化、去重终态与审批；显式 Turn Handle 严格关联，晚到审批结果仍可在 Interaction 终止后收敛。全局断线由 Runtime 状态流传播，不混入 Canvas Inbox。
 - Interaction 节点内新增审批卡片，展示已净化的风险、权限、作用域、到期和解析状态；支持权限子集选择、持久授权二次确认及统一审批 HTTP API。
 - 新增 Runtime 配置/聚合目录：新建 Canvas 自动选择配置的可用默认 Agent并在必要时回退，首次发送预留前可更换；各 Runtime 的 Agent 平权展示，不提供 Runtime 切换模式。
@@ -122,7 +172,7 @@ ConvoSketchpad v0.4.0 定位为“Agent 可视化分支工作台——从任意�
 - 无副作用 Runtime Manifest 统一 ID/展示名支持清单，Definition 对清单逐项提供 Registry 所有的实例工厂与配置校验；ApplicationContext 独立拥有 Store、Adapter 生命周期和后台协调依赖，OpenClaw 共享传输使用租约避免相互关闭。OpenClaw 专属配置、CLI 定位及 setup 支持面收敛到 Adapter 目录，Runtime 状态事件、Canvas 事件消费和用量模块采用不混淆的独立命名。
 - setup 与服务启动共用 Runtime 选择语义：只有缺失 `AGENT_RUNTIMES` 时默认 OpenClaw，显式空配置统一拒绝。原生审批 resolved 事件会再次校验已声明 Choice 和权限子集，契约外结果保持 `unconfirmed`，不再默认成功。
 - OpenClaw CLI 定位改为显式 `OPENCLAW_BIN` 优先、否则直接通过 `PATH` 执行 `openclaw`；setup 选择页只用 `openclaw --version` 发现入口，不在用户选择前读取 Token 或原生配置，选中后才读取可用预填值。成功发现后持久化实际绝对路径，安装器与服务端不再扫描特定安装器或其他用户目录。本机缺少 CLI 不阻断远程 Gateway 安装。本轮默认 Agent 仅增加环境配置，不增加数据库迁移。
-- Codex setup 只用 `codex --version` 做发现；选择后默认创建并使用 `~/codex-convosketchpad`，更新时优先沿用 `.env` 中的工作目录，再临时启动 App Server 读取账户状态。未登录时提示用户自行运行 `codex login` 后重跑 setup，不阻断其他配置，也不读取或修改 `CODEX_HOME`。Codex 接入复用现有通用 Handle 与派发恢复字段，不增加第四条数据库迁移。
+- Codex setup 只用 `codex --version` 做发现；选择后创建并使用固定共享工作区 `~/.convosketchpad/workspace`，再临时启动 App Server 读取账户状态。未登录时提示用户自行运行 `codex login` 后重跑 setup，不阻断其他配置，也不读取或修改 `CODEX_HOME`。Codex 接入复用现有通用 Handle 与派发恢复字段，不增加第四条数据库迁移。
 - 流式 Preview 按统一语义区分追加 Delta、累计快照和消息完成值，服务端按 `messageId` 组装完整 Turn 文本后再发给前端；Codex 多段文字不再只显示最后一个 Delta，OpenClaw 累计 `message` 也不会被重复追加。运行节点在已有文字时继续显示工作指示，并使用固定高度的运行期输出面板，将正文滚动层与底部工作状态层分离；每次快照更新后正文自动跟随到底部，避免未闭合的流式 Markdown 持续改变容器和滚动轨道尺寸。Codex 上下文改用 `tokenUsage.last.totalTokens`，并通用拒绝超出 Context Window 的累计用量快照。
 - Runtime 状态读取改为无副作用快照；Gateway 不可达时，状态聚合和状态订阅不再反向触发即时重连，OpenClaw 严格保持 1–30 秒指数退避，避免启动期热循环和日志风暴。
 - setup、migrate 和 update 共用维护锁，并校验 systemd/launchd 的名称、工作目录、启动命令和三态运行状态；只有属于当前安装且明确离线时才快照、迁移或恢复 SQLite。没有匹配管理器时 setup/update 推迟数据库迁移且失败回滚不替换 SQLite；独立 migrate 要求操作者显式确认手工进程已停止。setup 重启后验证服务状态、健康和版本，无法确认离线时不覆盖数据库并保留临时快照。环境配置迁移仍不依赖服务管理器，`--no-restart` 继续只恢复代码和 `.env`。本轮复用既有派发恢复字段，不增加第四条数据库迁移。
@@ -314,7 +364,8 @@ npm run update -- --version v0.3.1
 
 ConvoSketchpad 源自 OpenClaw Nerve。更早的上游版本历史仍可在 [OpenClaw Nerve 更新日志](https://github.com/daggerhashimoto/openclaw-nerve/blob/master/CHANGELOG.md)中查看。
 
-[Unreleased]: https://github.com/MrToyy/convosketchpad/compare/v0.4.2...HEAD
+[Unreleased]: https://github.com/MrToyy/convosketchpad/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/MrToyy/convosketchpad/compare/v0.4.2...v0.5.0
 [0.4.2]: https://github.com/MrToyy/convosketchpad/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/MrToyy/convosketchpad/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/MrToyy/convosketchpad/compare/v0.3.2...v0.4.0

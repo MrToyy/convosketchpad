@@ -43,7 +43,6 @@ import type {
   SendReservation,
   StoredRuntimeEvent,
 } from '../model.js';
-import { buildCanvasReplayPlan } from '../domain/replay-plan.js';
 import {
   decideCanvasSendPlan,
   type CanonicalCanvasSnapshot,
@@ -52,6 +51,13 @@ import {
   type SendMaterialization,
 } from '../domain/send-policy.js';
 import { assembleCanonicalCanvasSnapshot } from '../domain/history-snapshot.js';
+import { compileCanvasTurnMaterials } from '../domain/turn-material-compiler.js';
+import {
+  normalizeCanvasInputDocument,
+  textInputDocument,
+  type CanvasInputDocument,
+  type CanvasResourceReferenceSnapshot,
+} from '../domain/input-document.js';
 import { config } from '../../config.js';
 import { applySingleChainSchemaMigration } from './migrations/v020-to-v030.js';
 import { packageMetadata } from '../../package-metadata.js';
@@ -59,6 +65,7 @@ import {
   createCurrentCanvasSchema,
   ensureGenericAgentRuntimeSchema,
 } from './agent-runtime-schema.js';
+import { ensureResourceReferenceSchema } from './resource-reference-schema.js';
 
 type SqlRow = Record<string, unknown>;
 
@@ -161,6 +168,7 @@ function mapInteraction(row: SqlRow): InteractionRecord {
   const executionMetadata = parseJson<Record<string, unknown>>(row.execution_metadata_json, {});
   const contextSnapshot = parseInteractionContextSnapshot(executionMetadata.contextSnapshot);
   const runtimeTurnId = asNullableString(row.runtime_turn_id);
+  const userInput = asString(row.user_input);
   return {
     id: asString(row.id),
     version: Math.max(1, asNumber(row.version) || 1),
@@ -168,7 +176,9 @@ function mapInteraction(row: SqlRow): InteractionRecord {
     parentInteractionId: asNullableString(row.parent_interaction_id),
     runtimeTurnId,
     turnRef: parseRuntimeHandle(row.turn_ref_json),
-    userInput: asString(row.user_input),
+    userInput,
+    inputDocument: parseJson<CanvasInputDocument>(row.input_document_json, textInputDocument(userInput)),
+    resourceReferences: [],
     agentOutput: asString(row.agent_output),
     status: asString(row.status) as InteractionStatus,
     executionState: (asString(row.execution_state)
@@ -263,6 +273,7 @@ export class CanvasStore {
       !existingCanvasColumns.some((column) => asString(column.name) === 'agent_id')
     ) {
       ensureGenericAgentRuntimeSchema(this.db, packageMetadata.version);
+      ensureResourceReferenceSchema(this.db, packageMetadata.version);
       return;
     }
     this.db.exec(`
@@ -603,6 +614,7 @@ export class CanvasStore {
         AND observed_session_started_at IS NULL;
     `);
     ensureGenericAgentRuntimeSchema(this.db, packageMetadata.version);
+    ensureResourceReferenceSchema(this.db, packageMetadata.version);
   }
 
   transaction<T>(fn: () => T): T {
@@ -643,6 +655,7 @@ export class CanvasStore {
       ...record,
       artifacts: this.listInteractionArtifacts(record.id),
       approvals: this.listInteractionApprovals(record.id),
+      resourceReferences: this.listTurnResourceReferences('interaction_id', record.id),
     };
   }
 
@@ -651,7 +664,33 @@ export class CanvasStore {
       ...record,
       artifacts: this.listInteractionArtifacts(record.id),
       approvals: this.listInteractionApprovals(record.id),
+      resourceReferences: this.listTurnResourceReferences('interaction_id', record.id),
     };
+  }
+
+  private listTurnResourceReferences(
+    column: 'interaction_id' | 'send_reservation_id',
+    id: string,
+  ): CanvasResourceReferenceSnapshot[] {
+    const rows = this.db.prepare(`SELECT * FROM turn_resource_references
+      WHERE ${column} = ? ORDER BY ordinal, reference_key`).all(id) as SqlRow[];
+    return rows.map((row) => ({
+      key: asString(row.reference_key),
+      origin: asString(row.origin) as CanvasResourceReferenceSnapshot['origin'],
+      kind: asString(row.resource_kind) as CanvasResourceReferenceSnapshot['kind'],
+      sourceInteractionId: asNullableString(row.source_interaction_id),
+      resourceId: asString(row.resource_id),
+      ordinal: asNumber(row.ordinal),
+      name: asString(row.name_snapshot),
+      mimeType: asString(row.mime_type_snapshot),
+      ...(row.size_bytes_snapshot == null ? {} : { sizeBytes: asNumber(row.size_bytes_snapshot) }),
+      uri: asString(row.uri_snapshot),
+      available: asNumber(row.available_snapshot) !== 0,
+      ...(asNullableString(row.warning_snapshot) ? { warning: asString(row.warning_snapshot) } : {}),
+      ...(asNullableString(row.content_hash_snapshot)
+        ? { contentHash: asString(row.content_hash_snapshot) }
+        : {}),
+    }));
   }
 
   private listInteractionApprovals(interactionId: string): InteractionApprovalRecord[] {
@@ -1091,6 +1130,11 @@ export class CanvasStore {
         assistant: asString(row.agent_output),
         attachments: parseJson<CanvasAttachment[]>(row.attachments_json, []),
         artifacts: this.listInteractionArtifacts(id),
+        inputDocument: parseJson<CanvasInputDocument>(
+          row.input_document_json,
+          textInputDocument(asString(row.user_input)),
+        ),
+        resourceReferences: this.listTurnResourceReferences('interaction_id', id),
       };
     }));
   }
@@ -1099,6 +1143,8 @@ export class CanvasStore {
     branchId: string;
     expectedHeadInteractionId?: string | null;
     userInput: string;
+    inputDocument?: CanvasInputDocument;
+    resourceReferences?: CanvasResourceReferenceSnapshot[];
     attachments: CanvasAttachment[];
     forceSessionRecovery?: boolean;
   }): SendReservation {
@@ -1172,6 +1218,14 @@ export class CanvasStore {
         branchId: branch.id,
         expectedHeadInteractionId: null,
         userInput: asString(source.user_input),
+        inputDocument: parseJson<CanvasInputDocument>(
+          source.input_document_json,
+          textInputDocument(asString(source.user_input)),
+        ),
+        resourceReferences: this.listTurnResourceReferences('interaction_id', input.interactionId)
+          .map((reference) => reference.origin === 'current_turn_attachment'
+            ? { ...reference, sourceInteractionId: null }
+            : reference),
         attachments: input.attachments,
       });
     });
@@ -1181,6 +1235,8 @@ export class CanvasStore {
     branchId: string;
     expectedHeadInteractionId?: string | null;
     userInput: string;
+    inputDocument?: CanvasInputDocument;
+    resourceReferences?: CanvasResourceReferenceSnapshot[];
     attachments: CanvasAttachment[];
     forceSessionRecovery?: boolean;
   }): SendReservation {
@@ -1201,41 +1257,48 @@ export class CanvasStore {
       forceSessionRecovery: input.forceSessionRecovery,
     });
     const materialization = decision.materialization;
-    let outgoingMessage = input.userInput;
+    const inputDocument = normalizeCanvasInputDocument(
+      input.inputDocument || textInputDocument(input.userInput),
+    );
+    const resourceReferences = input.resourceReferences || [];
     const expectedHead = decision.expectedHeadInteractionId;
-    let bootstrapResources: CanvasContextResource[] = [];
-
+    let replay: Parameters<typeof compileCanvasTurnMaterials>[0]['replay'];
     if (decision.replayReason === 'canonical-replay') {
       const row = this.db.prepare('SELECT snapshot_json FROM branches WHERE id = ?').get(branch.id) as SqlRow;
       const snapshot = parseJson<CanonicalCanvasSnapshot>(row.snapshot_json, {
-        version: 2,
+        version: 3,
         interactions: [],
         resources: [],
       });
-      const replay = buildCanvasReplayPlan(snapshot, 'canonical-replay', input.userInput);
-      bootstrapResources = replay.resources;
-      outgoingMessage = replay.message;
+      replay = { snapshot, reason: 'canonical-replay' };
     } else if (decision.replayReason === 'session-recovery' && branch.headInteractionId) {
       const snapshot = this.buildCanonicalSnapshot(branch.headInteractionId);
-      const replay = buildCanvasReplayPlan(snapshot, 'session-recovery', input.userInput);
-      bootstrapResources = replay.resources;
-      outgoingMessage = replay.message;
+      replay = { snapshot, reason: 'session-recovery' };
     }
+    const compiled = compileCanvasTurnMaterials({
+      document: inputDocument,
+      references: resourceReferences,
+      attachments: input.attachments,
+      ...(replay ? { replay } : {}),
+    });
+    const outgoingMessage = compiled.message;
+    const bootstrapResources = compiled.bootstrapResources;
 
     const id = randomUUID();
     const now = Date.now();
     this.db.prepare(`INSERT INTO send_reservations
-      (id, branch_id, expected_head_interaction_id, user_input, attachments_json,
+      (id, branch_id, expected_head_interaction_id, user_input, input_document_json, attachments_json,
         materialization, conversation_id, runtime_id, conversation_ref_json,
         outgoing_message, bootstrap_resources_json,
         status, dispatch_state, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'prepared', 'reserved', ?, ?)`)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'prepared', 'reserved', ?, ?)`)
       .run(
         id,
         branch.id,
         expectedHead,
         input.userInput,
-        JSON.stringify(input.attachments),
+        JSON.stringify(inputDocument),
+        JSON.stringify(compiled.attachments),
         materialization,
         branch.conversationId,
         runtimeContext.runtimeId,
@@ -1245,6 +1308,21 @@ export class CanvasStore {
         now,
         now,
       );
+    const insertReference = this.db.prepare(`INSERT INTO turn_resource_references
+      (id, send_reservation_id, reference_key, origin, resource_kind,
+        source_interaction_id, resource_id, ordinal, name_snapshot, mime_type_snapshot,
+        size_bytes_snapshot, uri_snapshot, content_hash_snapshot, available_snapshot,
+        warning_snapshot, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+    for (const reference of compiled.references) {
+      insertReference.run(
+        randomUUID(), id, reference.key, reference.origin, reference.kind,
+        reference.sourceInteractionId, reference.resourceId, reference.ordinal,
+        reference.name, reference.mimeType, reference.sizeBytes ?? null, reference.uri,
+        reference.contentHash || null, reference.available ? 1 : 0,
+        reference.warning || null, now, now,
+      );
+    }
     return this.getReservation(id)!;
   }
 
@@ -1253,11 +1331,14 @@ export class CanvasStore {
     if (!row) return null;
     const bootstrapResources = parseJson<CanvasContextResource[]>(row.bootstrap_resources_json, []);
     const conversationId = asString(row.conversation_id);
+    const userInput = asString(row.user_input);
     return {
       id: asString(row.id),
       branchId: asString(row.branch_id),
       expectedHeadInteractionId: asNullableString(row.expected_head_interaction_id),
-      userInput: asString(row.user_input),
+      userInput,
+      inputDocument: parseJson<CanvasInputDocument>(row.input_document_json, textInputDocument(userInput)),
+      resourceReferences: this.listTurnResourceReferences('send_reservation_id', id),
       attachments: parseJson<CanvasAttachment[]>(row.attachments_json, []),
       materialization: asString(row.materialization) as SendMaterialization,
       conversationId,
@@ -1265,7 +1346,7 @@ export class CanvasStore {
       conversationRef: parseRuntimeHandle(row.conversation_ref_json) || undefined,
       dispatchRecoveryRef: parseRuntimeHandle(row.dispatch_recovery_ref_json),
       outgoingMessage: asString(row.outgoing_message),
-      snapshotVersion: ['canonical-replay', 'session-recovery'].includes(asString(row.materialization)) ? 2 : undefined,
+      snapshotVersion: ['canonical-replay', 'session-recovery'].includes(asString(row.materialization)) ? 3 : undefined,
       bootstrapResources,
       status: asString(row.status) as SendReservation['status'],
       dispatchState: (asString(row.dispatch_state) || 'reserved') as SendDispatchState,
@@ -1436,14 +1517,23 @@ export class CanvasStore {
       const now = Date.now();
       this.db.prepare(`INSERT INTO interactions
         (id, branch_id, parent_interaction_id, runtime_turn_id, turn_ref_json, user_input,
-          status, attachments_json, execution_metadata_json, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, 'streaming', ?, ?, ?, ?)`)
+          input_document_json, status, attachments_json, execution_metadata_json, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'streaming', ?, ?, ?, ?)`)
         .run(id, asString(row.branch_id), parentId, runtimeTurnId, turnRef ? JSON.stringify(turnRef) : null,
-          asString(row.user_input), asString(row.attachments_json), JSON.stringify({
+          asString(row.user_input), asNullableString(row.input_document_json), asString(row.attachments_json), JSON.stringify({
           materialization: row.materialization,
           conversationId: row.conversation_id,
           ...(bootstrapWarnings.length ? { bootstrapWarnings } : {}),
         }), now, now);
+      this.db.prepare(`UPDATE turn_resource_references
+        SET interaction_id = ?,
+          source_interaction_id = CASE
+            WHEN origin = 'current_turn_attachment' THEN ?
+            ELSE source_interaction_id
+          END,
+          updated_at = ?
+        WHERE send_reservation_id = ?`)
+        .run(id, id, now, reservationId);
       this.db.prepare(`UPDATE branches SET conversation_state = 'active', head_interaction_id = ?,
         conversation_instance_id = CASE WHEN ? = 'session-recovery' THEN observed_conversation_instance_id ELSE conversation_instance_id END,
         conversation_started_at = CASE WHEN ? = 'session-recovery'
