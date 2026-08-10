@@ -2,6 +2,10 @@ import type {
   CanonicalCanvasSnapshot,
   CanvasContextResource,
 } from './send-policy.js';
+import type {
+  CanvasInputDocument,
+  CanvasResourceReferenceSnapshot,
+} from './input-document.js';
 
 interface HistoryAttachment {
   contentHash?: string;
@@ -29,6 +33,8 @@ export interface CanvasHistoryEntry {
   assistant: string;
   attachments: HistoryAttachment[];
   artifacts: HistoryArtifact[];
+  inputDocument?: CanvasInputDocument;
+  resourceReferences?: CanvasResourceReferenceSnapshot[];
 }
 
 function reusableContextResourceUri(uri: string): boolean {
@@ -77,11 +83,13 @@ export function assembleCanonicalCanvasSnapshot(
     });
   }
   return {
-    version: 2,
+    version: 3,
     interactions: history.map((entry) => ({
       id: entry.id,
       user: entry.user,
       assistant: entry.assistant,
+      ...(entry.inputDocument ? { inputDocument: entry.inputDocument } : {}),
+      ...(entry.resourceReferences ? { resourceReferences: entry.resourceReferences } : {}),
     })),
     resources,
   };

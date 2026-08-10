@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { EMPTY_CANVAS_DRAFT, MAX_CANVAS_ATTACHMENTS } from './constants';
+import { EMPTY_CANVAS_DRAFT, MAX_TURN_MATERIALS } from './constants';
 import type { CanvasDraft, SendReservation } from './types';
+import {
+  draftDocumentText,
+  enrichInputDocument,
+  removeDraftResource,
+  upstreamReferenceCount,
+} from './input-document';
 
 function revokeDraftPreviews(draft: CanvasDraft | undefined): void {
   if (!draft) return;
@@ -38,15 +44,20 @@ export function useCanvasComposerDrafts() {
     updateDraft(branchId, (draft) => {
       const accepted = incoming.slice(
         0,
-        MAX_CANVAS_ATTACHMENTS - draft.files.length - draft.persistedAttachments.length,
+        MAX_TURN_MATERIALS
+          - draft.files.length
+          - draft.persistedAttachments.length
+          - upstreamReferenceCount(draft.inputDocument),
       );
       const previews = { ...draft.previews };
-      accepted.filter((file) => file.type.startsWith('image/')).forEach((file) => {
-        previews[`${file.name}-${file.lastModified}`] = URL.createObjectURL(file);
+      const fileKeys = accepted.map(() => crypto.randomUUID());
+      accepted.forEach((file, index) => {
+        if (file.type.startsWith('image/')) previews[fileKeys[index]] = URL.createObjectURL(file);
       });
       return {
         ...draft,
         files: [...draft.files, ...accepted],
+        fileKeys: [...draft.fileKeys, ...fileKeys],
         previews,
         error: null,
       };
@@ -54,26 +65,40 @@ export function useCanvasComposerDrafts() {
   }, [updateDraft]);
 
   const removePersistedAttachment = useCallback((branchId: string, index: number) => {
-    updateDraft(branchId, (draft) => ({
-      ...draft,
-      persistedAttachments: draft.persistedAttachments.filter(
-        (_, itemIndex) => itemIndex !== index,
-      ),
-    }));
+    updateDraft(branchId, (draft) => {
+      const attachment = draft.persistedAttachments[index];
+      const inputDocument = attachment
+        ? removeDraftResource(draft.inputDocument, (reference) =>
+          reference.origin === 'current_turn_attachment'
+          && reference.attachmentId === attachment.id)
+        : draft.inputDocument;
+      return {
+        ...draft,
+        text: draftDocumentText(inputDocument),
+        inputDocument,
+        persistedAttachments: draft.persistedAttachments.filter(
+          (_, itemIndex) => itemIndex !== index,
+        ),
+      };
+    });
   }, [updateDraft]);
 
   const removeFile = useCallback((branchId: string, index: number) => {
     updateDraft(branchId, (draft) => {
-      const file = draft.files[index];
-      const key = file ? `${file.name}-${file.lastModified}` : '';
+      const key = draft.fileKeys[index] || '';
       const previews = { ...draft.previews };
       if (key && previews[key]) {
         URL.revokeObjectURL(previews[key]);
         delete previews[key];
       }
+      const inputDocument = removeDraftResource(draft.inputDocument, (reference) =>
+        reference.origin === 'draft_attachment' && reference.draftAttachmentKey === key);
       return {
         ...draft,
+        text: draftDocumentText(inputDocument),
+        inputDocument,
         files: draft.files.filter((_, itemIndex) => itemIndex !== index),
+        fileKeys: draft.fileKeys.filter((_, itemIndex) => itemIndex !== index),
         previews,
       };
     });
@@ -140,6 +165,7 @@ export function useCanvasComposerDrafts() {
         const existing = next[operation.branchId];
         if (existing && (
           existing.text
+          || existing.inputDocument.segments.length > 0
           || existing.files.length > 0
           || existing.persistedAttachments.length > 0
         )) {
@@ -153,6 +179,11 @@ export function useCanvasComposerDrafts() {
         next[operation.branchId] = {
           ...EMPTY_CANVAS_DRAFT,
           text: operation.userInput,
+          inputDocument: enrichInputDocument(
+            operation.inputDocument,
+            operation.resourceReferences,
+            operation.userInput,
+          ),
           persistedAttachments: operation.attachments,
           error: errorMessage(operation),
         };

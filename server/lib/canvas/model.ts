@@ -12,6 +12,10 @@ import type {
   SendDispatchState,
   SendMaterialization,
 } from './domain/send-policy.js';
+import type {
+  CanvasInputDocument,
+  CanvasResourceReferenceSnapshot,
+} from './domain/input-document.js';
 
 export type BranchKind = 'root' | 'fork';
 export type BranchConversationState = 'draft' | 'active';
@@ -81,6 +85,8 @@ export interface InteractionRecord {
   runtimeTurnId: string | null;
   turnRef?: RuntimeHandle | null;
   userInput: string;
+  inputDocument?: CanvasInputDocument;
+  resourceReferences?: CanvasResourceReferenceSnapshot[];
   agentOutput: string;
   status: InteractionStatus;
   executionState: InteractionExecutionState;
@@ -155,6 +161,7 @@ export interface CanvasAttachment {
   storage?: 'canvas' | 'source';
   available?: boolean;
   warning?: string;
+  deliveryRef?: string;
 }
 
 export interface CanvasArtifact {
@@ -218,6 +225,8 @@ export interface SendReservation {
   branchId: string;
   expectedHeadInteractionId: string | null;
   userInput: string;
+  inputDocument?: CanvasInputDocument;
+  resourceReferences?: CanvasResourceReferenceSnapshot[];
   attachments: CanvasAttachment[];
   materialization: SendMaterialization;
   conversationId: string;

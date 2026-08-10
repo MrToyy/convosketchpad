@@ -12,6 +12,7 @@ import { CANVAS_DELIVERY_MAX_BYTES } from './canvas-media-derivatives.js';
 import { scheduleCanvasInteractionReconciliation } from './canvas-reconciler.js';
 import { canvasSendRetryDelay } from './canvas/domain/send-retry.js';
 import { publishCanvasChanged } from './canvas-sync.js';
+import { runtimeAcceptsMimeType } from './canvas/domain/material-capability.js';
 
 const activeDispatches = new Set<string>();
 
@@ -65,6 +66,12 @@ export async function runCanvasSendWorker(
         return store.getReservation(reservation.id)!;
       }
     }
+    if ([...reservation.attachments, ...(reservation.resourceReferences || [])].some((resource) =>
+      !runtimeAcceptsMimeType(capabilities, resource.mimeType))) {
+      store.failReservationById(reservation.id, 'runtime_input_unsupported');
+      publishCanvasChanged(reservation.ownerId, reservation.canvasId);
+      return store.getReservation(reservation.id)!;
+    }
 
     const requiresMediaPreparation = [
       ...reservation.attachments,
@@ -76,7 +83,11 @@ export async function runCanvasSendWorker(
       reservation = store.getDispatchableReservation(reservation.id)!;
       publishCanvasChanged(reservation.ownerId, reservation.canvasId);
     }
-    const { message, attachments, bootstrapWarnings } = await buildCanvasDelivery(reservation, store);
+    const { message, attachments, bootstrapWarnings } = await buildCanvasDelivery(
+      reservation,
+      store,
+      capabilities,
+    );
     let preparedReservation = store.getDispatchableReservation(reservation.id);
     if (!preparedReservation) throw new Error('not_found');
     if (preparedReservation.status !== 'prepared') return preparedReservation;

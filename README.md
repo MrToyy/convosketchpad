@@ -28,7 +28,7 @@
 ConvoSketchpad 是一张用于分支 AI 对话的自托管可视化画布。你可以从任意已完成节点展开、比较和继续不同思路，同时直接使用已经配置好的 OpenClaw 或 Codex Agent，以及它们已有的技能、记忆、插件和工具。
 
 > [!IMPORTANT]
-> ConvoSketchpad **不是独立的 Agent 运行环境**，也不负责运行模型、工具或 Agent。它必须连接至少一个 Agent 运行端（Agent Runtime）。当前 v0.4.2 正式适配 [OpenClaw](https://github.com/openclaw/openclaw) Gateway 和本地 Codex App Server；Agent、工具调用、Conversation 和原始运行记录由运行端提供。
+> ConvoSketchpad **不是独立的 Agent 运行环境**，也不负责运行模型、工具或 Agent。它必须连接至少一个 Agent 运行端（Agent Runtime）。当前 v0.5.0 开发版本支持 [OpenClaw](https://github.com/openclaw/openclaw) Gateway 和本地 Codex App Server；Agent、工具调用、Conversation 和原始运行记录由运行端提供。
 
 > [!TIP]
 > 这种架构带来两个互补优势：Canvas 分支把不同探索隔离在各自的上下文链路中，保护任务主线；连接现有 Agent Runtime，则让你直接复用自己已经配置好、也已经熟悉的 Agent，以及运行端为它们提供的模型、技能（Skills）、记忆（Memory）、插件和工具，无需在 ConvoSketchpad 中重新搭建或维护一套 Agent 环境。
@@ -137,11 +137,13 @@ Agent 运行端负责 Agent 执行、工具、Conversation 和原始运行记录
 
 新运行端必须优先通过 App Server、ACP、Gateway、SDK 或稳定的机器可解析无头模式接入，不解析终端 UI 或非稳定 stdout。图片能力还必须覆盖输入媒体、生成或编辑工具调用、二进制 Artifact 发现与持久化；正式实现仍以事件完整性、审批安全、Session 恢复和 Adapter 一致性测试为准。
 
-#### 产品能力路线图
+#### 产品能力状态与路线图
 
-- **`@图片` 与资源引用**：在输入中引用 Canvas 图片、附件和节点产物，并保留所有者、路径与运行端能力校验。
-- **分支合并**：选择一个或多个分支生成新的 Interaction，保留来源和历史，不改写既有 Conversation。
-- **跨 Agent 交接**：把一个分支的阶段性结果交给另一个 Agent 继续处理，同时保留来源、相关上下文和执行归属。
+产品能力按“资源引用 → 分支合并 → 跨 Agent 交接”推进，Windows 支持排在其后。资源引用第一阶段已在当前 `v0.5.0` 开发版本实现，后续阶段的详细边界见[资源引用与后续 Canvas 能力规划](docs/canvas/RESOURCE-REFERENCES.md)。
+
+- **已实现：`@` 资源引用**：在输入指定位置引用本次附件或当前节点父链上游的图片、附件和节点产物；同一资源可多次出现但只占一个槽位，本轮最多九项，并保留所有者、路径与运行端能力校验。
+- **下一阶段：分支合并**：选择一个或多个分支生成新的 Interaction，保留来源和历史，不改写既有 Conversation。
+- **后续阶段：跨 Agent 交接**：把一个分支的阶段性结果交给另一个 Agent 继续处理，同时保留来源、相关上下文和执行归属。
 - **Windows 支持**：补齐 Windows 原生安装、setup、服务管理、路径与权限处理、Runtime 探测以及构建和自动化测试，使其达到与 macOS、Linux 一致的受支持状态。
 
 ### 开发调试
@@ -242,7 +244,7 @@ PORT=4000 npm run dev
 ConvoSketchpad is a self-hosted visual canvas for branching AI conversations. Fork, compare, and continue different paths from any completed node while reusing your existing OpenClaw or Codex Agents, skills, memory, plugins, and tools.
 
 > [!IMPORTANT]
-> ConvoSketchpad is **not a standalone Agent runtime** and does not run models, tools, or Agents by itself. It must connect to at least one Agent Runtime. v0.4.2 officially supports the [OpenClaw](https://github.com/openclaw/openclaw) Gateway and a local Codex App Server; the Runtime provides Agents, tool execution, Conversations, and authoritative run records.
+> ConvoSketchpad is **not a standalone Agent runtime** and does not run models, tools, or Agents by itself. It must connect to at least one Agent Runtime. The current v0.5.0 development version supports the [OpenClaw](https://github.com/openclaw/openclaw) Gateway and a local Codex App Server; the Runtime provides Agents, tool execution, Conversations, and authoritative run records.
 
 > [!TIP]
 > This architecture provides two complementary advantages: Canvas branches isolate different explorations in their own context chains to protect the primary task, while connecting an existing Agent Runtime lets you reuse the Agents you have already configured and know well, together with the models, skills, memory, plugins, and tools the Runtime provides for them—without rebuilding or maintaining a separate Agent environment inside ConvoSketchpad.
@@ -354,11 +356,13 @@ The following Runtimes are being evaluated, not completed integrations or releas
 
 New Runtimes must prefer App Server, ACP, Gateway, SDK, or a stable machine-readable headless mode instead of parsing terminal UI or unstable stdout. Image support must also cover media input, generation or editing tool calls, and binary-Artifact discovery and persistence; implementation still depends on event completeness, approval safety, Session recovery, and Adapter conformance tests.
 
-#### Product capability roadmap
+#### Product capability status and roadmap
 
-- **`@image` and resource references**: reference Canvas images, attachments, and node outputs while preserving ownership, path, and Runtime-capability checks.
-- **Branch merging**: create a new Interaction from selected branches while preserving provenance and history instead of rewriting existing Conversations.
-- **Cross-Agent handoff**: pass a branch's intermediate result to another Agent for continued work while preserving provenance, relevant context, and execution ownership.
+Product capabilities follow the order “resource references → branch merging → cross-Agent handoff,” with Windows support later. The first resource-reference phase is implemented in the current `v0.5.0` development version; see the [Canvas capability plan](docs/canvas/RESOURCE-REFERENCES.md) for later-stage boundaries.
+
+- **Implemented: `@` resource references**: reference current-turn attachments or parent-chain images, files, and node outputs at exact input positions. Repeated references share one of nine turn-material slots while preserving ownership, path, and Runtime-capability checks.
+- **Next: branch merging**: create a new Interaction from selected branches while preserving provenance and history instead of rewriting existing Conversations.
+- **Later: cross-Agent handoff**: pass a branch's intermediate result to another Agent for continued work while preserving provenance, relevant context, and execution ownership.
 - **Windows support**: add native Windows installation, setup, service management, path and permission handling, Runtime detection, builds, and automated tests to reach the same supported status as macOS and Linux.
 
 ### Development

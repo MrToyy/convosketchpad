@@ -7,6 +7,9 @@ ConvoSketchpad 的重要变更均记录在此文件中。格式遵循 [Keep a Ch
 ### 变更
 
 - 产品定位更新为“一张画布，多条思路，熟悉的 Agent / One canvas. Many paths. The agents you know.”，强调 Canvas 上的多路径探索与既有 Agent 的直接复用；README 以分支 AI 对话、OpenClaw/Codex 复用和线性聊天对比重组中英文介绍，并集中呈现当前支持、候选 Agent Runtime 与产品能力路线图；GitHub、网页与 Package 元数据同步使用可搜索的功能描述。“让想法自由分支 / Let ideas fly free”继续作为品牌标语。
+- 开发版本提升至 `0.5.0`，记录“资源引用 → 分支合并 → 跨 Agent 交接”的能力依赖与实施顺序；`0.5.0` 首先开发资源引用，Windows 支持排在上述产品能力之后。
+- Composer 新增文本内 `@` 资源 Token，可引用本次上传附件和当前 Branch 父链上游的 Attachment/Artifact；候选按来源分组并支持安全缩略图，Lexical 菜单使用可键盘选择的 `listbox` / `option` 语义。结构化位置贯穿失败恢复、Interaction、Canonical Replay 与 Runtime 材料编译，同一资源重复出现只占一个槽位，本轮附件和上游引用合计最多九项。旁支资源不会进入目录或通过伪造请求发送，未来由分支合并连线扩展统一上游解析器。
+- 新增资源引用持久化迁移与 Schema Epoch 4；公开 API 返回安全引用元数据和缩略图，不暴露内容哈希、文件路径或 Runtime Handle。
 
 ## [0.4.2] - 2026-08-07
 

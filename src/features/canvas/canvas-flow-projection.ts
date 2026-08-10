@@ -17,6 +17,7 @@ import {
 import type {
   CanvasBranch,
   CanvasDraft,
+  CanvasDraftInputDocument,
   CanvasGraph,
   CanvasInteraction,
 } from './types';
@@ -38,7 +39,7 @@ interface CanvasFlowProjectionInput {
   onAdd(interaction: CanvasInteraction): void;
   onResubmit(interaction: CanvasInteraction): void;
   onApprovalChanged(): void;
-  onTextChange(branchId: string, value: string): void;
+  onDocumentChange(branchId: string, value: CanvasDraftInputDocument): void;
   onFiles(branchId: string, files: File[]): void;
   onRemoveFile(branchId: string, index: number): void;
   onRemovePersistedAttachment(branchId: string, index: number): void;
@@ -161,6 +162,18 @@ export function projectCanvasFlow(input: CanvasFlowProjectionInput): {
         ? {
           ...EMPTY_CANVAS_DRAFT,
           text: pendingOperation.userInput,
+          inputDocument: {
+            version: 1 as const,
+            segments: pendingOperation.inputDocument?.segments
+              || (pendingOperation.userInput
+                ? [{ type: 'text' as const, text: pendingOperation.userInput }]
+                : []),
+            references: (pendingOperation.inputDocument?.references || []).map((reference) => ({
+              ...reference,
+              name: pendingOperation.resourceReferences?.find((item) => item.key === reference.key)?.name,
+              mimeType: pendingOperation.resourceReferences?.find((item) => item.key === reference.key)?.mimeType,
+            })),
+          },
           persistedAttachments: pendingOperation.attachments,
         }
         : EMPTY_CANVAS_DRAFT);
@@ -182,7 +195,7 @@ export function projectCanvasFlow(input: CanvasFlowProjectionInput): {
             ? labels.newSession
             : labels.continueBranch,
         resizeEnabled: input.resizeEnabled,
-        onTextChange: (value) => input.onTextChange(branch.id, value),
+        onDocumentChange: (value) => input.onDocumentChange(branch.id, value),
         onFiles: (files) => input.onFiles(branch.id, files),
         onRemoveFile: (index) => input.onRemoveFile(branch.id, index),
         onRemovePersistedAttachment: (index) =>

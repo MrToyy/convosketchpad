@@ -3,12 +3,19 @@ import type { CanvasAttachment, InteractionRecord, SendReservation } from '../mo
 import type { AgentRuntime, AgentProfileRef } from '../../agent-runtimes/contract.js';
 import { dispatchCanvasSend } from '../../canvas-send-coordinator.js';
 import { CanvasApplicationError } from './errors.js';
+import {
+  textInputDocument,
+  type CanvasInputDocument,
+} from '../domain/input-document.js';
+import { UpstreamResourceResolver } from './upstream-resource-resolver.js';
+import { runtimeAcceptsMimeType } from '../domain/material-capability.js';
 
 export interface SubmitCanvasSendCommand {
   branchId: string;
   expectedHeadInteractionId?: string | null;
   expectedAgentRef: AgentProfileRef;
-  userInput: string;
+  userInput?: string;
+  inputDocument?: CanvasInputDocument;
   attachmentIds: string[];
 }
 
@@ -39,15 +46,13 @@ interface CanvasSendServiceDependencies {
 export class CanvasSendService {
   private readonly store: CanvasStore;
   private readonly runtime?: AgentRuntime;
-  private readonly runtimeResolver: (runtimeId: string) => AgentRuntime;
+  private readonly runtimeResolver?: (runtimeId: string) => AgentRuntime;
   private readonly dispatch: typeof dispatchCanvasSend;
 
   constructor(dependencies: CanvasSendServiceDependencies) {
     this.store = dependencies.store;
     this.runtime = dependencies.runtime;
-    this.runtimeResolver = dependencies.runtimeResolver || (() => {
-      throw new Error('runtime_resolver_not_configured');
-    });
+    this.runtimeResolver = dependencies.runtimeResolver;
     this.dispatch = dependencies.dispatch || dispatchCanvasSend;
   }
 
@@ -74,7 +79,8 @@ export class CanvasSendService {
     try {
       const context = this.store.getOwnedBranchRuntimeContext(ownerId, branchId);
       if (!context) return;
-      const runtime = this.runtime || this.runtimeResolver(context.runtimeId);
+      const runtime = this.runtime || this.runtimeResolver?.(context.runtimeId);
+      if (!runtime) return;
       const inspection = await runtime.inspectConversation(context.conversationRef);
       if (!inspection) return;
       if (inspection.exists) {
@@ -103,7 +109,8 @@ export class CanvasSendService {
     if (branch.conversationIntegrity === 'drifted') return false;
     const context = this.store.getOwnedBranchRuntimeContext(ownerId, branchId);
     if (!context) return true;
-    const runtime = this.runtime || this.runtimeResolver(context.runtimeId);
+    const runtime = this.runtime || this.runtimeResolver?.(context.runtimeId);
+    if (!runtime) return false;
     const preparation = await runtime.prepareConversation(context.conversationRef, {
       conversationStartedAt: context.conversationStartedAt,
       lastInteractionAt: context.lastInteractionAt,
@@ -126,6 +133,23 @@ export class CanvasSendService {
       throw new CanvasSendApplicationError('agent_changed', 409);
     }
     const attachments = this.resolveAttachments(ownerId, canvas.id, command.attachmentIds);
+    const resolvedInput = new UpstreamResourceResolver(this.store).resolveDocument({
+      ownerId,
+      branchId: branch.id,
+      document: command.inputDocument || textInputDocument(command.userInput || ''),
+      currentAttachments: attachments,
+    });
+    const runtime = this.runtime || this.runtimeResolver?.(canvas.agentRef.runtimeId);
+    if (runtime) {
+      const capabilities = await runtime.getCapabilities(canvas.agentRef);
+      if (!capabilities.input.text) {
+        throw new CanvasSendApplicationError('runtime_text_input_unsupported', 503);
+      }
+      if ([...attachments, ...resolvedInput.references].some((resource) =>
+        !runtimeAcceptsMimeType(capabilities, resource.mimeType))) {
+        throw new CanvasSendApplicationError('runtime_input_unsupported', 503);
+      }
+    }
 
     if (branch.conversationState === 'active') {
       await this.refreshConversationIdentity(ownerId, branch.id);
@@ -136,7 +160,9 @@ export class CanvasSendService {
     const reservation = this.store.prepareSend(ownerId, {
       branchId: branch.id,
       expectedHeadInteractionId: command.expectedHeadInteractionId,
-      userInput: command.userInput,
+      userInput: resolvedInput.userInput,
+      inputDocument: resolvedInput.document,
+      resourceReferences: resolvedInput.references,
       attachments,
       forceSessionRecovery,
     });
@@ -211,7 +237,9 @@ export class CanvasSendService {
         kind: 'rejected',
         operation: result,
         error,
-        status: error === 'runtime_text_input_unsupported' ? 503 : 422,
+        status: ['runtime_text_input_unsupported', 'runtime_input_unsupported'].includes(error)
+          ? 503
+          : 422,
       };
     }
     return { kind: 'operation', operation: result };

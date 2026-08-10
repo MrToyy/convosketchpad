@@ -18,6 +18,8 @@ import { CanvasBranchService } from '../lib/canvas/application/branch-service.js
 import { CanvasApprovalService } from '../lib/canvas/application/approval-service.js';
 import { CanvasApplicationService } from '../lib/canvas/application/canvas-service.js';
 import { CanvasApplicationError } from '../lib/canvas/application/errors.js';
+import { CanvasResourceService } from '../lib/canvas/application/resource-service.js';
+import { canvasInputDocumentHasContent } from '../lib/canvas/domain/input-document.js';
 import {
   interactionHasPendingUpdates,
 } from '../lib/canvas-reconciler.js';
@@ -26,6 +28,7 @@ import { subscribeCanvasSync } from '../lib/canvas-sync.js';
 import type { AgentRuntimeRegistry } from '../lib/agent-runtimes/registry.js';
 import {
   publicCanvasInteraction as publicInteraction,
+  publicCanvasResourceThumbnailUri,
   publicCanvasSendReservation as publicSendReservation,
 } from '../lib/canvas-public-dto.js';
 import { rateLimitGeneral } from '../middleware/rate-limit.js';
@@ -51,6 +54,30 @@ function sseFrame(event: string, data: unknown, id?: number): Uint8Array {
 const agentRefSchema = z.object({
   runtimeId: z.string().trim().min(1).max(120),
   profileId: z.string().trim().min(1).max(120),
+});
+
+const canvasInputReferenceSchema = z.discriminatedUnion('origin', [
+  z.object({
+    key: z.string().min(1).max(120),
+    origin: z.literal('current_turn_attachment'),
+    attachmentId: z.string().regex(/^[a-f0-9]{40}$/),
+  }),
+  z.object({
+    key: z.string().min(1).max(120),
+    origin: z.literal('upstream'),
+    kind: z.enum(['canvas_attachment', 'interaction_artifact']),
+    sourceInteractionId: z.string().uuid(),
+    resourceId: z.string().min(1).max(200),
+  }),
+]);
+
+const canvasInputDocumentSchema = z.object({
+  version: z.literal(1),
+  segments: z.array(z.discriminatedUnion('type', [
+    z.object({ type: z.literal('text'), text: z.string().max(500_000) }),
+    z.object({ type: z.literal('resource'), key: z.string().min(1).max(120) }),
+  ])).max(2_000),
+  references: z.array(canvasInputReferenceSchema).max(9),
 });
 
 function errorResponse(c: Context, error: unknown) {
@@ -510,17 +537,79 @@ app.post('/api/canvas/interactions/:id/resubmit', rateLimitGeneral, async (c) =>
   } catch (error) { return errorResponse(c, error); }
 });
 
+app.get('/api/canvas/branches/:id/resources', rateLimitGeneral, async (c) => {
+  const identity = identityOr401(c);
+  if (!identity) return c.json({ error: 'Authentication required' }, 401);
+  const parsed = z.object({
+    q: z.string().max(200).default(''),
+    kind: z.enum(['all', 'image', 'file']).default('all'),
+    cursor: z.coerce.number().int().min(0).default(0),
+    limit: z.coerce.number().int().min(1).max(100).default(50),
+  }).safeParse(c.req.query());
+  if (!parsed.success) return c.json({ error: 'Invalid resource query' }, 400);
+  try {
+    const query = parsed.data.q.trim().toLocaleLowerCase();
+    const resources = await new CanvasResourceService(
+      store,
+      (runtimeId) => runtimes.get(runtimeId),
+    ).list(identity.userId, routeParam(c, 'id'));
+    const filtered = resources.filter((item) => {
+      if (query && !item.name.toLocaleLowerCase().includes(query)) return false;
+      if (parsed.data.kind === 'image') return item.mimeType.startsWith('image/');
+      if (parsed.data.kind === 'file') return !item.mimeType.startsWith('image/');
+      return true;
+    });
+    const items = filtered.slice(parsed.data.cursor, parsed.data.cursor + parsed.data.limit)
+      .map((item) => {
+        const thumbnailUri = publicCanvasResourceThumbnailUri(item);
+        return {
+          reference: {
+            origin: 'upstream' as const,
+            kind: item.reference.kind,
+            sourceInteractionId: item.reference.sourceInteractionId,
+            resourceId: item.reference.resourceId,
+          },
+          name: item.name,
+          mimeType: item.mimeType,
+          sizeBytes: item.sizeBytes,
+          uri: item.uri,
+          ...(thumbnailUri ? { thumbnailUri } : {}),
+          available: item.available,
+          selectable: item.selectable,
+          unavailableReason: item.unavailableReason,
+          sourceInteraction: {
+            id: item.reference.sourceInteractionId,
+            createdAt: item.sourceCreatedAt,
+          },
+        };
+      });
+    const nextOffset = parsed.data.cursor + items.length;
+    return c.json({
+      items,
+      ...(nextOffset < filtered.length ? { nextCursor: String(nextOffset) } : {}),
+    });
+  } catch (error) { return errorResponse(c, error); }
+});
+
 app.post('/api/canvas/branches/:id/send', rateLimitGeneral, async (c) => {
   const identity = identityOr401(c);
   if (!identity) return c.json({ error: 'Authentication required' }, 401);
   const parsed = z.object({
     expectedHeadInteractionId: z.string().uuid().nullable().optional(),
     expectedAgentRef: agentRefSchema,
-    userInput: z.string().max(500_000).default(''),
-    attachmentIds: z.array(z.string().regex(/^[a-f0-9]{40}$/)).max(4).default([]),
+    userInput: z.string().max(500_000).optional(),
+    inputDocument: canvasInputDocumentSchema.optional(),
+    attachmentIds: z.array(z.string().regex(/^[a-f0-9]{40}$/)).max(9).default([]),
+  }).superRefine((value, context) => {
+    if ((value.userInput === undefined) === (value.inputDocument === undefined)) {
+      context.addIssue({ code: 'custom', message: 'Provide exactly one input representation' });
+    }
   }).safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: 'Invalid send request', details: parsed.error.flatten() }, 400);
-  if (!parsed.data.userInput.trim() && parsed.data.attachmentIds.length === 0) {
+  const hasInput = parsed.data.inputDocument
+    ? canvasInputDocumentHasContent(parsed.data.inputDocument)
+    : Boolean(parsed.data.userInput?.trim());
+  if (!hasInput && parsed.data.attachmentIds.length === 0) {
     return c.json({ error: 'Message or attachment required' }, 400);
   }
   try {
@@ -532,7 +621,8 @@ app.post('/api/canvas/branches/:id/send', rateLimitGeneral, async (c) => {
       branchId: routeParam(c, 'id'),
       expectedHeadInteractionId: parsed.data.expectedHeadInteractionId,
       expectedAgentRef: parsed.data.expectedAgentRef,
-      userInput: parsed.data.userInput,
+      ...(parsed.data.userInput === undefined ? {} : { userInput: parsed.data.userInput }),
+      ...(parsed.data.inputDocument === undefined ? {} : { inputDocument: parsed.data.inputDocument }),
       attachmentIds: parsed.data.attachmentIds,
     });
     if (result.kind === 'interaction') {

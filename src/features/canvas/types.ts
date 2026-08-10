@@ -68,6 +68,72 @@ export interface CanvasArtifact {
   warning?: string;
 }
 
+export type CanvasInputReference =
+  | { key: string; origin: 'current_turn_attachment'; attachmentId: string }
+  | {
+    key: string;
+    origin: 'upstream';
+    kind: 'canvas_attachment' | 'interaction_artifact';
+    sourceInteractionId: string;
+    resourceId: string;
+  };
+
+export interface CanvasInputDocument {
+  version: 1;
+  segments: Array<{ type: 'text'; text: string } | { type: 'resource'; key: string }>;
+  references: CanvasInputReference[];
+}
+
+export type CanvasDraftInputReference =
+  | (CanvasInputReference & { name?: string; mimeType?: string })
+  | {
+    key: string;
+    origin: 'draft_attachment';
+    draftAttachmentKey: string;
+    name?: string;
+    mimeType?: string;
+  };
+
+export interface CanvasDraftInputDocument {
+  version: 1;
+  segments: CanvasInputDocument['segments'];
+  references: CanvasDraftInputReference[];
+}
+
+export interface CanvasResourceReferenceMeta {
+  key: string;
+  origin: 'current_turn_attachment' | 'upstream';
+  kind: 'canvas_attachment' | 'interaction_artifact';
+  sourceInteractionId: string | null;
+  resourceId: string;
+  ordinal: number;
+  name: string;
+  mimeType: string;
+  sizeBytes?: number;
+  uri: string;
+  thumbnailUri?: string;
+  available: boolean;
+  warning?: string;
+}
+
+export interface CanvasResourceCatalogItem {
+  reference: {
+    origin: 'upstream';
+    kind: 'canvas_attachment' | 'interaction_artifact';
+    sourceInteractionId: string;
+    resourceId: string;
+  };
+  name: string;
+  mimeType: string;
+  sizeBytes?: number;
+  uri: string;
+  thumbnailUri?: string;
+  available: boolean;
+  selectable: boolean;
+  unavailableReason?: string;
+  sourceInteraction: { id: string; createdAt: number };
+}
+
 export interface InteractionContextSnapshot {
   usedTokens: number;
   contextLimit: number;
@@ -110,6 +176,8 @@ export interface CanvasInteraction {
   branchId: string;
   parentInteractionId: string | null;
   userInput: string;
+  inputDocument: CanvasInputDocument;
+  resourceReferences: CanvasResourceReferenceMeta[];
   agentOutput: string;
   status: InteractionStatus;
   executionState: InteractionExecutionState;
@@ -166,6 +234,8 @@ export interface SendReservation {
   branchId: string;
   expectedHeadInteractionId: string | null;
   userInput: string;
+  inputDocument: CanvasInputDocument;
+  resourceReferences: CanvasResourceReferenceMeta[];
   attachments: CanvasAttachmentMeta[];
   materialization: 'lazy-root' | 'continue-existing' | 'checkpoint-delta' | 'canonical-replay' | 'session-recovery';
   conversationId: string;
@@ -183,7 +253,9 @@ export interface SendReservation {
 
 export interface CanvasDraft {
   text: string;
+  inputDocument: CanvasDraftInputDocument;
   files: File[];
+  fileKeys: string[];
   persistedAttachments: CanvasAttachmentMeta[];
   previews: Record<string, string>;
   sending: boolean;

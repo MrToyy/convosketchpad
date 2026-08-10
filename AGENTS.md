@@ -22,6 +22,7 @@
 | Agent Runtime 抽象、OpenClaw/Codex 边界 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)、[`docs/agent-runtimes/ADAPTER-DEVELOPMENT.md`](docs/agent-runtimes/ADAPTER-DEVELOPMENT.md) | 统一 Port、事件/审批、恢复、Artifact 与扩展约束 |
 | 新增或修改 Agent Runtime Adapter | [`docs/agent-runtimes/ADAPTER-DEVELOPMENT.md`](docs/agent-runtimes/ADAPTER-DEVELOPMENT.md) | 目录、Port、聚合、审批、迁移、安全与测试规范 |
 | Canvas 页面、节点、布局、Branch、Interaction、附件或 Artifact | [`docs/canvas/CANVAS-CODE-MAP.md`](docs/canvas/CANVAS-CODE-MAP.md) | Canvas 不变量、前后端入口与测试 |
+| 资源引用、分支合并或跨 Agent 交接 | [`docs/canvas/RESOURCE-REFERENCES.md`](docs/canvas/RESOURCE-REFERENCES.md)、[`docs/canvas/CANVAS-CODE-MAP.md`](docs/canvas/CANVAS-CODE-MAP.md) | 开发顺序、阶段边界、验收条件和现有 Canvas 约束 |
 | 登录、用户 Token、隔离、限流、Cookie 或 SSE 鉴权 | [`docs/canvas/AUTH-CODE-MAP.md`](docs/canvas/AUTH-CODE-MAP.md) | 认证链路、CLI、SQLite 与会话撤销 |
 | HTTP 路由或接口契约 | [`docs/API.md`](docs/API.md) | Canvas、认证、文件和遥测 API |
 | 本地安装、开发环境或贡献流程 | [`docs/INSTALL.md`](docs/INSTALL.md)、[`CONTRIBUTING.md`](CONTRIBUTING.md) | 安装向导、统一开发命令和实现要求 |

@@ -8,6 +8,8 @@ import {
 } from './canvas-media-derivatives.js';
 import { canvasReplayResourceFileName } from './canvas/domain/replay-plan.js';
 import { locateCanvasResource } from './canvas-resource-locator.js';
+import type { RuntimeCapabilities } from './agent-runtimes/contract.js';
+import { runtimeAcceptsMimeType } from './canvas/domain/material-capability.js';
 
 export interface RuntimeDeliveryAttachment {
   fileName: string;
@@ -115,6 +117,7 @@ async function loadContextResource(
 export async function buildCanvasDelivery(
   reservation: DispatchableSendReservation,
   store: CanvasStore,
+  capabilities?: RuntimeCapabilities,
 ): Promise<{
   message: string;
   attachments: RuntimeDeliveryAttachment[];
@@ -122,16 +125,26 @@ export async function buildCanvasDelivery(
 }> {
   const attachments: RuntimeDeliveryAttachment[] = [];
   const bootstrapWarnings: string[] = [];
+  const deliveredRefs = new Set<string>();
   for (const resource of reservation.bootstrapResources) {
+    if (capabilities && !runtimeAcceptsMimeType(capabilities, resource.mimeType)) {
+      if (resource.required) throw new Error('runtime_input_unsupported');
+      bootstrapWarnings.push(`${resource.name}: Runtime does not support this file type`);
+      continue;
+    }
+    if (resource.replayRef && deliveredRefs.has(resource.replayRef)) continue;
     try {
       attachments.push(await loadContextResource(store, reservation, resource));
+      if (resource.replayRef) deliveredRefs.add(resource.replayRef);
     } catch (error) {
       const message = error instanceof Error ? error.message : '';
       if (!['resource_unavailable', 'media_source_unavailable'].includes(message)) throw error;
+      if (resource.required) throw new Error('resource_reference_unavailable', { cause: error });
       bootstrapWarnings.push(`${resource.name}: resource unavailable`);
     }
   }
   for (const attachment of reservation.attachments) {
+    if (attachment.deliveryRef && deliveredRefs.has(attachment.deliveryRef)) continue;
     if (!attachment.id) throw new Error('attachment_not_found');
     const originalBytes = await readCanvasAttachment(
       reservation.ownerId,
@@ -160,10 +173,11 @@ export async function buildCanvasDelivery(
       : null;
     const bytes = prepared?.bytes || originalBytes;
     attachments.push({
-      fileName: attachment.name,
+      fileName: attachment.deliveryRef ? `${attachment.deliveryRef}--${attachment.name}` : attachment.name,
       mimeType: prepared?.derivative.mimeType || attachment.mimeType,
       content: Buffer.from(bytes).toString('base64'),
     });
+    if (attachment.deliveryRef) deliveredRefs.add(attachment.deliveryRef);
   }
   let message = reservation.outgoingMessage;
   if (bootstrapWarnings.length) {

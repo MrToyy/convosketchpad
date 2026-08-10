@@ -1,10 +1,16 @@
 import { createHash } from 'node:crypto';
 import type { CanvasContextResource } from './send-policy.js';
+import type {
+  CanvasInputDocument,
+  CanvasResourceReferenceSnapshot,
+} from './input-document.js';
 
 export interface CanvasReplayInteraction {
   id: string;
   user: string;
   assistant: string;
+  inputDocument?: CanvasInputDocument;
+  resourceReferences?: CanvasResourceReferenceSnapshot[];
 }
 
 export interface CanvasReplaySnapshot {
@@ -44,6 +50,49 @@ function singleLineName(name: string): string {
   return name.replace(/[\r\n]+/g, ' ').trim() || 'unnamed file';
 }
 
+function renderStructuredHistoryInput(
+  interaction: CanvasReplayInteraction,
+  physicalByIdentity: Map<string, CanvasContextResource>,
+  logicalCounter: { value: number },
+): { text: string; lines: string[] } {
+  if (!interaction.inputDocument || !interaction.resourceReferences?.length) {
+    return { text: interaction.user, lines: [] };
+  }
+  const references = new Map(interaction.resourceReferences.map((reference) => [reference.key, reference]));
+  const logicalByKey = new Map<string, string>();
+  const text = interaction.inputDocument.segments.map((segment) => {
+    if (segment.type === 'text') {
+      return segment.text.replaceAll('[[canvas-resource:', '[[canvas-user-text:canvas-resource:');
+    }
+    let logical = logicalByKey.get(segment.key);
+    if (!logical) {
+      logicalCounter.value += 1;
+      logical = `R${String(logicalCounter.value).padStart(3, '0')}`;
+      logicalByKey.set(segment.key, logical);
+    }
+    return `[[canvas-resource:${logical}]]`;
+  }).join('');
+  const lines = [...logicalByKey].flatMap(([key, logical]) => {
+    const reference = references.get(key);
+    if (!reference) return [];
+    const physical = physicalByIdentity.get(canvasReplayResourceIdentity({
+      id: `history-reference:${reference.key}`,
+      contentHash: reference.contentHash,
+      sourceInteractionId: reference.sourceInteractionId || interaction.id,
+      source: reference.kind === 'canvas_attachment' ? 'user_attachment' : 'agent_artifact',
+      name: reference.name,
+      mimeType: reference.mimeType,
+      sizeBytes: reference.sizeBytes,
+      uri: reference.uri,
+      available: reference.available,
+    }));
+    return physical?.replayRef
+      ? [`${logical} -> ${physical.replayRef}--${singleLineName(reference.name)}`]
+      : [];
+  });
+  return { text, lines };
+}
+
 export function buildCanvasReplayPlan(
   snapshot: CanvasReplaySnapshot,
   reason: CanvasReplayReason,
@@ -73,11 +122,14 @@ export function buildCanvasReplayPlan(
     referencesByInteraction.set(resource.sourceInteractionId, references);
   }
 
+  const logicalCounter = { value: 0 };
   const transcript = snapshot.interactions.map((interaction, index) => {
     const references = referencesByInteraction.get(interaction.id);
+    const structured = renderStructuredHistoryInput(interaction, physicalByIdentity, logicalCounter);
     return [
       `Interaction ${index + 1}`,
-      `User: ${interaction.user}`,
+      `User: ${structured.text}`,
+      ...(structured.lines.length ? [`User resource positions: ${structured.lines.join(', ')}`] : []),
       ...(references?.attachments.length
         ? [resourceLine('User attachments', references.attachments)]
         : []),

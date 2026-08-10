@@ -82,7 +82,7 @@ Gateway 终止事件只是提示。服务端会从权威对话记录协调最终
 
 ## 附件发送失败
 
-- 最多四个原始文件，每个最大 20 MiB。
+- 最多九个原始文件，每个最大 20 MiB；本轮附件与上游引用共用九个材料槽位，同一引用在文本中重复出现仍只占一槽。
 - 大图由后端按需生成投递派生文件，原件始终保存在 Canvas 且不被改写。
 - 最终 Base64 `chat.send` Frame 必须小于 Gateway `maxPayload`。
 - 图片格式无效、不受支持或超过后端安全解码限制时，发送会明确失败；检查 Send Operation 错误与服务日志。
@@ -92,6 +92,8 @@ Fork 与 Session 恢复会完整投递目标历史中仍可用的附件和 Artif
 只占一个物理附件，后端生成的历史大图会按真实内容哈希在同一 Canvas 内复用。若 operation 报告
 `replay_payload_too_large`，说明完整 Replay Package 即使经过物理去重仍超过 Gateway `maxPayload`；
 服务端不会静默删文件。应提高 Gateway 的受支持载荷上限，或从较短历史位置创建新 Branch。
+
+若资源 Token 发送失败，先检查候选是否仍属于当前 Branch 的父链、原 Attachment/Artifact 是否可用，以及所选 Runtime 是否支持其 MIME。根节点的上游目录本来为空，但本次上传附件仍可通过 `@` 使用；旁支资源必须等分支合并阶段建立明确上游关系，不能通过手工请求绕过。
 
 OpenClaw 的 Session 记录可能把收到的原生附件显示为 `MediaPaths` / `MediaTypes`，而不是保留 RPC
 `attachments` 字段。判断媒体是否传入 Agent 时应同时检查这些字段。
