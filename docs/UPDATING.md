@@ -200,7 +200,7 @@ npm run update
 
 `0.4.0` 的 Agent Runtime 结构迁移标识为 `0.3.2_to_0.4.0_agent_runtime_v1`。所有 `0.3.x` 数据库会在目标版本迁移流程中补齐上述维护迁移和该结构步骤；`0.2.0` 数据库还会先完成结构桥接。Agent Runtime 结构迁移会在同一边界创建审批与通用事件 Inbox，重建核心表、写入通用 Handle 和事件数据，并按最早 Send Reservation、最早 Interaction 的优先级回填旧 Canvas 的 Agent 锁定时间；已完成通用 Schema 但缺失锁定时间的数据库会在下次迁移检查中自动修复。`0.5.0` 再以 `0.4.0_to_0.5.0_resource_references_v1` 增加结构化输入列和资源引用表。全新数据库直接创建当前 Schema 并记录既定四项，不先创建旧 OpenClaw Schema。校验外键与完整性后才记录完成标识。由于媒体维护代码依赖目标结构，实际执行时允许先完成目标 Schema、再处理媒体；统一清单表达的是发布边界和最终必备项，而不是数据库事务的调用先后。
 
-截至 `0.5.0` 开发基线，统一迁移清单共有四项，版本边界连续为 `0.2.0 → 0.3.0 → 0.3.2 → 0.4.0 → 0.5.0`；第四项为 `0.4.0_to_0.5.0_resource_references_v1`。结构迁移会在数据库打开时幂等执行，并删除未进入任何正式 Release 的 `0.2.0_to_single_chain_v1`、`0.3.0_to_0.4.0_agent_backend_v1` 与 `0.3.2_to_0.4.0_agent_backend_v1` 开发态账本记录；已经使用开发期 Backend Schema 的数据库会原地改名物理字段、事件表和 Handle JSON。显式迁移器随后完成媒体维护，并在最终外键和完整性检查后确认四个正式迁移 ID 全部存在，否则更新失败并触发回滚。资源引用 Schema 将数据库 Epoch 提升为 4，旧代码不得覆盖已迁移数据库。
+截至 `0.5.0`，统一迁移清单共有四项，版本边界连续为 `0.2.0 → 0.3.0 → 0.3.2 → 0.4.0 → 0.5.0`；第四项为 `0.4.0_to_0.5.0_resource_references_v1`。结构迁移会在数据库打开时幂等执行，并删除未进入任何正式 Release 的 `0.2.0_to_single_chain_v1`、`0.3.0_to_0.4.0_agent_backend_v1` 与 `0.3.2_to_0.4.0_agent_backend_v1` 开发态账本记录；已经使用开发期 Backend Schema 的数据库会原地改名物理字段、事件表和 Handle JSON。显式迁移器随后完成媒体维护，并在最终外键和完整性检查后确认四个正式迁移 ID 全部存在，否则更新失败并触发回滚。资源引用 Schema 将数据库 Epoch 提升为 4，旧代码不得覆盖已迁移数据库。
 
 `npm run migrate -- --help` 只显示帮助，不打开数据库。迁移命令会在任何环境迁移或数据库操作前拒绝未知、重复参数，以及 `--env-only`、`--rescan-media` 等互斥模式的组合，避免输入错误被当成普通全量迁移执行。独立运行迁移器会取得与 setup/update 相同的维护锁；匹配当前安装的受管服务必须明确处于停止状态。没有匹配的服务管理器时，先停止所有手工进程，再显式运行 `npm run migrate -- --confirm-offline`；`--rescan-media` 可以和该确认参数组合。
 
@@ -291,7 +291,7 @@ npm run update -- --no-restart
 
 ## Release 策略
 
-`0.1.0` 有意不提供 GitHub Release。准备新 Release 时，从最新的 `main` 创建 Release 分支，更新 `package.json`、`package-lock.json` 与 `update-compatibility.json` 中的应用版本，并在 `CHANGELOG.md` 中添加日期与版本匹配的章节。若数据库结构或旧代码的可读范围变化，还要提升 `databaseSchemaEpoch` 或调整其最小/最大可读 Epoch；不得把不可读的新数据库标记为可由旧 Release 回滚。提交并推送 Release 分支，通过 Pull Request 和必需的 `build` 检查合并到受保护的 `main`，然后在 GitHub Actions 中手动运行 **Release** Workflow，并输入匹配的 `X.Y.Z`。
+`0.1.0` 有意不提供 GitHub Release。准备新 Release 时，在已经包含最新 `origin/main` 的本地 `dev` 上更新 `package.json`、`package-lock.json` 与 `update-compatibility.json` 中的应用版本，并在 `CHANGELOG.md` 中添加日期与版本匹配的章节。若数据库结构或旧代码的可读范围变化，还要提升 `databaseSchemaEpoch` 或调整其最小/最大可读 Epoch；不得把不可读的新数据库标记为可由旧 Release 回滚。完成本地验证后，把 `dev` 的准确快照推送为一次性的远端 `release/vX.Y.Z` 分支，通过该分支到受保护 `main` 的 Pull Request 和必需 `build` 检查完成合并；远端不长期保留 `dev`，临时发布分支在合并或放弃后删除。随后在 GitHub Actions 中手动运行 **Release** Workflow，并输入匹配的 `X.Y.Z`。
 
 Workflow 会先验证 Package、Lockfile 与兼容性清单版本一致，并确认当前 Schema Epoch 落在声明的可读范围内；随后在 Ubuntu 和 macOS 上对准确的 `main` Commit 执行测试、构建、审计和启动，然后创建带注释的 `vX.Y.Z` 标签及 Draft GitHub Release。检查 Draft 说明和安装行为后，将其发布为 Latest：
 

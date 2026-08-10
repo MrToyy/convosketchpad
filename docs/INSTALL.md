@@ -128,7 +128,7 @@ OPENCLAW_GATEWAY_URL=http://127.0.0.1:18789
 OPENCLAW_GATEWAY_TOKEN=<detected-token>
 ```
 
-setup 只配置用户选择的 Runtime，并写入已启用 Agent 运行端列表和默认 Agent。当前开发版本支持 `openclaw`、`codex` 和测试阶段的 `opencode`；未来 Adapter 也必须进入同一发现、选择、配置和 Agent 发现流程，不能增加产品级运行端切换模式。开发期旧键 `AGENT_BACKENDS` 会在备份后一次性转换为 `AGENT_RUNTIMES`。默认 Agent 是环境配置，不改变 SQLite Schema。属于当前安装的受管服务可被明确停服时，setup 会创建一次性一致性快照并自动迁移，重启后验证健康与版本；没有匹配服务管理器时只保存配置，数据库由下次手动启动自动迁移。该临时快照不会改写更新器正式回滚账本。
+setup 只配置用户选择的 Runtime，并写入已启用 Agent 运行端列表和默认 Agent。当前版本支持 `openclaw`、`codex` 和测试阶段的 `opencode`；未来 Adapter 也必须进入同一发现、选择、配置和 Agent 发现流程，不能增加产品级运行端切换模式。开发期旧键 `AGENT_BACKENDS` 会在备份后一次性转换为 `AGENT_RUNTIMES`。默认 Agent 是环境配置，不改变 SQLite Schema。属于当前安装的受管服务可被明确停服时，setup 会创建一次性一致性快照并自动迁移，重启后验证健康与版本；没有匹配服务管理器时只保存配置，数据库由下次手动启动自动迁移。该临时快照不会改写更新器正式回滚账本。
 
 ConvoSketchpad 不提供内置 TLS。远程 HTTPS 由反向代理或 Tailscale Serve 终止，后端仍使用 HTTP。
 

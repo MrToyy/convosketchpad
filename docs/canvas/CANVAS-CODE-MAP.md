@@ -3,7 +3,7 @@
 ## 不变量
 
 - 浏览器只呈现 Canvas、提交用户指令和上传原始附件。
-- 后端唯一负责 Agent Runtime 通信、发送状态机和 Canvas 数据持久化；当前 Registry 可注册 OpenClaw 与 Codex。
+- 后端唯一负责 Agent Runtime 通信、发送状态机和 Canvas 数据持久化；当前 Registry 可注册 OpenClaw、Codex 与 OpenCode。
 - Branch 同时只有一个未终止发送；`ambiguous` 不得超时解锁。
 - 所选 Agent Runtime 是执行、Conversation 和原始对话记录权威；SQLite 是 Canvas 拓扑及持久化副本权威。
 - 附件按 ID 和所有者解析，Artifact 保持 25 MiB 上限及降级语义。

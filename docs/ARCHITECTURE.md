@@ -12,7 +12,7 @@ ConvoSketchpad（Hono、SQLite、文件存储、发送协调器）
   └─ OpenCode Adapter ⇄ 受监督的本地 HTTP/SSE Server
 ```
 
-v0.5.0 开发基线的 Canvas 通用运行路径全部通过 `AgentRuntime`，Registry 可同时注册 OpenClaw、Codex 与 OpenCode Adapter，HTTP、前端和数据库均使用通用 Agent/Conversation/Turn/Approval 语义。Codex 与 OpenCode 都由服务端直接监督本机进程，不经过 OpenClaw。
+截至 v0.5.0，Canvas 通用运行路径全部通过 `AgentRuntime`，Registry 可同时注册 OpenClaw、Codex 与 OpenCode Adapter，HTTP、前端和数据库均使用通用 Agent/Conversation/Turn/Approval 语义。Codex 与 OpenCode 都由服务端直接监督本机进程，不经过 OpenClaw。
 
 浏览器不实现 Runtime 握手，不调用 Gateway RPC、Codex App Server 或 OpenCode Server，不保存 Runtime URL、Token、设备凭据或本地运行时凭据。服务端是唯一的 Agent Runtime 通信方。
 
