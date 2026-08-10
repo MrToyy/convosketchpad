@@ -1,6 +1,6 @@
 # 安装 ConvoSketchpad
 
-ConvoSketchpad 的目标是“让想法自由分支”。它支持 macOS 和 Linux，需要 Node.js 22.22.2 或更高版本，并依赖至少一个可访问的 Agent Runtime：OpenClaw Gateway 或本地 Codex App Server。
+ConvoSketchpad 的目标是“让想法自由分支”。它支持 macOS 和 Linux，需要 Node.js 22.22.2 或更高版本，并依赖至少一个可访问的 Agent Runtime：OpenClaw Gateway、本地 Codex App Server，或测试阶段的本地 OpenCode Server。
 
 ## 推荐安装方式
 
@@ -48,14 +48,16 @@ npm run setup
 向导配置以下内容：
 
 1. **Runtime 探测与选择**：以只读方式探测本机支持的 Runtime，把已探测和未探测项分组展示，并由用户多选需要接入的项。
-2. **Runtime 连接**：逐项配置所选 Runtime；OpenClaw 包括 URL、共享 Token、连通性、远程 Gateway 时区和仅远程 Gateway 所需的 backend 设备配对；Codex 包括 CLI 版本、本地 App Server 登录状态和可读写的绝对工作目录。
+2. **Runtime 连接**：逐项配置所选 Runtime；OpenClaw 包括 URL、共享 Token、连通性、远程 Gateway 时区和仅远程 Gateway 所需的 backend 设备配对；Codex 包括 CLI 版本和本地 App Server 登录状态；OpenCode 包括 CLI 版本及受管 Server 的健康/默认 Provider 检查。选择 Codex 或 OpenCode 时，setup 按需创建二者共用的固定工作区 `~/.convosketchpad/workspace`。
 3. **访问方式**：localhost、局域网、Tailscale IP、Tailscale Serve 或交互式 Custom。
 4. **认证**：非本机访问使用的受管用户登录和会话设置。
 5. **默认 Agent**：从所有已配置 Runtime 返回的平权 Agent 目录中选择新建 Canvas 的初始 Agent。
 
 OpenClaw CLI 发现遵循 `OPENCLAW_BIN` 显式值优先、否则直接执行 `openclaw` 的规则，不扫描特定包管理器目录。选择页只执行 `openclaw --version`，不会读取 Gateway Token；用户选中 OpenClaw 后才通过原生 `openclaw config get` 读取可用的 URL/Token 预填值。发现成功时 setup 将 PATH 中实际命中的绝对路径写入 `.env`，避免受管服务与交互 Shell 的 PATH 不同；未发现 CLI 时仍可选择 OpenClaw 并手工配置远程 Gateway。
 
-Codex CLI 发现同样遵循 `CODEX_BIN` 优先、否则执行 `codex --version` 的规则。当前最低且已验证版本为 `0.146.0`，只支持与 ConvoSketchpad 同机的 `codex app-server`。选择 Codex 后，工作目录提示默认使用 `~/codex-convosketchpad`，直接回车或输入其他目录都会按需创建；更新配置时默认显示 `.env` 中的现有值。向导随后临时启动 App Server 检查账户；未登录时继续其他配置并提示运行 `codex login` 后重跑 setup，不会替用户登录。工作目录不得位于 `CODEX_HOME` / `~/.codex` 内。同一部署的受管用户共享宿主机 Codex 账户和该工作目录。
+Codex CLI 发现同样遵循 `CODEX_BIN` 优先、否则执行 `codex --version` 的规则。当前最低且已验证版本为 `0.146.0`，只支持与 ConvoSketchpad 同机的 `codex app-server`。选择 Codex 后，setup 按需创建固定共享工作区 `~/.convosketchpad/workspace`，随后临时启动 App Server 检查账户；未登录时继续其他配置并提示运行 `codex login` 后重跑 setup，不会替用户登录。同一部署的受管用户共享宿主机 Codex 账户和该工作目录。
+
+OpenCode CLI 发现遵循 `OPENCODE_BIN` 优先、否则执行 `opencode --version` 的规则，最低且已验证版本为 `1.18.16`。选择 OpenCode 后使用同一固定共享工作区 `~/.convosketchpad/workspace`，再临时启动只监听 loopback 且带临时 Basic Auth 的 `opencode serve`，检查健康状态和默认 Provider；不会发送模型请求或读取 OpenCode 凭据。产品只提供 `opencode/default`，不暴露 build、plan、Agent 或模型选择。
 
 loopback Gateway 使用 OpenClaw 官方支持的共享 Token backend 直连，不发送设备身份，也不会产生配对请求。远程 Gateway 才使用 OpenClaw 原生设备配对；向导不直接编辑配对记录，也不修改 `gateway.controlUi.allowedOrigins`。
 
@@ -89,13 +91,19 @@ npm run setup -- --defaults
 npm run setup -- --defaults --runtimes openclaw --default-agent openclaw/main
 ```
 
-非交互 Codex 配置同样默认创建 `~/codex-convosketchpad`：
+非交互 Codex 配置同样按需创建 `~/.convosketchpad/workspace`：
 
 ```bash
 npm run setup -- --defaults --runtimes codex --default-agent codex/default
 ```
 
-需要覆盖时可预先设置 `CODEX_WORKING_DIRECTORY=/srv/codex-workspace`。
+非交互 OpenCode 配置使用同一固定工作区：
+
+```bash
+npm run setup -- --defaults --runtimes opencode --default-agent opencode/default
+```
+
+工作区不提供环境变量覆盖；路径根据执行 setup/服务的用户主目录解析，兼容 Linux 与 macOS。
 
 ## 手动安装
 
@@ -120,7 +128,7 @@ OPENCLAW_GATEWAY_URL=http://127.0.0.1:18789
 OPENCLAW_GATEWAY_TOKEN=<detected-token>
 ```
 
-setup 只配置用户选择的 Runtime，并写入已启用 Agent 运行端列表和默认 Agent。当前 Release 支持 `openclaw` 与 `codex`；未来 Adapter 也必须进入同一发现、选择、配置和 Agent 发现流程，不能增加产品级运行端切换模式。开发期旧键 `AGENT_BACKENDS` 会在备份后一次性转换为 `AGENT_RUNTIMES`。默认 Agent 是环境配置，不改变 SQLite Schema。属于当前安装的受管服务可被明确停服时，setup 会创建一次性一致性快照并自动迁移，重启后验证健康与版本；没有匹配服务管理器时只保存配置，数据库由下次手动启动自动迁移。该临时快照不会改写更新器正式回滚账本。
+setup 只配置用户选择的 Runtime，并写入已启用 Agent 运行端列表和默认 Agent。当前开发版本支持 `openclaw`、`codex` 和测试阶段的 `opencode`；未来 Adapter 也必须进入同一发现、选择、配置和 Agent 发现流程，不能增加产品级运行端切换模式。开发期旧键 `AGENT_BACKENDS` 会在备份后一次性转换为 `AGENT_RUNTIMES`。默认 Agent 是环境配置，不改变 SQLite Schema。属于当前安装的受管服务可被明确停服时，setup 会创建一次性一致性快照并自动迁移，重启后验证健康与版本；没有匹配服务管理器时只保存配置，数据库由下次手动启动自动迁移。该临时快照不会改写更新器正式回滚账本。
 
 ConvoSketchpad 不提供内置 TLS。远程 HTTPS 由反向代理或 Tailscale Serve 终止，后端仍使用 HTTP。
 
@@ -141,7 +149,7 @@ macOS 维护数据库时不能用 `launchctl stop`，因为 plist 的 `KeepAlive
 
 替换现有安装前应先检查其状态。跨 Release 升级使用 `npm run update`，重新配置使用 `npm run setup`；安装器仅允许同版本修复和服务重新注册。安装器不会提供覆盖脏工作区的确认旁路，必须先提交、Stash 或另行备份修改。
 
-ConvoSketchpad 依赖至少一个可访问的 Agent Runtime。应尽量复用现有 OpenClaw Gateway 或已登录的本地 Codex 安装。安装/登录 Runtime、修改远程 Gateway 配置、选择 Codex 共享工作目录或扩大网络暴露范围，都必须由运维人员明确决定。
+ConvoSketchpad 依赖至少一个可访问的 Agent Runtime。应尽量复用现有 OpenClaw Gateway、已登录的本地 Codex，或已配置默认模型的本地 OpenCode。安装或登录 Runtime、修改其默认模型/工具或远程 Gateway 配置，以及扩大网络暴露范围，都必须由运维人员明确决定。Codex 与 OpenCode 的共享工作区路径固定，不由 setup 询问。
 
 ## 注销服务
 
@@ -189,15 +197,13 @@ CLI 还支持列出、轮换、禁用和启用用户。详见[配置](CONFIGURAT
 
 ## 验证
 
-只有在目标进程、Gateway 连接、访问方式和认证行为均正常后，才能认为安装完成。
+只有在目标进程、所选 Runtime 连接、访问方式和认证行为均正常后，才能认为安装完成。
 
 ```bash
-openclaw gateway status
-curl -fsS http://127.0.0.1:18789/health
 curl -fsS http://127.0.0.1:3080/health
 ```
 
-根据所选拓扑调整 URL，然后打开 ConvoSketchpad，确认能够发现 Agent、创建 Canvas，并发送一个简单 Interaction。
+使用 OpenClaw 时另行运行 `openclaw gateway status` 并检查 Gateway `/health`；使用 Codex 或 OpenCode 时确认对应 CLI 版本，并以 ConvoSketchpad `/health` 或登录后的 `/api/runtime/status` 检查受监督进程。然后打开 ConvoSketchpad，确认能够发现 Agent、创建 Canvas，并发送一个简单 Interaction。
 
 从旧版本首次启动时，服务会在开始监听前完成数据库结构与核心数据迁移；历史图片缩略图回填在监听后于后台继续，
 缺失缩略图仍可按需生成。受管更新器会在停服阶段完成结构迁移与媒体回填。不要同时启动另一份服务或手工修改

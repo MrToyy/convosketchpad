@@ -14,6 +14,7 @@ server/lib/agent-runtimes/
   registry.ts                 # 生命周期与按 runtimeId 查找
   catalog.ts                  # Agent、状态的跨 Runtime 聚合
   usage-service.ts            # 用量与额度的跨 Runtime 应用服务
+  managed-artifacts.ts        # Codex/OpenCode 共用的受管目录安全、限额、物化与释放
   adapters/
     <runtime-id>/
       index.ts                # 只导出公开 Adapter factory
@@ -90,7 +91,9 @@ Adapter 必须区分审批结果：
 - 返回文件仍须经过大小、MIME、路径/符号链接和所有者检查，随后立即复制到 Canvas 存储。使用受管临时目录的 Adapter 应实现 `releaseArtifact()`，只在通用 Store 已确认持久副本后删除源文件；失败或中断 Turn 的可用文件也应尽力持久化并明确标注可能不完整。
 - 图片生成通过 `output.imageGeneration` Capability 与结构化 Artifact 表达，不在通用层根据文件扩展名推断。
 
-Codex 是非幂等派发参考实现：`turn/start` 的 JSON-RPC ID 不提供服务端幂等保证，未知结果通过 `thread/read` 与持久相关 Token 核对；`notLoaded` Thread 仍可恢复，不触发 Replay。通用交付物只允许写入 `CODEX_WORKING_DIRECTORY` 下精确的 `.convosketchpad-artifacts/<turn-token>/outputs/`，不得扫描 Workspace 或把全部 `fileChange` 当作 Artifact。其 Default 模式不回答结构化 ask-user 或 MCP elicitation，也不把 execpolicy/network amendment 投影成通用持久授权；若未来扩展这些能力，必须先扩展统一契约、节点 UI、持久化与拒绝默认成功的测试，不能只在 Adapter 私下放行。
+Codex 是非幂等派发参考实现：`turn/start` 的 JSON-RPC ID 不提供服务端幂等保证，未知结果通过 `thread/read` 与持久相关 Token 核对；`notLoaded` Thread 仍可恢复，不触发 Replay。通用交付物只允许写入固定共享工作区 `~/.convosketchpad/workspace` 下精确的 `.convosketchpad-artifacts/<turn-token>/outputs/`，不得扫描 Workspace 或把全部 `fileChange` 当作 Artifact。其 Default 模式不回答结构化 ask-user 或 MCP elicitation，也不把 execpolicy/network amendment 投影成通用持久授权；若未来扩展这些能力，必须先扩展统一契约、节点 UI、持久化与拒绝默认成功的测试，不能只在 Adapter 私下放行。
+
+OpenCode 同样是非幂等参考：受监督的 `opencode serve` 使用 v1 HTTP/SSE，`prompt_async` 结果未知时必须按客户端生成的确切用户 Message ID 核对，不能用同一 ID 盲目重发；Session 创建以原生返回 ID 为准。`opencode/default` 不传原生 Agent 或模型，只使用 Default 模式。其输入 Capability 表示 Adapter 接受并透传全部 MIME，默认模型或 MCP/工具的原生拒绝必须反馈为 rejected/failed，而不是由 Canvas 类型分支预拒绝。图片生成标记为测试能力，取决于默认模型或第三方工具；Artifact 只能来自结构化 FilePart/Tool attachment 或固定共享工作区下的精确受管目录。Adapter 不得重新引入 Runtime 专属工作目录环境变量；Linux/macOS 均通过用户主目录解析 `~/.convosketchpad/workspace`。
 
 ## 状态与用量聚合
 

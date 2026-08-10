@@ -72,4 +72,18 @@ describe('Runtime environment migration', () => {
     expect(() => migrateLegacyRuntimeEnv(root)).toThrow('Conflicting GATEWAY_URL and OPENCLAW_GATEWAY_URL');
     expect(readFileSync(envPath, 'utf8')).toBe(original);
   });
+
+  it('removes retired Runtime working-directory settings', () => {
+    const { root, envPath } = fixture([
+      'AGENT_RUNTIMES=codex,opencode',
+      'CODEX_WORKING_DIRECTORY="/old/codex work"',
+      'OPENCODE_WORKING_DIRECTORY=/old/opencode',
+      'PORT=3080',
+      '',
+    ].join('\n'));
+
+    expect(migrateLegacyRuntimeEnv(root)).toBe(true);
+    expect(readFileSync(envPath, 'utf8')).toBe('AGENT_RUNTIMES=codex,opencode\nPORT=3080\n');
+    expect(migrateLegacyRuntimeEnv(root)).toBe(false);
+  });
 });

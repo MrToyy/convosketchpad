@@ -3,12 +3,14 @@
 所有拓扑都遵循同一链条：
 
 ```text
-浏览器 → ConvoSketchpad HTTP/SSE → Agent Runtime（OpenClaw Gateway / 本地 Codex App Server）
+浏览器 → ConvoSketchpad HTTP/SSE → Agent Runtime（OpenClaw Gateway / 本地 Codex App Server / 本地 OpenCode Server）
 ```
 
 浏览器不需要访问 Runtime 地址。只需保证 ConvoSketchpad 宿主机能访问已配置的 Agent Runtime。
 
-Codex 当前不是远程 Runtime：`codex` CLI、App Server 进程和 `CODEX_WORKING_DIRECTORY` 必须与 ConvoSketchpad 服务端同机、同一服务账户可访问。远程浏览器与受管用户共享该宿主机 Codex 账户、额度和工作目录；只有接受此信任边界时才应在远程部署中启用 Codex。
+Codex 当前不是远程 Runtime：`codex` CLI、App Server 进程和固定共享工作区 `~/.convosketchpad/workspace` 必须与 ConvoSketchpad 服务端同机、同一服务账户可访问。远程浏览器与受管用户共享该宿主机 Codex 账户、额度和工作目录；只有接受此信任边界时才应在远程部署中启用 Codex。
+
+OpenCode 同样不是远程 Runtime：`opencode` CLI、受监督 Server 和固定共享工作区 `~/.convosketchpad/workspace` 必须与 ConvoSketchpad 服务端同机。Server 只绑定 loopback 自动端口；远程浏览器与受管用户共享该宿主机的默认模型、MCP/工具、额度和工作目录。
 
 ConvoSketchpad 自身只监听 HTTP。图中的 HTTPS 均由反向代理或 Tailscale Serve 终止。
 
@@ -17,16 +19,16 @@ ConvoSketchpad 自身只监听 HTTP。图中的 HTTPS 均由反向代理或 Tail
 ## 同机部署
 
 ```text
-浏览器（localhost）→ ConvoSketchpad（127.0.0.1:3080）→ Gateway（127.0.0.1:18789）
+浏览器（localhost）→ ConvoSketchpad（127.0.0.1:3080）→ 所选本机/可达 Runtime
 ```
 
-运行 `npm run setup`，选择仅本机访问。检查：
+运行 `npm run setup`，选择仅本机访问。先检查 ConvoSketchpad：
 
 ```bash
-openclaw gateway status
-curl -fsS http://127.0.0.1:18789/health
 curl -fsS http://127.0.0.1:3080/health
 ```
+
+使用 OpenClaw 时另行运行 `openclaw gateway status` 并检查 Gateway `/health`；使用 Codex 或 OpenCode 时确认对应 CLI 对服务账户可执行，并从 ConvoSketchpad 的健康或 Runtime 状态接口验证受监督进程。
 
 loopback Gateway 使用共享 `OPENCLAW_GATEWAY_TOKEN` 直连，不需要设备配对。旧 `gateway-auth.json` 中即使存在该地址的设备 Token，也会被忽略。
 

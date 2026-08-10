@@ -188,7 +188,7 @@ Canvas 本地安全栅格图片（PNG/JPEG/WebP/GIF）附件和 Artifact 额外�
 
 重启接口使用 `runtime_not_found`、`runtime_restart_unsupported` 和 `runtime_restart_failed` 错误码，不保留 Backend 命名别名。
 
-`GET /api/runtime/usage` 并行读取全部 Runtime；OpenClaw Adapter 调用 `usage.cost`/`usage.status`，Codex Adapter 只调用 App Server 的 `account/usage/read` 与 `account/rateLimits/read`。响应保留来源边界：
+`GET /api/runtime/usage` 并行读取全部 Runtime；OpenClaw Adapter 调用 `usage.cost`/`usage.status`，Codex Adapter 只调用 App Server 的 `account/usage/read` 与 `account/rateLimits/read`，OpenCode Adapter 明确声明账户用量和额度不受支持。响应保留来源边界：
 
 ```json
 {

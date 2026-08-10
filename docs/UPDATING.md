@@ -206,7 +206,7 @@ npm run update
 
 如果没有检测到指向当前安装的受支持服务管理器，更新器不会假设手动启动的进程已经停止，不会打开、快照、显式迁移或失败回滚 SQLite；但不需要打开数据库的 `.env` Runtime 键迁移仍会在更新过程中完成。目标服务下次手动启动时会先自动迁移数据库。
 
-Agent Runtime Schema 迁移会把旧 OpenClaw 顶层列转换为通用 Runtime/Profile、Conversation/Turn/Artifact Handle 和 `runtime_event_inbox`，随后物理删除旧列及 `gateway_signal_inbox`，不会双写。目标版本显式迁移器还会把 `.env` 中的 `AGENT_BACKENDS`、`GATEWAY_URL`、`GATEWAY_TOKEN` 和 `CONVOSKETCHPAD_GATEWAY_TIMEZONE` 一次性改写为对应的 `AGENT_RUNTIMES` / `OPENCLAW_*` 稳定键；运行时不读取旧键。旧、新键同时存在且值不同时会在写文件前失败，且错误不会输出 Token 值。该迁移本身不可由新版本“降级反向执行”；安全回滚依赖更新器在停服后创建的整库 SQLite 快照。不要绕过快照直接用旧版本打开已经迁移的数据库。
+Agent Runtime Schema 迁移会把旧 OpenClaw 顶层列转换为通用 Runtime/Profile、Conversation/Turn/Artifact Handle 和 `runtime_event_inbox`，随后物理删除旧列及 `gateway_signal_inbox`，不会双写。目标版本显式迁移器还会把 `.env` 中的 `AGENT_BACKENDS`、`GATEWAY_URL`、`GATEWAY_TOKEN` 和 `CONVOSKETCHPAD_GATEWAY_TIMEZONE` 一次性改写为对应的 `AGENT_RUNTIMES` / `OPENCLAW_*` 稳定键；运行时不读取旧键。旧、新键同时存在且值不同时会在写文件前失败，且错误不会输出 Token 值。启用 Codex 或 OpenCode 时，环境迁移还会创建固定共享工作区 `~/.convosketchpad/workspace`（权限 `0700`），并从 `.env` 删除已停用的 `CODEX_WORKING_DIRECTORY` / `OPENCODE_WORKING_DIRECTORY`；旧工作目录中的内容不会自动复制、移动或删除，部署者应按需人工整理，避免自动合并任意项目文件产生覆盖。该迁移本身不可由新版本“降级反向执行”；安全回滚依赖更新器在停服后创建的整库 SQLite 快照。不要绕过快照直接用旧版本打开已经迁移的数据库。
 
 重新运行 `npm run setup` 会先取得和更新器相同的维护锁。只有服务配置属于当前安装且状态明确时，setup 才会停止原本运行的服务、创建一次性 SQLite 快照并迁移；重启后还会验证服务状态、健康接口和版本。迁移或服务恢复失败时，在确认服务已经离线后恢复数据库和 `.env` 并保持服务停止；若无法确认重启后的服务已停止，则不覆盖 SQLite，并保留临时快照供人工恢复。Setup 临时快照不会覆盖更新器的 `last-good.json`。没有匹配服务管理器时 setup 只保存配置并推迟数据库迁移，目标服务下次手动启动会幂等完成尚未应用的迁移。
 

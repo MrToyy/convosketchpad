@@ -61,7 +61,7 @@ describe('configuredAgentRuntimeIds', () => {
   it('rejects empty, duplicate, and unsupported configurations', () => {
     expect(() => configuredAgentRuntimeIds('')).toThrow('at least one Runtime');
     expect(() => configuredAgentRuntimeIds('openclaw, openclaw')).toThrow('more than once');
-    expect(configuredAgentRuntimeIds('openclaw,codex')).toEqual(['openclaw', 'codex']);
+    expect(configuredAgentRuntimeIds('openclaw,codex,opencode')).toEqual(['openclaw', 'codex', 'opencode']);
     expect(() => configuredAgentRuntimeIds('hermes')).toThrow('Unsupported Agent Runtime');
   });
 });

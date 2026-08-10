@@ -11,6 +11,8 @@ import {
   migrateLegacyRuntimeEnv,
   validateLegacyRuntimeEnv,
 } from '../server/lib/agent-runtimes/env-migration.js';
+import { configuredAgentRuntimeIds } from '../server/lib/agent-runtimes/configuration.js';
+import { ensureWorkspaceForAgentRuntimes } from '../server/lib/agent-runtimes/workspace.js';
 import {
   acquireLock,
   releaseLock,
@@ -27,12 +29,16 @@ function printHelp(): void {
   Usage: convosketchpad-migrate [options]
 
   Options:
-    --env-only         Migrate only legacy Agent Runtime environment keys
+    --env-only         Migrate only Agent Runtime environment configuration
     --rescan-media     Recheck historical media and regenerate missing derivatives
     --confirm-offline  Confirm all manually managed server processes are stopped
     --help, -h         Show this help without opening the database
 
 `);
+}
+
+function ensureConfiguredRuntimeWorkspace(): void {
+  ensureWorkspaceForAgentRuntimes(configuredAgentRuntimeIds());
 }
 
 async function main(options: MigrateCliOptions): Promise<void> {
@@ -43,8 +49,9 @@ async function main(options: MigrateCliOptions): Promise<void> {
     validateLegacyRuntimeEnv(projectRoot);
     if (options.envOnly) {
       const migrated = migrateLegacyRuntimeEnv(projectRoot);
+      ensureConfiguredRuntimeWorkspace();
       process.stdout.write(migrated
-        ? 'Legacy Runtime environment configuration migrated\n'
+        ? 'Agent Runtime environment configuration migrated\n'
         : 'Runtime environment configuration already current\n');
       return;
     }
@@ -78,9 +85,10 @@ async function main(options: MigrateCliOptions): Promise<void> {
         throw new Error(`Required migration(s) not applied: ${missingMigrations.join(', ')}`);
       }
       const migratedRuntimeEnv = migrateLegacyRuntimeEnv(projectRoot);
+      ensureConfiguredRuntimeWorkspace();
       process.stdout.write(
         `${CANVAS_MIGRATION_PLAN.map((migration) => `${migration.id} verified`).join('\n')}\n`
-        + (migratedRuntimeEnv ? 'Legacy Runtime environment configuration migrated\n' : '')
+        + (migratedRuntimeEnv ? 'Agent Runtime environment configuration migrated\n' : '')
         + (media
           ? `${CANVAS_MEDIA_BACKFILL_MIGRATION} details: `
             + `${media.hashed} hashed, ${media.generated} generated, `

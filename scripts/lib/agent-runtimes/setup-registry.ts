@@ -5,11 +5,13 @@ import {
 import type { EnvConfig } from '../env-writer.js';
 import { openClawSetupDriver } from './openclaw/setup-driver.js';
 import { codexSetupDriver } from './codex/setup-driver.js';
+import { openCodeSetupDriver } from './opencode/setup-driver.js';
 import type { RuntimeSetupDetection, RuntimeSetupDriver } from './types.js';
 
 const drivers = {
   openclaw: openClawSetupDriver,
   codex: codexSetupDriver,
+  opencode: openCodeSetupDriver,
 } satisfies Record<SupportedAgentRuntimeId, RuntimeSetupDriver>;
 
 export function detectAgentRuntimes(existing: EnvConfig): RuntimeSetupDetection[] {

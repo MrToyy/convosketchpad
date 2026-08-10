@@ -80,7 +80,7 @@ Runtime 原生 Fork 不是资源引用的实现依赖。未来只有在其能够
 6. 将现有 Replay Package 编译能力演进为通用发送材料编译流程，按“历史恢复→显式引用→新上传→用户指令”组成文本和附件；每个引用在用户指令原位置编译为稳定标记，并复用内容哈希去重、图片派生、大小限制和资源定位能力。
 7. 在 `continue-existing` 材料化中只添加当前显式引用和新上传，保持 Branch Conversation Handle 不变；只有 `canonical-replay` 和 `session-recovery` 才编译历史恢复材料。
 8. Canonical Snapshot 必须保存并恢复结构化用户输入和引用位置；可引用的上游资源只有在当时被用户实际选入指令后才进入后续 Replay。
-9. 按目标 Runtime 的输入 Capability 决定能否投递；通用层把引用编译为现有 `message + attachments`，不在 Canvas 通用层根据 OpenClaw、Codex 或其他 Runtime 类型分支。
+9. 按目标 Runtime 的输入 Capability 决定能否投递；通用层把引用编译为现有 `message + attachments`，不在 Canvas 通用层根据 OpenClaw、Codex、OpenCode 或其他 Runtime 类型分支。OpenCode 的 Capability 表示 Adapter 接受并透传，原生模型/工具仍可明确拒绝。
 10. 公开 DTO 只返回安全的显示和读取信息，不暴露文件系统路径、内部 Handle 或其他用户的数据存在性。
 
 ### 实现分层
@@ -158,4 +158,4 @@ Runtime 原生 Fork 不是资源引用的实现依赖。未来只有在其能够
 - `docs/canvas/CANVAS-CODE-MAP.md`：前后端入口、持久化和测试位置；
 - `CHANGELOG.md`：已完成且用户可见的能力。
 
-测试至少覆盖领域校验、上游范围、结构化输入、九槽位、Store/迁移、HTTP 所有者边界、Send Reservation、投递构建、OpenClaw/Codex Adapter、Graph/SSE、Composer 恢复和现有 Fork/Replay 回归。每一阶段还必须验证 Conversation 决策：资源引用不改变当前 Branch Handle，合并连线扩展上游范围并创建新 Conversation，交接只派发到目标 Agent 的新 Conversation，而失效 Conversation 仍通过已有 Session Recovery Replay 恢复。
+测试至少覆盖领域校验、上游范围、结构化输入、九槽位、Store/迁移、HTTP 所有者边界、Send Reservation、投递构建、OpenClaw/Codex/OpenCode Adapter、Graph/SSE、Composer 恢复和现有 Fork/Replay 回归。每一阶段还必须验证 Conversation 决策：资源引用不改变当前 Branch Handle，合并连线扩展上游范围并创建新 Conversation，交接只派发到目标 Agent 的新 Conversation，而失效 Conversation 仍通过已有 Session Recovery Replay 恢复。

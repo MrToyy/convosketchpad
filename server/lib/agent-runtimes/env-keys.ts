@@ -5,3 +5,9 @@ export const LEGACY_RUNTIME_ENV_MAPPINGS = [
   ['GATEWAY_TOKEN', 'OPENCLAW_GATEWAY_TOKEN'],
   ['CONVOSKETCHPAD_GATEWAY_TIMEZONE', 'OPENCLAW_GATEWAY_TIMEZONE'],
 ] as const;
+
+/** Runtime settings retired in favor of the fixed shared workspace. */
+export const RETIRED_RUNTIME_ENV_KEYS = [
+  'CODEX_WORKING_DIRECTORY',
+  'OPENCODE_WORKING_DIRECTORY',
+] as const;

@@ -63,6 +63,7 @@
 | 发送调度、单次 Worker、投递构建与统一 Runtime 事件/审批关联 | `server/lib/canvas-send-coordinator.ts`、`server/lib/canvas-send-worker.ts`、`server/lib/canvas-send-delivery.ts`、`server/lib/canvas/runtime-event-consumer.ts` |
 | OpenClaw Adapter、Gateway 唯一连接、Transcript/Artifact、Session Policy 与设备边界 | `server/lib/agent-runtimes/adapters/openclaw/` |
 | Codex Adapter、受监督 App Server、Thread/Turn、审批与受管 Artifact | `server/lib/agent-runtimes/adapters/codex/` |
+| OpenCode Adapter、受监督 HTTP/SSE Server、Session/Message、审批与受管 Artifact | `server/lib/agent-runtimes/adapters/opencode/` |
 | Conversation/Turn 协调 | `server/lib/canvas-reconciler.ts`、`server/lib/canvas-context-snapshot.ts` |
 | Artifact 观察与 Interaction 终态策略 | `server/lib/canvas/domain/artifact-watch.ts`、`server/lib/canvas/domain/reconciliation-state.ts` |
 | 文件持久化、媒体派生与监听后的历史缩略图回填 | `server/index.ts`、`server/lib/canvas-artifact-store.ts`、`server/lib/canvas-media-derivatives.ts`、`server/routes/upload-reference.ts` |

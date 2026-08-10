@@ -9,7 +9,7 @@ export interface PackageMetadata {
 const fallback: PackageMetadata = {
   version: '0.0.0',
   description:
-    'Self-hosted visual canvas for branching AI conversations—reuse your existing OpenClaw and Codex agents, skills, memory, and tools.',
+    'Self-hosted visual canvas for branching AI conversations—reuse your existing OpenClaw, Codex, and OpenCode agents, skills, memory, and tools.',
 };
 
 export function readPackageMetadata(): PackageMetadata {

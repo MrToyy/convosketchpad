@@ -1,7 +1,7 @@
 {
   "name": "convosketchpad",
   "version": "0.5.0",
-  "description": "Self-hosted visual canvas for branching AI conversations—reuse your existing OpenClaw and Codex agents, skills, memory, and tools.",
+  "description": "Self-hosted visual canvas for branching AI conversations—reuse your existing OpenClaw, Codex, and OpenCode agents, skills, memory, and tools.",
   "license": "MIT",
   "engines": {
     "node": ">=22.22.2"
@@ -26,7 +26,8 @@
     "agent-runtime",
     "self-hosted",
     "codex",
-    "codex-cli"
+    "codex-cli",
+    "opencode"
   ],
   "type": "module",
   "scripts": {
