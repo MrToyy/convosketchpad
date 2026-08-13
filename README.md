@@ -131,7 +131,18 @@ Agent 运行端负责 Agent 执行、工具、Conversation 和原始运行记录
 
 #### 路线图
 
-- **Windows 支持**：提供与 macOS、Linux 一致的安装、配置、服务管理和运行体验。
+以下路线图不承诺具体版本或交付时间。相关能力继续遵守现有 Agent Runtime 边界：ConvoSketchpad 组织、比较和持久化 Canvas 数据，模型、工具与 Agent 执行仍由所选运行端负责。
+
+- **分支评审与并排比较**：多选同源或任意 Interaction，对照输入、输出、Artifact 和实际 Agent，并以独立 Canvas 元数据标记待评审、候选、入选、淘汰或定稿，不改写不可变历史，也不与 Runtime 权限审批混用。
+- **批量并行探索**：从一个历史节点一次创建多个独立 Composer，分别调整提示词、素材或 Agent，确认后再并行发送；每个方向继续使用真实 Branch 和既有发送状态机，而不是新增模型工作流执行器。
+- **语义化资源引用**：在现有 `@` 引用上表达主体、产品、构图、风格、环境、光线、必须保留或避免模仿等用途，并由通用材料编译流程投影为运行端可理解的明确指令。
+- **Canvas 分区与检索**：持久化 Section/Frame、便签和分区标题，按输入、输出、文件名、Agent、执行状态与评审状态查找节点，并聚焦或高亮匹配路径；组织元素默认不进入 Agent 上下文。
+- **Storyboard / Collection**：把不同分支中的图片、视频和文本 Artifact 按顺序编排，补充镜号、说明和时长，并导出联系表或清单；保持为 Canvas 组织能力，不内置完整视频剪辑器。
+- **用户私有素材架**：由用户显式把已持久化的附件或 Artifact 提升为可跨 Canvas 复用的角色、产品、风格或环境素材，继续执行所有者隔离，不扫描 Agent Runtime 工作区。
+- **Canvas 模板**：保存布局、Branch 骨架、未发送 Composer、引用角色占位符和说明；默认不包含 Conversation Handle、历史执行、历史对话正文或私有附件。
+- **发送前检查**：发送前汇总目标 Agent、Conversation 继续或 Replay、资源槽位、Merge 来源、缺失文件和 Runtime 能力；只有运行端能够可靠提供时才显示费用或用量估算。
+- **图片区域批注**：在图片 Artifact 上圈选区域并添加修改或保留说明，生成与原图关联的不可变批注派生资源，再作为普通附件交给 Agent。
+- **Windows 支持**：在上述产品能力之后，提供与 macOS、Linux 一致的安装、配置、服务管理和运行体验。
 
 ### 开发调试
 
@@ -340,7 +351,18 @@ New Runtimes must prefer App Server, ACP, Gateway, SDK, or a stable machine-read
 
 #### Roadmap
 
-- **Windows support**: provide installation, setup, service management, and runtime behavior consistent with macOS and Linux.
+This roadmap does not commit to a specific version or delivery date. Roadmap work must preserve the existing Agent Runtime boundary: ConvoSketchpad organizes, compares, and persists Canvas data, while the selected Runtime continues to own models, tools, and Agent execution.
+
+- **Branch review and side-by-side comparison**: select sibling or arbitrary Interactions, compare their inputs, outputs, Artifacts, and actual Agents, and store review, candidate, selected, rejected, or final states as separate Canvas metadata without rewriting immutable history or conflating creative review with Runtime approvals.
+- **Batch parallel exploration**: create several independent composers from one historical node, adjust each prompt, asset set, or Agent, then confirm before sending them in parallel. Every direction remains a real Branch using the existing send state machine rather than a new model-workflow executor.
+- **Semantic resource references**: extend existing `@` references with roles such as subject, product, composition, style, environment, lighting, must-preserve, or avoid-imitation, then project them through the shared material compiler into explicit instructions a Runtime can understand.
+- **Canvas sections and search**: persist sections/frames, notes, and section titles; find nodes by input, output, filename, Agent, execution state, or review state; and focus or highlight matching paths. Organizational elements stay out of Agent context unless explicitly referenced.
+- **Storyboard / Collection**: order image, video, and text Artifacts from different branches, add shot numbers, notes, and durations, and export a contact sheet or manifest. This remains Canvas organization rather than a full video editor.
+- **Private asset shelf**: let users explicitly promote persisted attachments or Artifacts into reusable character, product, style, or environment assets across Canvases while preserving owner isolation and never scanning an Agent Runtime workspace.
+- **Canvas templates**: save layouts, Branch scaffolds, unsent composers, resource-role placeholders, and guidance while excluding Conversation Handles, run history, historical conversation content, and private attachments by default.
+- **Preflight review**: summarize the target Agent, Conversation continuation or Replay, material slots, Merge sources, missing files, and Runtime capabilities before sending. Show cost or usage estimates only when the Runtime can provide them reliably.
+- **Image-region annotations**: mark regions of an image Artifact with change or preserve notes, create an immutable annotated derivative linked to the original, and send it to the Agent as a normal attachment.
+- **Windows support**: after the product capabilities above, provide installation, setup, service management, and runtime behavior consistent with macOS and Linux.
 
 ### Development
 
