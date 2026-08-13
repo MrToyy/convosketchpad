@@ -269,6 +269,9 @@ export function createCurrentCanvasSchema(db: DatabaseSync, appVersion: string):
       kind TEXT NOT NULL CHECK(kind IN ('root', 'fork')),
       parent_branch_id TEXT REFERENCES branches(id) ON DELETE SET NULL,
       forked_from_interaction_id TEXT,
+      copied_from_interaction_id TEXT REFERENCES interactions(id) ON DELETE SET NULL,
+      runtime_id TEXT,
+      agent_profile_id TEXT,
       conversation_id TEXT NOT NULL UNIQUE,
       conversation_ref_json TEXT NOT NULL,
       observed_conversation_ref_json TEXT,
@@ -278,7 +281,7 @@ export function createCurrentCanvasSchema(db: DatabaseSync, appVersion: string):
       observed_conversation_started_at INTEGER,
       conversation_integrity TEXT NOT NULL DEFAULT 'unknown',
       conversation_state TEXT NOT NULL CHECK(conversation_state IN ('draft', 'active')),
-      creation_mode TEXT NOT NULL DEFAULT 'composer' CHECK(creation_mode IN ('composer', 'direct-submit')),
+      creation_mode TEXT NOT NULL DEFAULT 'composer' CHECK(creation_mode IN ('composer', 'copy', 'direct-submit')),
       head_interaction_id TEXT,
       snapshot_json TEXT,
       created_at INTEGER NOT NULL,
@@ -289,6 +292,12 @@ export function createCurrentCanvasSchema(db: DatabaseSync, appVersion: string):
       version INTEGER NOT NULL DEFAULT 1,
       branch_id TEXT NOT NULL REFERENCES branches(id) ON DELETE CASCADE,
       parent_interaction_id TEXT,
+      runtime_id TEXT NOT NULL,
+      agent_profile_id TEXT NOT NULL,
+      conversation_id TEXT NOT NULL,
+      conversation_ref_json TEXT NOT NULL,
+      conversation_instance_id TEXT,
+      observed_conversation_instance_id TEXT,
       runtime_turn_id TEXT,
       turn_ref_json TEXT,
       user_input TEXT NOT NULL,
@@ -331,10 +340,13 @@ export function createCurrentCanvasSchema(db: DatabaseSync, appVersion: string):
       materialization TEXT NOT NULL,
       conversation_id TEXT NOT NULL,
       runtime_id TEXT NOT NULL,
+      agent_profile_id TEXT NOT NULL,
       conversation_ref_json TEXT NOT NULL,
+      conversation_instance_id TEXT,
       dispatch_recovery_ref_json TEXT,
       outgoing_message TEXT NOT NULL,
       bootstrap_resources_json TEXT NOT NULL DEFAULT '[]',
+      merge_context_snapshot_json TEXT,
       status TEXT NOT NULL CHECK(status IN ('prepared', 'acknowledged', 'failed')),
       dispatch_state TEXT NOT NULL DEFAULT 'reserved',
       attempt_count INTEGER NOT NULL DEFAULT 0,
@@ -384,6 +396,29 @@ export function createCurrentCanvasSchema(db: DatabaseSync, appVersion: string):
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
       UNIQUE(send_reservation_id, reference_key)
+    );
+    CREATE TABLE composer_merge_sources (
+      id TEXT PRIMARY KEY,
+      target_branch_id TEXT NOT NULL REFERENCES branches(id) ON DELETE CASCADE,
+      expected_head_interaction_id TEXT REFERENCES interactions(id) ON DELETE CASCADE,
+      source_interaction_id TEXT NOT NULL REFERENCES interactions(id) ON DELETE CASCADE,
+      ordinal INTEGER NOT NULL CHECK(ordinal >= 0),
+      created_at INTEGER NOT NULL
+    );
+    CREATE TABLE turn_merge_sources (
+      id TEXT PRIMARY KEY,
+      send_reservation_id TEXT NOT NULL REFERENCES send_reservations(id) ON DELETE CASCADE,
+      composer_merge_source_id TEXT NOT NULL REFERENCES composer_merge_sources(id) ON DELETE CASCADE,
+      interaction_id TEXT REFERENCES interactions(id) ON DELETE CASCADE,
+      source_interaction_id TEXT NOT NULL REFERENCES interactions(id) ON DELETE CASCADE,
+      ordinal INTEGER NOT NULL CHECK(ordinal >= 0),
+      source_branch_id_snapshot TEXT NOT NULL,
+      source_created_at_snapshot INTEGER NOT NULL,
+      source_user_input_snapshot TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      UNIQUE(send_reservation_id, composer_merge_source_id),
+      UNIQUE(send_reservation_id, ordinal)
     );
     CREATE TABLE canvas_media_derivatives (
       canvas_id TEXT NOT NULL REFERENCES canvases(id) ON DELETE CASCADE,
@@ -466,6 +501,24 @@ export function createCurrentCanvasSchema(db: DatabaseSync, appVersion: string):
       ON turn_resource_references(interaction_id, ordinal);
     CREATE INDEX turn_resource_references_source
       ON turn_resource_references(source_interaction_id, resource_kind, resource_id);
+    CREATE UNIQUE INDEX composer_merge_sources_draft_source
+      ON composer_merge_sources(target_branch_id, source_interaction_id)
+      WHERE expected_head_interaction_id IS NULL;
+    CREATE UNIQUE INDEX composer_merge_sources_continue_source
+      ON composer_merge_sources(target_branch_id, expected_head_interaction_id, source_interaction_id)
+      WHERE expected_head_interaction_id IS NOT NULL;
+    CREATE UNIQUE INDEX composer_merge_sources_draft_ordinal
+      ON composer_merge_sources(target_branch_id, ordinal)
+      WHERE expected_head_interaction_id IS NULL;
+    CREATE UNIQUE INDEX composer_merge_sources_continue_ordinal
+      ON composer_merge_sources(target_branch_id, expected_head_interaction_id, ordinal)
+      WHERE expected_head_interaction_id IS NOT NULL;
+    CREATE INDEX composer_merge_sources_source
+      ON composer_merge_sources(source_interaction_id, created_at);
+    CREATE INDEX turn_merge_sources_interaction
+      ON turn_merge_sources(interaction_id, ordinal);
+    CREATE INDEX turn_merge_sources_source
+      ON turn_merge_sources(source_interaction_id, created_at);
     CREATE UNIQUE INDEX one_draft_root_per_canvas ON branches(canvas_id)
       WHERE kind = 'root' AND conversation_state = 'draft' AND creation_mode = 'composer';
     CREATE UNIQUE INDEX one_draft_fork_per_source ON branches(forked_from_interaction_id)

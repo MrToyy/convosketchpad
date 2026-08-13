@@ -40,7 +40,7 @@ describe('CanvasSendService', () => {
     });
     const result = await service.submit('owner-a', {
       branchId: branch.id,
-      expectedAgentRef: { runtimeId: 'openclaw', profileId: 'main' },
+      agentRef: { runtimeId: 'openclaw', profileId: 'main' },
       userInput: 'hello',
       attachmentIds: [],
     });
@@ -65,7 +65,7 @@ describe('CanvasSendService', () => {
     });
     const result = await service.submit('owner-a', {
       branchId: branch.id,
-      expectedAgentRef: { runtimeId: 'openclaw', profileId: 'main' },
+      agentRef: { runtimeId: 'openclaw', profileId: 'main' },
       userInput: 'queued',
       attachmentIds: [],
     });
@@ -91,7 +91,7 @@ describe('CanvasSendService', () => {
 
     await expect(service.submit('owner-a', {
       branchId: branch.id,
-      expectedAgentRef: { runtimeId: 'openclaw', profileId: 'main' },
+      agentRef: { runtimeId: 'openclaw', profileId: 'main' },
       userInput: 'hello',
       attachmentIds: [],
     })).resolves.toMatchObject({
@@ -101,158 +101,54 @@ describe('CanvasSendService', () => {
     });
   });
 
-  it('keeps ownership, Agent, and attachment validation in the application boundary', async () => {
+  it('keeps ownership and attachment validation in the application boundary', async () => {
     const { store, branch } = fixture();
     const service = new CanvasSendService({ store });
     await expect(service.submit('owner-a', {
       branchId: branch.id,
-      expectedAgentRef: { runtimeId: 'openclaw', profileId: 'other' },
-      userInput: 'hello',
-      attachmentIds: [],
-    })).rejects.toMatchObject({
-      code: 'agent_changed',
-      status: 409,
-    });
-    await expect(service.submit('owner-a', {
-      branchId: branch.id,
-      expectedAgentRef: { runtimeId: 'openclaw', profileId: 'main' },
+      agentRef: { runtimeId: 'openclaw', profileId: 'main' },
       userInput: 'hello',
       attachmentIds: ['a'.repeat(40)],
     })).rejects.toBeInstanceOf(CanvasSendApplicationError);
   });
 
-  it('resubmits a first Interaction as an ordinary direct-submit root branch', async () => {
-    const { store, canvas, branch } = fixture();
+  it('freezes a changed Composer Agent into an agent-handoff operation', async () => {
+    const { store, branch } = fixture();
     const initial = store.prepareSend('owner-a', {
       branchId: branch.id,
-      userInput: 'try this',
+      agentRef: { runtimeId: 'openclaw', profileId: 'main' },
+      userInput: 'research',
       attachments: [],
     });
-    const source = store.acknowledgeSend('owner-a', initial.id, 'run-source');
-    const manualRoot = store.createRootBranch('owner-a', canvas.id);
-    const service = new CanvasSendService({
-      store,
-      dispatch: vi.fn(async (reservationId: string) => store.getReservation(reservationId)!),
-    });
-
-    const result = await service.resubmit('owner-a', {
-      interactionId: source.id,
-      expectedAgentRef: { runtimeId: 'openclaw', profileId: 'main' },
-    });
-
-    expect(result).toMatchObject({
-      kind: 'operation',
-      operation: {
-        userInput: 'try this',
-        materialization: 'lazy-root',
-      },
-    });
-    const operation = result.kind === 'operation' ? result.operation : null;
-    const resubmittedBranch = operation
-      ? store.getOwnedBranch('owner-a', operation.branchId)
-      : null;
-    expect(resubmittedBranch).toMatchObject({
-      kind: 'root',
-      creationMode: 'direct-submit',
-      parentBranchId: null,
-      forkedFromInteractionId: null,
-    });
-    expect(manualRoot.creationMode).toBe('composer');
-    expect(store.getOwnedInteraction('owner-a', source.id)?.executionState).toBe('running');
-  });
-
-  it('resubmits from the parent snapshot without including the source output', async () => {
-    const { store, canvas, branch } = fixture();
-    const firstReservation = store.prepareSend('owner-a', {
-      branchId: branch.id,
-      userInput: 'one',
-      attachments: [],
-    });
-    const first = store.acknowledgeSend('owner-a', firstReservation.id, 'run-1');
-    store.applyReconciledInteraction(first.id, {
+    const source = store.acknowledgeSend('owner-a', initial.id, 'run-1');
+    store.applyReconciledInteraction(source.id, {
       status: 'completed',
-      agentOutput: 'answer one',
+      agentOutput: 'findings',
       artifacts: [],
-      artifactSyncState: 'synced',
-      artifactObservationPending: false,
-      error: null,
       reconciliation: { phase: 'synced', artifactSync: 'synced' },
     });
-    const attachmentId = 'a'.repeat(40);
-    store.recordCanvasAttachment('owner-a', canvas.id, {
-      id: attachmentId,
-      name: 'source.png',
-      mimeType: 'image/png',
-      sizeBytes: 10,
-      uri: `/api/canvas/attachments/${canvas.id}/${attachmentId}`,
-      storage: 'canvas',
-      available: true,
-    });
-    const secondReservation = store.prepareSend('owner-a', {
+    const dispatch = vi.fn(async (reservationId: string) => store.getReservation(reservationId)!);
+    const service = new CanvasSendService({ store, dispatch });
+
+    const result = await service.submit('owner-a', {
       branchId: branch.id,
-      expectedHeadInteractionId: first.id,
-      userInput: 'two',
-      attachments: store.getOwnedCanvasAttachments('owner-a', canvas.id, [attachmentId]),
-    });
-    const source = store.acknowledgeSend('owner-a', secondReservation.id, 'run-2');
-    const service = new CanvasSendService({
-      store,
-      dispatch: vi.fn(async (reservationId: string) => store.getReservation(reservationId)!),
+      expectedHeadInteractionId: source.id,
+      agentRef: { runtimeId: 'codex', profileId: 'default' },
+      userInput: 'write the final script',
+      attachmentIds: [],
     });
 
-    const result = await service.resubmit('owner-a', {
-      interactionId: source.id,
-      expectedAgentRef: { runtimeId: 'openclaw', profileId: 'main' },
-    });
     expect(result).toMatchObject({
       kind: 'operation',
       operation: {
-        userInput: 'two',
-        materialization: 'canonical-replay',
-        attachments: [expect.objectContaining({ id: attachmentId })],
+        materialization: 'agent-handoff',
+        runtimeId: 'codex',
+        agentProfileId: 'default',
       },
     });
-    const operation = result.kind === 'operation' ? result.operation : null;
-    expect(operation?.outgoingMessage).toContain('answer one');
-    expect(operation?.outgoingMessage).not.toContain('run-2');
-    expect(operation && store.getOwnedBranch('owner-a', operation.branchId)).toMatchObject({
-      kind: 'fork',
-      creationMode: 'direct-submit',
-      parentBranchId: branch.id,
-      forkedFromInteractionId: first.id,
-    });
+    expect(dispatch).toHaveBeenCalledOnce();
+    expect(store.getOwnedBranch('owner-a', branch.id)?.activeAgentRef)
+      .toEqual({ runtimeId: 'openclaw', profileId: 'main' });
   });
 
-  it('does not create a Branch when a source attachment cannot be resolved', async () => {
-    const { store, canvas, branch } = fixture();
-    const attachmentId = 'b'.repeat(40);
-    store.recordCanvasAttachment('owner-a', canvas.id, {
-      id: attachmentId,
-      name: 'missing.png',
-      mimeType: 'image/png',
-      sizeBytes: 10,
-      storage: 'canvas',
-      available: true,
-    });
-    const initial = store.prepareSend('owner-a', {
-      branchId: branch.id,
-      userInput: 'inspect',
-      attachments: store.getOwnedCanvasAttachments('owner-a', canvas.id, [attachmentId]),
-    });
-    const source = store.acknowledgeSend('owner-a', initial.id, 'run-source');
-    store.db.prepare(`DELETE FROM canvas_attachments
-      WHERE canvas_id = ? AND attachment_id = ?`).run(canvas.id, attachmentId);
-    const branchCount = store.getGraph('owner-a', canvas.id)?.branches.length;
-
-    await expect(new CanvasSendService({
-      store,
-    }).resubmit('owner-a', {
-      interactionId: source.id,
-      expectedAgentRef: { runtimeId: 'openclaw', profileId: 'main' },
-    })).rejects.toMatchObject({
-      code: 'source_attachment_unavailable',
-      status: 422,
-    });
-    expect(store.getGraph('owner-a', canvas.id)?.branches).toHaveLength(branchCount || 0);
-  });
 });

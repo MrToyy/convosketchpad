@@ -12,7 +12,7 @@ ConvoSketchpad（Hono、SQLite、文件存储、发送协调器）
   └─ OpenCode Adapter ⇄ 受监督的本地 HTTP/SSE Server
 ```
 
-截至 v0.5.0，Canvas 通用运行路径全部通过 `AgentRuntime`，Registry 可同时注册 OpenClaw、Codex 与 OpenCode Adapter，HTTP、前端和数据库均使用通用 Agent/Conversation/Turn/Approval 语义。Codex 与 OpenCode 都由服务端直接监督本机进程，不经过 OpenClaw。
+截至 v0.6.0，Canvas 通用运行路径全部通过 `AgentRuntime`，Registry 可同时注册 OpenClaw、Codex 与 OpenCode Adapter，HTTP、前端和数据库均使用通用 Agent/Conversation/Turn/Approval 语义。Codex 与 OpenCode 都由服务端直接监督本机进程，不经过 OpenClaw。
 
 浏览器不实现 Runtime 握手，不调用 Gateway RPC、Codex App Server 或 OpenCode Server，不保存 Runtime URL、Token、设备凭据或本地运行时凭据。服务端是唯一的 Agent Runtime 通信方。
 
@@ -49,11 +49,11 @@ runtime.disconnected
 
 无副作用的 `manifest.ts` 是 Runtime ID 与展示名的支持清单，供服务启动和 setup 共同读取；`configuration.ts` 负责已配置 Runtime 的选择与通用校验，`definitions.ts` 必须对清单逐项提供实例工厂，`registry.ts` 不包含按类型分支。`server/application-context.ts` 是进程组合根，显式创建 Registry 与 Canvas Store，并负责后台协调器和资源的启动/关闭；Worker、投递、事件消费和 Reconciler 使用同一显式 Store 依赖。关闭时 ApplicationContext 先同步触发内部 AbortSignal，让 Canvas/Runtime SSE 取消订阅和定时器，再关闭 Runtime 与 SQLite，避免停机窗口继续访问已关闭数据库。模块导入不会隐式创建全局 Registry、Store 或连接 Runtime。OpenClaw Adapter 独占 Gateway 方法名、Session Reset Policy、CLI 定位和原始事件投影；Codex Adapter 独占 App Server 子进程、JSONL、Thread/Turn/Item、原生审批和受管交付物目录；OpenCode Adapter 独占受管 HTTP/SSE Server、Session/Message/Part、原生审批和恢复核对。Canvas Route、Service、Worker、Coordinator、Reconciler、Context Snapshot 和 Artifact 逻辑不得根据 Runtime 类型增加协议分支；ESLint 边界规则会阻止全部通用 Canvas 模块和 Route 直接导入具体 Adapter。
 
-setup 先以只读方式执行各 Adapter 的本机发现，只确认入口和版本，把已探测和未探测项分组展示，再把用户多选结果写入 `AGENT_RUNTIMES`；之后仅调用已选 Runtime 的 `RuntimeSetupDriver` 完成配置、校验与摘要。发现 Driver 只接收净化后的配置状态和可执行文件路径，不接收凭据；未选 Runtime 不调用原生配置命令、不发起连接或配对。OpenClaw 可在 CLI 未探测到时手工配置远程 Gateway；Codex 与 OpenCode 当前只接受本机 CLI 和受监督服务。Codex 被选择后才启动临时 App Server 读取 `account/read`；未登录只提示运行 `codex login` 后重跑 setup，不由本项目处理登录。OpenCode 被选择后才启动临时 loopback Server，检查健康状态和默认 Provider/模型，不发送 Prompt 或读取凭据。当前每种 Adapter 最多一个实例。Registry 按配置顺序组合实例，Catalog 并行发现 Profile，并按 Runtime 顺序、默认 Profile、原生顺序生成扁平 Agent 目录。setup 配置与配对完成后通过同一个 Runtime Port 读取 Profile，让用户选择产品级默认 Agent，并写入 `CONVOSKETCHPAD_DEFAULT_AGENT_RUNTIME` 与 `CONVOSKETCHPAD_DEFAULT_AGENT_PROFILE`。所有 Agent 平权，不存在运行时 Runtime 切换器。新建 Canvas 优先绑定可用的配置默认项，否则回退到第一个可用 Agent；首次持久 Send Reservation 前可以更新，Reservation 创建事务同时写 `agent_locked_at`，此后不因失败、刷新或重启解锁。
+setup 先以只读方式执行各 Adapter 的本机发现，只确认入口和版本，把已探测和未探测项分组展示，再把用户多选结果写入 `AGENT_RUNTIMES`；之后仅调用已选 Runtime 的 `RuntimeSetupDriver` 完成配置、校验与摘要。发现 Driver 只接收净化后的配置状态和可执行文件路径，不接收凭据；未选 Runtime 不调用原生配置命令、不发起连接或配对。OpenClaw 可在 CLI 未探测到时手工配置远程 Gateway；Codex 与 OpenCode 当前只接受本机 CLI 和受监督服务。Codex 被选择后才启动临时 App Server 读取 `account/read`；未登录只提示运行 `codex login` 后重跑 setup，不由本项目处理登录。OpenCode 被选择后才启动临时 loopback Server，检查健康状态和默认 Provider/模型，不发送 Prompt 或读取凭据。当前每种 Adapter 最多一个实例。Registry 按配置顺序组合实例，Catalog 并行发现 Profile，并按 Runtime 顺序、默认 Profile、原生顺序生成扁平 Agent 目录。setup 配置与配对完成后通过同一个 Runtime Port 读取 Profile，让用户选择产品级默认 Agent，并写入 `CONVOSKETCHPAD_DEFAULT_AGENT_RUNTIME` 与 `CONVOSKETCHPAD_DEFAULT_AGENT_PROFILE`。所有 Agent 平权，不存在运行时 Runtime 切换器。默认 Agent 只负责初始化没有上游节点的 Root Composer；Fork、Continue 与 Copy 默认继承来源 Interaction 的 Agent，用户可在发送前于 Composer 改选目标 Agent。
 
 全局状态保留每个 Runtime 明细，并投影 `ready/degraded/connecting/unavailable` 总态；单点失败不隐藏健康 Runtime。账户用量和 Provider 额度按 Runtime 分组，Token 与额度窗口不合并；只有所有 Runtime 在线、所有声明支持费用的 Runtime 都成功返回可加数据且币种/周期一致时计算合计。当前 Canvas 的 Branch、工作中和上下文 Meter 始终来自当前 Graph，不参与账户聚合。
 
-持久化模型为 Canvas 保存 Runtime 归属和不透明引用，而不是把某个协议的标识符提升为产品字段：Canvas 绑定 `runtime_id + agent_profile_id` 并在首次预留时写 `agent_locked_at`，Branch 保存 Conversation Handle，Interaction 保存 Turn Handle 与审批，Artifact 保存 Runtime Artifact Handle，Send Reservation 保存派发与恢复引用。终态和审批信号进入 `runtime_event_inbox`。旧 `agent_id`、`session_key`、`run_id`、`gateway_artifact_id`、`session_metadata_json` 与 `gateway_signal_inbox` 只作为迁移输入，成功后物理移除且不双写。
+持久化模型不把某个协议的标识符提升为产品字段：Interaction 保存实际执行的 `runtime_id + agent_profile_id`、Conversation/Turn Handle 与审批；Branch 保存当前可继续的 Agent 和 Conversation Handle；Send Reservation 冻结本次目标 Agent、Conversation 与派发恢复引用；Artifact 保存 Runtime Artifact Handle。Canvas 表中的 Runtime/Profile/锁定列仅作为旧库兼容和默认值迁移输入，不再构成公开产品绑定或发送授权。终态和审批信号进入 `runtime_event_inbox`。旧 `agent_id`、`session_key`、`run_id`、`gateway_artifact_id`、`session_metadata_json` 与 `gateway_signal_inbox` 只作为迁移输入，成功后物理移除且不双写。
 
 ## 职责边界
 
@@ -72,10 +72,10 @@ Interaction 的 `executionState`（`running | completed | failed | unconfirmed`�
 ## 产品模型与不变量
 
 ```text
-Canvas（绑定一个 Agent Profile 和 Runtime）
-  ├─ Branch → Interaction → Interaction
-  ├─ 从历史 Interaction 创建的可编辑 Branch
-  └─ 从目标 Interaction 上一节点直接提交复制输入的普通 Branch
+Canvas（不绑定执行 Agent）
+  ├─ Branch（当前 Agent + Conversation）→ Interaction（实际 Agent）→ Interaction
+  ├─ 从历史 Interaction 创建的可编辑 Fork Branch
+  └─ 从任意 Interaction 创建、复制原输入但不自动发送的 Copy Branch
 ```
 
 1. Branch 使用稳定、不透明的 Runtime Conversation Handle，并最多有一个头部 Interaction；公开 API 不暴露原生 Session/Thread 标识。
@@ -86,8 +86,9 @@ Canvas（绑定一个 Agent Profile 和 Runtime）
 6. Runtime 明确接受发送后，服务端在事务中创建 Interaction、推进 Branch 头节点并记录不透明 Turn Handle；原生 `runId`/`turnId` 只存在于 Handle 内。
 7. 从用户视角看 Interaction 只追加，不改写历史。
 8. Runtime 事件带 Turn Handle 时严格按 Turn 关联，未命中不回退；只有事件缺少 Turn Handle 时，Conversation Handle 才能在恰好存在一个候选节点时作为恢复后备，不允许猜测节点。审批 resolved 独立按 Approval Handle 收敛，允许晚于 Interaction 终态到达。
-9. UI 中的“重试”不是持久化实体：原 Interaction 和原执行保持不变，新结果只表现为一个普通 Root/Fork Branch。
+9. UI 中的“复制”创建独立、未发送的 Root/Fork Composer；原 Interaction 和原执行保持不变，复制草稿默认使用来源 Interaction 的 Agent，允许编辑内容与 Agent 后手动发送。
 10. Layout 中的节点尺寸只表示用户显式缩放；内容自然测量不持久化。重新排列使用这些尺寸计算间距，但只更新位置。
+11. Continue 选择与 Branch 当前 Agent 不同的目标时，必须创建目标 Agent 的新 Conversation 并完整 Canonical Replay；只有 Runtime 接受后，Branch 才原子切换到新的 Agent 与 Conversation。
 
 ## 发送状态机
 
@@ -107,17 +108,16 @@ reserved
 
 1. 浏览器把原始附件上传到 Canvas 文件存储；上传路由同时写入 `canvas_attachments` 登记表。Composer 可在上传前用稳定草稿键把这些附件放入文本位置，上传后再转换为附件 ID。
 2. 浏览器调用 `POST /api/canvas/branches/:id/send`，提交 v1 `inputDocument`（文本 segment 与资源 Token）、预期头节点、预期 Agent 和附件 ID；纯文本 `userInput` 仅作为兼容入口。
-3. `UpstreamResourceResolver` 从当前 Branch 头或 Fork 来源沿 `parentInteractionId` 解析父链，校验本轮附件和上游 Attachment/Artifact 的所有者、Canvas、祖先范围、可用性及九槽位；根节点的上游目录为空，但仍能引用本次附件。目录查询与发送校验共用该解析器，未来合并关系可在这里扩展为多上游遍历。
-4. 服务端在同一事务中持久化结构化输入、Send Reservation 和 `turn_resource_references` 快照；需要处理大图时进入可恢复的 `awaiting_media`。
-5. 通用材料编译器为每个逻辑引用分配稳定位置标记和物理文件编号，按内容/持久资源标识去重附件；继续既有 Conversation 只加入本轮显式引用和新附件，Canonical Replay/Session Recovery 才加入历史恢复材料。
+3. `UpstreamResourceResolver` 从当前 Branch 头或 Fork 来源出发，沿 `parentInteractionId` 与已接受/当前代次的 Merge Source 递归解析 DAG，校验本轮附件和上游 Attachment/Artifact 的所有者、Canvas、祖先范围、可用性及九槽位；目录查询与发送校验共用该解析器。创建 Merge Source 时，前端连接判定与后端事务都拒绝把 Composer 普通入边的直接来源再次接入同一 Composer，避免形成无增量上下文且不可删除的冗余关系。
+4. 服务端在同一事务中持久化结构化输入、Send Reservation、`turn_resource_references` 与 `turn_merge_sources` 快照；Merge Context Snapshot 冻结每个直接来源的完整根路径、去重顺序和安全显示信息，需要处理大图时进入可恢复的 `awaiting_media`。
+5. 通用材料编译器为每个逻辑引用分配稳定位置标记，让 Agent 能区分相邻描述或要求所指向的资源，同时分配物理文件编号并按内容/持久资源标识去重附件。Merge 对共享 Interaction 去重并稳定拓扑排序；Continue 仅加入不在目标基础历史中的来源增量，Canonical Replay/Session Recovery 会恢复已接受的冻结 Merge 上下文。
 6. 发送协调器调用所选 Runtime 的 `dispatchTurn`；OpenClaw Adapter 投影为原生 `chat.send` 并使用预留 ID 作为 `idempotencyKey`，Codex Adapter 投影为 `turn/start`，OpenCode Adapter 投影为 `prompt_async`；后两者都保存未知结果核对引用。
 7. Runtime 返回 `accepted` 后，服务端创建 `running` Interaction、把结构化输入与引用关联到该 Interaction、推进 Branch 头节点并立即发布 Canvas 变更；`rejected` 明确失败，`unknown` 保持安全的 `ambiguous` 状态。
 8. `canvas-reconciler` 通过 Runtime 的 `readTurn` / `inspectTurn` 读取权威记录，Artifact Store 再通过 `materializeArtifact` 持久化最终文本和 Artifact。
 
-节点“重试”调用通用的原样重新提交用例：后端读取源 Interaction 的用户文本和已登记附件，在同一事务中从其
-父 Interaction 创建 `direct-submit` Branch 和 Send Reservation；首节点创建新的 Root Branch。源 Interaction
-可以处于任意执行状态，原 Runtime 执行不会停止。新 Branch 继续走上述发送状态机，后端不保存 Retry 类型或
-Retry 来源。
+Agent 执行归属按节点保存：Send Reservation 冻结目标 Runtime/Profile/Conversation，Interaction 保存实际执行所用的 Agent 与 Conversation Handle，Branch 只保存当前可继续的 Session。Continue 选择与头 Interaction 相同的 Agent 时继续现有 Conversation；选择不同 Agent 时使用 `agent-handoff` 完整回放当前 Branch 及冻结 Merge 上下文，在目标 Agent 创建新 Session。目标 Runtime 接受前 Branch 仍指向旧 Session，接受后才与新 Interaction 原子切换；A→B→A 也会创建新的 A Session，不恢复早期 Session。
+
+节点“复制”在后端事务中从源 Interaction 的上一节点创建未发送的 Root/Fork Composer，并复制源 Agent、结构化输入、附件、资源引用和当次冻结的 Merge 来源。源 Interaction 可以处于任意执行状态，原 Runtime 执行不会停止；每次复制都可创建并列 Composer，只有用户手动提交后才进入发送状态机。
 
 Fork 与失效 Session 恢复共用一个后端 Replay Package 编译流程：
 
@@ -201,7 +201,7 @@ Codex 的命令执行、文件修改和权限请求投影到既有节点内审�
 | Graph/SSE 控制与 Composer/Send Operation 生命周期、失败草稿恢复 | `src/features/canvas/useCanvasGraphController.ts`、`src/features/canvas/useCanvasComposerDrafts.ts` |
 | Graph 到节点和边的纯投影 | `src/features/canvas/canvas-flow-projection.ts` |
 | Interaction/Composer 节点与节点注册 | `src/features/canvas/CanvasNodes.tsx`、`src/features/canvas/node-types.ts`、`src/features/canvas/constants.ts` |
-| Flow 类型、节点边界与自动布局 | `src/features/canvas/flow-model.ts` |
+| Flow 类型与节点边界、按需自动布局 | `src/features/canvas/flow-model.ts`、`src/features/canvas/auto-layout.ts` |
 | 产品 HTTP 客户端与数据契约 | `src/features/canvas/api.ts`、`src/features/canvas/types.ts` |
 | 图片缩略图、按需原图预览 | `src/features/canvas/CanvasNodes.tsx`、`src/features/chat/ImageLightbox.tsx` |
 | Agent Runtime 聚合状态上下文 | `src/contexts/RuntimeContext.tsx`、`src/hooks/useRuntimeEvents.ts` |
@@ -229,18 +229,18 @@ Codex 的命令执行、文件修改和权限请求投影到既有节点内审�
 
 ## 数据模型与迁移
 
-Agent Runtime 迁移重建核心表：Canvas 保存 `runtime_id` / `agent_profile_id` / `agent_locked_at`，Branch 保存
+Agent Runtime 迁移重建核心表；Canvas 上的 `runtime_id` / `agent_profile_id` / `agent_locked_at` 自 `0.6.0` 起只作兼容数据。Canvas Composition 迁移为 Branch 增加当前 Agent，为 Interaction 增加实际 Agent 与 Conversation 快照，并为 Send Reservation 增加冻结的目标 Agent 和 Conversation instance。Branch 继续保存
 Conversation ID、Handle、物理 instance 与完整性，Interaction 保存 `runtime_turn_id` / `turn_ref_json` /
 `execution_metadata_json`，Send Reservation 保存 Runtime、Conversation 与派发恢复引用，Artifact 保存
 `runtime_artifact_id` / `runtime_artifact_ref_json`。Handle 是带 Runtime 归属与 Schema 版本的不透明 JSON；通用运行路径不得解析其中协议字段。
 
 `runtime_event_inbox` 是终态和审批事件的唯一持久化/去重来源，事件键以 `runtimeId` 命名空间隔离；`interaction_approvals` 保存已净化摘要和解析状态；断线是全局瞬时 Runtime 状态。启动迁移将既有数据回填为 OpenClaw Handle，然后删除旧 OpenClaw 列和 `gateway_signal_inbox`；不存在双写或公开兼容别名。
 
-原样重新提交为 Branch 增加通用 `creation_mode`（`composer | direct-submit`）。它只用于让普通手动草稿继续保持
-单一性，同时允许同一分叉点存在多个直接提交；不记录 Retry 来源。Graph 的 `failedSends` 返回每个 draft Branch
-最新的失败 Send Reservation，使刷新后可以用普通 Composer 恢复结构化输入、资源位置、持久附件和错误。
+Copy 为 Branch 增加 `copied_from_interaction_id`，公开模型将这类 Branch 投影为 `creationMode: copy`。普通手动 Composer 仍保持单一性，同一来源则可并存多个 Copy Composer。Graph 的 `failedSends` 返回每个仍停留在相同期望头节点、因而仍有 Composer 的 Branch 最新失败 Send Reservation，使刷新后可以恢复结构化输入、资源位置、持久附件、目标 Agent、错误和同代次 Merge 来源。
 
 Interaction 和 Send Reservation 的 `input_document_json` 保存规范化 v1 输入；`turn_resource_references` 保存消费方、来源类型、来源 Interaction/资源 ID、首次出现顺序及安全展示快照。引用表不复制文件内容，`canvas_attachments` 与 `interaction_artifacts` 仍是物理资源事实来源。Reservation 被 Runtime 接受时，引用行在同一事务中关联新 Interaction；Canonical Snapshot v3 同时保存结构化输入和引用位置。
+
+`composer_merge_sources` 以目标 Branch、期望头节点和来源 Interaction 表达某一 Composer 代次的不可删除连接，并以部分唯一索引覆盖草稿 `NULL` 与 Continue 非空代次；`turn_merge_sources` 在发送预留时冻结直接来源及顺序，接受后关联目标 Interaction。`send_reservations.merge_context_snapshot_json` 保存完整路径、`B/C` 标记、去重 Interaction 和资源清单，供失败重试、嵌套合并和 Session Recovery 使用。
 
 Interaction 上下文快照保存在 `execution_metadata_json` 并以通用 `runtimeId`、`conversationInstanceId`、`source: agent-runtime` 投影。旧 OpenClaw Snapshot 在迁移时转换；无法确认的数据为 `null`。
 
@@ -260,9 +260,9 @@ Interaction 上下文快照保存在 `execution_metadata_json` 并以通用 `run
 
 该数据迁移不连接 Gateway，也不重新读取可能已过期的 Transcript，因此结果不依赖升级时 OpenClaw 的保留窗口或在线状态。新版本服务首次打开 `0.2.0` 数据库时会自动执行；从 `0.3.0` 开始的更新器会在停服后显式运行目标版本的 `npm run migrate` 并校验外键与 SQLite 完整性。迁移账本存在后不会再次扫描历史节点。此后服务启动只恢复 `running`、`unconfirmed`、`observing` 或仍有 `artifact_sync_jobs` 的明确任务，不使用全局协调版本重新打开已终止节点。
 
-`server/lib/canvas/persistence/migration-plan.ts` 是发布迁移边界和 ID 的唯一事实来源。截至 `0.5.0` 恰有四项连续迁移：`0.2.0 → 0.3.0` 结构桥接、`0.3.0 → 0.3.2` 媒体维护迁移、`0.3.2 → 0.4.0` Agent Runtime 结构迁移，以及 `0.4.0 → 0.5.0` 资源引用迁移 `0.4.0_to_0.5.0_resource_references_v1`。最后一项增加结构化输入列与引用表，并在外键和完整性检查后落账。显式迁移共用维护锁，且只有当前安装的受管服务明确离线或操作者对无管理器场景显式确认离线时才打开 SQLite；setup/update 无法确认离线时推迟到下次服务启动。launchd 维护停服使用 `bootout gui/<uid>/<label>` 真正卸载 KeepAlive Job，恢复时使用 plist `bootstrap` 并以 `kickstart -k` 启动；状态读取针对精确 Domain/Label，不依赖宽泛的 Job 列表。
+`server/lib/canvas/persistence/migration-plan.ts` 是发布迁移边界和 ID 的唯一事实来源。截至 `0.6.0` 有五项连续迁移：`0.2.0 → 0.3.0` 结构桥接、`0.3.0 → 0.3.2` 媒体维护、`0.3.2 → 0.4.0` Agent Runtime 结构、`0.4.0 → 0.5.0` 资源引用，以及 `0.5.0 → 0.6.0` Canvas Composition 迁移 `0.5.0_to_0.6.0_canvas_composition_v1`。第五项同时创建 Merge 来源、节点级 Agent/Conversation 归属和 Copy 来源字段，Schema Epoch 为 6。显式迁移共用维护锁，且只有当前安装的受管服务明确离线或操作者对无管理器场景显式确认离线时才打开 SQLite；setup/update 无法确认离线时推迟到下次服务启动。launchd 维护停服使用 `bootout gui/<uid>/<label>` 真正卸载 KeepAlive Job，恢复时使用 plist `bootstrap` 并以 `kickstart -k` 启动；状态读取针对精确 Domain/Label，不依赖宽泛的 Job 列表。
 
-`0.3.2_to_0.4.0_agent_runtime_v1` 是 `0.4.0` 的结构迁移：在同一迁移边界创建审批与通用事件 Inbox，重建 Canvas、Branch、Interaction、Send Reservation 和 Artifact 表，把 OpenClaw 标识投影成版本化 Runtime Handle，将 Gateway 事件迁入 `runtime_event_inbox`，并物理删除旧 OpenClaw 列与 `gateway_signal_inbox`。旧 Canvas 的 `agent_locked_at` 优先回填为最早 Send Reservation 时间，没有 Reservation 的历史数据再以最早 Interaction 时间兜底；已经完成通用 Schema 但缺失锁定状态的数据库也会幂等修复。修改 Agent 的领域入口还会独立检查历史 Reservation/Interaction，避免异常空锁破坏 Runtime/Conversation 归属。结构事务、触发器安装、外键检查和 `integrity_check` 全部成功后才写入迁移账本；已完成结构但尚未写账本的中断状态可在下次启动幂等补全。全新数据库直接创建当前 Schema 并记录四条既定迁移，不先构造或重建旧 OpenClaw Schema。
+`0.3.2_to_0.4.0_agent_runtime_v1` 是 `0.4.0` 的结构迁移：在同一迁移边界创建审批与通用事件 Inbox，重建 Canvas、Branch、Interaction、Send Reservation 和 Artifact 表，把 OpenClaw 标识投影成版本化 Runtime Handle，将 Gateway 事件迁入 `runtime_event_inbox`，并物理删除旧 OpenClaw 列与 `gateway_signal_inbox`。旧 Canvas 的 `agent_locked_at` 优先回填为最早 Send Reservation 时间，没有 Reservation 的历史数据再以最早 Interaction 时间兜底；已经完成通用 Schema 但缺失锁定状态的数据库也会幂等修复。修改 Agent 的领域入口还会独立检查历史 Reservation/Interaction，避免异常空锁破坏 Runtime/Conversation 归属。结构事务、触发器安装、外键检查和 `integrity_check` 全部成功后才写入迁移账本；已完成结构但尚未写账本的中断状态可在下次启动幂等补全。全新数据库直接创建当前 Schema 并记录五条既定迁移，不先构造或重建旧 OpenClaw Schema。
 
 `0.3.0_media_derivatives_v1` 遍历所有 Canvas 本地文件，为历史上传和 Artifact 计算内容哈希，并为其中的图片
 生成 `thumbnail-v1`。`0.3.0` 及以后版本的更新器在服务停止期间显式执行它，并提供最长 60 分钟；由

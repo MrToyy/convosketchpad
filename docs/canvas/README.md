@@ -5,7 +5,8 @@ ConvoSketchpad 提供聚焦的 Canvas 交互环境和受管用户认证。
 | 任务 | 首先阅读 |
 |---|---|
 | Canvas 界面、节点、布局、Branch/Fork、Agent 选择、附件或 Artifact | [Canvas 功能与代码地图](CANVAS-CODE-MAP.md) |
-| 资源引用实现、分支合并或跨 Agent 交接的规划与开发顺序 | [资源引用与后续 Canvas 能力规划](RESOURCE-REFERENCES.md) |
+| 资源引用或跨 Agent 交接的数据语义与现行实现 | [架构与运行时数据流](../ARCHITECTURE.md)、[Canvas 功能与代码地图](CANVAS-CODE-MAP.md) |
+| 分支合并的 UX、数据关系、发送与恢复设计 | [分支合并设计](BRANCH-MERGING.md) |
 | 登录、用户 Token、所有者隔离、Cookie 或 SSE 认证 | [认证功能与代码地图](AUTH-CODE-MAP.md) |
 | 分支、Remote、合并、提交或推送 | [Git 工作流](GIT-WORKFLOW.md) |
 

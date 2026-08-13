@@ -1,5 +1,5 @@
 import type { CanvasStore } from '../persistence/canvas-store.js';
-import type { BranchRecord } from '../model.js';
+import type { BranchRecord, InteractionRecord } from '../model.js';
 
 export class CanvasBranchService {
   private readonly store: CanvasStore;
@@ -14,5 +14,9 @@ export class CanvasBranchService {
 
   fork(ownerId: string, interactionId: string): BranchRecord {
     return this.store.forkInteraction(ownerId, interactionId);
+  }
+
+  copy(ownerId: string, interactionId: string): { branch: BranchRecord; source: InteractionRecord } {
+    return this.store.copyInteraction(ownerId, interactionId);
   }
 }

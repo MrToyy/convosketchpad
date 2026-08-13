@@ -62,6 +62,11 @@ export function applyCanvasSyncBatch(graph: CanvasGraph, batch: CanvasSyncBatch)
     interactions,
     pendingSends,
     failedSends,
+    mergeSources: upsertById(
+      graph.mergeSources || [],
+      batch.mergeSources || [],
+      batch.removed.mergeSourceIds || [],
+    ),
   };
   return { ...next, hasPendingUpdates: graphHasPendingUpdates(next) };
 }

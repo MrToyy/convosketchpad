@@ -16,10 +16,11 @@ import type {
   CanvasInputDocument,
   CanvasResourceReferenceSnapshot,
 } from './domain/input-document.js';
+import type { MergeContextSnapshot } from './domain/merge-context.js';
 
 export type BranchKind = 'root' | 'fork';
 export type BranchConversationState = 'draft' | 'active';
-export type BranchCreationMode = 'composer' | 'direct-submit';
+export type BranchCreationMode = 'composer' | 'copy' | 'direct-submit';
 export type InteractionStatus = 'streaming' | 'completed' | 'failed';
 export type InteractionExecutionState = 'running' | 'completed' | 'failed' | 'unconfirmed';
 export type ArtifactSyncState = 'not_started' | 'observing' | 'synced' | 'degraded';
@@ -53,6 +54,8 @@ export interface BranchRecord {
   kind: BranchKind;
   parentBranchId: string | null;
   forkedFromInteractionId: string | null;
+  copiedFromInteractionId: string | null;
+  activeAgentRef: AgentProfileRef | null;
   conversationId: string;
   conversationInstanceId: string | null;
   observedConversationInstanceId: string | null;
@@ -82,6 +85,7 @@ export interface InteractionRecord {
   version: number;
   branchId: string;
   parentInteractionId: string | null;
+  agentRef: AgentProfileRef;
   runtimeTurnId: string | null;
   turnRef?: RuntimeHandle | null;
   userInput: string;
@@ -100,6 +104,16 @@ export interface InteractionRecord {
   contextSnapshot: InteractionContextSnapshot | null;
   createdAt: number;
   updatedAt: number;
+}
+
+export interface MergeSourceRecord {
+  id: string;
+  targetBranchId: string;
+  expectedHeadInteractionId: string | null;
+  sourceInteractionId: string;
+  targetInteractionId: string | null;
+  ordinal: number;
+  createdAt: number;
 }
 
 export type InteractionApprovalStatus =
@@ -196,6 +210,7 @@ export interface CanvasGraph {
   } | null;
   pendingSends: SendReservation[];
   failedSends: SendReservation[];
+  mergeSources: MergeSourceRecord[];
 }
 
 export interface CanvasSyncBatch {
@@ -204,10 +219,12 @@ export interface CanvasSyncBatch {
   branches: BranchRecord[];
   interactions: InteractionRecord[];
   sendOperations: SendReservation[];
+  mergeSources: MergeSourceRecord[];
   removed: {
     branchIds: string[];
     interactionIds: string[];
     sendOperationIds: string[];
+    mergeSourceIds: string[];
   };
 }
 
@@ -231,11 +248,14 @@ export interface SendReservation {
   materialization: SendMaterialization;
   conversationId: string;
   runtimeId: string;
+  agentProfileId: string;
   conversationRef?: RuntimeHandle;
+  conversationInstanceId: string | null;
   dispatchRecoveryRef?: RuntimeHandle | null;
   outgoingMessage: string;
   snapshotVersion?: number;
   bootstrapResources: CanvasContextResource[];
+  mergeContextSnapshot?: MergeContextSnapshot;
   status: 'prepared' | 'acknowledged' | 'failed';
   dispatchState: SendDispatchState;
   attemptCount: number;
@@ -250,7 +270,6 @@ export interface SendReservation {
 export interface DispatchableSendReservation extends SendReservation {
   ownerId: string;
   canvasId: string;
-  agentProfileId: string;
 }
 
 export type CanvasMediaDerivativePurpose = 'delivery' | 'thumbnail';

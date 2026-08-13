@@ -185,8 +185,8 @@ export async function reconcileTranscriptSnapshot(
     createdAt: interaction.createdAt,
   });
   if (extracted.instanceId) {
-    canvasStore().observeBranchConversation(
-      interaction.branchId,
+    canvasStore().observeInteractionConversation(
+      interaction.id,
       interaction.conversationRef,
       extracted.instanceId,
     );
@@ -596,7 +596,7 @@ async function pollInteraction(interactionId: string): Promise<void> {
       createdAt: interaction.createdAt,
     });
     if (turn.instanceId) {
-      canvasStore().observeBranchConversation(interaction.branchId, interaction.conversationRef, turn.instanceId);
+      canvasStore().observeInteractionConversation(interaction.id, interaction.conversationRef, turn.instanceId);
     }
     canvasStore().updateReconciliationMetadata(interactionId, {
       phase: 'monitoring',

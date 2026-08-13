@@ -4,8 +4,13 @@ import { describe, expect, it, vi } from 'vitest';
 import { canvasNodeTypes } from './node-types';
 import { EMPTY_CANVAS_DRAFT } from './constants';
 
-const { resolveApproval } = vi.hoisted(() => ({
+const { resolveApproval, connectionState } = vi.hoisted(() => ({
   resolveApproval: vi.fn(async () => ({})),
+  connectionState: {
+    inProgress: false,
+    fromHandle: null as null | { id: string },
+    fromNode: null as null | { id: string },
+  },
 }));
 vi.mock('./api', () => ({
   canvasApi: { resolveApproval },
@@ -16,7 +21,36 @@ vi.mock('@xyflow/react', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@xyflow/react')>();
   return {
     ...actual,
-    Handle: () => null,
+    Handle: ({
+      children,
+      id,
+      type,
+      position,
+      isConnectable,
+      isConnectableStart,
+      isConnectableEnd,
+      ...props
+    }: {
+      children?: ReactNode;
+      id?: string | null;
+      type: string;
+      position: string;
+      isConnectable?: boolean;
+      isConnectableStart?: boolean;
+      isConnectableEnd?: boolean;
+      [key: string]: unknown;
+    }) => (
+      <div
+        {...props}
+        data-testid={`flow-handle-${id || type}`}
+        data-position={position}
+        data-connectable={String(isConnectable)}
+        data-connectable-start={String(isConnectableStart)}
+        data-connectable-end={String(isConnectableEnd)}
+      >
+        {children}
+      </div>
+    ),
     NodeResizeControl: ({
       children,
       position,
@@ -52,6 +86,8 @@ vi.mock('@xyflow/react', async (importOriginal) => {
         {children}
       </div>
     ),
+    useConnection: (selector?: (state: typeof connectionState) => unknown) =>
+      selector ? selector(connectionState) : connectionState,
   };
 });
 
@@ -96,7 +132,7 @@ describe('Canvas node resize controls', () => {
           approvals: [], executionMetadata: {}, contextSnapshot: null, createdAt: 1, updatedAt: 1,
         },
         preview: 'first streamed paragraph', composerOpen: false, canAdd: false,
-        resubmitting: false, resizeEnabled: true, onAdd: vi.fn(), onResubmit: vi.fn(),
+        copying: false, resizeEnabled: true, onAdd: vi.fn(), onCopy: vi.fn(),
         onApprovalChanged: vi.fn(),
       }}
     />);
@@ -126,7 +162,7 @@ describe('Canvas node resize controls', () => {
           approvals: [], executionMetadata: {}, contextSnapshot: null, createdAt: 1, updatedAt: 2,
         },
         preview: 'first streamed paragraph\n\nsecond streamed paragraph', composerOpen: false, canAdd: false,
-        resubmitting: false, resizeEnabled: true, onAdd: vi.fn(), onResubmit: vi.fn(),
+        copying: false, resizeEnabled: true, onAdd: vi.fn(), onCopy: vi.fn(),
         onApprovalChanged: vi.fn(),
       }}
     />);
@@ -135,6 +171,7 @@ describe('Canvas node resize controls', () => {
 
   it('always renders one bounded bottom-right handle for an Interaction', () => {
     const InteractionNode = canvasNodeTypes.interaction;
+    const onOpenMergeTargets = vi.fn();
     const { rerender } = render(
       <InteractionNode
         {...commonNodeProps}
@@ -146,6 +183,7 @@ describe('Canvas node resize controls', () => {
             version: 1,
             branchId: 'branch-1',
             parentInteractionId: null,
+            agentRef: { runtimeId: 'openclaw', profileId: 'default' },
             runtimeTurnId: 'run-1',
             userInput: 'hello',
             agentOutput: 'done',
@@ -165,13 +203,41 @@ describe('Canvas node resize controls', () => {
           preview: '',
           composerOpen: false,
           canAdd: false,
-          resubmitting: false,
+          copying: false,
           resizeEnabled: true,
           onAdd: vi.fn(),
-          onResubmit: vi.fn(),
+          onCopy: vi.fn(),
+          onOpenMergeTargets,
         }}
       />,
     );
+
+    const mergeHandle = screen.getByTestId('flow-handle-merge-source');
+    expect(mergeHandle).toHaveClass(
+      '!flex',
+      '!size-8',
+      '!items-center',
+      '!justify-center',
+      '!rounded-full',
+      '!border-primary/40',
+      'hover:!bg-primary',
+      'hover:!text-primary-foreground',
+      '[&.connectingfrom]:!bg-primary',
+      '[&.connectingfrom]:!text-primary-foreground',
+    );
+    expect(mergeHandle.className).not.toContain('ring-');
+    expect(mergeHandle).toHaveAttribute('role', 'button');
+    expect(mergeHandle).toHaveAttribute('aria-label', '拖动以将此已完成交互接入输入框');
+    expect(mergeHandle).toHaveAttribute('aria-disabled', 'false');
+    expect(mergeHandle).toHaveAttribute('data-position', 'right');
+    expect(mergeHandle).toHaveAttribute('data-connectable', 'true');
+    expect(mergeHandle).toHaveAttribute('data-connectable-start', 'true');
+    expect(mergeHandle).toHaveAttribute('data-connectable-end', 'false');
+    expect(mergeHandle.querySelector('.lucide-link-2')).toBeInTheDocument();
+    fireEvent.click(mergeHandle);
+    expect(onOpenMergeTargets).not.toHaveBeenCalled();
+    fireEvent.keyDown(mergeHandle, { key: 'Enter' });
+    expect(onOpenMergeTargets).toHaveBeenCalledOnce();
 
     expect(screen.getByTestId('node-resize-control')).toHaveAttribute(
       'data-position',
@@ -216,6 +282,20 @@ describe('Canvas node resize controls', () => {
     expect(screen.getByTestId('interaction-output')).not.toHaveClass('h-40', 'overflow-hidden');
     expect(screen.getByTestId('interaction-output')).toHaveAttribute('aria-busy', 'false');
     expect(screen.getByTestId('interaction-output-body')).toHaveClass('max-h-[360px]', 'overflow-y-auto', 'overflow-x-hidden');
+    const interactionAgent = screen.getByText('openclaw:default');
+    expect(interactionAgent.closest('header')).toBeInTheDocument();
+    expect(screen.getByText('已完成').nextElementSibling).toBe(interactionAgent);
+    expect(screen.getByRole('button', { name: '复制：从上一节点创建可编辑的新输入框' })).toHaveClass(
+      'size-8',
+      'rounded-full',
+      'border',
+      'border-primary/40',
+      'bg-background',
+      'text-primary',
+      'shadow-lg',
+      'hover:bg-primary',
+      'hover:text-primary-foreground',
+    );
 
     rerender(
       <InteractionNode
@@ -247,10 +327,10 @@ describe('Canvas node resize controls', () => {
           preview: '',
           composerOpen: false,
           canAdd: false,
-          resubmitting: false,
+          copying: false,
           resizeEnabled: false,
           onAdd: vi.fn(),
-          onResubmit: vi.fn(),
+          onCopy: vi.fn(),
         }}
       />,
     );
@@ -263,45 +343,141 @@ describe('Canvas node resize controls', () => {
 
   it('uses the same handle for a Composer and disables native textarea resizing', () => {
     const ComposerNode = canvasNodeTypes.composer;
-    render(
+    connectionState.inProgress = true;
+    connectionState.fromHandle = { id: 'merge-source' };
+    connectionState.fromNode = { id: 'interaction-source' };
+    const composerData = {
+      branch: {
+        id: 'branch-1',
+        canvasId: 'canvas-1',
+        kind: 'root' as const,
+        parentBranchId: null,
+        forkedFromInteractionId: null,
+        copiedFromInteractionId: null,
+        activeAgentRef: null,
+        conversationId: 'session-1',
+        conversationInstanceId: null,
+        observedConversationInstanceId: null,
+        conversationIntegrity: 'unknown' as const,
+        conversationState: 'draft' as const,
+        creationMode: 'composer' as const,
+        headInteractionId: null,
+        createdAt: 1,
+        updatedAt: 1,
+      },
+      draft: {
+        ...EMPTY_CANVAS_DRAFT,
+        agentRef: { runtimeId: 'openclaw', profileId: 'default' },
+      },
+      label: '新建主分支',
+      agents: [{
+        agentRef: { runtimeId: 'openclaw', profileId: 'default' },
+        displayName: 'Main Agent',
+        runtimeDisplayName: 'OpenClaw',
+        available: true,
+      }],
+      onAgentChange: vi.fn(),
+      resizeEnabled: true,
+      onDocumentChange: vi.fn(),
+      onFiles: vi.fn(),
+      onRemoveFile: vi.fn(),
+      onRemovePersistedAttachment: vi.fn(),
+      onSend: vi.fn(),
+      onFocus: vi.fn(),
+      onBlur: vi.fn(),
+      resourceScopeRevision: 'merge-source-1',
+    };
+    const { container, rerender, unmount } = render(
       <ComposerNode
         {...commonNodeProps}
         id="composer:branch-1:root"
         type="composer"
-        data={{
-          branch: {
-            id: 'branch-1',
-            canvasId: 'canvas-1',
-            kind: 'root',
-            parentBranchId: null,
-            forkedFromInteractionId: null,
-            conversationId: 'session-1',
-            conversationInstanceId: null,
-            observedConversationInstanceId: null,
-            conversationIntegrity: 'unknown',
-            conversationState: 'draft',
-            creationMode: 'composer',
-            headInteractionId: null,
-            createdAt: 1,
-            updatedAt: 1,
-          },
-          draft: EMPTY_CANVAS_DRAFT,
-          label: '新建主分支',
-          resizeEnabled: true,
-          onTextChange: vi.fn(),
-          onFiles: vi.fn(),
-          onRemoveFile: vi.fn(),
-          onRemovePersistedAttachment: vi.fn(),
-          onSend: vi.fn(),
-          onFocus: vi.fn(),
-          onBlur: vi.fn(),
-        }}
+        data={composerData}
       />,
     );
 
     expect(screen.getByTestId('node-resize-control')).toBeInTheDocument();
+    const agentSelect = screen.getByRole('combobox', { name: '选择智能体' });
+    expect(agentSelect).toHaveValue('openclaw:default');
+    expect(screen.getByRole('option', { name: 'openclaw:default' })).toBeInTheDocument();
+    expect(agentSelect.closest('header')).toBeInTheDocument();
+    expect(agentSelect).toHaveClass(
+      'border',
+      'border-primary/40',
+      'bg-primary/10',
+      'appearance-none',
+      'rounded-[8px]',
+      'pl-2.5',
+      'pr-8',
+      'text-left',
+      'text-sm',
+      'font-semibold',
+      'text-primary',
+    );
+    expect(agentSelect).not.toHaveClass('rounded-lg', 'rounded-md', 'text-right');
+    expect(agentSelect.parentElement).not.toHaveClass('border', 'bg-background');
+    const agentChevron = agentSelect.parentElement?.querySelector('.lucide-chevron-down');
+    expect(agentChevron).toHaveClass('right-2.5');
+    expect(container.querySelector('.lucide-bot')).not.toBeInTheDocument();
+    expect(screen.queryByText('将完整回放当前分支，并在所选 Agent 中创建新会话。')).not.toBeInTheDocument();
+    expect(screen.queryByText('已接入来源')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '定位到来源 1' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '添加附件' })).toHaveClass(
+      '!border-primary/40',
+      'text-primary',
+      'hover:!border-primary/70',
+    );
     expect(screen.getByRole('textbox')).toHaveClass('resize-none');
     expect(screen.getAllByTestId('node-resize-control')).toHaveLength(1);
+    const mergeTarget = screen.getByTestId('flow-handle-merge-target');
+    expect(mergeTarget).toHaveClass('!size-8', '!bg-primary', '!text-primary-foreground', 'shadow-lg');
+    expect(mergeTarget.querySelector('.lucide-git-merge')).toBeInTheDocument();
+    expect(mergeTarget.className).not.toContain('ring-');
+
+    rerender(
+      <ComposerNode
+        {...commonNodeProps}
+        id="composer:branch-1:interaction-source"
+        type="composer"
+        data={{
+          ...composerData,
+          branch: {
+            ...composerData.branch,
+            kind: 'fork',
+            forkedFromInteractionId: 'interaction-source',
+          },
+        }}
+      />,
+    );
+    expect(screen.getByTestId('flow-handle-merge-target')).toHaveClass('!size-3', 'shadow-none');
+    expect(screen.getByTestId('flow-handle-merge-target')).toHaveAttribute('data-connectable', 'false');
+    expect(screen.getByTestId('flow-handle-merge-target').querySelector('.lucide-git-merge')).not.toBeInTheDocument();
+
+    rerender(
+      <ComposerNode
+        {...commonNodeProps}
+        id="composer:branch-1:root"
+        type="composer"
+        data={{ ...composerData, draft: { ...EMPTY_CANVAS_DRAFT, sending: true } }}
+      />,
+    );
+    expect(screen.getByTestId('flow-handle-merge-target')).toHaveClass('!size-3', 'shadow-none');
+    expect(screen.getByTestId('flow-handle-merge-target').querySelector('.lucide-git-merge')).not.toBeInTheDocument();
+
+    rerender(
+      <ComposerNode
+        {...commonNodeProps}
+        id="composer:branch-1:root"
+        type="composer"
+        data={{ ...composerData, resizeEnabled: false }}
+      />,
+    );
+    expect(screen.getByTestId('flow-handle-merge-target')).toHaveClass('!size-3', 'shadow-none');
+    expect(screen.getByTestId('flow-handle-merge-target').querySelector('.lucide-git-merge')).not.toBeInTheDocument();
+    unmount();
+    connectionState.inProgress = false;
+    connectionState.fromHandle = null;
+    connectionState.fromNode = null;
   });
 
   it('renders approval controls inline on the Interaction and submits the selected permission scope', async () => {
@@ -330,8 +506,8 @@ describe('Canvas node resize controls', () => {
             error: null, createdAt: 1, updatedAt: 1,
           }],
         },
-        preview: '', composerOpen: false, canAdd: false, resubmitting: false, resizeEnabled: true,
-        onAdd: vi.fn(), onResubmit: vi.fn(), onApprovalChanged,
+        preview: '', composerOpen: false, canAdd: false, copying: false, resizeEnabled: true,
+        onAdd: vi.fn(), onCopy: vi.fn(), onApprovalChanged,
       }}
     />);
     expect(screen.getByRole('region', { name: 'Execute command' })).toBeInTheDocument();

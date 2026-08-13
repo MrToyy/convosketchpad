@@ -105,7 +105,7 @@ Fork 与 Session 恢复会完整投递目标历史中仍可用的附件和 Artif
 `replay_payload_too_large`，说明完整 Replay Package 即使经过物理去重仍超过 Gateway `maxPayload`；
 服务端不会静默删文件。应提高 Gateway 的受支持载荷上限，或从较短历史位置创建新 Branch。
 
-若资源 Token 发送失败，先检查候选是否仍属于当前 Branch 的父链、原 Attachment/Artifact 是否可用，以及所选 Runtime 是否支持其 MIME。根节点的上游目录本来为空，但本次上传附件仍可通过 `@` 使用；旁支资源必须等分支合并阶段建立明确上游关系，不能通过手工请求绕过。
+若资源 Token 发送失败，先检查候选是否仍属于当前 Branch 的父链或当前 Composer 已连接的 Merge 来源路径、原 Attachment/Artifact 是否可用，以及所选 Runtime 是否支持其 MIME。没有 Merge 来源的根节点上游目录本来为空，但本次上传附件仍可通过 `@` 使用；旁支资源必须先与当前 Composer 建立明确的分支合并关系，未连接资源不能通过手工请求绕过。
 
 OpenClaw 的 Session 记录可能把收到的原生附件显示为 `MediaPaths` / `MediaTypes`，而不是保留 RPC
 `attachments` 字段。判断媒体是否传入 Agent 时应同时检查这些字段。

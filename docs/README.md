@@ -13,7 +13,7 @@ ConvoSketchpad 的目标是“让想法自由分支”。以下文档描述如�
 - [架构与运行时数据流](ARCHITECTURE.md)
 - [Agent Runtime Adapter 开发规范](agent-runtimes/ADAPTER-DEVELOPMENT.md)
 - [Canvas 功能索引](canvas/README.md)
-- [资源引用实现与后续 Canvas 能力规划](canvas/RESOURCE-REFERENCES.md)
+- [分支合并设计](canvas/BRANCH-MERGING.md)
 
 ## 安装与运维
 

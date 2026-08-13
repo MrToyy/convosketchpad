@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { projectCanvasFlow } from './canvas-flow-projection';
-import type { CanvasGraph, CanvasInteraction } from './types';
+import type { CanvasDraft, CanvasGraph, CanvasInteraction } from './types';
 
 function interaction(
   id: string,
@@ -11,6 +11,7 @@ function interaction(
     version: 1,
     branchId: 'branch-root',
     parentInteractionId,
+    agentRef: { runtimeId: 'openclaw', profileId: 'main' },
     runtimeTurnId: `run-${id}`,
     userInput: id,
     agentOutput: `answer-${id}`,
@@ -24,29 +25,35 @@ function interaction(
     approvals: [],
     executionMetadata: {},
     contextSnapshot: null,
+    inputDocument: { version: 1, segments: [{ type: 'text', text: id }], references: [] },
+    resourceReferences: [],
     createdAt: 1,
     updatedAt: 2,
   };
 }
 
-function project(graph: CanvasGraph) {
+function project(graph: CanvasGraph, drafts: Record<string, CanvasDraft> = {}) {
   return projectCanvasFlow({
     graph,
     renderedNodes: [],
     positions: {},
     sizes: {},
     resizeEnabled: true,
-    drafts: {},
-    resubmittingInteractionIds: new Set(),
+    drafts,
+    copyingInteractionIds: new Set(),
     previews: {},
     labels: {
       createBranch: 'Create branch',
+      copiedDraft: 'Copied draft',
       newSession: 'New session',
       continueBranch: 'Continue',
+      mergeSourceLabel: (index) => `Source ${index}`,
     },
     onAdd: vi.fn(),
-    onResubmit: vi.fn(),
-    onTextChange: vi.fn(),
+    onCopy: vi.fn(),
+    onApprovalChanged: vi.fn(),
+    onOpenMergeTargets: vi.fn(),
+    onDocumentChange: vi.fn(),
     onFiles: vi.fn(),
     onRemoveFile: vi.fn(),
     onRemovePersistedAttachment: vi.fn(),
@@ -63,8 +70,6 @@ describe('Canvas flow projection', () => {
       canvas: {
         id: 'canvas-1',
         name: 'Canvas',
-        agentRef: { runtimeId: 'openclaw', profileId: 'main' },
-        agentMutable: false,
         createdAt: 1,
         updatedAt: 1,
       },
@@ -74,6 +79,8 @@ describe('Canvas flow projection', () => {
         kind: 'root',
         parentBranchId: null,
         forkedFromInteractionId: null,
+        copiedFromInteractionId: null,
+        activeAgentRef: { runtimeId: 'openclaw', profileId: 'main' },
         conversationId: 'root-session',
         conversationInstanceId: 'session-1',
         observedConversationInstanceId: 'session-1',
@@ -89,6 +96,8 @@ describe('Canvas flow projection', () => {
         kind: 'fork',
         parentBranchId: 'branch-root',
         forkedFromInteractionId: 'interaction-1',
+        copiedFromInteractionId: null,
+        activeAgentRef: null,
         conversationId: 'fork-session',
         conversationInstanceId: null,
         observedConversationInstanceId: null,
@@ -104,12 +113,14 @@ describe('Canvas flow projection', () => {
         kind: 'fork',
         parentBranchId: 'branch-root',
         forkedFromInteractionId: 'interaction-1',
+        copiedFromInteractionId: 'interaction-2',
+        activeAgentRef: null,
         conversationId: 'direct-session',
         conversationInstanceId: null,
         observedConversationInstanceId: null,
         conversationIntegrity: 'unknown',
         conversationState: 'draft',
-        creationMode: 'direct-submit',
+        creationMode: 'copy',
         headInteractionId: null,
         createdAt: 3,
         updatedAt: 3,
@@ -117,6 +128,7 @@ describe('Canvas flow projection', () => {
       interactions: [
         interaction('interaction-1', null),
         interaction('interaction-2', 'interaction-1'),
+        interaction('interaction-merge-source', null),
       ],
       layout: null,
       pendingSends: [{
@@ -124,8 +136,11 @@ describe('Canvas flow projection', () => {
         branchId: 'branch-direct',
         expectedHeadInteractionId: null,
         userInput: 'retry interaction 2',
+        inputDocument: { version: 1, segments: [{ type: 'text', text: 'retry interaction 2' }], references: [] },
+        resourceReferences: [],
         attachments: [],
         materialization: 'canonical-replay',
+        agentRef: { runtimeId: 'openclaw', profileId: 'main' },
         conversationId: 'direct-session',
         status: 'prepared',
         dispatchState: 'reserved',
@@ -138,9 +153,27 @@ describe('Canvas flow projection', () => {
         updatedAt: 3,
       }],
       failedSends: [],
+      mergeSources: [{
+        id: 'merge-1',
+        targetBranchId: 'branch-root',
+        expectedHeadInteractionId: 'interaction-2',
+        sourceInteractionId: 'interaction-1',
+        targetInteractionId: null,
+        ordinal: 0,
+        createdAt: 4,
+      }, {
+        id: 'merge-copy',
+        targetBranchId: 'branch-direct',
+        expectedHeadInteractionId: null,
+        sourceInteractionId: 'interaction-merge-source',
+        targetInteractionId: null,
+        ordinal: 0,
+        createdAt: 5,
+      }],
       hasPendingUpdates: false,
     };
     const result = project(graph);
+    expect(result.needsInitialLayout).toBe(true);
     expect(result.nodes.map((node) => node.id)).toEqual(expect.arrayContaining([
       'interaction-1',
       'interaction-2',
@@ -158,17 +191,107 @@ describe('Canvas flow projection', () => {
         source: 'interaction-2',
         target: 'composer:branch-root:interaction-2',
       }),
+      expect.objectContaining({
+        id: 'merge-edge-merge-1',
+        source: 'interaction-1',
+        sourceHandle: 'merge-source',
+        target: 'composer:branch-root:interaction-2',
+        targetHandle: 'merge-target',
+        deletable: false,
+        style: { strokeWidth: 2 },
+      }),
+      expect.objectContaining({
+        id: 'merge-edge-merge-copy',
+        source: 'interaction-merge-source',
+        target: 'composer:branch-direct:interaction-1',
+        targetHandle: 'merge-target',
+        deletable: false,
+        style: { strokeWidth: 2 },
+      }),
     ]));
     expect(result.edges.every((edge) => edge.animated !== true)).toBe(true);
     expect(result.nodes.find((node) => node.id === 'composer:branch-direct:interaction-1'))
       .toMatchObject({
         data: {
+          label: 'Copied draft',
           draft: {
+            agentRef: { runtimeId: 'openclaw', profileId: 'main' },
             text: 'retry interaction 2',
             sending: true,
           },
         },
       });
+
+    const copiedBranch = graph.branches.find((branch) => branch.id === 'branch-direct');
+    if (!copiedBranch) throw new Error('Expected copied branch');
+    copiedBranch.conversationState = 'active';
+    copiedBranch.activeAgentRef = { runtimeId: 'openclaw', profileId: 'main' };
+    copiedBranch.headInteractionId = 'interaction-2';
+    graph.pendingSends = [];
+    const continuedProjection = project(graph);
+    expect(continuedProjection.nodes.find(
+      (node) => node.id === 'composer:branch-direct:interaction-2',
+    )).toMatchObject({ data: { label: 'Continue' } });
+    expect(continuedProjection.edges.some((edge) => edge.id === 'merge-edge-merge-copy')).toBe(false);
+  });
+
+  it('keeps an accepted merge edge visible on the generated Interaction target', () => {
+    const source = interaction('interaction-source', null);
+    const target = interaction('interaction-target', null);
+    const graph: CanvasGraph = {
+      cursor: 2,
+      canvas: {
+        id: 'canvas-1',
+        name: 'Canvas',
+        createdAt: 1,
+        updatedAt: 2,
+      },
+      branches: [{
+        id: 'branch-root',
+        canvasId: 'canvas-1',
+        kind: 'root',
+        parentBranchId: null,
+        forkedFromInteractionId: null,
+        copiedFromInteractionId: null,
+        activeAgentRef: { runtimeId: 'openclaw', profileId: 'main' },
+        conversationId: 'root-session',
+        conversationInstanceId: 'session-1',
+        observedConversationInstanceId: 'session-1',
+        conversationIntegrity: 'healthy',
+        conversationState: 'active',
+        creationMode: 'composer',
+        headInteractionId: target.id,
+        createdAt: 1,
+        updatedAt: 2,
+      }],
+      interactions: [source, target],
+      layout: null,
+      pendingSends: [],
+      failedSends: [],
+      mergeSources: [{
+        id: 'merge-accepted',
+        targetBranchId: 'branch-root',
+        expectedHeadInteractionId: null,
+        sourceInteractionId: source.id,
+        targetInteractionId: target.id,
+        ordinal: 0,
+        createdAt: 2,
+      }],
+      hasPendingUpdates: false,
+    };
+
+    const result = project(graph);
+    const mergeEdge = result.edges.find((edge) => edge.id === 'merge-edge-merge-accepted');
+
+    expect(mergeEdge).toMatchObject({
+      source: source.id,
+      sourceHandle: 'merge-source',
+      target: target.id,
+      style: { strokeWidth: 2 },
+      deletable: false,
+    });
+    expect(mergeEdge?.targetHandle).toBeUndefined();
+    expect(mergeEdge?.style).not.toHaveProperty('strokeDasharray');
   });
 
   it('opens Fork on the previous head as soon as an accepted continuation becomes the new head', () => {
@@ -186,8 +309,6 @@ describe('Canvas flow projection', () => {
       canvas: {
         id: 'canvas-1',
         name: 'Canvas',
-        agentRef: { runtimeId: 'openclaw', profileId: 'main' },
-        agentMutable: false,
         createdAt: 1,
         updatedAt: 2,
       },
@@ -197,6 +318,8 @@ describe('Canvas flow projection', () => {
         kind: 'root',
         parentBranchId: null,
         forkedFromInteractionId: null,
+        copiedFromInteractionId: null,
+        activeAgentRef: { runtimeId: 'openclaw', profileId: 'main' },
         conversationId: 'root-session',
         conversationInstanceId: 'session-1',
         observedConversationInstanceId: 'session-1',
@@ -220,11 +343,13 @@ describe('Canvas flow projection', () => {
       },
       pendingSends: [],
       failedSends: [],
+      mergeSources: [],
       hasPendingUpdates: true,
     };
 
     const result = project(graph);
 
+    expect(result.needsInitialLayout).toBe(false);
     expect(result.nodes.find((node) => node.id === previous.id)).toMatchObject({
       data: { canAdd: true },
     });

@@ -198,9 +198,9 @@ npm run update
 会记录警告并继续，存储或数据库系统性错误会触发回滚。迁移账本存在后，后续更新和服务启动都不会重复全量扫描。
 需要诊断性地复查历史媒体时，停止服务后显式运行 `npm run migrate -- --rescan-media`。
 
-`0.4.0` 的 Agent Runtime 结构迁移标识为 `0.3.2_to_0.4.0_agent_runtime_v1`。所有 `0.3.x` 数据库会在目标版本迁移流程中补齐上述维护迁移和该结构步骤；`0.2.0` 数据库还会先完成结构桥接。Agent Runtime 结构迁移会在同一边界创建审批与通用事件 Inbox，重建核心表、写入通用 Handle 和事件数据，并按最早 Send Reservation、最早 Interaction 的优先级回填旧 Canvas 的 Agent 锁定时间；已完成通用 Schema 但缺失锁定时间的数据库会在下次迁移检查中自动修复。`0.5.0` 再以 `0.4.0_to_0.5.0_resource_references_v1` 增加结构化输入列和资源引用表。全新数据库直接创建当前 Schema 并记录既定四项，不先创建旧 OpenClaw Schema。校验外键与完整性后才记录完成标识。由于媒体维护代码依赖目标结构，实际执行时允许先完成目标 Schema、再处理媒体；统一清单表达的是发布边界和最终必备项，而不是数据库事务的调用先后。
+`0.4.0` 的 Agent Runtime 结构迁移标识为 `0.3.2_to_0.4.0_agent_runtime_v1`。所有 `0.3.x` 数据库会在目标版本迁移流程中补齐上述维护迁移和该结构步骤；`0.2.0` 数据库还会先完成结构桥接。`0.5.0` 再以 `0.4.0_to_0.5.0_resource_references_v1` 增加结构化输入列和资源引用表；`0.6.0` 以单一 `0.5.0_to_0.6.0_canvas_composition_v1` 同时增加 Composer/Turn Merge 来源、Send Reservation Merge Context Snapshot、节点级 Agent/Conversation 归属与 Copy 来源。全新数据库直接创建当前 Schema 并记录既定五项。校验外键与完整性后才记录完成标识。
 
-截至 `0.5.0`，统一迁移清单共有四项，版本边界连续为 `0.2.0 → 0.3.0 → 0.3.2 → 0.4.0 → 0.5.0`；第四项为 `0.4.0_to_0.5.0_resource_references_v1`。结构迁移会在数据库打开时幂等执行，并删除未进入任何正式 Release 的 `0.2.0_to_single_chain_v1`、`0.3.0_to_0.4.0_agent_backend_v1` 与 `0.3.2_to_0.4.0_agent_backend_v1` 开发态账本记录；已经使用开发期 Backend Schema 的数据库会原地改名物理字段、事件表和 Handle JSON。显式迁移器随后完成媒体维护，并在最终外键和完整性检查后确认四个正式迁移 ID 全部存在，否则更新失败并触发回滚。资源引用 Schema 将数据库 Epoch 提升为 4，旧代码不得覆盖已迁移数据库。
+截至 `0.6.0`，统一迁移清单共有五项，版本边界连续为 `0.2.0 → 0.3.0 → 0.3.2 → 0.4.0 → 0.5.0 → 0.6.0`；第五项为 `0.5.0_to_0.6.0_canvas_composition_v1`。结构迁移会在数据库打开时幂等执行，并删除旧开发态账本及未发布的 `0.5.0_to_0.6.0_branch_merging_v1`，再写入唯一正式 ID。显式迁移器在最终外键和完整性检查后确认五个正式迁移 ID 全部存在，否则更新失败并触发回滚。Canvas Composition Schema 将数据库 Epoch 提升为 6，旧代码不得覆盖已迁移数据库。
 
 `npm run migrate -- --help` 只显示帮助，不打开数据库。迁移命令会在任何环境迁移或数据库操作前拒绝未知、重复参数，以及 `--env-only`、`--rescan-media` 等互斥模式的组合，避免输入错误被当成普通全量迁移执行。独立运行迁移器会取得与 setup/update 相同的维护锁；匹配当前安装的受管服务必须明确处于停止状态。没有匹配的服务管理器时，先停止所有手工进程，再显式运行 `npm run migrate -- --confirm-offline`；`--rescan-media` 可以和该确认参数组合。
 

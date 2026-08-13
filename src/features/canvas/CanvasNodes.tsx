@@ -2,19 +2,23 @@ import {
   Handle,
   NodeResizeControl,
   Position,
+  useConnection,
   type NodeProps,
 } from '@xyflow/react';
 import {
   AlertCircle,
+  ChevronDown,
+  Copy,
   Download,
   File,
   FileCode2,
   FileText,
+  GitMerge,
   Image as ImageIcon,
+  Link2,
   Loader2,
   Paperclip,
   Plus,
-  RotateCcw,
   ShieldAlert,
   Sparkles,
   X,
@@ -35,12 +39,15 @@ import {
   MIN_NODE_HEIGHT,
   MIN_NODE_WIDTH,
 } from './layout';
-import type {
-  ComposerFlowNode,
-  InteractionFlowNode,
+import {
+  isComposerIncomingInteraction,
+  MERGE_SOURCE_HANDLE_ID,
+  MERGE_TARGET_HANDLE_ID,
+  type ComposerFlowNode,
+  type InteractionFlowNode,
 } from './flow-model';
 import { getCanvasCopy, type CanvasCopy } from './messages';
-import type { CanvasInteraction, InteractionApproval } from './types';
+import type { AgentRef, CanvasInteraction, InteractionApproval } from './types';
 
 function formatBytes(size: number): string {
   if (size < 1024) return `${size} B`;
@@ -62,6 +69,10 @@ function interactionStatusLabel(interaction: CanvasInteraction, copy: CanvasCopy
   return copy.status.failed;
 }
 
+function agentRefLabel(agentRef: AgentRef | null | undefined): string {
+  return agentRef ? `${agentRef.runtimeId}:${agentRef.profileId}` : 'Agent';
+}
+
 function StructuredInput({ interaction }: { interaction: CanvasInteraction }) {
   const references = new Map(interaction.resourceReferences.map((reference) => [reference.key, reference]));
   if (!interaction.inputDocument) return <>{interaction.userInput}</>;
@@ -69,20 +80,29 @@ function StructuredInput({ interaction }: { interaction: CanvasInteraction }) {
     if (segment.type === 'text') return <span key={`text-${index}`}>{segment.text}</span>;
     const reference = references.get(segment.key);
     if (!reference) return <span key={`missing-${index}`}>@[resource]</span>;
+    const tokenTitle = reference.sourceInteractionId
+      ? `${reference.name}\n${reference.sourceInteractionId}`
+      : reference.name;
     return reference.uri ? (
       <a
         key={`resource-${index}`}
         href={reference.uri}
         target="_blank"
         rel="noreferrer"
-        title={reference.sourceInteractionId || undefined}
-        className="mx-0.5 inline-flex max-w-48 items-center rounded-md border border-primary/30 bg-primary/10 px-1.5 py-0.5 text-xs font-medium text-primary hover:bg-primary/20"
+        title={tokenTitle}
+        className="mx-0.5 inline-flex max-w-36 min-w-0 items-center rounded border border-primary/30 bg-primary/10 px-1 py-px align-baseline text-[0.6875rem] font-medium leading-4 text-primary hover:bg-primary/20"
       >
-        @{reference.name}
+        <span className="shrink-0">@</span>
+        <span className="truncate">{reference.name}</span>
       </a>
     ) : (
-      <span key={`resource-${index}`} className="mx-0.5 rounded-md bg-secondary px-1.5 py-0.5 text-xs">
-        @{reference.name}
+      <span
+        key={`resource-${index}`}
+        title={tokenTitle}
+        className="mx-0.5 inline-flex max-w-36 min-w-0 items-center rounded bg-secondary px-1 py-px align-baseline text-[0.6875rem] leading-4"
+      >
+        <span className="shrink-0">@</span>
+        <span className="truncate">{reference.name}</span>
       </span>
     );
   })}</>;
@@ -241,14 +261,16 @@ export function InteractionNode({ data }: NodeProps<InteractionFlowNode>) {
     preview,
     composerOpen,
     canAdd,
-    resubmitting,
+    copying,
     resizeEnabled,
     onAdd,
-    onResubmit,
+    onCopy,
     onApprovalChanged,
+    onOpenMergeTargets,
   } = data;
   const visibleOutput = interaction.agentOutput || preview;
   const running = interaction.executionState === 'running';
+  const mergeConnectable = interaction.executionState === 'completed';
   const streamingOutputVisible = running && Boolean(visibleOutput);
   const outputBodyRef = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
@@ -265,29 +287,36 @@ export function InteractionNode({ data }: NodeProps<InteractionFlowNode>) {
   return (
     <>
       <CanvasNodeResizeHandle enabled={resizeEnabled} label={copy.resizeNode} />
-      <Handle type="target" position={Position.Left} className="!bg-primary" />
+      <Handle type="target" position={Position.Left} isConnectable={false} className="!bg-primary" />
       <article className="h-full w-full overflow-auto rounded-3xl border border-border/80 bg-card/96 p-4 shadow-2xl backdrop-blur">
       <header className="canvas-node-drag-handle flex cursor-grab items-center justify-between gap-3 active:cursor-grabbing">
         <div className="flex min-w-0 items-center gap-2">
           <span className={`size-2 rounded-full ${running ? 'animate-pulse bg-primary' : interaction.executionState === 'failed' || interaction.executionState === 'unconfirmed' ? 'bg-destructive' : 'bg-green'}`} />
-          <span translate="no" className="notranslate truncate text-[0.667rem] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+          <span translate="no" className="notranslate shrink-0 text-[0.667rem] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
             {interactionStatusLabel(interaction, copy)}
+          </span>
+          <span
+            translate="no"
+            className="notranslate min-w-0 truncate text-[0.667rem] font-medium text-muted-foreground/80"
+            title={copy.agentLabel(agentRefLabel(interaction.agentRef))}
+          >
+            {agentRefLabel(interaction.agentRef)}
           </span>
         </div>
         <div className="nodrag flex items-center gap-2">
           <button
             type="button"
-            onClick={() => onResubmit(interaction)}
-            disabled={resubmitting}
+            onClick={() => onCopy(interaction)}
+            disabled={copying}
             title={
               interaction.executionState === 'running' || interaction.executionState === 'unconfirmed'
-                ? copy.resubmitInteractionParallel
-                : copy.resubmitInteraction
+                ? copy.copyInteractionParallel
+                : copy.copyInteraction
             }
-            aria-label={copy.resubmitInteraction}
-            className="flex size-7 items-center justify-center rounded-full text-muted-foreground hover:bg-secondary hover:text-foreground disabled:cursor-wait disabled:opacity-60"
+            aria-label={copy.copyInteraction}
+            className="flex size-8 items-center justify-center rounded-full border border-primary/40 bg-background text-primary shadow-lg transition-colors hover:bg-primary hover:text-primary-foreground disabled:cursor-wait disabled:opacity-60"
           >
-            <RotateCcw size={13} className={resubmitting ? 'animate-spin' : ''} />
+            {copying ? <Loader2 size={15} className="animate-spin" /> : <Copy size={15} />}
           </button>
           <time className="text-[0.667rem] text-muted-foreground">{new Date(interaction.createdAt).toLocaleTimeString(language)}</time>
         </div>
@@ -426,12 +455,36 @@ export function InteractionNode({ data }: NodeProps<InteractionFlowNode>) {
           type="button"
           onClick={() => onAdd(interaction)}
           title={copy.forkFromInteraction}
-          className="nodrag absolute -right-4 top-1/2 flex size-8 -translate-y-1/2 items-center justify-center rounded-full border border-primary/40 bg-background text-primary shadow-lg hover:bg-primary hover:text-primary-foreground"
+          style={{ top: 'calc(50% - 2.75rem)' }}
+          className="nodrag absolute -right-4 flex size-8 -translate-y-1/2 items-center justify-center rounded-full border border-primary/40 bg-background text-primary shadow-lg hover:bg-primary hover:text-primary-foreground"
         >
           <Plus size={15} />
         </button>
       )}
-      <Handle type="source" position={Position.Right} className="!bg-primary" />
+      <Handle
+        id={MERGE_SOURCE_HANDLE_ID}
+        type="source"
+        position={Position.Right}
+        isConnectable={mergeConnectable}
+        isConnectableStart={mergeConnectable}
+        isConnectableEnd={false}
+        title={copy.mergeSourceHandle}
+        aria-label={copy.mergeSourceHandle}
+        aria-disabled={!mergeConnectable}
+        role="button"
+        onKeyDown={(event) => {
+          if (!mergeConnectable) return;
+          if (event.key !== 'Enter' && event.key !== ' ') return;
+          event.preventDefault();
+          onOpenMergeTargets(interaction);
+        }}
+        tabIndex={mergeConnectable ? 0 : -1}
+        className={`!flex !size-8 !items-center !justify-center !rounded-full !border !border-primary/40 !bg-background !text-primary shadow-lg outline-none transition-[background-color,color] focus-visible:!bg-primary focus-visible:!text-primary-foreground [&.connectingfrom]:!bg-primary [&.connectingfrom]:!text-primary-foreground ${mergeConnectable
+          ? 'hover:!bg-primary hover:!text-primary-foreground'
+          : '!cursor-not-allowed !opacity-35'}`}
+      >
+        <Link2 size={15} aria-hidden="true" className="pointer-events-none" />
+      </Handle>
     </>
   );
 }
@@ -440,21 +493,96 @@ export function ComposerNode({ data }: NodeProps<ComposerFlowNode>) {
   const { language } = useSettings();
   const copy = getCanvasCopy(language);
   const inputRef = useRef<HTMLInputElement>(null);
+  const mergeConnectionSourceId = useConnection((connection) =>
+    connection.inProgress && connection.fromHandle?.id === MERGE_SOURCE_HANDLE_ID
+      ? connection.fromNode?.id || null
+      : null);
+  const mergeTargetIsDirectSuccessor = isComposerIncomingInteraction(
+    data.branch,
+    mergeConnectionSourceId,
+  );
+  const mergeTargetConnectable = !data.draft.sending && !mergeTargetIsDirectSuccessor;
+  const mergeTargetHighlighted = Boolean(mergeConnectionSourceId)
+    && data.resizeEnabled
+    && mergeTargetConnectable;
+  const availableAgents = data.agents || [];
+  const selectedAgentAvailable = Boolean(data.draft.agentRef && availableAgents.some((agent) =>
+    agent.available
+    && agent.agentRef.runtimeId === data.draft.agentRef?.runtimeId
+    && agent.agentRef.profileId === data.draft.agentRef?.profileId));
   return (
     <>
       <CanvasNodeResizeHandle enabled={data.resizeEnabled} label={copy.resizeNode} />
-      <Handle type="target" position={Position.Left} className="!bg-primary" />
+      <Handle
+        id={MERGE_TARGET_HANDLE_ID}
+        type="target"
+        position={Position.Left}
+        isConnectable={mergeTargetConnectable}
+        isConnectableStart={false}
+        isConnectableEnd={mergeTargetConnectable}
+        title={copy.mergeTargetHandle}
+        aria-label={copy.mergeTargetHandle}
+        className={`!flex !items-center !justify-center !rounded-full !border-2 !bg-primary !text-primary-foreground transition-[width,height,box-shadow] ${mergeTargetHighlighted
+          ? '!size-8 !border-primary/40 shadow-lg'
+          : '!size-3 !border-background shadow-none'}`}
+      >
+        {mergeTargetHighlighted && (
+          <GitMerge size={15} aria-hidden="true" className="pointer-events-none" />
+        )}
+      </Handle>
       <section className="h-full w-full overflow-auto rounded-3xl border border-primary/35 bg-card/98 p-4 shadow-2xl">
-      <header className="canvas-node-drag-handle mb-3 flex cursor-grab items-center justify-between active:cursor-grabbing">
-        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-primary">
+      <header className="canvas-node-drag-handle mb-3 flex cursor-grab items-center justify-between gap-3 active:cursor-grabbing">
+        <div className="flex min-w-0 items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-primary">
           <Sparkles size={14} /> {data.label}
         </div>
-        {data.onClose && !data.draft.sending && (
-          <button type="button" className="nodrag text-muted-foreground hover:text-foreground" onClick={data.onClose} aria-label={copy.closeComposer}><X size={15} /></button>
-        )}
+        <div className="nodrag flex min-w-0 items-center gap-1">
+          <span className="relative min-w-0 max-w-48">
+            <select
+              value={data.draft.agentRef
+                ? agentRefLabel(data.draft.agentRef)
+                : ''}
+              onChange={(event) => {
+                const agent = availableAgents.find((item) =>
+                  agentRefLabel(item.agentRef) === event.target.value);
+                if (agent) data.onAgentChange(agent.agentRef);
+              }}
+              disabled={data.draft.sending}
+              aria-label={copy.selectAgent}
+              title={data.draft.agentRef ? copy.agentLabel(agentRefLabel(data.draft.agentRef)) : copy.selectAgent}
+              className="peer max-w-48 min-w-0 cursor-pointer appearance-none truncate rounded-[8px] border border-primary/40 bg-primary/10 py-1.5 pl-2.5 pr-8 text-left text-sm font-semibold text-primary shadow-sm outline-none transition-colors hover:border-primary/70 hover:bg-primary/15 focus-visible:border-primary focus-visible:bg-primary/15 focus-visible:ring-2 focus-visible:ring-primary/30 disabled:cursor-wait disabled:opacity-60"
+            >
+              {!data.draft.agentRef && <option value="">{copy.selectAgent}</option>}
+              {data.draft.agentRef && !availableAgents.some((agent) =>
+                agent.agentRef.runtimeId === data.draft.agentRef?.runtimeId
+                && agent.agentRef.profileId === data.draft.agentRef?.profileId) && (
+                <option value={agentRefLabel(data.draft.agentRef)}>
+                  {agentRefLabel(data.draft.agentRef)}
+                </option>
+              )}
+              {availableAgents.map((agent) => (
+                <option
+                  key={agentRefLabel(agent.agentRef)}
+                  value={agentRefLabel(agent.agentRef)}
+                  disabled={!agent.available}
+                >
+                  {agentRefLabel(agent.agentRef)}
+                </option>
+              ))}
+            </select>
+            <ChevronDown
+              size={14}
+              aria-hidden="true"
+              className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-primary transition-opacity peer-disabled:opacity-60"
+            />
+          </span>
+          {data.onClose && !data.draft.sending && (
+            <button type="button" className="text-muted-foreground hover:text-foreground" onClick={data.onClose} aria-label={copy.closeComposer}><X size={15} /></button>
+          )}
+        </div>
       </header>
       <ResourceComposerEditor
         branchId={data.branch.id}
+        agentRef={data.draft.agentRef}
         value={data.draft.inputDocument}
         files={data.draft.files}
         fileKeys={data.draft.fileKeys}
@@ -463,6 +591,8 @@ export function ComposerNode({ data }: NodeProps<ComposerFlowNode>) {
         placeholder={copy.composerPlaceholder}
         currentGroupLabel={copy.currentAttachments}
         upstreamGroupLabel={copy.upstreamResources}
+        loadMoreLabel={copy.loadMoreResources}
+        resourceScopeRevision={data.resourceScopeRevision}
         onChange={data.onDocumentChange}
         onFocus={data.onFocus}
         onBlur={data.onBlur}
@@ -533,9 +663,11 @@ export function ComposerNode({ data }: NodeProps<ComposerFlowNode>) {
           type="button"
           variant="outline"
           size="sm"
+          className="!border-primary/40 text-primary hover:!border-primary/70 hover:bg-primary/10 hover:text-primary"
           onClick={() => inputRef.current?.click()}
           disabled={
             data.draft.sending
+            || !selectedAgentAvailable
             || data.draft.files.length + data.draft.persistedAttachments.length
               + upstreamReferenceCount(data.draft.inputDocument) >= MAX_TURN_MATERIALS
           }
@@ -556,6 +688,7 @@ export function ComposerNode({ data }: NodeProps<ComposerFlowNode>) {
           sending={data.draft.sending}
           disabled={
             data.draft.sending
+            || !selectedAgentAvailable
             || (
               !data.draft.text.trim()
               && data.draft.files.length === 0

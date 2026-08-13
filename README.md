@@ -25,10 +25,10 @@
 
 ## 中文
 
-ConvoSketchpad 是一张用于分支 AI 对话的自托管可视化画布。你可以从任意已完成节点展开、比较和继续不同思路，同时直接使用已经配置好的 OpenClaw、Codex 或 OpenCode 运行环境，以及其中已有的 Agent、模型、技能、记忆、插件和工具。
+ConvoSketchpad 是一张用于分支与合并 AI 对话的自托管可视化画布。你可以从任意已完成节点展开、比较和继续不同思路，再把选中的分支上下文接回现有输入框，同时直接使用已经配置好的 OpenClaw、Codex 或 OpenCode 运行环境，以及其中已有的 Agent、模型、技能、记忆、插件和工具。
 
 > [!IMPORTANT]
-> ConvoSketchpad **不是独立的 Agent 运行环境**，也不负责运行模型、工具或 Agent。它必须连接至少一个 Agent 运行端（Agent Runtime）。当前 v0.5.0 支持 [OpenClaw](https://github.com/openclaw/openclaw) Gateway、本地 Codex App Server，以及测试阶段的本地 OpenCode Server；Agent、工具调用、Conversation 和原始运行记录由运行端提供。
+> ConvoSketchpad **不是独立的 Agent 运行环境**，也不负责运行模型、工具或 Agent。它必须连接至少一个 Agent 运行端（Agent Runtime）。当前 v0.6.0 支持 OpenClaw Gateway、本地 Codex App Server、本地 OpenCode Server；Agent、工具调用、Conversation 和原始运行记录由运行端提供。
 
 > [!TIP]
 > 这种架构带来两个互补优势：Canvas 分支把不同探索隔离在各自的上下文链路中，保护任务主线；连接现有 Agent Runtime，则让你直接复用自己已经配置好、也已经熟悉的 Agent，以及运行端为它们提供的模型、技能（Skills）、记忆（Memory）、插件和工具，无需在 ConvoSketchpad 中重新搭建或维护一套 Agent 环境。
@@ -39,12 +39,13 @@ ConvoSketchpad 是一张用于分支 AI 对话的自托管可视化画布。你�
 |---|---|---|
 | 展开思路 | 所有问题沿一条消息流继续 | 从任意已完成节点创建分支，在画布上并行探索 |
 | 保护主线 | 临时试验和补充询问会进入后续对话 | 每条分支保留自己的提示词、回复、附件和生成结果 |
-| 使用 Agent | 取决于聊天产品内置的模型和工具 | 直接沿用 OpenClaw、Codex 或 OpenCode 中已有的 Agent/默认配置、技能、记忆、插件和工具 |
+| 汇总结果 | 手工复制多条对话，再自行解释来源和先后关系 | 把已完成节点连接到现有输入框，由后端去重、排序并保留完整来源路径 |
+| 使用 Agent | 取决于聊天产品内置的模型和工具 | 每次发送都可选择已有 Agent，并把完整创作背景交给新的 Agent 继续 |
 | 回顾过程 | 在长聊天记录中滚动查找 | 在可缩放画布上查看、移动和比较不同路径 |
 
 Agent Runtime 中的单个 Conversation 通常以线性消息流推进。在同一条对话中穿插创意试验、图片生成、临时调研或补充提问时，这些过程都会进入后续对话，逐渐稀释主线目标；如果另开 Conversation，又需要重新整理分叉点之前的背景。
 
-ConvoSketchpad 把这些方向铺展在同一张 Canvas 上：从任意已完成的 Interaction 带着当时信息创建新方向，独立试验，再继续真正值得推进的路径。探索过程彼此清晰，也不会挤乱主线。
+ConvoSketchpad 把这些方向铺展在同一张 Canvas 上：从任意已完成的 Interaction 带着当时信息创建新方向，独立试验，再把有价值的分支连接到任意现有 Composer。探索过程彼此清晰，汇总时也不需要手工复制历史或猜测来源顺序。
 
 ### 适合谁
 
@@ -54,24 +55,14 @@ ConvoSketchpad 把这些方向铺展在同一张 Canvas 上：从任意已完成
 
 ### 核心能力
 
-- 在一个可平移、缩放的 Canvas 中创建多个根分支。
-- 以仅追加方式组织交互，明确区分“继续”和“分支”。
-- 从任意已完成的交互携带当时上下文创建试验分支。
-- setup 配置需要连接的 Agent 运行端，所有运行端提供的 Agent 平权进入统一目录。
-- 新 Canvas 自动选择 setup 配置的可用默认 Agent，不可用时回退到第一个可用项；首次发送前可更换，发送预留创建后即锁定。
-- 继续使用所选运行端已配置的 Agent、模型、插件、技能、记忆与工具，无需维护第二套运行环境。
-- 持久化保存用户附件和生成的 Artifact，并按用户隔离。
-- 当运行端替换或移除分支 Conversation 时，通过规范快照恢复上下文。
-- 在所属 Interaction 节点内处理 Agent 的审批请求，并对持久授权进行二次确认。
-- 支持可选的受管用户登录、会话撤销、限流和 Canvas 隔离。
-- 前端界面支持中文和英文，并默认使用中文。
-
-```text
-Canvas
-├── 根分支 A：交互 1 ── 交互 2 ── 交互 3
-│                           └────── 分支 B
-└── 根分支 C：交互 4 ── 交互 5
-```
+- **从任意一轮对话重新出发**：保留到这一刻为止的创作背景，排除之后已经跑偏或无关的交流，为选题、脚本、文案或画面重新开一条干净的路线。
+- **同时尝试多个创意方向**：把不同标题、叙事角度、表达方式、视觉风格和图片版本铺在同一张画布上并行推进，随时放大查看和并排比较。
+- **把独立探索重新汇合**：将多个会话流中有价值的想法和成果接入同一个输入框，在这些内容的共同基础上继续写稿、策划或创造新内容，无需手工复制和整理多段聊天记录。
+- **把创作交给更合适的 Agent**：在任意输入框选择下一步使用的 Agent；切换后会带上这条路径的完整创作背景，在新的 Agent 中继续，而不必手工搬运上下文。
+- **复制一轮内容再重新创作**：把任意一轮输入复制成未发送的新分支，再调整 Agent、文字或素材后手动提交，适合用同一要求比较不同 Agent 或快速制作变体。
+- **让每条要求准确指向素材**：输入时使用 `@` 点名本次上传或已经带入当前创作的图片、文件和生成结果，让 Agent 清楚哪段描述、修改意见或创作要求对应哪个素材。
+- **继续使用你熟悉的 Agent**：直接沿用 OpenClaw、Codex 或 OpenCode 中已经配置好的模型、技能、记忆、插件和工具，不必为了使用画布重新搭建工作流。
+- **随时回到完整的创作现场**：画布布局、对话过程、上传素材和生成结果都会保留下来，方便继续创作、回看不同方案，或找回某次探索中的关键成果。
 
 ### 环境要求
 
@@ -101,7 +92,7 @@ npm run build
 npm start
 ```
 
-`npm run setup` 会先探测并多选 Agent 运行端，再逐项配置连接，随后配置访问方式和可选的受管用户认证，最后从统一 Agent 目录选择新建 Canvas 的默认 Agent。Codex 接入直接监督本机 `codex app-server`；OpenCode 接入监督本机 `opencode serve` 并沿用其默认模型。安装或启动本项目不会替代 Agent 运行端。
+`npm run setup` 会先探测并多选 Agent 运行端，再逐项配置连接，随后配置访问方式和可选的受管用户认证，最后从统一 Agent 目录选择 Root Composer 的默认 Agent。Codex 接入直接监督本机 `codex app-server`；OpenCode 接入监督本机 `opencode serve` 并沿用其默认模型。安装或启动本项目不会替代 Agent 运行端。
 
 ### 运行关系
 
@@ -138,14 +129,22 @@ Agent 运行端负责 Agent 执行、工具、Conversation 和原始运行记录
 
 新运行端必须优先通过 App Server、ACP、Gateway、SDK 或稳定的机器可解析无头模式接入，不解析终端 UI 或非稳定 stdout。图片能力还必须覆盖输入媒体、生成或编辑工具调用、二进制 Artifact 发现与持久化；正式实现仍以事件完整性、审批安全、Session 恢复和 Adapter 一致性测试为准。
 
-#### 产品能力状态与路线图
+#### 路线图
 
-产品能力按“资源引用 → 分支合并 → 跨 Agent 交接”推进，Windows 支持排在其后。资源引用第一阶段已在 `v0.5.0` 实现，后续阶段的详细边界见[资源引用与后续 Canvas 能力规划](docs/canvas/RESOURCE-REFERENCES.md)。
+以下路线图不承诺具体版本或交付时间。相关能力继续遵守现有 Agent Runtime 边界：ConvoSketchpad 组织、比较和持久化 Canvas 数据，模型、工具与 Agent 执行仍由所选运行端负责。
 
-- **已实现：`@` 资源引用**：在输入指定位置引用本次附件或当前节点父链上游的图片、附件和节点产物；同一资源可多次出现但只占一个槽位，本轮最多九项，并保留所有者、路径与运行端能力校验。
-- **下一阶段：分支合并**：选择一个或多个分支生成新的 Interaction，保留来源和历史，不改写既有 Conversation。
-- **后续阶段：跨 Agent 交接**：把一个分支的阶段性结果交给另一个 Agent 继续处理，同时保留来源、相关上下文和执行归属。
-- **Windows 支持**：补齐 Windows 原生安装、setup、服务管理、路径与权限处理、Runtime 探测以及构建和自动化测试，使其达到与 macOS、Linux 一致的受支持状态。
+- **分支评审与并排比较**：多选同源或任意 Interaction，对照输入、输出、Artifact 和实际 Agent，并以独立 Canvas 元数据标记待评审、候选、入选、淘汰或定稿，不改写不可变历史，也不与 Runtime 权限审批混用。
+- **批量并行探索**：从一个历史节点一次创建多个独立 Composer，分别调整提示词、素材或 Agent，确认后再并行发送；每个方向继续使用真实 Branch 和既有发送状态机，而不是新增模型工作流执行器。
+- **语义化资源引用**：在现有 `@` 引用上表达主体、产品、构图、风格、环境、光线、必须保留或避免模仿等用途，并由通用材料编译流程投影为运行端可理解的明确指令。
+- **Canvas 分区与检索**：持久化 Section/Frame、便签和分区标题，按输入、输出、文件名、Agent、执行状态与评审状态查找节点，并聚焦或高亮匹配路径；组织元素默认不进入 Agent 上下文。
+- **Storyboard / Collection**：把不同分支中的图片、视频和文本 Artifact 按顺序编排，补充镜号、说明和时长，并导出联系表或清单；保持为 Canvas 组织能力，不内置完整视频剪辑器。
+- **用户私有素材架**：由用户显式把已持久化的附件或 Artifact 提升为可跨 Canvas 复用的角色、产品、风格或环境素材，继续执行所有者隔离，不扫描 Agent Runtime 工作区。
+- **Canvas 模板**：保存布局、Branch 骨架、未发送 Composer、引用角色占位符和说明；默认不包含 Conversation Handle、历史执行、历史对话正文或私有附件。
+- **发送前检查**：发送前汇总目标 Agent、Conversation 继续或 Replay、资源槽位、Merge 来源、缺失文件和 Runtime 能力；只有运行端能够可靠提供时才显示费用或用量估算。
+- **图片区域批注**：在图片 Artifact 上圈选区域并添加修改或保留说明，生成与原图关联的不可变批注派生资源，再作为普通附件交给 Agent。
+- **创意工作流后端**：支持连接 ComfyUI 等本地或云端创意执行服务，让现有 Agent 调用可复现的图片、视频、音频和 3D 工作流，并把结果作为 Artifact 带回 Canvas。
+- **设计工具与交付平台**：逐步连接 Figma、Canva、Adobe 等设计环境，在保持各平台职责边界的前提下交换设计上下文、素材和最终产物。
+- **Windows 支持**：在上述产品能力之后，提供与 macOS、Linux 一致的安装、配置、服务管理和运行体验。
 
 ### 开发调试
 
@@ -191,8 +190,8 @@ PORT=4000 npm run dev
 | 环境变量 | 默认值 | 用途 |
 |---|---|---|
 | `AGENT_RUNTIMES` | `openclaw` | 启用的 Agent 运行端，按顺序组成统一 Agent 目录 |
-| `CONVOSKETCHPAD_DEFAULT_AGENT_RUNTIME` | 未设置 | 新建 Canvas 优先使用的 Agent 运行端 |
-| `CONVOSKETCHPAD_DEFAULT_AGENT_PROFILE` | 未设置 | 新建 Canvas 优先使用的 Agent Profile；不可用时回退 |
+| `CONVOSKETCHPAD_DEFAULT_AGENT_RUNTIME` | 未设置 | Root Composer 默认使用的 Agent 运行端 |
+| `CONVOSKETCHPAD_DEFAULT_AGENT_PROFILE` | 未设置 | Root Composer 默认使用的 Agent Profile；不可用时回退 |
 | `OPENCLAW_GATEWAY_URL` | `http://127.0.0.1:18789` | OpenClaw Gateway 地址 |
 | `OPENCLAW_GATEWAY_TOKEN` | 空 | 仅供服务端使用的 Gateway 共享 Token；本机 RPC、Gateway HTTP 与远程配对 bootstrap 使用 |
 | `CODEX_BIN` | `codex` | Codex CLI 命令或绝对路径；最低且已验证版本为 `0.146.0` |
@@ -213,6 +212,7 @@ Codex 与 OpenCode 固定共用 `~/.convosketchpad/workspace`，setup 按需创�
 - [产品目标与原则](docs/PRODUCT.md)
 - [架构、Session 与运行时数据流](docs/ARCHITECTURE.md)
 - [Canvas 功能索引](docs/canvas/README.md)
+- [分支合并设计](docs/canvas/BRANCH-MERGING.md)
 
 安装与运维：
 
@@ -244,10 +244,10 @@ Codex 与 OpenCode 固定共用 `~/.convosketchpad/workspace`，setup 按需创�
 
 ## English
 
-ConvoSketchpad is a self-hosted visual canvas for branching AI conversations. Fork, compare, and continue different paths from any completed node while reusing your existing OpenClaw, Codex, or OpenCode environment and its Agents, default model, skills, memory, plugins, and tools.
+ConvoSketchpad is a self-hosted visual canvas for branching and merging AI conversations. Fork, compare, and continue different paths from any completed node, then connect selected branch context back into an existing composer while reusing your OpenClaw, Codex, or OpenCode environment and its Agents, default model, skills, memory, plugins, and tools.
 
 > [!IMPORTANT]
-> ConvoSketchpad is **not a standalone Agent runtime** and does not run models, tools, or Agents by itself. It must connect to at least one Agent Runtime. Version 0.5.0 supports the [OpenClaw](https://github.com/openclaw/openclaw) Gateway, a local Codex App Server, and an experimental local OpenCode Server; the Runtime provides Agents, tool execution, Conversations, and authoritative run records.
+> ConvoSketchpad is **not a standalone Agent runtime** and does not run models, tools, or Agents by itself. It must connect to at least one Agent Runtime. Version 0.6.0 supports the OpenClaw Gateway, a local Codex App Server, and a local OpenCode Server; the Runtime provides Agents, tool execution, Conversations, and authoritative run records.
 
 > [!TIP]
 > This architecture provides two complementary advantages: Canvas branches isolate different explorations in their own context chains to protect the primary task, while connecting an existing Agent Runtime lets you reuse the Agents you have already configured and know well, together with the models, skills, memory, plugins, and tools the Runtime provides for them—without rebuilding or maintaining a separate Agent environment inside ConvoSketchpad.
@@ -261,12 +261,13 @@ ConvoSketchpad is a self-hosted visual canvas for branching AI conversations. Fo
 |---|---|---|
 | Explore ideas | Every question continues in one message stream | Fork any completed node and explore paths in parallel on a Canvas |
 | Protect the main line | Experiments and side questions enter later conversation history | Each branch keeps its own prompts, responses, attachments, and generated results |
-| Use Agents | Depends on the models and tools built into the chat product | Reuse existing OpenClaw, Codex, or OpenCode Agents/defaults, skills, memory, plugins, and tools |
+| Combine results | Manually copy several chats and explain their sources and order | Connect completed nodes to an existing composer; the server deduplicates, orders, and preserves each complete source path |
+| Use Agents | Depends on the models and tools built into the chat product | Choose an existing Agent for each send and hand the full creative context to a different Agent when needed |
 | Review the work | Scroll through a long chat history | View, move, and compare paths on a zoomable Canvas |
 
 An Agent Runtime Conversation usually advances as a linear message stream. When creative experiments, image generation, quick research, and side questions all happen in one chat, they become part of everything that follows and gradually dilute the primary objective. Starting a separate Conversation avoids that mixture, but requires reconstructing the information available at the fork point.
 
-ConvoSketchpad lays those directions out on one Canvas. Fork any completed Interaction with the information available at that point, experiment independently, and continue only the paths worth pursuing. Each exploration stays clear without crowding the main line.
+ConvoSketchpad lays those directions out on one Canvas. Fork any completed Interaction with the information available at that point, experiment independently, then connect useful branches to any existing composer. Each exploration stays clear, and combining results does not require manually copying history or guessing source order.
 
 ### Who it is for
 
@@ -276,24 +277,14 @@ ConvoSketchpad lays those directions out on one Canvas. Fork any completed Inter
 
 ### Core capabilities
 
-- Create multiple root branches on one pan-and-zoom Canvas.
-- Organize append-only Interactions with explicit Continue and Fork semantics.
-- Fork any completed Interaction with its context for independent experiments.
-- Configure Agent Runtimes during setup and use all discovered Agents through one equal, unified catalog.
-- Select the configured default Agent for a new Canvas, fall back to the first available Agent, allow changes before the first send, and lock it when a send reservation is created.
-- Keep using the Agents, models, plugins, skills, memory, and tools configured in the selected Runtime without maintaining a second execution environment.
-- Keep durable, owner-scoped copies of user attachments and generated Artifacts.
-- Recover context from canonical snapshots when a Runtime replaces or removes a Branch Conversation.
-- Resolve Agent approval requests inside their Interaction nodes, with confirmation for persistent grants.
-- Optionally enable managed-user login, session revocation, rate limiting, and Canvas isolation.
-- Use the frontend in Chinese or English, with Chinese as the default.
-
-```text
-Canvas
-├── Root A: Interaction 1 ── Interaction 2 ── Interaction 3
-│                                  └────────── Fork B
-└── Root C: Interaction 4 ── Interaction 5
-```
+- **Restart from any point in a conversation**: keep the creative context available at that moment while leaving later detours behind, giving a topic, script, draft, or visual direction a clean path forward.
+- **Explore several creative directions at once**: develop alternative headlines, narratives, tones, visual styles, and image versions side by side on one Canvas, then zoom in and compare them whenever you need.
+- **Bring separate explorations back together**: connect the strongest ideas and results from several conversation paths into one input, then write, plan, or create something new from their combined foundation without manually copying chat history.
+- **Hand work to the best Agent for the next step**: choose an Agent in any composer; when you switch, the complete context of that path is replayed into a new Agent Conversation without manual copying.
+- **Copy a turn and reshape it before sending**: duplicate any input into an unsent branch, then change its Agent, wording, or assets before submitting—useful for comparing Agents or producing quick variations.
+- **Make every instruction point to the right asset**: use `@` to name an image, file, or result uploaded in or already brought into the current creative path exactly where you discuss it, so the Agent knows which asset each description, revision, or creative request refers to.
+- **Keep working with the Agents you already know**: reuse the models, skills, memory, plugins, and tools configured in OpenClaw, Codex, or OpenCode instead of rebuilding your workflow for the Canvas.
+- **Return to the complete creative workspace at any time**: Canvas layout, conversations, source material, and generated results stay together, making it easy to continue a project, revisit alternatives, or recover a valuable result from an earlier exploration.
 
 ### Requirements
 
@@ -323,7 +314,7 @@ npm run build
 npm start
 ```
 
-`npm run setup` first detects and lets you select Agent Runtimes, configures each connection, then configures access mode and optional managed-user authentication. Finally, it chooses the default Agent for new canvases from the unified catalog. Codex integration supervises the local `codex app-server`; OpenCode integration supervises local `opencode serve` and inherits its default model.
+`npm run setup` first detects and lets you select Agent Runtimes, configures each connection, then configures access mode and optional managed-user authentication. Finally, it chooses the default Agent for Root composers from the unified catalog. Codex integration supervises the local `codex app-server`; OpenCode integration supervises local `opencode serve` and inherits its default model.
 
 ### Runtime relationship
 
@@ -360,14 +351,22 @@ The following Runtimes are being evaluated, not completed integrations or releas
 
 New Runtimes must prefer App Server, ACP, Gateway, SDK, or a stable machine-readable headless mode instead of parsing terminal UI or unstable stdout. Image support must also cover media input, generation or editing tool calls, and binary-Artifact discovery and persistence; implementation still depends on event completeness, approval safety, Session recovery, and Adapter conformance tests.
 
-#### Product capability status and roadmap
+#### Roadmap
 
-Product capabilities follow the order “resource references → branch merging → cross-Agent handoff,” with Windows support later. The first resource-reference phase is implemented in `v0.5.0`; see the [Canvas capability plan](docs/canvas/RESOURCE-REFERENCES.md) for later-stage boundaries.
+This roadmap does not commit to a specific version or delivery date. Roadmap work must preserve the existing Agent Runtime boundary: ConvoSketchpad organizes, compares, and persists Canvas data, while the selected Runtime continues to own models, tools, and Agent execution.
 
-- **Implemented: `@` resource references**: reference current-turn attachments or parent-chain images, files, and node outputs at exact input positions. Repeated references share one of nine turn-material slots while preserving ownership, path, and Runtime-capability checks.
-- **Next: branch merging**: create a new Interaction from selected branches while preserving provenance and history instead of rewriting existing Conversations.
-- **Later: cross-Agent handoff**: pass a branch's intermediate result to another Agent for continued work while preserving provenance, relevant context, and execution ownership.
-- **Windows support**: add native Windows installation, setup, service management, path and permission handling, Runtime detection, builds, and automated tests to reach the same supported status as macOS and Linux.
+- **Branch review and side-by-side comparison**: select sibling or arbitrary Interactions, compare their inputs, outputs, Artifacts, and actual Agents, and store review, candidate, selected, rejected, or final states as separate Canvas metadata without rewriting immutable history or conflating creative review with Runtime approvals.
+- **Batch parallel exploration**: create several independent composers from one historical node, adjust each prompt, asset set, or Agent, then confirm before sending them in parallel. Every direction remains a real Branch using the existing send state machine rather than a new model-workflow executor.
+- **Semantic resource references**: extend existing `@` references with roles such as subject, product, composition, style, environment, lighting, must-preserve, or avoid-imitation, then project them through the shared material compiler into explicit instructions a Runtime can understand.
+- **Canvas sections and search**: persist sections/frames, notes, and section titles; find nodes by input, output, filename, Agent, execution state, or review state; and focus or highlight matching paths. Organizational elements stay out of Agent context unless explicitly referenced.
+- **Storyboard / Collection**: order image, video, and text Artifacts from different branches, add shot numbers, notes, and durations, and export a contact sheet or manifest. This remains Canvas organization rather than a full video editor.
+- **Private asset shelf**: let users explicitly promote persisted attachments or Artifacts into reusable character, product, style, or environment assets across Canvases while preserving owner isolation and never scanning an Agent Runtime workspace.
+- **Canvas templates**: save layouts, Branch scaffolds, unsent composers, resource-role placeholders, and guidance while excluding Conversation Handles, run history, historical conversation content, and private attachments by default.
+- **Preflight review**: summarize the target Agent, Conversation continuation or Replay, material slots, Merge sources, missing files, and Runtime capabilities before sending. Show cost or usage estimates only when the Runtime can provide them reliably.
+- **Image-region annotations**: mark regions of an image Artifact with change or preserve notes, create an immutable annotated derivative linked to the original, and send it to the Agent as a normal attachment.
+- **Creative workflow backends**: connect local or cloud creative execution services such as ComfyUI, let existing Agents invoke reproducible image, video, audio, and 3D workflows, and return their results to the Canvas as Artifacts.
+- **Design tools and delivery platforms**: progressively connect design environments such as Figma, Canva, and Adobe to exchange design context, assets, and final deliverables while preserving each platform's responsibility boundary.
+- **Windows support**: after the product capabilities above, provide installation, setup, service management, and runtime behavior consistent with macOS and Linux.
 
 ### Development
 
@@ -413,8 +412,8 @@ Copy `.env.example` or run `npm run setup` to generate `.env`. The most commonly
 | Environment variable | Default | Purpose |
 |---|---|---|
 | `AGENT_RUNTIMES` | `openclaw` | Enabled Agent Runtimes in unified Agent catalog order |
-| `CONVOSKETCHPAD_DEFAULT_AGENT_RUNTIME` | unset | Preferred Agent Runtime for a new Canvas |
-| `CONVOSKETCHPAD_DEFAULT_AGENT_PROFILE` | unset | Preferred Agent profile for a new Canvas; falls back when unavailable |
+| `CONVOSKETCHPAD_DEFAULT_AGENT_RUNTIME` | unset | Default Agent Runtime for Root composers |
+| `CONVOSKETCHPAD_DEFAULT_AGENT_PROFILE` | unset | Default Agent profile for Root composers; falls back when unavailable |
 | `OPENCLAW_GATEWAY_URL` | `http://127.0.0.1:18789` | OpenClaw Gateway address |
 | `OPENCLAW_GATEWAY_TOKEN` | empty | Server-only shared Gateway token for local RPC, Gateway HTTP, and remote pairing bootstrap |
 | `CODEX_BIN` | `codex` | Codex CLI command or absolute path; minimum and tested version is `0.146.0` |
@@ -435,6 +434,7 @@ Product and architecture:
 - [Product goals and principles](docs/PRODUCT.md)
 - [Architecture, Sessions, and runtime data flow](docs/ARCHITECTURE.md)
 - [Canvas feature index](docs/canvas/README.md)
+- [Branch merging design](docs/canvas/BRANCH-MERGING.md)
 
 Installation and operations:
 

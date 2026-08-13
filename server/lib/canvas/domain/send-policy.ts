@@ -3,6 +3,7 @@ export type SendMaterialization =
   | 'continue-existing'
   | 'checkpoint-delta'
   | 'canonical-replay'
+  | 'agent-handoff'
   | 'session-recovery';
 
 export type SendDispatchState =
@@ -51,7 +52,7 @@ export interface CanvasSendPlanDecision {
   materialization: SendMaterialization;
   expectedHeadInteractionId: string | null;
   requiresCanonicalSnapshot: boolean;
-  replayReason?: 'canonical-replay' | 'session-recovery';
+  replayReason?: 'canonical-replay' | 'agent-handoff' | 'session-recovery';
 }
 
 export class CanvasDomainError extends Error {
@@ -68,6 +69,7 @@ export function decideCanvasSendPlan(input: {
   branch: CanvasSendBranchState;
   expectedHeadInteractionId?: string | null;
   forceSessionRecovery?: boolean;
+  agentChanged?: boolean;
 }): CanvasSendPlanDecision {
   const { branch } = input;
   if (branch.conversationState === 'draft' && branch.kind === 'root' && !branch.headInteractionId) {
@@ -90,6 +92,14 @@ export function decideCanvasSendPlan(input: {
     && branch.headInteractionId
     && input.expectedHeadInteractionId === branch.headInteractionId
   ) {
+    if (input.agentChanged) {
+      return {
+        materialization: 'agent-handoff',
+        expectedHeadInteractionId: branch.headInteractionId,
+        requiresCanonicalSnapshot: true,
+        replayReason: 'agent-handoff',
+      };
+    }
     const recovery = branch.conversationIntegrity === 'drifted' || input.forceSessionRecovery;
     return recovery
       ? {

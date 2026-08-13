@@ -2,8 +2,8 @@ import type { Edge } from '@xyflow/react';
 import { describe, expect, it } from 'vitest';
 import {
   autoLayoutCanvasNodes,
-  type CanvasFlowNode,
-} from './flow-model';
+} from './auto-layout';
+import type { CanvasFlowNode } from './flow-model';
 import {
   DEFAULT_NODE_HEIGHT,
   INTERACTION_NODE_WIDTH,
@@ -45,10 +45,10 @@ function flowNode(
       preview: '',
       composerOpen: false,
       canAdd: false,
-      resubmitting: false,
+      copying: false,
       resizeEnabled: true,
       onAdd: () => undefined,
-      onResubmit: () => undefined,
+      onCopy: () => undefined,
     },
   };
 }

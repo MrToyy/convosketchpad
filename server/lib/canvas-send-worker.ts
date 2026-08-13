@@ -16,6 +16,14 @@ import { runtimeAcceptsMimeType } from './canvas/domain/material-capability.js';
 
 const activeDispatches = new Set<string>();
 
+function canvasSendFailureMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : 'Send preparation failed';
+  if (/payload limit|payload too large|request (?:is|exceeds).+bytes/i.test(message)) {
+    return 'replay_payload_too_large';
+  }
+  return message;
+}
+
 export function canvasSendWorkerIsActive(reservationId: string): boolean {
   return activeDispatches.has(reservationId);
 }
@@ -212,7 +220,7 @@ export async function runCanvasSendWorker(
     if (!reservation) throw error;
     if (!(error instanceof RuntimeOperationError)
       || ['validation', 'unsupported', 'rejected', 'conflict'].includes(error.kind)) {
-      const message = error instanceof Error ? error.message : 'Send preparation failed';
+      const message = canvasSendFailureMessage(error);
       store.failReservationById(reservation.id, message);
       console.error(JSON.stringify({
         level: 'error',

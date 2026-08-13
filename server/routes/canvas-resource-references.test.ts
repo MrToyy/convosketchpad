@@ -38,6 +38,13 @@ async function setup() {
   const store = db.getCanvasStore(testConversationHandleFactory);
   const route = await import('./canvas.js');
   const runtime = {
+    id: 'openclaw',
+    getStatus: () => ({ runtimeId: 'openclaw', state: 'connected' as const }),
+    describe: vi.fn(async () => ({ displayName: 'OpenClaw' })),
+    listAgentProfiles: vi.fn(async () => ({
+      defaultProfileId: 'main',
+      profiles: [{ runtimeId: 'openclaw', profileId: 'main', displayName: 'Main' }],
+    })),
     getCapabilities: vi.fn(async () => capabilities),
     inspectConversation: vi.fn(async () => null),
     prepareConversation: vi.fn(async () => ({ outcome: 'continued' as const })),
@@ -45,7 +52,7 @@ async function setup() {
   const app = new Hono();
   app.route('/', route.createCanvasRoutes({
     store,
-    runtimes: { get: () => runtime, list: () => [] } as never,
+    runtimes: { get: () => runtime, list: () => [runtime] } as never,
     dispatchSend: mocks.dispatch,
   }));
   return { app, store };
@@ -81,7 +88,7 @@ describe('Canvas resource reference routes', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         expectedHeadInteractionId: null,
-        expectedAgentRef: canvas.agentRef,
+        agentRef: canvas.agentRef,
         attachmentIds: [attachmentId],
         inputDocument: {
           version: 1,
@@ -96,12 +103,12 @@ describe('Canvas resource reference routes', () => {
 
     const nextBranch = store.createRootBranch('owner-a', canvas.id);
     const rootCatalog = await (await app.request(
-      `/api/canvas/branches/${nextBranch.id}/resources`,
+      `/api/canvas/branches/${nextBranch.id}/resources?runtimeId=openclaw&profileId=main`,
     )).json() as { items: unknown[] };
     expect(rootCatalog.items).toEqual([]);
 
     const catalog = await (await app.request(
-      `/api/canvas/branches/${branch.id}/resources`,
+      `/api/canvas/branches/${branch.id}/resources?runtimeId=openclaw&profileId=main`,
     )).json() as { items: Array<{ name: string; reference: { sourceInteractionId: string } }> };
     expect(catalog.items).toEqual([
       expect.objectContaining({
@@ -115,7 +122,7 @@ describe('Canvas resource reference routes', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         expectedHeadInteractionId: payload.interaction.id,
-        expectedAgentRef: canvas.agentRef,
+        agentRef: canvas.agentRef,
         attachmentIds: [],
         inputDocument: {
           version: 1,
@@ -145,7 +152,7 @@ describe('Canvas resource reference routes', () => {
     ]);
   });
 
-  it('rejects a forged sibling resource reference', async () => {
+  it('rejects a forged sibling reference until its completed interaction is connected', async () => {
     const { app, store } = await setup();
     store.ensureUser('owner-a', 'Owner A');
     const canvas = store.createCanvas('owner-a', 'Canvas', { runtimeId: 'openclaw', profileId: 'main' });
@@ -165,7 +172,7 @@ describe('Canvas resource reference routes', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         expectedHeadInteractionId: null,
-        expectedAgentRef: canvas.agentRef,
+        agentRef: canvas.agentRef,
         attachmentIds: [],
         inputDocument: {
           version: 1,
@@ -180,5 +187,50 @@ describe('Canvas resource reference routes', () => {
     expect(response.status).toBe(422);
     expect(await response.json()).toEqual({ error: 'resource_reference_unavailable' });
     expect(mocks.dispatch).not.toHaveBeenCalled();
+
+    store.applyReconciledInteraction(sibling.id, {
+      status: 'completed', agentOutput: 'source complete', artifacts: [],
+      artifactSyncState: 'synced', artifactObservationPending: false,
+      error: null, reconciliation: {},
+    });
+    const redundant = await app.request(
+      `/api/canvas/branches/${sourceBranch.id}/merge-sources/${sibling.id}`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ expectedHeadInteractionId: sibling.id }),
+      },
+    );
+    expect(redundant.status).toBe(409);
+    expect(await redundant.json()).toEqual({ error: 'redundant_merge_source' });
+
+    const connect = await app.request(
+      `/api/canvas/branches/${targetBranch.id}/merge-sources/${sibling.id}`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ expectedHeadInteractionId: null }),
+      },
+    );
+    expect(connect.status).toBe(201);
+    expect(await connect.json()).toMatchObject({
+      created: true,
+      mergeSource: { sourceInteractionId: sibling.id, targetBranchId: targetBranch.id },
+    });
+    const duplicate = await app.request(
+      `/api/canvas/branches/${targetBranch.id}/merge-sources/${sibling.id}`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ expectedHeadInteractionId: null }),
+      },
+    );
+    expect(duplicate.status).toBe(200);
+    expect(await duplicate.json()).toMatchObject({ created: false });
+
+    const catalog = await (await app.request(
+      `/api/canvas/branches/${targetBranch.id}/resources?runtimeId=openclaw&profileId=main`,
+    )).json() as { items: Array<{ name: string }> };
+    expect(catalog.items).toEqual([expect.objectContaining({ name: 'sibling.pdf' })]);
   });
 });

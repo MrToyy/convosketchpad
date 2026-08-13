@@ -1,4 +1,3 @@
-import type { AgentProfileRef } from '../../agent-runtimes/contract.js';
 import type { AgentRuntimeRegistry } from '../../agent-runtimes/registry.js';
 import { listAgentCatalog } from '../../agent-runtimes/catalog.js';
 import type { CanvasStore } from '../persistence/canvas-store.js';
@@ -43,25 +42,9 @@ export class CanvasApplicationService {
 
   async update(ownerId: string, canvasId: string, input: {
     name?: string;
-    agentRef?: AgentProfileRef;
   }): Promise<CanvasRecord> {
     let canvas = this.store.getCanvas(ownerId, canvasId);
     if (!canvas) throw new CanvasApplicationError('not_found', 404, 'Not found');
-    if (input.agentRef) {
-      const catalog = await this.agents(ownerId);
-      const selected = catalog.agents.find((agent) =>
-        agent.available
-        && agent.runtimeId === input.agentRef?.runtimeId
-        && agent.profileId === input.agentRef?.profileId);
-      if (!selected) throw new CanvasApplicationError('unknown_agent', 400);
-      try {
-        canvas = this.store.updateCanvasAgentBeforeFirstInteraction(ownerId, canvasId, input.agentRef);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : 'canvas_update_failed';
-        if (message === 'agent_locked') throw new CanvasApplicationError(message, 409);
-        throw error;
-      }
-    }
     if (input.name) canvas = this.store.updateCanvas(ownerId, canvasId, input.name);
     if (!canvas) throw new CanvasApplicationError('not_found', 404, 'Not found');
     return canvas;

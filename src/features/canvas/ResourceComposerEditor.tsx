@@ -14,7 +14,6 @@ import {
   $createParagraphNode,
   $createTextNode,
   $getRoot,
-  $insertNodes,
   $isElementNode,
   $isTextNode,
   DecoratorNode,
@@ -32,14 +31,17 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 import { File as FileIcon, Image as ImageIcon } from 'lucide-react';
+import { createClientId } from '@/lib/client-id';
 import { canvasApi } from './api';
 import { MAX_TURN_MATERIALS } from './constants';
 import { upstreamReferenceCount } from './input-document';
+import { $replaceTypeaheadQuery } from './lexical-typeahead';
 import type {
   CanvasAttachmentMeta,
   CanvasDraftInputDocument,
   CanvasDraftInputReference,
   CanvasResourceCatalogItem,
+  AgentRef,
 } from './types';
 
 type SerializedResourceTokenNode = SerializedLexicalNode & {
@@ -79,13 +81,15 @@ class ResourceTokenNode extends DecoratorNode<ReactNode> {
   getTextContent(): string { return `@[${this.__reference.name || 'resource'}]`; }
 
   decorate(): ReactNode {
+    const name = this.__reference.name || 'resource';
     return (
       <span
         contentEditable={false}
-        className="mx-0.5 inline-flex max-w-48 items-center gap-1 rounded-md border border-primary/35 bg-primary/12 px-1.5 py-0.5 align-baseline text-xs font-medium text-primary"
-        title={this.__reference.name || 'resource'}
+        className="mx-0.5 inline-flex max-w-36 min-w-0 items-center rounded border border-primary/35 bg-primary/12 px-1 py-px align-baseline text-[0.6875rem] font-medium leading-4 text-primary"
+        title={name}
       >
-        @{this.__reference.name || 'resource'}
+        <span className="shrink-0">@</span>
+        <span className="truncate">{name}</span>
       </span>
     );
   }
@@ -205,38 +209,62 @@ function EditablePlugin({ disabled }: { disabled: boolean }) {
 
 function ResourceTypeaheadPlugin({
   branchId,
+  agentRef,
+  resourceScopeRevision,
   documentValue,
   files,
   fileKeys,
   persistedAttachments,
   currentGroupLabel,
   upstreamGroupLabel,
+  loadMoreLabel,
 }: {
   branchId: string;
+  agentRef: AgentRef | null;
+  resourceScopeRevision: string;
   documentValue: CanvasDraftInputDocument;
   files: File[];
   fileKeys: string[];
   persistedAttachments: CanvasAttachmentMeta[];
   currentGroupLabel: string;
   upstreamGroupLabel: string;
+  loadMoreLabel: string;
 }) {
-  const [editor] = useLexicalComposerContext();
   const [query, setQuery] = useState<string | null>(null);
   const [upstream, setUpstream] = useState<CanvasResourceCatalogItem[]>([]);
+  const [nextCursor, setNextCursor] = useState<string | undefined>();
+  const [loadingMore, setLoadingMore] = useState(false);
+  const resourceRequestVersion = useRef(0);
   const trigger = useBasicTypeaheadTriggerMatch('@', { minLength: 0 });
   useEffect(() => {
-    if (query === null) return;
+    if (query === null || !agentRef) {
+      resourceRequestVersion.current += 1;
+      return;
+    }
+    const requestVersion = resourceRequestVersion.current + 1;
+    resourceRequestVersion.current = requestVersion;
+    setUpstream([]);
+    setNextCursor(undefined);
+    setLoadingMore(false);
     const controller = new AbortController();
     const timer = window.setTimeout(() => {
-      void canvasApi.resources(branchId, query, controller.signal)
-        .then(setUpstream)
-        .catch(() => setUpstream([]));
+      void canvasApi.resources(branchId, agentRef, query, 0, controller.signal)
+        .then((result) => {
+          if (resourceRequestVersion.current !== requestVersion) return;
+          setUpstream(result.items);
+          setNextCursor(result.nextCursor);
+        })
+        .catch(() => {
+          if (resourceRequestVersion.current !== requestVersion) return;
+          setUpstream([]);
+          setNextCursor(undefined);
+        });
     }, 120);
     return () => {
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [branchId, query]);
+  }, [agentRef, branchId, query, resourceScopeRevision]);
 
   const options = useMemo(() => {
     const current: ResourceOption[] = [
@@ -294,26 +322,22 @@ function ResourceTypeaheadPlugin({
       options={options}
       onSelectOption={(option, queryNode, closeMenu) => {
         if (!option.selectable) return;
-        editor.update(() => {
-          const currentDocument = readEditorDocument();
-          const existing = currentDocument.references.find((reference) =>
-            sameReference(reference, option.reference));
-          if (
-            !existing
-            && option.group === 'upstream'
-            && files.length + persistedAttachments.length
-              + upstreamReferenceCount(currentDocument) >= MAX_TURN_MATERIALS
-          ) return;
-          const reference = {
-            ...option.reference,
-            key: existing?.key || crypto.randomUUID(),
-          } as CanvasDraftInputReference;
-          queryNode?.remove();
-          const token = $createResourceTokenNode(reference);
-          $insertNodes([token, $createTextNode(' ')]);
-          token.getNextSibling()?.selectEnd();
-          closeMenu();
-        });
+        const currentDocument = readEditorDocument();
+        const existing = currentDocument.references.find((reference) =>
+          sameReference(reference, option.reference));
+        if (
+          !existing
+          && option.group === 'upstream'
+          && files.length + persistedAttachments.length
+            + upstreamReferenceCount(currentDocument) >= MAX_TURN_MATERIALS
+        ) return;
+        const reference = {
+          ...option.reference,
+          key: existing?.key || createClientId(),
+        } as CanvasDraftInputReference;
+        const token = $createResourceTokenNode(reference);
+        $replaceTypeaheadQuery(queryNode, token);
+        closeMenu();
       }}
       menuRenderFn={(anchorRef, {
         options: menuOptions,
@@ -322,7 +346,7 @@ function ResourceTypeaheadPlugin({
         setHighlightedIndex,
       }) => anchorRef.current && menuOptions.length
           ? createPortal(
-            <div className="absolute left-0 top-full z-[100] mt-1 max-h-72 min-w-72 overflow-auto rounded-xl border border-border bg-popover p-1 shadow-2xl">
+            <div className="absolute left-0 top-full z-[100] mt-1 max-h-72 w-64 max-w-[calc(100vw-2rem)] overflow-auto rounded-xl border border-border bg-popover p-1 shadow-2xl">
               {menuOptions.map((option, index) => (
                 <button
                   key={option.key}
@@ -339,19 +363,49 @@ function ResourceTypeaheadPlugin({
                   onMouseEnter={() => setHighlightedIndex(index)}
                   onMouseDown={(event) => event.preventDefault()}
                   onClick={() => selectOptionAndCleanUp(option)}
-                  className={`flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-xs ${selectedIndex === index ? 'bg-secondary' : ''} disabled:opacity-45`}
+                  className={`flex min-h-16 w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs ${selectedIndex === index ? 'bg-secondary' : ''} disabled:opacity-45`}
                 >
                   {option.thumbnailUri
-                    ? <img src={option.thumbnailUri} alt="" className="size-7 rounded object-cover" />
+                    ? <img src={option.thumbnailUri} alt="" className="size-13 shrink-0 rounded-lg object-cover" />
                     : option.reference.mimeType?.startsWith('image/')
-                    ? <ImageIcon size={14} />
-                    : <FileIcon size={14} />}
-                  <span className="min-w-0 flex-1 truncate">{option.reference.name}</span>
-                  <span className="text-[0.625rem] text-muted-foreground">
-                    {option.group === 'current' ? currentGroupLabel : upstreamGroupLabel}
+                    ? <span className="flex size-13 shrink-0 items-center justify-center rounded-lg bg-secondary/70"><ImageIcon size={20} /></span>
+                    : <span className="flex size-13 shrink-0 items-center justify-center rounded-lg bg-secondary/70"><FileIcon size={20} /></span>}
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate font-medium" title={option.reference.name}>
+                      {option.reference.name}
+                    </span>
+                    <span className="mt-0.5 block truncate text-[0.625rem] text-muted-foreground">
+                      {option.group === 'current' ? currentGroupLabel : upstreamGroupLabel}
+                    </span>
                   </span>
                 </button>
               ))}
+              {nextCursor && (
+                <button
+                  type="button"
+                  disabled={loadingMore}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => {
+                    if (query === null || loadingMore) return;
+                    const requestVersion = resourceRequestVersion.current;
+                    setLoadingMore(true);
+                    if (!agentRef) return;
+                    void canvasApi.resources(branchId, agentRef, query, Number(nextCursor))
+                      .then((result) => {
+                        if (resourceRequestVersion.current !== requestVersion) return;
+                        setUpstream((current) => [...current, ...result.items]);
+                        setNextCursor(result.nextCursor);
+                      })
+                      .catch(() => undefined)
+                      .finally(() => {
+                        if (resourceRequestVersion.current === requestVersion) setLoadingMore(false);
+                      });
+                  }}
+                  className="flex w-full items-center justify-center rounded-lg px-2 py-2 text-xs text-primary hover:bg-secondary disabled:opacity-50"
+                >
+                  {loadingMore ? '…' : loadMoreLabel}
+                </button>
+              )}
             </div>,
             anchorRef.current,
           )
@@ -362,6 +416,8 @@ function ResourceTypeaheadPlugin({
 
 export function ResourceComposerEditor({
   branchId,
+  agentRef,
+  resourceScopeRevision,
   value,
   files,
   fileKeys,
@@ -370,11 +426,14 @@ export function ResourceComposerEditor({
   placeholder,
   currentGroupLabel,
   upstreamGroupLabel,
+  loadMoreLabel,
   onChange,
   onFocus,
   onBlur,
 }: {
   branchId: string;
+  agentRef: AgentRef | null;
+  resourceScopeRevision: string;
   value: CanvasDraftInputDocument;
   files: File[];
   fileKeys: string[];
@@ -383,6 +442,7 @@ export function ResourceComposerEditor({
   placeholder: string;
   currentGroupLabel: string;
   upstreamGroupLabel: string;
+  loadMoreLabel: string;
   onChange: (value: CanvasDraftInputDocument) => void;
   onFocus: () => void;
   onBlur: () => void;
@@ -428,12 +488,15 @@ export function ResourceComposerEditor({
         <EditablePlugin disabled={disabled} />
         <ResourceTypeaheadPlugin
           branchId={branchId}
+          agentRef={agentRef}
+          resourceScopeRevision={resourceScopeRevision}
           documentValue={value}
           files={files}
           fileKeys={fileKeys}
           persistedAttachments={persistedAttachments}
           currentGroupLabel={currentGroupLabel}
           upstreamGroupLabel={upstreamGroupLabel}
+          loadMoreLabel={loadMoreLabel}
         />
       </div>
     </LexicalComposer>

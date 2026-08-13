@@ -13,15 +13,10 @@ import { runtimeAcceptsMimeType } from '../domain/material-capability.js';
 export interface SubmitCanvasSendCommand {
   branchId: string;
   expectedHeadInteractionId?: string | null;
-  expectedAgentRef: AgentProfileRef;
+  agentRef: AgentProfileRef;
   userInput?: string;
   inputDocument?: CanvasInputDocument;
   attachmentIds: string[];
-}
-
-export interface ResubmitCanvasInteractionCommand {
-  interactionId: string;
-  expectedAgentRef: AgentProfileRef;
 }
 
 export type SubmitCanvasSendResult =
@@ -126,12 +121,7 @@ export class CanvasSendService {
     if (!branch) throw new CanvasSendApplicationError('not_found', 404, 'Not found');
     const canvas = this.store.getCanvas(ownerId, branch.canvasId);
     if (!canvas) throw new CanvasSendApplicationError('not_found', 404, 'Not found');
-    if (
-      canvas.agentRef.runtimeId !== command.expectedAgentRef.runtimeId
-      || canvas.agentRef.profileId !== command.expectedAgentRef.profileId
-    ) {
-      throw new CanvasSendApplicationError('agent_changed', 409);
-    }
+    const agentRef = command.agentRef;
     const attachments = this.resolveAttachments(ownerId, canvas.id, command.attachmentIds);
     const resolvedInput = new UpstreamResourceResolver(this.store).resolveDocument({
       ownerId,
@@ -139,9 +129,9 @@ export class CanvasSendService {
       document: command.inputDocument || textInputDocument(command.userInput || ''),
       currentAttachments: attachments,
     });
-    const runtime = this.runtime || this.runtimeResolver?.(canvas.agentRef.runtimeId);
+    const runtime = this.runtimeResolver?.(agentRef.runtimeId) || this.runtime;
     if (runtime) {
-      const capabilities = await runtime.getCapabilities(canvas.agentRef);
+      const capabilities = await runtime.getCapabilities(agentRef);
       if (!capabilities.input.text) {
         throw new CanvasSendApplicationError('runtime_text_input_unsupported', 503);
       }
@@ -151,75 +141,29 @@ export class CanvasSendService {
       }
     }
 
-    if (branch.conversationState === 'active') {
+    const sameAgent = branch.activeAgentRef?.runtimeId === agentRef.runtimeId
+      && branch.activeAgentRef.profileId === agentRef.profileId;
+    if (branch.conversationState === 'active' && sameAgent) {
       await this.refreshConversationIdentity(ownerId, branch.id);
     }
-    const forceSessionRecovery = branch.conversationState === 'active'
+    const forceSessionRecovery = branch.conversationState === 'active' && sameAgent
       ? await this.shouldForceSessionRecovery(ownerId, branch.id)
       : false;
-    const reservation = this.store.prepareSend(ownerId, {
-      branchId: branch.id,
-      expectedHeadInteractionId: command.expectedHeadInteractionId,
-      userInput: resolvedInput.userInput,
-      inputDocument: resolvedInput.document,
-      resourceReferences: resolvedInput.references,
-      attachments,
-      forceSessionRecovery,
-    });
-    return this.dispatchReservation(reservation);
-  }
-
-  async resubmit(
-    ownerId: string,
-    command: ResubmitCanvasInteractionCommand,
-  ): Promise<SubmitCanvasSendResult> {
-    const source = this.store.getOwnedInteraction(ownerId, command.interactionId);
-    if (!source) throw new CanvasSendApplicationError('not_found', 404, 'Not found');
-    if (
-      source.runtimeId !== command.expectedAgentRef.runtimeId
-      || source.agentProfileId !== command.expectedAgentRef.profileId
-    ) {
-      throw new CanvasSendApplicationError('agent_changed', 409);
-    }
-    const attachmentIds = source.attachments.map((attachment) => attachment.id);
-    if (attachmentIds.some((id) => !id)) {
-      throw new CanvasSendApplicationError(
-        'source_attachment_unavailable',
-        422,
-        'source_attachment_unavailable',
-      );
-    }
-    let attachments: CanvasAttachment[];
-    try {
-      attachments = this.resolveAttachments(
-        ownerId,
-        source.canvasId,
-        attachmentIds as string[],
-      );
-    } catch (error) {
-      if (error instanceof CanvasSendApplicationError && error.code === 'attachment_not_found') {
-        throw new CanvasSendApplicationError(
-          'source_attachment_unavailable',
-          422,
-          'source_attachment_unavailable',
-        );
-      }
-      throw error;
-    }
     let reservation: SendReservation;
     try {
-      reservation = this.store.prepareInteractionResubmission(ownerId, {
-        interactionId: source.id,
-        expectedAgentRef: command.expectedAgentRef,
+      reservation = this.store.prepareSend(ownerId, {
+        branchId: branch.id,
+        agentRef,
+        expectedHeadInteractionId: command.expectedHeadInteractionId,
+        userInput: resolvedInput.userInput,
+        inputDocument: resolvedInput.document,
+        resourceReferences: resolvedInput.references,
         attachments,
+        forceSessionRecovery,
       });
     } catch (error) {
-      if (error instanceof Error && error.message === 'source_attachment_unavailable') {
-        throw new CanvasSendApplicationError(
-          'source_attachment_unavailable',
-          422,
-          'source_attachment_unavailable',
-        );
+      if (error instanceof Error && error.message === 'invalid_upstream_graph') {
+        throw new CanvasSendApplicationError('invalid_upstream_graph', 409);
       }
       throw error;
     }

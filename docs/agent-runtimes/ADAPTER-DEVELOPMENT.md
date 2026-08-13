@@ -38,7 +38,7 @@ scripts/lib/agent-runtimes/
 - 新 Adapter 必须同时向纯数据 `manifest.ts` 增加 ID/展示名、向 `definitions.ts` 增加由 TypeScript 完整性检查约束的实例工厂，并在 setup registry 注册探测/配置驱动；每个 Registry 必须得到独立 Adapter 对象，`close()` 只能释放该实例拥有的资源或租约。专属配置校验由 Adapter `config.ts` 提供并由 `configuration.ts` 组合。不得另外维护支持数组、注册链式 `if/else` 或把专属环境变量加回通用 `server/lib/config.ts`。
 - 当前模型中同一 Adapter 类型最多一个实例，因此稳定 `runtimeId` 就是类型 ID。未来若需要多实例，必须先扩展配置模型，不能悄悄复用同一 ID。
 - 每个 Adapter 返回自己的 Agent Profile；`catalog.ts` 按配置顺序、各 Runtime 默认 Profile、原生顺序形成一个扁平目录。
-- 所有 Profile 在产品中平权。setup 配置完成后通过统一 Port 选择 `CONVOSKETCHPAD_DEFAULT_AGENT_RUNTIME + CONVOSKETCHPAD_DEFAULT_AGENT_PROFILE`；新建 Canvas 不弹窗，优先绑定可用的配置默认项，否则回退到目录中的第一个可用 Profile。首次持久发送预留前可以修改，预留创建后永久锁定。
+- 所有 Profile 在产品中平权。setup 配置完成后通过统一 Port 选择 `CONVOSKETCHPAD_DEFAULT_AGENT_RUNTIME + CONVOSKETCHPAD_DEFAULT_AGENT_PROFILE`，用于初始化 Root Composer；Fork、Continue 与 Copy 默认继承来源 Interaction。每个 Composer 可在发送前改选 Agent，Send Reservation 冻结目标；交接必须在目标 Agent 新建 Conversation 并完整回放，接受后才原子推进 Branch 当前 Agent/Conversation。
 - Runtime 断开时可展示最后一次成功发现的 Profile，但必须标为不可用，不能用陈旧目录执行发送。
 
 ## setup 探测与配置
@@ -111,7 +111,7 @@ OpenCode 同样是非幂等参考：受监督的 `opencode serve` 使用 v1 HTTP
 
 迁移必须事务化、幂等，并通过 `PRAGMA foreign_key_check` 与 `integrity_check`。setup、独立 migrate 与 update 必须共享维护锁，锁按获取时的精确路径释放。服务管理必须同时验证固定名称、工作目录和启动命令属于当前安装，并把运行状态表达为 `active | inactive | unknown`；未知状态失败关闭。只有服务明确离线时才能快照、迁移或恢复 SQLite，恢复前还需再次复核离线。setup 重启后验证状态、健康和版本；若无法停止重启后的服务，不得覆盖数据库，并保留快照。没有匹配服务管理器时 setup/update 推迟到下次启动，独立 migrate 则要求操作者停止全部手工进程并显式确认离线。Runtime 环境键迁移不打开数据库，因此即使没有服务管理器或使用 `--no-restart` 也必须执行。
 
-不要仅因新增 Adapter 或实现已有 Port 方法而创建数据库迁移。先确认通用 Handle、`execution_metadata_json` 或 `dispatch_recovery_ref_json` 是否已能表达；只有持久 Schema 或既有数据必须变化时才新增发布迁移。截至 `0.5.0`，正式账本为四项，其中第四项只承载通用结构化输入和资源引用，不含 Runtime 专属字段。
+不要仅因新增 Adapter 或实现已有 Port 方法而创建数据库迁移。先确认通用 Handle、`execution_metadata_json` 或 `dispatch_recovery_ref_json` 是否已能表达；只有持久 Schema 或既有数据必须变化时才新增发布迁移。截至 `0.6.0`，正式账本为五项；第五项承载通用 Canvas Merge 来源、上下文快照、节点级 Agent/Conversation 归属与 Copy 来源，不含 Runtime 专属字段，Adapter 仍只接收统一的 `message + attachments`。
 
 ## 测试与文档验收
 

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { createClientId } from '@/lib/client-id';
 import { EMPTY_CANVAS_DRAFT, MAX_TURN_MATERIALS } from './constants';
 import type { CanvasDraft, SendReservation } from './types';
 import {
@@ -50,7 +51,7 @@ export function useCanvasComposerDrafts() {
           - upstreamReferenceCount(draft.inputDocument),
       );
       const previews = { ...draft.previews };
-      const fileKeys = accepted.map(() => crypto.randomUUID());
+      const fileKeys = accepted.map(() => createClientId());
       accepted.forEach((file, index) => {
         if (file.type.startsWith('image/')) previews[fileKeys[index]] = URL.createObjectURL(file);
       });
@@ -178,6 +179,7 @@ export function useCanvasComposerDrafts() {
         }
         next[operation.branchId] = {
           ...EMPTY_CANVAS_DRAFT,
+          agentRef: operation.agentRef,
           text: operation.userInput,
           inputDocument: enrichInputDocument(
             operation.inputDocument,

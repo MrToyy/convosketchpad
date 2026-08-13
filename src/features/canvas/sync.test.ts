@@ -8,8 +8,11 @@ function interaction(overrides: Partial<CanvasInteraction> = {}): CanvasInteract
     version: 1,
     branchId: 'branch-1',
     parentInteractionId: null,
+    agentRef: { runtimeId: 'openclaw', profileId: 'main' },
     runtimeTurnId: 'run-1',
     userInput: 'hello',
+    inputDocument: { version: 1, segments: [{ type: 'text', text: 'hello' }], references: [] },
+    resourceReferences: [],
     agentOutput: '',
     status: 'streaming',
     executionState: 'running',
@@ -33,8 +36,11 @@ function operation(overrides: Partial<SendReservation> = {}): SendReservation {
     branchId: 'branch-1',
     expectedHeadInteractionId: null,
     userInput: 'hello',
+    inputDocument: { version: 1, segments: [{ type: 'text', text: 'hello' }], references: [] },
+    resourceReferences: [],
     attachments: [],
     materialization: 'lazy-root',
+    agentRef: { runtimeId: 'openclaw', profileId: 'main' },
     conversationId: 'agent:main:canvas:branch-1',
     status: 'prepared',
     dispatchState: 'dispatching',
@@ -52,7 +58,7 @@ function operation(overrides: Partial<SendReservation> = {}): SendReservation {
 function graph(): CanvasGraph {
   return {
     cursor: 1,
-    canvas: { id: 'canvas-1', name: 'Canvas', agentRef: { runtimeId: 'openclaw', profileId: 'main' }, agentMutable: false, createdAt: 1, updatedAt: 1 },
+    canvas: { id: 'canvas-1', name: 'Canvas', createdAt: 1, updatedAt: 1 },
     hasPendingUpdates: true,
     branches: [{
       id: 'branch-1',
@@ -60,6 +66,8 @@ function graph(): CanvasGraph {
       kind: 'root',
       parentBranchId: null,
       forkedFromInteractionId: null,
+      copiedFromInteractionId: null,
+      activeAgentRef: { runtimeId: 'openclaw', profileId: 'main' },
       conversationId: 'agent:main:canvas:branch-1',
       conversationInstanceId: null,
       observedConversationInstanceId: null,
@@ -74,6 +82,7 @@ function graph(): CanvasGraph {
     layout: null,
     pendingSends: [operation()],
     failedSends: [],
+    mergeSources: [],
   };
 }
 
@@ -83,7 +92,8 @@ function batch(overrides: Partial<CanvasSyncBatch> = {}): CanvasSyncBatch {
     branches: [],
     interactions: [],
     sendOperations: [],
-    removed: { branchIds: [], interactionIds: [], sendOperationIds: [] },
+    mergeSources: [],
+    removed: { branchIds: [], interactionIds: [], sendOperationIds: [], mergeSourceIds: [] },
     ...overrides,
   };
 }
@@ -153,5 +163,18 @@ describe('Canvas sync projection', () => {
       })],
       pendingSends: [],
     })).toBe(false);
+  });
+
+  it('upserts durable merge sources from incremental sync', () => {
+    const next = applyCanvasSyncBatch(graph(), batch({
+      mergeSources: [{
+        id: 'merge-1', targetBranchId: 'branch-1',
+        expectedHeadInteractionId: 'interaction-1', sourceInteractionId: 'source-1',
+        targetInteractionId: null, ordinal: 0, createdAt: 2,
+      }],
+    }));
+    expect(next.mergeSources).toEqual([
+      expect.objectContaining({ id: 'merge-1', sourceInteractionId: 'source-1' }),
+    ]);
   });
 });
