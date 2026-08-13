@@ -32,4 +32,53 @@ describe('Canvas turn material compiler', () => {
     expect(result.attachments[0].deliveryRef).toBe('F001');
     expect(result.bootstrapResources).toEqual([]);
   });
+
+  it('renders merge paths and sends a shared physical resource only once', () => {
+    const contentHash = 'c'.repeat(64);
+    const uri = `/api/canvas/attachments/canvas/${'d'.repeat(40)}`;
+    const result = compileCanvasTurnMaterials({
+      document: { version: 1, segments: [{ type: 'text', text: 'continue' }], references: [] },
+      references: [],
+      attachments: [{
+        id: 'd'.repeat(40), contentHash, name: 'shared.pdf', mimeType: 'application/pdf',
+        sizeBytes: 20, uri, available: true,
+      }],
+      merge: {
+        version: 1,
+        sources: [{
+          mergeSourceId: 'merge-1', sourceInteractionId: 'source-1', sourceBranchId: 'branch-1',
+          sourceCreatedAt: 1, sourceUserInput: 'source', ordinal: 0,
+          path: [{ interactionId: 'source-1', marker: 'C001', resident: false }],
+        }],
+        interactions: [{
+          id: 'source-1', branchId: 'branch-1', createdAt: 1,
+          user: 'inspect ', assistant: 'done', marker: 'C001',
+          inputDocument: {
+            version: 1,
+            segments: [{ type: 'text', text: 'inspect ' }, { type: 'resource', key: 'shared' }],
+            references: [{
+              key: 'shared', origin: 'upstream', kind: 'canvas_attachment',
+              sourceInteractionId: 'source-1', resourceId: 'd'.repeat(40),
+            }],
+          },
+          resourceReferences: [{
+            key: 'shared', origin: 'upstream', kind: 'canvas_attachment',
+            sourceInteractionId: 'source-1', resourceId: 'd'.repeat(40), ordinal: 0,
+            name: 'shared.pdf', mimeType: 'application/pdf', sizeBytes: 20,
+            uri, contentHash, available: true,
+          }],
+        }],
+        resources: [{
+          id: 'merge-resource', contentHash, sourceInteractionId: 'source-1',
+          source: 'user_attachment', name: 'shared.pdf', mimeType: 'application/pdf',
+          sizeBytes: 20, uri, available: true, required: false,
+        }],
+      },
+    });
+
+    expect(result.message).toContain('S001: C001');
+    expect(result.message).toContain('R001 -> F001--shared.pdf');
+    expect(result.bootstrapResources).toHaveLength(1);
+    expect(result.attachments[0].deliveryRef).toBe('F001');
+  });
 });

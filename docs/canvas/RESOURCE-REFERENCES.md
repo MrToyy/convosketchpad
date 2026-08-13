@@ -1,6 +1,6 @@
 # 资源引用与后续 Canvas 能力规划
 
-本文记录 ConvoSketchpad 从 `0.5.0` 开始的 Canvas 能力开发顺序。第一阶段资源引用已经实现，后续分支合并与跨 Agent 交接仍是规划；现行约束同时以[产品目标](../PRODUCT.md)、[架构](../ARCHITECTURE.md)和 [Canvas 功能与代码地图](CANVAS-CODE-MAP.md)为准。
+本文记录 ConvoSketchpad 从 `0.5.0` 开始的 Canvas 能力开发顺序。第一阶段资源引用已在 `0.5.0` 实现，第二阶段分支合并已在 `0.6.0` 实现，跨 Agent 交接仍是规划；现行约束同时以[产品目标](../PRODUCT.md)、[架构](../ARCHITECTURE.md)和 [Canvas 功能与代码地图](CANVAS-CODE-MAP.md)为准。
 
 ## 开发顺序
 
@@ -20,7 +20,7 @@ Windows 支持排在上述产品能力之后，不是前三项的实现依赖。
 
 - 历史 Interaction、原始附件和 Artifact 保持不可变；新能力只追加来源关系、草稿、Branch、Interaction 或发送记录。
 - Conversation 跟随目标 Branch，资源跟随当前 Turn；资源的来源 Branch 不决定发送使用的 Conversation。
-- 资源只能从当前目标节点的上游 Interaction 中选择；第一阶段的上游只由既有父节点链确定，未来分支合并再把明确连接的合并来源及其祖先接入同一上游解析能力。
+- 资源只能从当前目标节点的上游 Interaction 中选择；普通 Composer 沿既有父节点链计算，Merge Composer 还把明确连接的来源及其祖先接入同一上游解析能力，未连接旁支始终不在范围内。
 - 在既有 Branch 上继续时必须继续该 Branch 已有的 Conversation，不因引用上游资源而静默新建 Session。
 - 只有新的执行方向、明确的目标 Agent 变化，或 Adapter 确认原 Conversation 已经失效时，才创建新 Conversation。
 - 浏览器只提交 Canvas 内的稳定引用，不提交服务端文件路径、Runtime 原生标识或可绕过所有者检查的 URI。
@@ -31,14 +31,14 @@ Windows 支持排在上述产品能力之后，不是前三项的实现依赖。
 
 ## 上下文与 Conversation 组织决策
 
-资源引用决定当前 Turn 在其已有上游范围内实际使用哪些材料，Branch 拓扑决定哪些节点属于上游以及结果进入哪条 Runtime Conversation。第一阶段不新增连线能力，也不能直接选择无关分支资源；第二阶段通过明确的分支合并连线扩展上游范围，但资源引用本身仍不会切换 Conversation 或自动带入未选材料。
+资源引用决定当前 Turn 在其已有上游范围内实际使用哪些材料，Branch 拓扑决定哪些节点属于上游以及结果进入哪条 Runtime Conversation。`0.5.0` 的普通 Composer 只沿父链解析；`0.6.0` 通过明确的分支合并连线扩展上游范围，但资源引用本身仍不会切换 Conversation 或自动带入未选材料。
 
 | 操作 | Canvas 结果 | Runtime Conversation |
 |---|---|---|
 | 在当前 Branch 继续，引用既有父链上游资源 | 继续当前 Branch | 继续当前 Conversation |
 | 从历史 Interaction 创建新分支 | 新 Branch | 新 Conversation，通过 Canonical Replay 恢复分叉点上下文 |
 | Adapter 确认原 Session/Thread 失效 | 保留原 Branch | 替换 Conversation，通过 Session Recovery Replay 恢复 |
-| 连接多个来源节点并发送合并草稿 | 新 Merge Branch | 新 Conversation，编译用户明确连接和选定的多来源材料 |
+| 把来源节点连接到 Composer 并发送合并草稿 | 目标 Composer 所属 Branch | Root/Fork 使用新 Conversation；Continue 保持目标 Branch 原 Conversation |
 | 跨 Agent 交接 | 新目标执行方向 | 目标 Agent 的新 Conversation |
 
 一次发送的通用材料与指令按以下四层组织：
@@ -59,11 +59,11 @@ Runtime 原生 Fork 不是资源引用的实现依赖。未来只有在其能够
 
 ## 第一阶段：资源引用
 
-资源引用是 `0.5.0` 的首要开发目标。产品入口使用输入框中的 `@` 选择器，但底层必须是通用的 Canvas 资源引用能力，而不是把显示文本解析成文件路径。第一阶段不新增连线、合并边或多来源拓扑。
+资源引用是 `0.5.0` 的首要开发目标。它的核心目的不是减少上传步骤，而是在用户提示词的准确位置保留资源标记，让 Agent 能把相邻描述或要求与具体附件或 Artifact 对应起来；同一机制也允许直接复用已持久化的上游资源。产品入口使用输入框中的 `@` 选择器，但底层必须是通用的 Canvas 资源引用能力，而不是把显示文本解析成文件路径。第一阶段不新增连线、合并边或多来源拓扑。
 
 ### 用户体验范围
 
-- 用户可以在 Composer 中通过 `@` 选择本次上传的附件，或查找当前节点既有父链上游中已持久化的图片、附件和 Artifact；因此根节点也能在文本指定位置引用本次附件，而无祖先关系的旁支资源不进入候选集合。
+- 用户可以在 Composer 的提示词准确位置通过 `@` 选择本次上传的附件，或查找当前节点既有父链上游中已持久化的图片、附件和 Artifact；资源 Token 明确告诉 Agent 相邻描述或要求所指向的资源。根节点也能引用本次附件，而无祖先关系的旁支资源不进入候选集合。
 - 选择结果在用户文本的原位置显示为可识别、可移除的原子引用 Token，并能够查看名称、资源类型和来源节点。
 - 同一资源可在文本中出现多次但只占一个材料槽位；显式引用和本轮新上传共用最多九个材料槽位。
 - 接受前发送失败可在刷新后恢复原引用，重试后仍保留引用位置；成功发送后，Interaction 能够回显本次显式引用的资源。
@@ -73,7 +73,7 @@ Runtime 原生 Fork 不是资源引用的实现依赖。未来只有在其能够
 ### 领域与服务端范围
 
 1. 定义与 Runtime 无关的结构化用户输入和资源引用契约，区分普通文本、本次 Canvas Attachment Token、上游 Canvas Attachment Token 和 Interaction Artifact Token，并保留 Token 在用户指令中的顺序与位置。
-2. 在应用层提供统一的上游解析能力；第一阶段只沿 `parentInteractionId` 父链计算，目录查询和发送校验必须复用同一结果，未来允许分支合并扩展为多上游遍历。
+2. 在应用层提供统一的上游解析能力；`0.5.0` 先沿 `parentInteractionId` 父链计算，`0.6.0` 再扩展为包含已连接 Merge 来源的多上游遍历，目录查询和发送校验始终复用同一结果。
 3. 在应用层集中解析引用，校验所有者、Canvas、上游范围、资源类型、可用状态、九个材料槽位和稳定标识；Route 只传递已验证的命令。
 4. 将结构化输入和逻辑引用持久化到 Send Reservation，Runtime 接受后再关联最终 Interaction；引用记录保留消费它的 Turn、原始来源、首次出现顺序和可安全展示的名称/MIME/内容哈希快照，使刷新、失败恢复和历史回放结果一致。
 5. 保留 `canvas_attachments` 和 `interaction_artifacts` 作为资源事实来源，不新建一套重复的物理资源库；引用只保存类型化稳定定位和逻辑来源。
@@ -90,13 +90,13 @@ Runtime 原生 Fork 不是资源引用的实现依赖。未来只有在其能够
 3. **Composer 交互**：实现上游资源搜索、文本内 Token 的选择/删除/重复引用、来源展示、九槽位计数和草稿恢复。
 4. **历史呈现与稳健性**：在 Interaction 中按原位置回显引用，覆盖刷新、失败重试、Fork/Session Replay、资源降级、删除 Canvas 和服务重启。
 
-上述四层已在第一阶段落地。领域与 Store 保持 Runtime 无关，应用层统一解析上游和 Capability，Route 只承担请求校验与 DTO，Composer 只维护结构化草稿和 Token 交互；后续分支合并应扩展上游关系输入，不另建平行引用链路。
+上述四层已在第一阶段落地。领域与 Store 保持 Runtime 无关，应用层统一解析上游和 Capability，Route 只承担请求校验与 DTO，Composer 只维护结构化草稿和 Token 交互；第二阶段已通过扩展上游关系输入复用这条链路，没有另建平行引用实现。
 
 ### 当前验证状态
 
 - 自动化测试覆盖结构化输入归一化、重复引用、九槽位、父链/旁支/所有者边界、Store 原子持久化与迁移、HTTP 目录和伪造引用、材料编译、Replay、失败恢复及 Composer 投影。
 - 浏览器实测覆盖根节点 `@` 本次附件、父链 `@` 上游附件、同一资源重复 Token 仍占一个槽位、九项后阻止第十项，以及独立根分支目录为空。
-- OpenClaw 实际派发验证了本次附件和不重新上传文件的上游引用都能到达 Runtime；Codex 的图片输入、Capability 拒绝和统一 Worker 路径由自动化测试与既有 Adapter 契约覆盖。
+- OpenClaw 实际派发验证了本次附件和带稳定文本位置标记的上游引用都能到达 Runtime；Codex 的图片输入、Capability 拒绝和统一 Worker 路径由自动化测试与既有 Adapter 契约覆盖。
 - `@` 菜单的 DOM 结构必须保持候选位于 Lexical 锚点的 `listbox` 内，并以 `option` 暴露选中状态；可见菜单与可访问性树不得使用两套候选来源。
 
 ### 第一阶段验收条件
@@ -118,23 +118,25 @@ Runtime 原生 Fork 不是资源引用的实现依赖。未来只有在其能够
 - 分支合并、节点连线或自动汇总多个分支。
 - 切换、解锁或交接 Canvas 当前绑定的 Agent。
 - 引用外部 URL、其他 Canvas 或其他用户的内容。
-- 引用无父链祖先关系的旁支资源；这类来源必须等到第二阶段通过分支合并建立上游关系。
+- 直接引用无父链祖先关系的旁支资源；这类资源只有在第二阶段通过明确的分支合并连接建立上游关系后才可选择。
 - 根据提示词自动选择、裁剪或总结历史资源。
 - 因引用上游资源而自动带入未选文本、切换来源 Conversation 或创建新 Session。
 - 修改或覆盖被引用的原始附件与 Artifact。
 
-## 第二阶段：分支合并
+## 第二阶段：分支合并（0.6.0 已实现）
 
 分支合并复用资源引用形成的选择、投递和来源表达，在当前 Canvas 已锁定的 Agent 下组合多个方向，不引入跨 Runtime 执行。
 
-- 第一版通过在 Canvas 上连接已完成的 Interaction 或 Branch 头节点来建立合并来源；连线是明确的分支合并操作，不在第一阶段作为通用资源授权能力出现。
-- 连接一个或多个来源后创建可编辑的 Merge Composer，由用户补充结构化指令并明确发送。
-- 发送结果创建在新的 Merge Branch 和新 Runtime Conversation 中；来源 Branch、Interaction 和 Runtime Conversation 保持不变。
+本阶段的 UX、数据关系、发送、恢复与验收设计集中维护在[分支合并设计](BRANCH-MERGING.md)；本文只保留阶段顺序和稳定边界，避免形成两套事实来源。
+
+- 第一版复用 Interaction 右侧现有 Source Handle 作为唯一 Merge 拖线点，并把 Fork 按钮移到它上方；Merge 线只能连接到当前 Canvas 中已经存在的 Composer。连接成功时立即持久化且不能删除、改序、重连或重复创建，不在第一阶段作为通用资源授权能力出现。
+- 一个 Composer 可以逐次接受任意数量、执行状态为 `completed` 的 Interaction 连接，但已经通过普通入边直接连接到该 Composer 的 Interaction 不能重复作为 Merge Source；连接本身不发送，用户仍在目标 Composer 中补充结构化指令并明确发送。连接关系逐条保存且不可删除。
+- Root/Fork 草稿 Composer 的发送结果进入其目标 Branch 和新 Runtime Conversation；Continue Composer 沿目标 Branch 原 Runtime Conversation 继续并加入新来源的增量上下文。来源 Branch、Interaction 和 Runtime Conversation 保持不变。
 - 使用独立的多来源关系持久化连线，不把多个来源压入现有单一 `parentInteractionId`；合并来源及其祖先通过统一上游解析接口进入资源候选范围。
-- Merge Composer 复用第一阶段的 `@` 选择器、文本内资源 Token、九槽位校验、引用持久化和物理去重，不为合并实现第二套资源引用链路。
-- 合并使用同一材料编译流程，按确定顺序包含用户明确连接的来源 Interaction 文本、显式资源引用和当前结构化指令，不尝试把多个原生 Conversation Handle 合并或交给 Adapter。
-- 新 Conversation 的编译输入只包含用户明确选定的来源，不默认加入来源 Branch 中未选定的旁支或后续内容。
-- 合并继续遵守大小、九槽位、去重、所有者和目标 Runtime Capability 约束；在新 Conversation 首轮派发失败时保留可恢复的合并连线、草稿和引用位置。
+- Merge Composer 复用第一阶段的 `@` 选择器、文本内资源 Token、九槽位校验、引用持久化和物理去重，不为合并实现第二套资源引用链路；连接保存成功后，目标 Composer 的资源目录立即扩展到新来源完整路径，已打开的 `@` 菜单必须刷新。
+- 合并使用同一材料编译流程：后端展开每个直接来源从根到该节点的完整路径，以 Interaction ID 去重共享祖先，按持久来源顺序执行稳定拓扑排序，再加入显式资源引用、当前附件和结构化指令；不尝试把多个原生 Conversation Handle 合并或交给 Adapter。
+- 合并增量只包含用户明确连接的来源，不默认加入来源 Branch 中未选定的旁支或后续内容；Root/Fork 在新 Conversation 中发送，Continue 在原 Conversation 中只补充去重后的新增上下文。
+- 合并继续遵守大小、九槽位、去重、所有者和目标 Runtime Capability 约束；在目标 Composer 派发失败时保留可恢复的合并连线、草稿和引用位置。
 - 新 Interaction 必须能够回看全部来源连线和文本内引用；删除或失败处理不能反向改写来源历史。
 
 ## 第三阶段：跨 Agent 交接
@@ -158,4 +160,4 @@ Runtime 原生 Fork 不是资源引用的实现依赖。未来只有在其能够
 - `docs/canvas/CANVAS-CODE-MAP.md`：前后端入口、持久化和测试位置；
 - `CHANGELOG.md`：已完成且用户可见的能力。
 
-测试至少覆盖领域校验、上游范围、结构化输入、九槽位、Store/迁移、HTTP 所有者边界、Send Reservation、投递构建、OpenClaw/Codex/OpenCode Adapter、Graph/SSE、Composer 恢复和现有 Fork/Replay 回归。每一阶段还必须验证 Conversation 决策：资源引用不改变当前 Branch Handle，合并连线扩展上游范围并创建新 Conversation，交接只派发到目标 Agent 的新 Conversation，而失效 Conversation 仍通过已有 Session Recovery Replay 恢复。
+测试至少覆盖领域校验、上游范围、结构化输入、九槽位、Store/迁移、HTTP 所有者边界、Send Reservation、投递构建、OpenClaw/Codex/OpenCode Adapter、Graph/SSE、Composer 恢复和现有 Fork/Replay 回归。每一阶段还必须验证 Conversation 决策：资源引用不改变当前 Branch Handle；合并连线立即扩展上游范围，Root/Fork 使用新 Conversation 而 Continue 保持原 Conversation；交接只派发到目标 Agent 的新 Conversation；失效 Conversation 仍通过已有 Session Recovery Replay 恢复。

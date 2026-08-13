@@ -4,6 +4,7 @@ import type {
   CanvasInputDocument,
   CanvasResourceReferenceSnapshot,
 } from './input-document.js';
+import type { MergeContextSnapshot } from './merge-context.js';
 import {
   buildCanvasReplayPlan,
   canvasReplayResourceIdentity,
@@ -55,6 +56,7 @@ export function compileCanvasTurnMaterials(input: {
   references: CanvasResourceReferenceSnapshot[];
   attachments: CanvasAttachment[];
   replay?: { snapshot: CanvasReplaySnapshot; reason: CanvasReplayReason };
+  merge?: MergeContextSnapshot;
 }): {
   message: string;
   bootstrapResources: CanvasContextResource[];
@@ -84,6 +86,74 @@ export function compileCanvasTurnMaterials(input: {
     return replayRef;
   };
 
+  for (const resource of input.merge?.resources || []) register(resource, true);
+  let logicalCounter = 0;
+  const mergeMessage = input.merge ? (() => {
+    const resourcesByInteraction = new Map<string, CanvasContextResource[]>();
+    for (const resource of input.merge!.resources) {
+      const current = resourcesByInteraction.get(resource.sourceInteractionId) || [];
+      current.push(resource);
+      resourcesByInteraction.set(resource.sourceInteractionId, current);
+    }
+    const interactions = input.merge!.interactions.map((interaction) => {
+      const referenceByKey = new Map((interaction.resourceReferences || []).map((reference) => [
+        reference.key,
+        reference,
+      ]));
+      const referenceLines: string[] = [];
+      const logicalByKey = new Map<string, string>();
+      const user = interaction.inputDocument
+        ? interaction.inputDocument.segments.map((segment) => {
+          if (segment.type === 'text') return escapeCanvasMarkers(segment.text);
+          let logical = logicalByKey.get(segment.key);
+          if (!logical) {
+            logicalCounter += 1;
+            logical = `R${String(logicalCounter).padStart(3, '0')}`;
+            logicalByKey.set(segment.key, logical);
+          }
+          const reference = referenceByKey.get(segment.key);
+          if (reference) {
+            const physical = physicalByIdentity.get(canvasReplayResourceIdentity({
+              id: `merge-reference:${reference.key}`,
+              ...(reference.contentHash ? { contentHash: reference.contentHash } : {}),
+              sourceInteractionId: reference.sourceInteractionId || interaction.id,
+              source: reference.kind === 'canvas_attachment' ? 'user_attachment' : 'agent_artifact',
+              name: reference.name,
+              mimeType: reference.mimeType,
+              sizeBytes: reference.sizeBytes,
+              uri: reference.uri,
+              available: reference.available,
+            }));
+            if (physical?.replayRef) {
+              referenceLines.push(`${logical} -> ${physical.replayRef}--${singleLineName(reference.name)}`);
+            }
+          }
+          return `[[canvas-resource:${logical}]]`;
+        }).join('')
+        : escapeCanvasMarkers(interaction.user);
+      const resources = resourcesByInteraction.get(interaction.id) || [];
+      const attachments = resources.filter((resource) => resource.source === 'user_attachment');
+      const artifacts = resources.filter((resource) => resource.source === 'agent_artifact');
+      const resourceLine = (label: string, values: CanvasContextResource[]) => values.length
+        ? [`${label}: ${values.map((resource) => {
+          const physical = physicalByIdentity.get(canvasReplayResourceIdentity(resource));
+          return `${physical?.replayRef || '?'} — ${singleLineName(resource.name)}`;
+        }).join(', ')}`]
+        : [];
+      return [
+        interaction.marker,
+        `User: ${user}`,
+        ...(referenceLines.length ? [`User resource positions: ${referenceLines.join(', ')}`] : []),
+        ...resourceLine('User attachments', attachments),
+        `Agent: ${interaction.assistant}`,
+        ...resourceLine('Agent artifacts', artifacts),
+      ].join('\n');
+    });
+    const sources = input.merge!.sources.map((source, index) =>
+      `S${String(index + 1).padStart(3, '0')}: ${source.path.map((item) => item.marker).join(' -> ') || '(no additional context)'}`);
+    return `<canvas-merge-context>\nThe user connected these complete immutable Canvas paths. B markers are already resident in the target conversation; C markers are the deduplicated context added now.\n\n${sources.join('\n')}\n\n${interactions.join('\n\n')}\n</canvas-merge-context>`;
+  })() : '';
+
   const references = input.references.map((reference) => ({
     ...reference,
     deliveryRef: register(referenceResource(reference), reference.origin === 'upstream'),
@@ -98,7 +168,8 @@ export function compileCanvasTurnMaterials(input: {
     if (segment.type === 'text') return escapeCanvasMarkers(segment.text);
     let logical = logicalByKey.get(segment.key);
     if (!logical) {
-      logical = `R${String(logicalByKey.size + 1).padStart(3, '0')}`;
+      logicalCounter += 1;
+      logical = `R${String(logicalCounter).padStart(3, '0')}`;
       logicalByKey.set(segment.key, logical);
     }
     return `[[canvas-resource:${logical}]]`;
@@ -120,7 +191,7 @@ export function compileCanvasTurnMaterials(input: {
     ? `<canvas-turn-materials>\n${manifest.join('\n')}\n</canvas-turn-materials>\n<canvas-user-input>\n${rendered}\n</canvas-user-input>`
     : rendered;
   return {
-    message: replay ? `${replay.message.trimEnd()}\n\n${currentMessage}` : currentMessage,
+    message: [replay?.message.trimEnd(), mergeMessage, currentMessage].filter(Boolean).join('\n\n'),
     bootstrapResources,
     references,
     attachments,

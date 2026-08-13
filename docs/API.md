@@ -43,10 +43,13 @@ Layout 节点兼容仅包含 `x/y` 的旧数据。用户缩放后的 `width/heig
 | 方法 | 路径 | 用途 |
 |---|---|---|
 | POST | `/api/canvas/branches/:id/send` | 原子预留并由后端派发 |
-| GET | `/api/canvas/branches/:id/resources` | 查询当前 Branch 父链上游可引用资源 |
+| GET | `/api/canvas/branches/:id/resources` | 查询当前 Composer 的父链与 Merge DAG 上游可引用资源 |
+| PUT | `/api/canvas/branches/:id/merge-sources/:sourceInteractionId` | 把已完成 Interaction 接入当前 Composer 代次 |
 | GET | `/api/canvas/send-operations/:id` | 读取发送状态 |
 | POST | `/api/canvas/send-operations/:id/retry` | 使用相同幂等键立即重试 |
 | POST | `/api/canvas/send-operations/:id/cancel` | 只取消确认尚未发出的 `reserved`/`awaiting_media` 预留 |
+
+`PUT /api/canvas/branches/:id/merge-sources/:sourceInteractionId` 只接受已完成且属于同一所有者、同一 Canvas 的 Interaction。若该 Interaction 已经是目标 Composer 普通入边的直接来源，接口返回 `409 { "error": "redundant_merge_source" }`；该校验同时覆盖 Continue Composer 的当前 Head 与 Fork Composer 的 `forkedFromInteractionId`，不能通过旧客户端或直接请求绕过。
 
 节点原样重新提交请求只接受当前 Canvas Agent，用于检测并发页面中的 Agent 变化：
 
@@ -62,7 +65,7 @@ Layout 节点兼容仅包含 `x/y` 的旧数据。用户缩放后的 `width/heig
 即时接受返回 `201 { interaction }`，排队或结果不确定返回 `202 { operation }`，明确拒绝返回包含 operation 的
 `422`/`503`。
 
-发送请求使用结构化 `inputDocument` 保留资源 Token 在文本中的位置；`attachmentIds` 包含本轮全部上传附件，附件即使没有 Token 也会随本轮投递：
+发送请求使用结构化 `inputDocument` 保留资源 Token 在文本中的位置，使编译后的提示词能够明确表达相邻描述或要求所指向的资源；`attachmentIds` 包含本轮全部上传附件，附件即使没有 Token 也会随本轮投递：
 
 ```json
 {
@@ -89,20 +92,23 @@ Layout 节点兼容仅包含 `x/y` 的旧数据。用户缩放后的 `width/heig
 
 上游引用使用 `origin: "upstream"`，并提交目录返回的 `kind`、`sourceInteractionId` 和 `resourceId`。同一个引用 key 可以在多个 segment 中重复出现而只占一个材料槽位；本轮附件与不同上游引用合计最多九项。兼容客户端仍可提交纯文本 `userInput`，但 `userInput` 与 `inputDocument` 必须且只能提供一个。
 
-服务端不接受附件路径或可变元数据，并重新解析所有引用的所有者、Canvas、父链范围和 Runtime Capability。即时接受返回 `201 { interaction }`；已排队或结果不确定返回 `202 { operation }`；头节点、Agent 或并发冲突返回 `409`；附件/引用缺失、越界或九槽位超限返回 `422`；所选 Runtime 不支持必需输入返回 `503`。首次成功写入 Send Reservation 时 Canvas 的 `agentMutable` 变为 `false`，即使派发随后失败也不会解锁。
+服务端不接受附件路径或可变元数据，并重新解析所有引用的所有者、Canvas、父链/Merge DAG 范围和 Runtime Capability。即时接受返回 `201 { interaction }`；已排队或结果不确定返回 `202 { operation }`；头节点、Agent 或并发冲突返回 `409`；附件/引用缺失、越界或九槽位超限返回 `422`；所选 Runtime 不支持必需输入返回 `503`。首次成功写入 Send Reservation 时 Canvas 的 `agentMutable` 变为 `false`，即使派发随后失败也不会解锁。
 
 公开的 Interaction 和 Send Operation 返回规范化 `inputDocument` 及安全的 `resourceReferences`（名称、MIME、大小、来源 Interaction、读取 URI、可用性和安全栅格缩略图）；旧文本记录投影为仅含文本 segment 的 v1 文档。内部 `outgoingMessage`、完整历史资源清单、
 内容哈希和媒体派生信息不返回浏览器。`awaiting_media` 表示后端正在生成或读取发送所需的大图派生文件，
 浏览器无需上传压缩副本；服务重启后协调器会从该状态恢复。
 
-资源目录支持 `q`、`kind=all|image|file`、数字 `cursor` 和 `limit`（最大 100），返回 `{ items, nextCursor? }`。根 Branch 没有上游，因此目录为空，但 Composer 仍可直接 `@` 本次附件；目录只列父链上游，不包含旁支。候选项带 `selectable` 和可选 `unavailableReason`，客户端显示禁用状态，发送端仍会再次校验。
+资源目录支持 `q`、`kind=all|image|file`、数字 `cursor` 和 `limit`（最大 100），返回 `{ items, nextCursor? }`。未接入来源的根 Branch 没有历史上游，但 Composer 仍可直接 `@` 本次附件；目录只列父链与当前代次明确接入的完整 Merge 路径，不包含无关旁支。候选项带 `selectable` 和可选 `unavailableReason`，客户端显示禁用状态，发送端仍会再次校验。
+
+创建 Merge 来源的请求体为 `{ "expectedHeadInteractionId": string | null }`：草稿 Root/Fork 使用 `null`，Continue 使用当前 Branch 头节点。来源必须属于同一所有者和 Canvas 且 `executionState = completed`；目标必须仍投影为该代次 Composer，且不能已有进行中的 Send Reservation。首次创建返回 `201 { mergeSource, created: true }`，重复提交同一关系幂等返回 `200 { mergeSource, created: false }`。接口不提供删除、改序或重连操作。
+
+`mergeSource` 包含 `id`、`targetBranchId`、`expectedHeadInteractionId`、`sourceInteractionId`、`targetInteractionId`、`ordinal` 和 `createdAt`。发送接受前 `targetInteractionId` 为 `null`；Runtime 接受并创建 Interaction 后指向该 Interaction。Graph 返回 `mergeSources` 全量快照，增量同步返回 `mergeSources` upsert 和 `removed.mergeSourceIds`；前端由此纯投影不可删除的 Merge 边与来源列表。
 
 Fork 和 Session 恢复使用同一完整 Replay Package。历史逻辑引用不会按当前指令裁剪；内容相同的历史文件
 只物理投递一次，已生成的大图投递派生文件可在同一 Canvas 的后续重放中复用。完整载荷超过 Gateway
 `maxPayload` 时，初始发送返回 `422` 且 operation 的错误为 `replay_payload_too_large`，不会只发送部分历史。
 
-Graph 响应额外包含持久化 `cursor`、`hasPendingUpdates` 和通用 `failedSends`。`failedSends` 只包含每个仍为
-draft 的 Branch 最新一次失败 Send Operation，用于刷新后恢复普通 Composer 的原文本、持久附件和错误；
+Graph 响应额外包含持久化 `cursor`、`hasPendingUpdates`、`mergeSources` 和通用 `failedSends`。`failedSends` 只包含每个仍有同一代次 Composer 的 Branch 最新一次失败 Send Operation，用于刷新后恢复普通或 Merge Composer 的原文本、持久附件和错误；Merge 来源由同一 Graph 的 `mergeSources` 恢复，冻结 Merge Context Snapshot 仅保存在服务端预留中，不向浏览器暴露编译正文；
 它不表示后台仍在工作。Branch 的 `creationMode` 为 `composer | direct-submit`，只区分手动草稿和创建后立即
 发送的通用方式，不记录“重试来源”。
 

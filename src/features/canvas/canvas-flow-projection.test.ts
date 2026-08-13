@@ -24,6 +24,8 @@ function interaction(
     approvals: [],
     executionMetadata: {},
     contextSnapshot: null,
+    inputDocument: { version: 1, segments: [{ type: 'text', text: id }] },
+    resourceReferences: [],
     createdAt: 1,
     updatedAt: 2,
   };
@@ -43,10 +45,14 @@ function project(graph: CanvasGraph) {
       createBranch: 'Create branch',
       newSession: 'New session',
       continueBranch: 'Continue',
+      mergeSourceLabel: (index) => `Source ${index}`,
     },
     onAdd: vi.fn(),
     onResubmit: vi.fn(),
-    onTextChange: vi.fn(),
+    onApprovalChanged: vi.fn(),
+    onNavigateMergeSource: vi.fn(),
+    onOpenMergeTargets: vi.fn(),
+    onDocumentChange: vi.fn(),
     onFiles: vi.fn(),
     onRemoveFile: vi.fn(),
     onRemovePersistedAttachment: vi.fn(),
@@ -138,6 +144,15 @@ describe('Canvas flow projection', () => {
         updatedAt: 3,
       }],
       failedSends: [],
+      mergeSources: [{
+        id: 'merge-1',
+        targetBranchId: 'branch-root',
+        expectedHeadInteractionId: 'interaction-2',
+        sourceInteractionId: 'interaction-1',
+        targetInteractionId: null,
+        ordinal: 0,
+        createdAt: 4,
+      }],
       hasPendingUpdates: false,
     };
     const result = project(graph);
@@ -158,6 +173,15 @@ describe('Canvas flow projection', () => {
         source: 'interaction-2',
         target: 'composer:branch-root:interaction-2',
       }),
+      expect.objectContaining({
+        id: 'merge-edge-merge-1',
+        source: 'interaction-1',
+        sourceHandle: 'merge-source',
+        target: 'composer:branch-root:interaction-2',
+        targetHandle: 'merge-target',
+        deletable: false,
+        style: { strokeWidth: 2 },
+      }),
     ]));
     expect(result.edges.every((edge) => edge.animated !== true)).toBe(true);
     expect(result.nodes.find((node) => node.id === 'composer:branch-direct:interaction-1'))
@@ -169,6 +193,65 @@ describe('Canvas flow projection', () => {
           },
         },
       });
+  });
+
+  it('keeps an accepted merge edge visible on the generated Interaction target', () => {
+    const source = interaction('interaction-source', null);
+    const target = interaction('interaction-target', null);
+    const graph: CanvasGraph = {
+      cursor: 2,
+      canvas: {
+        id: 'canvas-1',
+        name: 'Canvas',
+        agentRef: { runtimeId: 'openclaw', profileId: 'main' },
+        agentMutable: false,
+        createdAt: 1,
+        updatedAt: 2,
+      },
+      branches: [{
+        id: 'branch-root',
+        canvasId: 'canvas-1',
+        kind: 'root',
+        parentBranchId: null,
+        forkedFromInteractionId: null,
+        conversationId: 'root-session',
+        conversationInstanceId: 'session-1',
+        observedConversationInstanceId: 'session-1',
+        conversationIntegrity: 'healthy',
+        conversationState: 'active',
+        creationMode: 'composer',
+        headInteractionId: target.id,
+        createdAt: 1,
+        updatedAt: 2,
+      }],
+      interactions: [source, target],
+      layout: null,
+      pendingSends: [],
+      failedSends: [],
+      mergeSources: [{
+        id: 'merge-accepted',
+        targetBranchId: 'branch-root',
+        expectedHeadInteractionId: null,
+        sourceInteractionId: source.id,
+        targetInteractionId: target.id,
+        ordinal: 0,
+        createdAt: 2,
+      }],
+      hasPendingUpdates: false,
+    };
+
+    const result = project(graph);
+    const mergeEdge = result.edges.find((edge) => edge.id === 'merge-edge-merge-accepted');
+
+    expect(mergeEdge).toMatchObject({
+      source: source.id,
+      sourceHandle: 'merge-source',
+      target: target.id,
+      style: { strokeWidth: 2 },
+      deletable: false,
+    });
+    expect(mergeEdge?.targetHandle).toBeUndefined();
+    expect(mergeEdge?.style).not.toHaveProperty('strokeDasharray');
   });
 
   it('opens Fork on the previous head as soon as an accepted continuation becomes the new head', () => {
@@ -220,6 +303,7 @@ describe('Canvas flow projection', () => {
       },
       pendingSends: [],
       failedSends: [],
+      mergeSources: [],
       hasPendingUpdates: true,
     };
 

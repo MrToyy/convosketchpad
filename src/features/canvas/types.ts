@@ -193,6 +193,16 @@ export interface CanvasInteraction {
   updatedAt: number;
 }
 
+export interface CanvasMergeSource {
+  id: string;
+  targetBranchId: string;
+  expectedHeadInteractionId: string | null;
+  sourceInteractionId: string;
+  targetInteractionId: string | null;
+  ordinal: number;
+  createdAt: number;
+}
+
 export interface CanvasLayoutNode {
   x: number;
   y: number;
@@ -214,6 +224,7 @@ export interface CanvasGraph {
   layout: CanvasLayout | null;
   pendingSends: SendReservation[];
   failedSends: SendReservation[];
+  mergeSources: CanvasMergeSource[];
 }
 
 export interface CanvasSyncBatch {
@@ -222,10 +233,12 @@ export interface CanvasSyncBatch {
   branches: CanvasBranch[];
   interactions: CanvasInteraction[];
   sendOperations: SendReservation[];
+  mergeSources: CanvasMergeSource[];
   removed: {
     branchIds: string[];
     interactionIds: string[];
     sendOperationIds: string[];
+    mergeSourceIds: string[];
   };
 }
 

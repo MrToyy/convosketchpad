@@ -38,11 +38,16 @@ import type {
   InteractionExecutionState,
   InteractionRecord,
   InteractionStatus,
+  MergeSourceRecord,
   OwnedInteractionApprovalResolution,
   OwnedInteractionRecord,
   SendReservation,
   StoredRuntimeEvent,
 } from '../model.js';
+import type {
+  MergeContextInteraction,
+  MergeContextSnapshot,
+} from '../domain/merge-context.js';
 import {
   decideCanvasSendPlan,
   type CanonicalCanvasSnapshot,
@@ -66,6 +71,7 @@ import {
   ensureGenericAgentRuntimeSchema,
 } from './agent-runtime-schema.js';
 import { ensureResourceReferenceSchema } from './resource-reference-schema.js';
+import { ensureBranchMergingSchema } from './branch-merging-schema.js';
 
 type SqlRow = Record<string, unknown>;
 
@@ -161,6 +167,18 @@ function mapBranch(row: SqlRow): BranchRecord {
     headInteractionId: asNullableString(row.head_interaction_id),
     createdAt: asNumber(row.created_at),
     updatedAt: asNumber(row.updated_at),
+  };
+}
+
+function mapMergeSource(row: SqlRow): MergeSourceRecord {
+  return {
+    id: asString(row.id),
+    targetBranchId: asString(row.target_branch_id),
+    expectedHeadInteractionId: asNullableString(row.expected_head_interaction_id),
+    sourceInteractionId: asString(row.source_interaction_id),
+    targetInteractionId: asNullableString(row.target_interaction_id),
+    ordinal: asNumber(row.ordinal),
+    createdAt: asNumber(row.created_at),
   };
 }
 
@@ -267,6 +285,7 @@ export class CanvasStore {
     const existingCanvasColumns = this.db.prepare('PRAGMA table_info(canvases)').all() as SqlRow[];
     if (existingCanvasColumns.length === 0) {
       createCurrentCanvasSchema(this.db, packageMetadata.version);
+      ensureBranchMergingSchema(this.db, packageMetadata.version);
       return;
     }
     if (
@@ -274,6 +293,7 @@ export class CanvasStore {
     ) {
       ensureGenericAgentRuntimeSchema(this.db, packageMetadata.version);
       ensureResourceReferenceSchema(this.db, packageMetadata.version);
+      ensureBranchMergingSchema(this.db, packageMetadata.version);
       return;
     }
     this.db.exec(`
@@ -615,6 +635,7 @@ export class CanvasStore {
     `);
     ensureGenericAgentRuntimeSchema(this.db, packageMetadata.version);
     ensureResourceReferenceSchema(this.db, packageMetadata.version);
+    ensureBranchMergingSchema(this.db, packageMetadata.version);
   }
 
   transaction<T>(fn: () => T): T {
@@ -954,6 +975,115 @@ export class CanvasStore {
     return row ? mapBranch(row) : null;
   }
 
+  createMergeSource(
+    ownerId: string,
+    targetBranchId: string,
+    expectedHeadInteractionId: string | null,
+    sourceInteractionId: string,
+  ): { mergeSource: MergeSourceRecord; created: boolean; canvasId: string } {
+    return this.transaction(() => {
+      const branchRow = this.db.prepare(`SELECT b.*, c.owner_id
+        FROM branches b JOIN canvases c ON c.id = b.canvas_id
+        WHERE b.id = ? AND c.owner_id = ?`).get(targetBranchId, ownerId) as SqlRow | undefined;
+      if (!branchRow) throw new Error('not_found');
+      const canvasId = asString(branchRow.canvas_id);
+      const currentHead = asNullableString(branchRow.head_interaction_id);
+      const conversationState = asString(branchRow.conversation_state);
+      if (
+        (conversationState === 'draft' && (currentHead !== null || expectedHeadInteractionId !== null))
+        || (conversationState === 'active' && currentHead !== expectedHeadInteractionId)
+      ) throw new Error('invalid_branch_transition');
+      if (conversationState === 'active') {
+        const head = this.db.prepare(`SELECT execution_state FROM interactions
+          WHERE id = ? AND branch_id = ?`).get(currentHead, targetBranchId) as SqlRow | undefined;
+        if (!head || asString(head.execution_state) !== 'completed') {
+          throw new Error('invalid_branch_transition');
+        }
+      }
+      const prepared = this.db.prepare(`SELECT 1 FROM send_reservations
+        WHERE branch_id = ? AND status = 'prepared'`).get(targetBranchId);
+      if (prepared) throw new Error('send_in_progress');
+
+      const source = this.db.prepare(`SELECT i.*, b.canvas_id
+        FROM interactions i JOIN branches b ON b.id = i.branch_id
+        JOIN canvases c ON c.id = b.canvas_id
+        WHERE i.id = ? AND c.owner_id = ?`).get(sourceInteractionId, ownerId) as SqlRow | undefined;
+      if (!source || asString(source.canvas_id) !== canvasId) throw new Error('not_found');
+      if (asString(source.execution_state) !== 'completed') throw new Error('interaction_not_completed');
+      const incomingInteractionId = conversationState === 'draft'
+        ? asNullableString(branchRow.forked_from_interaction_id)
+        : currentHead;
+      if (incomingInteractionId === sourceInteractionId) {
+        throw new Error('redundant_merge_source');
+      }
+
+      const generationPredicate = expectedHeadInteractionId === null
+        ? 'expected_head_interaction_id IS NULL'
+        : 'expected_head_interaction_id = ?';
+      const generationArgs = expectedHeadInteractionId === null
+        ? [targetBranchId]
+        : [targetBranchId, expectedHeadInteractionId];
+      const existing = this.db.prepare(`SELECT s.*,
+          (SELECT t.interaction_id FROM turn_merge_sources t
+            WHERE t.composer_merge_source_id = s.id AND t.interaction_id IS NOT NULL
+            ORDER BY t.created_at LIMIT 1) AS target_interaction_id
+        FROM composer_merge_sources s
+        WHERE s.target_branch_id = ? AND ${generationPredicate}
+          AND s.source_interaction_id = ?`)
+        .get(...generationArgs, sourceInteractionId) as SqlRow | undefined;
+      if (existing) return { mergeSource: mapMergeSource(existing), created: false, canvasId };
+
+      const ordinalRow = this.db.prepare(`SELECT COALESCE(MAX(ordinal), -1) + 1 AS ordinal
+        FROM composer_merge_sources
+        WHERE target_branch_id = ? AND ${generationPredicate}`)
+        .get(...generationArgs) as SqlRow;
+      const id = randomUUID();
+      const createdAt = Date.now();
+      this.db.prepare(`INSERT INTO composer_merge_sources
+        (id, target_branch_id, expected_head_interaction_id, source_interaction_id, ordinal, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)`)
+        .run(id, targetBranchId, expectedHeadInteractionId, sourceInteractionId, asNumber(ordinalRow.ordinal), createdAt);
+      const row = this.db.prepare(`SELECT s.*, NULL AS target_interaction_id
+        FROM composer_merge_sources s WHERE id = ?`).get(id) as SqlRow;
+      return { mergeSource: mapMergeSource(row), created: true, canvasId };
+    });
+  }
+
+  listMergeSourcesForGeneration(
+    ownerId: string,
+    targetBranchId: string,
+    expectedHeadInteractionId: string | null,
+  ): MergeSourceRecord[] {
+    const predicate = expectedHeadInteractionId === null
+      ? 's.expected_head_interaction_id IS NULL'
+      : 's.expected_head_interaction_id = ?';
+    const args = expectedHeadInteractionId === null
+      ? [targetBranchId, ownerId]
+      : [targetBranchId, expectedHeadInteractionId, ownerId];
+    return (this.db.prepare(`SELECT s.*,
+        (SELECT t.interaction_id FROM turn_merge_sources t
+          WHERE t.composer_merge_source_id = s.id AND t.interaction_id IS NOT NULL
+          ORDER BY t.created_at LIMIT 1) AS target_interaction_id
+      FROM composer_merge_sources s
+      JOIN branches b ON b.id = s.target_branch_id
+      JOIN canvases c ON c.id = b.canvas_id
+      WHERE s.target_branch_id = ? AND ${predicate} AND c.owner_id = ?
+      ORDER BY s.ordinal`).all(...args) as SqlRow[]).map(mapMergeSource);
+  }
+
+  getInteractionMergeContextSnapshot(interactionId: string): MergeContextSnapshot | null {
+    const row = this.db.prepare(`SELECT merge_context_snapshot_json FROM send_reservations
+      WHERE interaction_id = ? AND status = 'acknowledged'
+      ORDER BY created_at DESC LIMIT 1`).get(interactionId) as SqlRow | undefined;
+    return row ? parseJson<MergeContextSnapshot | null>(row.merge_context_snapshot_json, null) : null;
+  }
+
+  listAcceptedMergeSourceInteractionIds(interactionId: string): string[] {
+    return (this.db.prepare(`SELECT source_interaction_id FROM turn_merge_sources
+      WHERE interaction_id = ? ORDER BY ordinal`).all(interactionId) as SqlRow[])
+      .map((row) => asString(row.source_interaction_id));
+  }
+
   getOwnedBranchConversationLifecycle(ownerId: string, branchId: string): BranchConversationLifecycle | null {
     const row = this.db.prepare(`SELECT
         b.conversation_started_at,
@@ -1112,9 +1242,9 @@ export class CanvasStore {
   private buildCanonicalSnapshot(interactionId: string): CanonicalCanvasSnapshot {
     const rows: SqlRow[] = [];
     let cursor: string | null = interactionId;
-    const seen = new Set<string>();
-    while (cursor && !seen.has(cursor)) {
-      seen.add(cursor);
+    const chainSeen = new Set<string>();
+    while (cursor && !chainSeen.has(cursor)) {
+      chainSeen.add(cursor);
       const row = this.db.prepare('SELECT * FROM interactions WHERE id = ?').get(cursor) as SqlRow | undefined;
       if (!row) break;
       rows.push(row);
@@ -1122,9 +1252,28 @@ export class CanvasStore {
     }
     rows.reverse();
 
-    return assembleCanonicalCanvasSnapshot(rows.map((row) => {
+    const seen = new Set<string>();
+    const nestedResources: CanvasContextResource[] = [];
+    const history = rows.flatMap((row) => {
       const id = asString(row.id);
-      return {
+      const nested = this.getInteractionMergeContextSnapshot(id);
+      const additions = (nested?.interactions || []).flatMap((interaction) => {
+        if (seen.has(interaction.id)) return [];
+        seen.add(interaction.id);
+        return [{
+          id: interaction.id,
+          user: interaction.user,
+          assistant: interaction.assistant,
+          attachments: [],
+          artifacts: [],
+          inputDocument: interaction.inputDocument,
+          resourceReferences: interaction.resourceReferences,
+        }];
+      });
+      if (nested) nestedResources.push(...nested.resources);
+      if (seen.has(id)) return additions;
+      seen.add(id);
+      return [...additions, {
         id,
         user: asString(row.user_input),
         assistant: asString(row.agent_output),
@@ -1135,8 +1284,170 @@ export class CanvasStore {
           textInputDocument(asString(row.user_input)),
         ),
         resourceReferences: this.listTurnResourceReferences('interaction_id', id),
+      }];
+    });
+    const snapshot = assembleCanonicalCanvasSnapshot(history);
+    return { ...snapshot, resources: [...nestedResources, ...snapshot.resources] };
+  }
+
+  private buildMergeContextSnapshot(
+    ownerId: string,
+    branch: BranchRecord,
+    expectedHeadInteractionId: string | null,
+    base: CanonicalCanvasSnapshot,
+  ): MergeContextSnapshot | undefined {
+    const sources = this.listMergeSourcesForGeneration(
+      ownerId,
+      branch.id,
+      expectedHeadInteractionId,
+    );
+    if (sources.length === 0) return undefined;
+
+    type Node = {
+      interaction: InteractionRecord;
+      predecessors: Set<string>;
+    };
+    const nodes = new Map<string, Node>();
+    const closureMemo = new Map<string, Set<string>>();
+    const visiting = new Set<string>();
+    const closure = (interactionId: string): Set<string> => {
+      const memo = closureMemo.get(interactionId);
+      if (memo) return new Set(memo);
+      if (visiting.has(interactionId)) throw new Error('invalid_upstream_graph');
+      visiting.add(interactionId);
+      const interaction = this.getOwnedInteraction(ownerId, interactionId);
+      if (!interaction || interaction.canvasId !== branch.canvasId) {
+        throw new Error('invalid_upstream_graph');
+      }
+      const predecessors = new Set<string>();
+      const result = new Set<string>();
+      if (interaction.parentInteractionId) {
+        closure(interaction.parentInteractionId).forEach((id) => result.add(id));
+        predecessors.add(interaction.parentInteractionId);
+      }
+      const nestedRows = this.db.prepare(`SELECT source_interaction_id
+        FROM turn_merge_sources WHERE interaction_id = ? ORDER BY ordinal`)
+        .all(interactionId) as SqlRow[];
+      for (const row of nestedRows) {
+        const nestedSourceId = asString(row.source_interaction_id);
+        closure(nestedSourceId).forEach((id) => result.add(id));
+        predecessors.add(nestedSourceId);
+      }
+      result.add(interactionId);
+      nodes.set(interactionId, { interaction, predecessors });
+      visiting.delete(interactionId);
+      closureMemo.set(interactionId, result);
+      return new Set(result);
+    };
+
+    const sourceClosures = sources.map((source) => closure(source.sourceInteractionId));
+    const included = new Set(sourceClosures.flatMap((items) => [...items]));
+    const successors = new Map<string, Set<string>>();
+    const indegree = new Map<string, number>();
+    for (const id of included) {
+      indegree.set(id, 0);
+      successors.set(id, new Set());
+    }
+    for (const id of included) {
+      for (const predecessor of nodes.get(id)?.predecessors || []) {
+        if (!included.has(predecessor)) continue;
+        successors.get(predecessor)!.add(id);
+        indegree.set(id, (indegree.get(id) || 0) + 1);
+      }
+    }
+    const minSourceOrdinal = (id: string) => {
+      const ordinals = sourceClosures.flatMap((items, index) => items.has(id) ? [sources[index].ordinal] : []);
+      return Math.min(...ordinals);
+    };
+    const depths = new Map<string, number>();
+    const depth = (id: string): number => {
+      const existing = depths.get(id);
+      if (existing !== undefined) return existing;
+      const predecessors = [...(nodes.get(id)?.predecessors || [])].filter((item) => included.has(item));
+      const value = predecessors.length ? Math.max(...predecessors.map(depth)) + 1 : 0;
+      depths.set(id, value);
+      return value;
+    };
+    const compare = (left: string, right: string) => {
+      const leftInteraction = nodes.get(left)!.interaction;
+      const rightInteraction = nodes.get(right)!.interaction;
+      return minSourceOrdinal(left) - minSourceOrdinal(right)
+        || depth(left) - depth(right)
+        || leftInteraction.createdAt - rightInteraction.createdAt
+        || left.localeCompare(right);
+    };
+    const ready = [...included].filter((id) => indegree.get(id) === 0).sort(compare);
+    const ordered: string[] = [];
+    while (ready.length) {
+      const id = ready.shift()!;
+      ordered.push(id);
+      for (const successor of successors.get(id) || []) {
+        const next = (indegree.get(successor) || 0) - 1;
+        indegree.set(successor, next);
+        if (next === 0) {
+          ready.push(successor);
+          ready.sort(compare);
+        }
+      }
+    }
+    if (ordered.length !== included.size) throw new Error('invalid_upstream_graph');
+
+    const baseMarkerById = new Map(base.interactions.map((item, index) => [
+      item.id,
+      `B${String(index + 1).padStart(3, '0')}`,
+    ]));
+    const newIds = ordered.filter((id) => !baseMarkerById.has(id));
+    const contextMarkerById = new Map(newIds.map((id, index) => [
+      id,
+      `C${String(index + 1).padStart(3, '0')}`,
+    ]));
+    const contextEntries = newIds.map((id) => {
+      const interaction = nodes.get(id)!.interaction;
+      return {
+        id,
+        user: interaction.userInput,
+        assistant: interaction.agentOutput,
+        attachments: interaction.attachments,
+        artifacts: interaction.artifacts,
+        inputDocument: interaction.inputDocument,
+        resourceReferences: interaction.resourceReferences,
       };
-    }));
+    });
+    const contextSnapshot = assembleCanonicalCanvasSnapshot(contextEntries);
+    const interactions: Array<MergeContextInteraction & { marker: string }> = newIds.map((id) => {
+      const interaction = nodes.get(id)!.interaction;
+      return {
+        id,
+        branchId: interaction.branchId,
+        createdAt: interaction.createdAt,
+        user: interaction.userInput,
+        assistant: interaction.agentOutput,
+        inputDocument: interaction.inputDocument,
+        resourceReferences: interaction.resourceReferences,
+        marker: contextMarkerById.get(id)!,
+      };
+    });
+    return {
+      version: 1,
+      sources: sources.map((source, index) => {
+        const interaction = nodes.get(source.sourceInteractionId)!.interaction;
+        return {
+          mergeSourceId: source.id,
+          sourceInteractionId: source.sourceInteractionId,
+          sourceBranchId: interaction.branchId,
+          sourceCreatedAt: interaction.createdAt,
+          sourceUserInput: interaction.userInput.slice(0, 500),
+          ordinal: source.ordinal,
+          path: ordered.flatMap((id) => {
+            if (!sourceClosures[index].has(id)) return [];
+            const marker = baseMarkerById.get(id) || contextMarkerById.get(id);
+            return marker ? [{ interactionId: id, marker, resident: baseMarkerById.has(id) }] : [];
+          }),
+        };
+      }),
+      interactions,
+      resources: contextSnapshot.resources,
+    };
   }
 
   prepareSend(ownerId: string, input: {
@@ -1263,6 +1574,7 @@ export class CanvasStore {
     const resourceReferences = input.resourceReferences || [];
     const expectedHead = decision.expectedHeadInteractionId;
     let replay: Parameters<typeof compileCanvasTurnMaterials>[0]['replay'];
+    let baseSnapshot: CanonicalCanvasSnapshot = { version: 3, interactions: [], resources: [] };
     if (decision.replayReason === 'canonical-replay') {
       const row = this.db.prepare('SELECT snapshot_json FROM branches WHERE id = ?').get(branch.id) as SqlRow;
       const snapshot = parseJson<CanonicalCanvasSnapshot>(row.snapshot_json, {
@@ -1270,16 +1582,27 @@ export class CanvasStore {
         interactions: [],
         resources: [],
       });
+      baseSnapshot = snapshot;
       replay = { snapshot, reason: 'canonical-replay' };
     } else if (decision.replayReason === 'session-recovery' && branch.headInteractionId) {
       const snapshot = this.buildCanonicalSnapshot(branch.headInteractionId);
+      baseSnapshot = snapshot;
       replay = { snapshot, reason: 'session-recovery' };
+    } else if (materialization === 'continue-existing' && branch.headInteractionId) {
+      baseSnapshot = this.buildCanonicalSnapshot(branch.headInteractionId);
     }
+    const mergeContextSnapshot = this.buildMergeContextSnapshot(
+      ownerId,
+      branch,
+      expectedHead,
+      baseSnapshot,
+    );
     const compiled = compileCanvasTurnMaterials({
       document: inputDocument,
       references: resourceReferences,
       attachments: input.attachments,
       ...(replay ? { replay } : {}),
+      ...(mergeContextSnapshot ? { merge: mergeContextSnapshot } : {}),
     });
     const outgoingMessage = compiled.message;
     const bootstrapResources = compiled.bootstrapResources;
@@ -1289,9 +1612,9 @@ export class CanvasStore {
     this.db.prepare(`INSERT INTO send_reservations
       (id, branch_id, expected_head_interaction_id, user_input, input_document_json, attachments_json,
         materialization, conversation_id, runtime_id, conversation_ref_json,
-        outgoing_message, bootstrap_resources_json,
+        outgoing_message, bootstrap_resources_json, merge_context_snapshot_json,
         status, dispatch_state, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'prepared', 'reserved', ?, ?)`)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'prepared', 'reserved', ?, ?)`)
       .run(
         id,
         branch.id,
@@ -1305,9 +1628,23 @@ export class CanvasStore {
         JSON.stringify(runtimeContext.conversationRef),
         outgoingMessage,
         JSON.stringify(bootstrapResources),
+        mergeContextSnapshot ? JSON.stringify(mergeContextSnapshot) : null,
         now,
         now,
       );
+    if (mergeContextSnapshot) {
+      const insertMergeSource = this.db.prepare(`INSERT INTO turn_merge_sources
+        (id, send_reservation_id, composer_merge_source_id, source_interaction_id, ordinal,
+          source_branch_id_snapshot, source_created_at_snapshot, source_user_input_snapshot,
+          created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+      for (const source of mergeContextSnapshot.sources) {
+        insertMergeSource.run(
+          randomUUID(), id, source.mergeSourceId, source.sourceInteractionId, source.ordinal,
+          source.sourceBranchId, source.sourceCreatedAt, source.sourceUserInput, now, now,
+        );
+      }
+    }
     const insertReference = this.db.prepare(`INSERT INTO turn_resource_references
       (id, send_reservation_id, reference_key, origin, resource_kind,
         source_interaction_id, resource_id, ordinal, name_snapshot, mime_type_snapshot,
@@ -1348,6 +1685,10 @@ export class CanvasStore {
       outgoingMessage: asString(row.outgoing_message),
       snapshotVersion: ['canonical-replay', 'session-recovery'].includes(asString(row.materialization)) ? 3 : undefined,
       bootstrapResources,
+      mergeContextSnapshot: parseJson<MergeContextSnapshot | undefined>(
+        row.merge_context_snapshot_json,
+        undefined,
+      ),
       status: asString(row.status) as SendReservation['status'],
       dispatchState: (asString(row.dispatch_state) || 'reserved') as SendDispatchState,
       attemptCount: asNumber(row.attempt_count),
@@ -1534,6 +1875,10 @@ export class CanvasStore {
           updated_at = ?
         WHERE send_reservation_id = ?`)
         .run(id, id, now, reservationId);
+      this.db.prepare(`UPDATE turn_merge_sources
+        SET interaction_id = ?, updated_at = ?
+        WHERE send_reservation_id = ?`)
+        .run(id, now, reservationId);
       this.db.prepare(`UPDATE branches SET conversation_state = 'active', head_interaction_id = ?,
         conversation_instance_id = CASE WHEN ? = 'session-recovery' THEN observed_conversation_instance_id ELSE conversation_instance_id END,
         conversation_started_at = CASE WHEN ? = 'session-recovery'
@@ -1981,10 +2326,12 @@ export class CanvasStore {
     const branches: BranchRecord[] = [];
     const interactions: InteractionRecord[] = [];
     const sendOperations: SendReservation[] = [];
+    const mergeSources: MergeSourceRecord[] = [];
     const removed = {
       branchIds: [] as string[],
       interactionIds: [] as string[],
       sendOperationIds: [] as string[],
+      mergeSourceIds: [] as string[],
     };
     let includeCanvas = false;
     for (const change of latest.values()) {
@@ -2010,6 +2357,18 @@ export class CanvasStore {
         const operation = row ? this.getReservation(id) : null;
         if (operation) sendOperations.push(operation);
         else removed.sendOperationIds.push(id);
+      } else if (type === 'merge_source') {
+        const row = this.db.prepare(`SELECT s.*,
+            (SELECT t.interaction_id FROM turn_merge_sources t
+              WHERE t.composer_merge_source_id = s.id AND t.interaction_id IS NOT NULL
+              ORDER BY t.created_at LIMIT 1) AS target_interaction_id
+          FROM composer_merge_sources s
+          JOIN branches b ON b.id = s.target_branch_id
+          JOIN canvases c ON c.id = b.canvas_id
+          WHERE s.id = ? AND b.canvas_id = ? AND c.owner_id = ?`)
+          .get(id, canvasId, ownerId) as SqlRow | undefined;
+        if (row) mergeSources.push(mapMergeSource(row));
+        else removed.mergeSourceIds.push(id);
       }
     }
     return {
@@ -2018,6 +2377,7 @@ export class CanvasStore {
       branches,
       interactions,
       sendOperations,
+      mergeSources,
       removed,
     };
   }
@@ -2285,8 +2645,8 @@ export class CanvasStore {
       FROM send_reservations r
       JOIN branches b ON b.id = r.branch_id
       WHERE b.canvas_id = ?
-        AND b.conversation_state = 'draft'
         AND r.status = 'failed'
+        AND r.expected_head_interaction_id IS b.head_interaction_id
         AND r.rowid = (
           SELECT newer.rowid FROM send_reservations newer
           WHERE newer.branch_id = r.branch_id
@@ -2298,6 +2658,14 @@ export class CanvasStore {
       const reservation = this.getReservation(asString(row.id));
       return reservation ? [reservation] : [];
     });
+    const mergeSources = (this.db.prepare(`SELECT s.*,
+        (SELECT t.interaction_id FROM turn_merge_sources t
+          WHERE t.composer_merge_source_id = s.id AND t.interaction_id IS NOT NULL
+          ORDER BY t.created_at LIMIT 1) AS target_interaction_id
+      FROM composer_merge_sources s
+      JOIN branches b ON b.id = s.target_branch_id
+      WHERE b.canvas_id = ? ORDER BY s.created_at, s.ordinal`).all(canvasId) as SqlRow[])
+      .map(mapMergeSource);
     return {
       cursor: this.getCanvasCursor(canvasId),
       canvas,
@@ -2306,6 +2674,7 @@ export class CanvasStore {
       layout: layoutRow ? parseJson(rowValue(layoutRow, 'layout_json'), null) : null,
       pendingSends,
       failedSends,
+      mergeSources,
     };
   }
 

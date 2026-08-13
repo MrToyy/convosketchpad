@@ -15,6 +15,7 @@ describe('Canvas localized copy', () => {
 
   it('translates known server errors and hides unknown cross-language messages', () => {
     expect(canvasErrorMessage(new Error('send_in_progress'), 'fallback', 'en')).toContain('already');
+    expect(canvasErrorMessage(new Error('redundant_merge_source'), 'fallback', 'en')).toContain('direct predecessor');
     expect(canvasErrorMessage(new Error('未知错误'), 'English fallback', 'en')).toBe('English fallback');
     expect(canvasErrorMessage(new Error('未知错误'), '中文回退', 'zh-CN')).toBe('未知错误');
   });

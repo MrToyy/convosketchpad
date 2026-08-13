@@ -4,17 +4,68 @@ ConvoSketchpad 的重要变更均记录在此文件中。格式遵循 [Keep a Ch
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-08-13
+
+### 发布摘要
+
+ConvoSketchpad v0.6.0 完成“资源引用 → 分支合并 → 跨 Agent 交接”路线中的第二阶段。用户可以把任意已完成 Interaction 逐个连接到现有 Root、Fork 或 Continue Composer；连接立即保存且不可删除，目标发送时由后端组织每个来源从根节点开始的完整路径，对共享历史去重并执行稳定拓扑排序。Continue Composer 仍沿原 Conversation 推进，不会因为接入分支而新建或替换 Conversation。
+
+连接成功后，目标 Composer 的 `@` 资源目录立即包含接入路径中的附件和 Artifact。来源关系、发送快照、持久实线、嵌套合并与 Session Recovery 使用同一冻结语义，不依赖 Canvas 坐标或来源 Branch 后续变化。
+
+本版本包含分支合并数据库迁移，并将 Schema Epoch 提升到 5。更新器会在安全停服和快照边界内完成迁移；不要用旧版本代码直接打开已经迁移的数据库。
+
+### 当前版本亮点
+
+- 已完成 Interaction 可通过右侧链路 Handle 接入任意有效 Composer；鼠标拖线与键盘目标选择复用同一持久连接命令。
+- Root、Fork 与 Continue Composer 均可接收任意数量来源；来源 Interaction 已经是目标 Composer 普通入边的直接来源时，前后端都会拒绝重复接入。
+- 后端为每个来源保存完整根路径，按 Interaction 身份去重共享祖先并稳定拓扑排序；发送预留冻结实际投递的 Merge Context Snapshot。
+- 连接保存后立即扩展 `@` 上游资源范围；Composer 发送并转换为 Interaction 后，合并实线和来源信息继续保留。
+- 合并上下文可进入后续 Continue、Fork、嵌套合并和 Session Recovery，不重新读取来源 Branch 的最新状态。
+
+### 新增
+
+- 实现 Canvas 分支合并：连接即持久化、不可删除、不可重连或改序，且不设来源数量上限；Continue 保持原 Conversation。
+- 新增 Composer/Turn Merge 来源关系、Merge Context Snapshot、Graph/SSE 投影，以及 `0.5.0_to_0.6.0_branch_merging_v1` 数据库迁移。
+- Merge 来源接入后，目标 Composer 的 `@` 目录立即扩展到来源完整路径；资源目录、发送校验和嵌套上游解析复用同一 DAG 范围。
+
+### 变更
+
+- 将应用与更新兼容清单版本提升到 `0.6.0`，数据库 Schema Epoch 提升到 5，并新增 `0.5.0_to_0.6.0_branch_merging_v1` 迁移。
+- 将 Interaction 的 Merge 拖线入口升级为与 Fork 同尺寸的原生 React Flow 链路按钮；鼠标继续只负责拖线，键盘入口继续打开目标 Composer 选择框，悬停与拖线状态使用和 Fork 一致的反色反馈且不显示光晕；拖线期间，所有可连接 Composer 的原生 Target Handle 扩展为带 `GitMerge` 图标的反色圆形提示。
+- 缩小 Composer 与 Interaction 中的 `@` 资源 Token 并裁剪长名称；收窄资源选择框，同时放大图片预览并为候选名称增加安全裁剪。
+
+### 修复
+
+- 修复已接入来源的 Composer 点选 `@` 资源时可能丢失 Lexical selection，以及局域网 HTTP 访问下浏览器不提供 `crypto.randomUUID()`、导致鼠标与键盘都无法插入资源 Token 的问题。
+- 修复合并 Composer 被已接受的 Interaction 替换后，持久 Merge 边仍指向已不存在的 Composer Handle 而消失的问题；连接保存后统一显示为不可删除的实线，并在提交后稳定保留。
+
+### 安装与升级
+
+新安装继续使用正式安装器：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/MrToyy/convosketchpad/main/install.sh | bash
+```
+
+已经安装官方 v0.5.0 的用户应先把 `.env`、`database/` 和 `artifacts/` 备份到仓库外，再运行：
+
+```bash
+npm run update -- --version v0.6.0
+```
+
+本次更新会应用 `0.5.0_to_0.6.0_branch_merging_v1` 并把数据库 Schema Epoch 提升到 5。不要绕过更新器快照，也不要用 v0.5.x 或更早代码直接打开已经迁移的数据库；安全回滚必须同时恢复更新器保存的代码、环境与 SQLite 快照。更早版本继续按[升级文档](https://github.com/MrToyy/convosketchpad/blob/main/docs/UPDATING.md)完成既有桥接路径。
+
 ## [0.5.0] - 2026-08-10
 
 ### 发布摘要
 
-ConvoSketchpad v0.5.0 让 Canvas 中的材料能够在用户指令的准确位置被引用，并新增测试阶段的 OpenCode Agent Runtime Adapter。用户可以通过 `@` 复用本次上传或当前父链上游的附件与 Artifact，无需重新上传；OpenClaw、Codex 与 OpenCode 继续通过同一 Agent Runtime 边界接入，不改变既有 Canvas 的执行归属和恢复模型。
+ConvoSketchpad v0.5.0 让 Canvas 中的材料能够在用户提示词的准确位置被引用，并新增测试阶段的 OpenCode Agent Runtime Adapter。用户可以通过 `@` 在提示词中插入本次上传或当前父链上游附件与 Artifact 的资源标记，让 Agent 明确知道相邻描述或要求所指向的资源；OpenClaw、Codex 与 OpenCode 继续通过同一 Agent Runtime 边界接入，不改变既有 Canvas 的执行归属和恢复模型。
 
 本版本包含资源引用数据库迁移，并将 Schema Epoch 提升到 4。更新器会在安全停服和快照边界内完成迁移；不要用旧版本代码直接打开已经迁移的数据库。
 
 ### 当前版本亮点
 
-- Composer 新增位置化 `@` 资源 Token，可引用本次附件和当前 Branch 父链上游的 Attachment/Artifact。
+- Composer 新增位置化 `@` 资源 Token，可在提示词的准确位置引用本次附件和当前 Branch 父链上游的 Attachment/Artifact，让 Agent 明确识别相邻描述或要求所指向的资源。
 - 资源引用在草稿、发送预留、Interaction、失败恢复与 Canonical Replay 中保持结构化位置；重复引用只占一个材料槽位。
 - 服务端统一校验上游范围、所有者、Canvas、资源可用性、Runtime Capability 与九项材料上限，旁支或其他用户资源不能通过伪造请求发送。
 - 新增测试阶段的本地 OpenCode `1.18.16+` Adapter，支持默认 Profile、流式输出、审批、恢复核对和受管 Artifact。

@@ -89,18 +89,32 @@ export class UpstreamResourceResolver {
   listInteractions(ownerId: string, branchId: string): InteractionRecord[] {
     const branch = this.store.getOwnedBranch(ownerId, branchId);
     if (!branch) throw new CanvasApplicationError('not_found', 404, 'Not found');
-    let cursor = branch.headInteractionId || branch.forkedFromInteractionId;
     const seen = new Set<string>();
+    const visiting = new Set<string>();
     const interactions: InteractionRecord[] = [];
-    while (cursor) {
-      if (seen.has(cursor)) throw new CanvasApplicationError('invalid_upstream_graph', 409);
-      seen.add(cursor);
-      const interaction = this.store.getOwnedInteraction(ownerId, cursor);
+    const visit = (interactionId: string) => {
+      if (seen.has(interactionId)) return;
+      if (visiting.has(interactionId)) {
+        throw new CanvasApplicationError('invalid_upstream_graph', 409);
+      }
+      visiting.add(interactionId);
+      const interaction = this.store.getOwnedInteraction(ownerId, interactionId);
       if (!interaction || interaction.canvasId !== branch.canvasId) {
         throw new CanvasApplicationError('invalid_upstream_graph', 409);
       }
+      if (interaction.parentInteractionId) visit(interaction.parentInteractionId);
+      for (const sourceId of this.store.listAcceptedMergeSourceInteractionIds(interaction.id)) {
+        visit(sourceId);
+      }
+      visiting.delete(interactionId);
+      seen.add(interactionId);
       interactions.push(interaction);
-      cursor = interaction.parentInteractionId;
+    };
+    const base = branch.headInteractionId || branch.forkedFromInteractionId;
+    if (base) visit(base);
+    const generation = branch.conversationState === 'active' ? branch.headInteractionId : null;
+    for (const source of this.store.listMergeSourcesForGeneration(ownerId, branch.id, generation)) {
+      visit(source.sourceInteractionId);
     }
     return interactions;
   }

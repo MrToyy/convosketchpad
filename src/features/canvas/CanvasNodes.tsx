@@ -2,6 +2,7 @@ import {
   Handle,
   NodeResizeControl,
   Position,
+  useConnection,
   type NodeProps,
 } from '@xyflow/react';
 import {
@@ -10,13 +11,16 @@ import {
   File,
   FileCode2,
   FileText,
+  GitMerge,
   Image as ImageIcon,
+  Link2,
   Loader2,
   Paperclip,
   Plus,
   RotateCcw,
   ShieldAlert,
   Sparkles,
+  Waypoints,
   X,
 } from 'lucide-react';
 import { useLayoutEffect, useRef, useState } from 'react';
@@ -35,9 +39,13 @@ import {
   MIN_NODE_HEIGHT,
   MIN_NODE_WIDTH,
 } from './layout';
-import type {
-  ComposerFlowNode,
-  InteractionFlowNode,
+import {
+  isComposerIncomingInteraction,
+  MERGE_SOURCE_HANDLE_ID,
+  MERGE_TARGET_HANDLE_ID,
+  type CanvasMergeSourceView,
+  type ComposerFlowNode,
+  type InteractionFlowNode,
 } from './flow-model';
 import { getCanvasCopy, type CanvasCopy } from './messages';
 import type { CanvasInteraction, InteractionApproval } from './types';
@@ -62,6 +70,46 @@ function interactionStatusLabel(interaction: CanvasInteraction, copy: CanvasCopy
   return copy.status.failed;
 }
 
+function MergeSourceList({
+  sources,
+  onNavigate,
+  copy,
+}: {
+  sources: CanvasMergeSourceView[];
+  onNavigate: (interactionId: string) => void;
+  copy: CanvasCopy;
+}) {
+  if (!sources?.length) return null;
+  return (
+    <section className="nodrag mt-3 rounded-2xl border border-primary/20 bg-primary/5 px-3 py-2">
+      <div className="flex items-center gap-2 text-[0.667rem] font-semibold uppercase tracking-[0.14em] text-primary">
+        <Waypoints size={13} /> {copy.mergedSources}
+      </div>
+      <div className="nowheel mt-2 max-h-28 space-y-1 overflow-y-auto">
+        {sources.map(({ relation, source }, index) => (
+          <button
+            key={relation.id}
+            type="button"
+            onClick={() => onNavigate(source.id)}
+            aria-label={copy.navigateToMergeSource(index + 1)}
+            className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs hover:bg-secondary"
+          >
+            <span className="shrink-0 font-medium text-primary">{copy.mergeSourceLabel(index + 1)}</span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-muted-foreground">
+                {source.userInput || copy.attachmentsOnly}
+              </span>
+              <span className="block truncate text-[0.625rem] text-muted-foreground/70">
+                {copy.mergeSourceBranch(source.branchId)}
+              </span>
+            </span>
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function StructuredInput({ interaction }: { interaction: CanvasInteraction }) {
   const references = new Map(interaction.resourceReferences.map((reference) => [reference.key, reference]));
   if (!interaction.inputDocument) return <>{interaction.userInput}</>;
@@ -69,20 +117,29 @@ function StructuredInput({ interaction }: { interaction: CanvasInteraction }) {
     if (segment.type === 'text') return <span key={`text-${index}`}>{segment.text}</span>;
     const reference = references.get(segment.key);
     if (!reference) return <span key={`missing-${index}`}>@[resource]</span>;
+    const tokenTitle = reference.sourceInteractionId
+      ? `${reference.name}\n${reference.sourceInteractionId}`
+      : reference.name;
     return reference.uri ? (
       <a
         key={`resource-${index}`}
         href={reference.uri}
         target="_blank"
         rel="noreferrer"
-        title={reference.sourceInteractionId || undefined}
-        className="mx-0.5 inline-flex max-w-48 items-center rounded-md border border-primary/30 bg-primary/10 px-1.5 py-0.5 text-xs font-medium text-primary hover:bg-primary/20"
+        title={tokenTitle}
+        className="mx-0.5 inline-flex max-w-36 min-w-0 items-center rounded border border-primary/30 bg-primary/10 px-1 py-px align-baseline text-[0.6875rem] font-medium leading-4 text-primary hover:bg-primary/20"
       >
-        @{reference.name}
+        <span className="shrink-0">@</span>
+        <span className="truncate">{reference.name}</span>
       </a>
     ) : (
-      <span key={`resource-${index}`} className="mx-0.5 rounded-md bg-secondary px-1.5 py-0.5 text-xs">
-        @{reference.name}
+      <span
+        key={`resource-${index}`}
+        title={tokenTitle}
+        className="mx-0.5 inline-flex max-w-36 min-w-0 items-center rounded bg-secondary px-1 py-px align-baseline text-[0.6875rem] leading-4"
+      >
+        <span className="shrink-0">@</span>
+        <span className="truncate">{reference.name}</span>
       </span>
     );
   })}</>;
@@ -246,9 +303,13 @@ export function InteractionNode({ data }: NodeProps<InteractionFlowNode>) {
     onAdd,
     onResubmit,
     onApprovalChanged,
+    mergeSources,
+    onNavigateMergeSource,
+    onOpenMergeTargets,
   } = data;
   const visibleOutput = interaction.agentOutput || preview;
   const running = interaction.executionState === 'running';
+  const mergeConnectable = interaction.executionState === 'completed';
   const streamingOutputVisible = running && Boolean(visibleOutput);
   const outputBodyRef = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
@@ -265,7 +326,7 @@ export function InteractionNode({ data }: NodeProps<InteractionFlowNode>) {
   return (
     <>
       <CanvasNodeResizeHandle enabled={resizeEnabled} label={copy.resizeNode} />
-      <Handle type="target" position={Position.Left} className="!bg-primary" />
+      <Handle type="target" position={Position.Left} isConnectable={false} className="!bg-primary" />
       <article className="h-full w-full overflow-auto rounded-3xl border border-border/80 bg-card/96 p-4 shadow-2xl backdrop-blur">
       <header className="canvas-node-drag-handle flex cursor-grab items-center justify-between gap-3 active:cursor-grabbing">
         <div className="flex min-w-0 items-center gap-2">
@@ -376,6 +437,8 @@ export function InteractionNode({ data }: NodeProps<InteractionFlowNode>) {
         </div>
       )}
 
+      <MergeSourceList sources={mergeSources} onNavigate={onNavigateMergeSource} copy={copy} />
+
       {interaction.artifacts.length > 0 && (
         <div className="nodrag mt-4 grid cursor-text select-text gap-2">
           {interaction.artifacts.map((artifact, index) => {
@@ -426,12 +489,36 @@ export function InteractionNode({ data }: NodeProps<InteractionFlowNode>) {
           type="button"
           onClick={() => onAdd(interaction)}
           title={copy.forkFromInteraction}
-          className="nodrag absolute -right-4 top-1/2 flex size-8 -translate-y-1/2 items-center justify-center rounded-full border border-primary/40 bg-background text-primary shadow-lg hover:bg-primary hover:text-primary-foreground"
+          style={{ top: 'calc(50% - 2.75rem)' }}
+          className="nodrag absolute -right-4 flex size-8 -translate-y-1/2 items-center justify-center rounded-full border border-primary/40 bg-background text-primary shadow-lg hover:bg-primary hover:text-primary-foreground"
         >
           <Plus size={15} />
         </button>
       )}
-      <Handle type="source" position={Position.Right} className="!bg-primary" />
+      <Handle
+        id={MERGE_SOURCE_HANDLE_ID}
+        type="source"
+        position={Position.Right}
+        isConnectable={mergeConnectable}
+        isConnectableStart={mergeConnectable}
+        isConnectableEnd={false}
+        title={copy.mergeSourceHandle}
+        aria-label={copy.mergeSourceHandle}
+        aria-disabled={!mergeConnectable}
+        role="button"
+        onKeyDown={(event) => {
+          if (!mergeConnectable) return;
+          if (event.key !== 'Enter' && event.key !== ' ') return;
+          event.preventDefault();
+          onOpenMergeTargets(interaction);
+        }}
+        tabIndex={mergeConnectable ? 0 : -1}
+        className={`!flex !size-8 !items-center !justify-center !rounded-full !border !border-primary/40 !bg-background !text-primary shadow-lg outline-none transition-[background-color,color] focus-visible:!bg-primary focus-visible:!text-primary-foreground [&.connectingfrom]:!bg-primary [&.connectingfrom]:!text-primary-foreground ${mergeConnectable
+          ? 'hover:!bg-primary hover:!text-primary-foreground'
+          : '!cursor-not-allowed !opacity-35'}`}
+      >
+        <Link2 size={15} aria-hidden="true" className="pointer-events-none" />
+      </Handle>
     </>
   );
 }
@@ -440,10 +527,38 @@ export function ComposerNode({ data }: NodeProps<ComposerFlowNode>) {
   const { language } = useSettings();
   const copy = getCanvasCopy(language);
   const inputRef = useRef<HTMLInputElement>(null);
+  const mergeConnectionSourceId = useConnection((connection) =>
+    connection.inProgress && connection.fromHandle?.id === MERGE_SOURCE_HANDLE_ID
+      ? connection.fromNode?.id || null
+      : null);
+  const mergeTargetIsDirectSuccessor = isComposerIncomingInteraction(
+    data.branch,
+    mergeConnectionSourceId,
+  );
+  const mergeTargetConnectable = !data.draft.sending && !mergeTargetIsDirectSuccessor;
+  const mergeTargetHighlighted = Boolean(mergeConnectionSourceId)
+    && data.resizeEnabled
+    && mergeTargetConnectable;
   return (
     <>
       <CanvasNodeResizeHandle enabled={data.resizeEnabled} label={copy.resizeNode} />
-      <Handle type="target" position={Position.Left} className="!bg-primary" />
+      <Handle
+        id={MERGE_TARGET_HANDLE_ID}
+        type="target"
+        position={Position.Left}
+        isConnectable={mergeTargetConnectable}
+        isConnectableStart={false}
+        isConnectableEnd={mergeTargetConnectable}
+        title={copy.mergeTargetHandle}
+        aria-label={copy.mergeTargetHandle}
+        className={`!flex !items-center !justify-center !rounded-full !border-2 !bg-primary !text-primary-foreground transition-[width,height,box-shadow] ${mergeTargetHighlighted
+          ? '!size-8 !border-primary/40 shadow-lg'
+          : '!size-3 !border-background shadow-none'}`}
+      >
+        {mergeTargetHighlighted && (
+          <GitMerge size={15} aria-hidden="true" className="pointer-events-none" />
+        )}
+      </Handle>
       <section className="h-full w-full overflow-auto rounded-3xl border border-primary/35 bg-card/98 p-4 shadow-2xl">
       <header className="canvas-node-drag-handle mb-3 flex cursor-grab items-center justify-between active:cursor-grabbing">
         <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-primary">
@@ -463,10 +578,13 @@ export function ComposerNode({ data }: NodeProps<ComposerFlowNode>) {
         placeholder={copy.composerPlaceholder}
         currentGroupLabel={copy.currentAttachments}
         upstreamGroupLabel={copy.upstreamResources}
+        loadMoreLabel={copy.loadMoreResources}
+        resourceScopeRevision={data.resourceScopeRevision}
         onChange={data.onDocumentChange}
         onFocus={data.onFocus}
         onBlur={data.onBlur}
       />
+      <MergeSourceList sources={data.mergeSources} onNavigate={data.onNavigateMergeSource} copy={copy} />
       {data.draft.persistedAttachments.length > 0 && (
         <div className="nodrag mt-3 grid gap-2">
           {data.draft.persistedAttachments.map((attachment, index) => (

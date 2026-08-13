@@ -145,7 +145,7 @@ describe('Canvas resource reference routes', () => {
     ]);
   });
 
-  it('rejects a forged sibling resource reference', async () => {
+  it('rejects a forged sibling reference until its completed interaction is connected', async () => {
     const { app, store } = await setup();
     store.ensureUser('owner-a', 'Owner A');
     const canvas = store.createCanvas('owner-a', 'Canvas', { runtimeId: 'openclaw', profileId: 'main' });
@@ -180,5 +180,50 @@ describe('Canvas resource reference routes', () => {
     expect(response.status).toBe(422);
     expect(await response.json()).toEqual({ error: 'resource_reference_unavailable' });
     expect(mocks.dispatch).not.toHaveBeenCalled();
+
+    store.applyReconciledInteraction(sibling.id, {
+      status: 'completed', agentOutput: 'source complete', artifacts: [],
+      artifactSyncState: 'synced', artifactObservationPending: false,
+      error: null, reconciliation: {},
+    });
+    const redundant = await app.request(
+      `/api/canvas/branches/${sourceBranch.id}/merge-sources/${sibling.id}`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ expectedHeadInteractionId: sibling.id }),
+      },
+    );
+    expect(redundant.status).toBe(409);
+    expect(await redundant.json()).toEqual({ error: 'redundant_merge_source' });
+
+    const connect = await app.request(
+      `/api/canvas/branches/${targetBranch.id}/merge-sources/${sibling.id}`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ expectedHeadInteractionId: null }),
+      },
+    );
+    expect(connect.status).toBe(201);
+    expect(await connect.json()).toMatchObject({
+      created: true,
+      mergeSource: { sourceInteractionId: sibling.id, targetBranchId: targetBranch.id },
+    });
+    const duplicate = await app.request(
+      `/api/canvas/branches/${targetBranch.id}/merge-sources/${sibling.id}`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ expectedHeadInteractionId: null }),
+      },
+    );
+    expect(duplicate.status).toBe(200);
+    expect(await duplicate.json()).toMatchObject({ created: false });
+
+    const catalog = await (await app.request(
+      `/api/canvas/branches/${targetBranch.id}/resources`,
+    )).json() as { items: Array<{ name: string }> };
+    expect(catalog.items).toEqual([expect.objectContaining({ name: 'sibling.pdf' })]);
   });
 });

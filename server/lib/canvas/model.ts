@@ -16,6 +16,7 @@ import type {
   CanvasInputDocument,
   CanvasResourceReferenceSnapshot,
 } from './domain/input-document.js';
+import type { MergeContextSnapshot } from './domain/merge-context.js';
 
 export type BranchKind = 'root' | 'fork';
 export type BranchConversationState = 'draft' | 'active';
@@ -100,6 +101,16 @@ export interface InteractionRecord {
   contextSnapshot: InteractionContextSnapshot | null;
   createdAt: number;
   updatedAt: number;
+}
+
+export interface MergeSourceRecord {
+  id: string;
+  targetBranchId: string;
+  expectedHeadInteractionId: string | null;
+  sourceInteractionId: string;
+  targetInteractionId: string | null;
+  ordinal: number;
+  createdAt: number;
 }
 
 export type InteractionApprovalStatus =
@@ -196,6 +207,7 @@ export interface CanvasGraph {
   } | null;
   pendingSends: SendReservation[];
   failedSends: SendReservation[];
+  mergeSources: MergeSourceRecord[];
 }
 
 export interface CanvasSyncBatch {
@@ -204,10 +216,12 @@ export interface CanvasSyncBatch {
   branches: BranchRecord[];
   interactions: InteractionRecord[];
   sendOperations: SendReservation[];
+  mergeSources: MergeSourceRecord[];
   removed: {
     branchIds: string[];
     interactionIds: string[];
     sendOperationIds: string[];
+    mergeSourceIds: string[];
   };
 }
 
@@ -236,6 +250,7 @@ export interface SendReservation {
   outgoingMessage: string;
   snapshotVersion?: number;
   bootstrapResources: CanvasContextResource[];
+  mergeContextSnapshot?: MergeContextSnapshot;
   status: 'prepared' | 'acknowledged' | 'failed';
   dispatchState: SendDispatchState;
   attemptCount: number;

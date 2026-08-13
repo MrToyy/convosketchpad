@@ -6,7 +6,7 @@
 
 ConvoSketchpad 可连接一个或多个 Agent 运行端（Agent Runtime），让用户从任意节点回溯并继续探索，而不是把所有方向压缩到一条线性对话中。一个 Canvas 可以同时呈现不同思路，保留每个方向的演进过程，并把对应的提示词、输出、参考资料、附件和生成结果组织在一起。
 
-当前 v0.5.0 支持 OpenClaw Gateway、本地 Codex App Server 与测试阶段的本地 OpenCode Server；Canvas 领域模型与具体运行时之间通过统一 Agent Runtime 边界隔离，后续运行端遵循同一 Adapter 规范接入。
+当前 v0.6.0 支持 OpenClaw Gateway、本地 Codex App Server 与测试阶段的本地 OpenCode Server；Canvas 领域模型与具体运行时之间通过统一 Agent Runtime 边界隔离，后续运行端遵循同一 Adapter 规范接入。
 
 ## 产品由来
 
@@ -29,7 +29,8 @@ ConvoSketchpad 让用户从任意已完成的 Interaction 携带当时上下文�
 - 对任意 Interaction 原样重试：保留原节点和原执行，从它的上一节点创建普通分支并重新提交相同输入。
 - 在工作过程中移动、缩放和排列节点，并在再次访问时恢复位置、用户尺寸和视口。
 - 持久化保存源附件和生成的 Artifact，并关联到正确的 Interaction。
-- 在 Composer 文本中通过 `@` 把本次附件或当前节点父链上游资源放到指定位置；同一资源可重复出现但只占一个材料槽位，本轮附件与引用合计最多九项。
+- 在 Composer 文本中通过 `@` 把对本次附件或当前父链/Merge 路径上游资源的引用插入提示词的准确位置，让 Agent 明确知道相邻描述或要求所指向的资源；同一资源可重复出现但只占一个材料槽位，本轮附件与引用合计最多九项。
+- 把任意已完成 Interaction 的完整根路径逐条连接到现有 Root、Fork 或 Continue Composer；已经是 Composer 普通入边直接来源的 Interaction 不允许重复接入；其他连接立即保存且不可删除，Continue 保持原 Conversation，连接后 `@` 可直接引用新增路径资源。
 - setup 先探测本机支持的 Runtime，再由用户多选需要接入的项；已配置 Runtime 的 Profile 在产品中组成一个平权 Agent 目录。用户在配置完成后选择默认 Agent；新建 Canvas 不弹窗并自动选择该 Agent（不可用时回退到第一个可用项），首次提交前可在 Canvas 顶部更换，首次持久发送预留后保持 Runtime 和执行归属稳定。
 - Agent 请求权限时，在对应 Interaction 节点内查看已净化的风险、权限与作用域并批准或拒绝；持久授权需要额外确认。
 

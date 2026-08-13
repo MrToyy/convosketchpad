@@ -5,6 +5,7 @@ import {
   MiniMap,
   ReactFlow,
   applyNodeChanges,
+  type Connection,
   type Edge,
   type NodeChange,
   type NodeDimensionChange,
@@ -25,6 +26,13 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { useRuntime } from '@/contexts/RuntimeContext';
 import { useSettings } from '@/contexts/SettingsContext';
 import { canvasApi, persistCanvasFiles } from './api';
@@ -34,7 +42,11 @@ import { canvasNodeTypes } from './node-types';
 import {
   autoLayoutCanvasNodes,
   canvasNodeBounds,
+  isComposerIncomingInteraction,
+  MERGE_SOURCE_HANDLE_ID,
+  MERGE_TARGET_HANDLE_ID,
   type CanvasFlowNode,
+  type ComposerFlowNode,
 } from './flow-model';
 import { EMPTY_CANVAS_DRAFT } from './constants';
 import { documentForSend, draftDocumentText } from './input-document';
@@ -124,6 +136,7 @@ export function CanvasPanel({ onStatusStatsChange }: { onStatusStatsChange?: (st
     branchId: string;
     sourceInteractionId: string | null;
   } | null>(null);
+  const [mergeTargetSource, setMergeTargetSource] = useState<CanvasInteraction | null>(null);
   const saveTimer = useRef<number | null>(null);
   const nodesRef = useRef<CanvasFlowNode[]>([]);
   const positionsRef = useRef<Record<string, XYPosition>>({});
@@ -395,6 +408,76 @@ export function CanvasPanel({ onStatusStatsChange }: { onStatusStatsChange?: (st
     resubmittingInteractionIds,
   ]);
 
+  const navigateToInteraction = useCallback((interactionId: string) => {
+    const instance = reactFlowRef.current;
+    const node = instance?.getNode(interactionId);
+    if (!instance || !node) return;
+    void instance.fitView({ nodes: [node], padding: 0.4, duration: 250, maxZoom: 1.2 });
+  }, []);
+
+  const connectMergeSource = useCallback(async (
+    source: CanvasInteraction,
+    targetBranch: CanvasBranch,
+  ) => {
+    if (isComposerIncomingInteraction(targetBranch, source.id)) return;
+    const expectedHeadInteractionId = targetBranch.conversationState === 'active'
+      ? targetBranch.headInteractionId
+      : null;
+    try {
+      const result = await canvasApi.connectMergeSource(
+        targetBranch.id,
+        source.id,
+        expectedHeadInteractionId,
+      );
+      setGraph((current) => {
+        if (!current || !current.branches.some((branch) => branch.id === targetBranch.id)) {
+          return current;
+        }
+        const currentMergeSources = current.mergeSources || [];
+        const existing = currentMergeSources.findIndex((item) => item.id === result.mergeSource.id);
+        const mergeSources = existing < 0
+          ? [...currentMergeSources, result.mergeSource]
+          : currentMergeSources.map((item, index) => index === existing ? result.mergeSource : item);
+        return { ...current, mergeSources };
+      });
+      setMergeTargetSource(null);
+    } catch (cause) {
+      setError(localizeError(cause, copy.mergeSourceConnectFailed));
+    }
+  }, [copy.mergeSourceConnectFailed, localizeError, setGraph]);
+
+  const onConnect = useCallback((connection: Connection) => {
+    if (
+      connection.sourceHandle !== MERGE_SOURCE_HANDLE_ID
+      || connection.targetHandle !== MERGE_TARGET_HANDLE_ID
+      || !graph
+    ) return;
+    const source = graph.interactions.find((interaction) => interaction.id === connection.source);
+    const target = nodesRef.current.find((node) => node.id === connection.target);
+    if (
+      !source
+      || source.executionState !== 'completed'
+      || target?.type !== 'composer'
+      || isComposerIncomingInteraction(target.data.branch, source.id)
+    ) return;
+    void connectMergeSource(source, target.data.branch);
+  }, [connectMergeSource, graph]);
+
+  const isValidConnection = useCallback((connection: Connection | Edge) => {
+    if (
+      connection.sourceHandle !== MERGE_SOURCE_HANDLE_ID
+      || connection.targetHandle !== MERGE_TARGET_HANDLE_ID
+      || rearranging
+      || !graph
+    ) return false;
+    const source = graph.interactions.find((interaction) => interaction.id === connection.source);
+    const target = nodesRef.current.find((node) => node.id === connection.target);
+    return source?.executionState === 'completed'
+      && target?.type === 'composer'
+      && !target.data.draft.sending
+      && !isComposerIncomingInteraction(target.data.branch, source.id);
+  }, [graph, rearranging]);
+
   const flow = useMemo(() => {
     if (!graph) return { nodes: [] as CanvasFlowNode[], edges: [] as Edge[] };
     return projectCanvasFlow({
@@ -410,6 +493,8 @@ export function CanvasPanel({ onStatusStatsChange }: { onStatusStatsChange?: (st
       onAdd: addFromInteraction,
       onResubmit: (interaction) => void resubmitInteraction(interaction),
       onApprovalChanged: () => { void loadGraph(); },
+      onNavigateMergeSource: navigateToInteraction,
+      onOpenMergeTargets: setMergeTargetSource,
       onDocumentChange: (branchId, value) => {
         updateDraft(branchId, (draft) => ({
           ...draft,
@@ -434,6 +519,7 @@ export function CanvasPanel({ onStatusStatsChange }: { onStatusStatsChange?: (st
     focusComposer,
     graph,
     loadGraph,
+    navigateToInteraction,
     previews,
     rearranging,
     removeFile,
@@ -730,9 +816,14 @@ export function CanvasPanel({ onStatusStatsChange }: { onStatusStatsChange?: (st
               edges={flow.edges}
               nodeTypes={canvasNodeTypes}
               onNodesChange={onNodesChange}
+              onConnect={onConnect}
+              isValidConnection={isValidConnection}
               onMoveEnd={onMoveEnd}
               onInit={(instance) => { reactFlowRef.current = instance; }}
               nodesDraggable={!rearranging}
+              connectOnClick={false}
+              edgesReconnectable={false}
+              deleteKeyCode={null}
               fitView
               minZoom={0.2}
               maxZoom={1.5}
@@ -752,6 +843,35 @@ export function CanvasPanel({ onStatusStatsChange }: { onStatusStatsChange?: (st
               <Controls />
               <MiniMap pannable zoomable className="!bg-card" />
             </ReactFlow>
+            <Dialog
+              open={Boolean(mergeTargetSource)}
+              onOpenChange={(open) => { if (!open) setMergeTargetSource(null); }}
+            >
+              <DialogContent className="sm:max-w-md">
+                <DialogHeader>
+                  <DialogTitle>{copy.chooseMergeTarget}</DialogTitle>
+                  <DialogDescription>{copy.chooseMergeTargetDescription}</DialogDescription>
+                </DialogHeader>
+                <div className="max-h-72 space-y-2 overflow-y-auto">
+                  {flow.nodes.filter((node): node is ComposerFlowNode => node.type === 'composer')
+                    .filter((node) => !isComposerIncomingInteraction(node.data.branch, mergeTargetSource?.id))
+                    .map((node) => (
+                    <Button
+                      key={node.id}
+                      type="button"
+                      variant="outline"
+                      className="h-auto w-full justify-start py-3 text-left"
+                      disabled={node.data.draft.sending}
+                      onClick={() => {
+                        if (mergeTargetSource) void connectMergeSource(mergeTargetSource, node.data.branch);
+                      }}
+                    >
+                      {copy.connectToComposer(`${node.data.label} · ${copy.mergeSourceBranch(node.data.branch.id)}`)}
+                    </Button>
+                  ))}
+                </div>
+              </DialogContent>
+            </Dialog>
           </>
         ) : (
           <div className="flex h-full items-center justify-center p-8 text-center">

@@ -137,6 +137,7 @@ describe('CanvasStore', () => {
 
     expect(tableNames).toEqual(expect.arrayContaining(['runtime_event_inbox', 'interaction_approvals']));
     expect(tableNames).toContain('turn_resource_references');
+    expect(tableNames).toEqual(expect.arrayContaining(['composer_merge_sources', 'turn_merge_sources']));
     expect(tableNames).not.toEqual(expect.arrayContaining(['gateway_signal_inbox', 'backend_event_inbox']));
     expect((store.db.prepare('PRAGMA table_info(canvases)').all() as Array<{ name: string }>)
       .map(({ name }) => name)).not.toContain('agent_id');
@@ -145,9 +146,10 @@ describe('CanvasStore', () => {
       '0.3.0_media_derivatives_v1',
       '0.3.2_to_0.4.0_agent_runtime_v1',
       '0.4.0_to_0.5.0_resource_references_v1',
+      '0.5.0_to_0.6.0_branch_merging_v1',
     ]);
-    expect(store.db.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'trigger' AND name LIKE '%_v1'").get())
-      .toEqual({ count: 0 });
+    expect(store.db.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'trigger' AND name LIKE '%merge_source%_v1'").get())
+      .toEqual({ count: 2 });
     expect(store.db.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
   });
 
@@ -254,6 +256,7 @@ describe('CanvasStore', () => {
         '0.3.0_media_derivatives_v1',
         '0.3.2_to_0.4.0_agent_runtime_v1',
         '0.4.0_to_0.5.0_resource_references_v1',
+        '0.5.0_to_0.6.0_branch_merging_v1',
       ]);
     expect(verified.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
     expect(verified.prepare('PRAGMA integrity_check').get()).toEqual({ integrity_check: 'ok' });
@@ -433,7 +436,7 @@ describe('CanvasStore', () => {
       WHERE id = '0.2.0_to_0.3.0_v1'`).get()).toMatchObject({ count: 1 });
     expect(store.db.prepare(`SELECT app_version FROM schema_migrations
       WHERE id = '0.3.2_to_0.4.0_agent_runtime_v1'`).get()).toMatchObject({
-      app_version: '0.5.0',
+      app_version: '0.6.0',
     });
     const columnNames = (table: string) => (store.db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>)
       .map((column) => column.name);
@@ -523,7 +526,7 @@ describe('CanvasStore', () => {
     });
     expect(store.db.prepare(`SELECT app_version FROM schema_migrations
       WHERE id = '0.3.2_to_0.4.0_agent_runtime_v1'`).get()).toMatchObject({
-      app_version: '0.5.0',
+      app_version: '0.6.0',
     });
 
     store.applyReconciledInteraction('interaction-1', {
@@ -799,6 +802,134 @@ describe('CanvasStore', () => {
     });
     expect(next.materialization).toBe('continue-existing');
     expect(next.conversationId).toBe(branch.conversationId);
+  });
+
+  it('snapshots connected source paths with shared ancestors deduplicated in stable order', () => {
+    const store = createStore();
+    const canvas = seedUser(store);
+    const main = store.createRootBranch('user-a', canvas.id);
+    const firstReservation = store.prepareSend('user-a', {
+      branchId: main.id, userInput: 'shared root', attachments: [],
+    });
+    const first = store.acknowledgeSend('user-a', firstReservation.id, 'turn-shared');
+    completeInteractionForTest(store, 'user-a', first.id, {
+      status: 'completed', agentOutput: 'shared answer', artifacts: [],
+    });
+    const secondReservation = store.prepareSend('user-a', {
+      branchId: main.id,
+      expectedHeadInteractionId: first.id,
+      userInput: 'main source',
+      attachments: [],
+    });
+    const second = store.acknowledgeSend('user-a', secondReservation.id, 'turn-main-source');
+    completeInteractionForTest(store, 'user-a', second.id, {
+      status: 'completed', agentOutput: 'main answer', artifacts: [],
+    });
+
+    const fork = store.forkInteraction('user-a', first.id);
+    const forkReservation = store.prepareSend('user-a', {
+      branchId: fork.id, userInput: 'fork source', attachments: [],
+    });
+    const forkSource = store.acknowledgeSend('user-a', forkReservation.id, 'turn-fork-source');
+    completeInteractionForTest(store, 'user-a', forkSource.id, {
+      status: 'completed', agentOutput: 'fork answer', artifacts: [],
+    });
+
+    const target = store.createRootBranch('user-a', canvas.id);
+    const targetReservation = store.prepareSend('user-a', {
+      branchId: target.id, userInput: 'target root', attachments: [],
+    });
+    const targetHead = store.acknowledgeSend('user-a', targetReservation.id, 'turn-target');
+    completeInteractionForTest(store, 'user-a', targetHead.id, {
+      status: 'completed', agentOutput: 'target answer', artifacts: [],
+    });
+
+    const firstLink = store.createMergeSource('user-a', target.id, targetHead.id, second.id);
+    const duplicate = store.createMergeSource('user-a', target.id, targetHead.id, second.id);
+    const secondLink = store.createMergeSource('user-a', target.id, targetHead.id, forkSource.id);
+    expect(firstLink).toMatchObject({ created: true, mergeSource: { ordinal: 0 } });
+    expect(duplicate).toMatchObject({ created: false, mergeSource: { id: firstLink.mergeSource.id } });
+    expect(secondLink).toMatchObject({ created: true, mergeSource: { ordinal: 1 } });
+    const linkedCursor = store.getCanvasCursor(canvas.id);
+    expect(store.getCanvasSyncBatch('user-a', canvas.id, 0)?.mergeSources).toEqual([
+      expect.objectContaining({ id: firstLink.mergeSource.id, targetInteractionId: null }),
+      expect.objectContaining({ id: secondLink.mergeSource.id, targetInteractionId: null }),
+    ]);
+
+    const mergeReservation = store.prepareSend('user-a', {
+      branchId: target.id,
+      expectedHeadInteractionId: targetHead.id,
+      userInput: 'combine',
+      attachments: [],
+    });
+    expect(mergeReservation.mergeContextSnapshot?.interactions.map(({ id }) => id)).toEqual([
+      first.id,
+      second.id,
+      forkSource.id,
+    ]);
+    expect(mergeReservation.mergeContextSnapshot?.sources.map((source) =>
+      source.path.map(({ interactionId }) => interactionId))).toEqual([
+      [first.id, second.id],
+      [first.id, forkSource.id],
+    ]);
+    expect(new Set(mergeReservation.mergeContextSnapshot?.interactions.map(({ id }) => id)).size).toBe(3);
+    expect(mergeReservation.outgoingMessage).toContain('<canvas-merge-context>');
+
+    store.failReservation('user-a', mergeReservation.id, 'runtime rejected payload');
+    expect(store.getGraph('user-a', canvas.id)?.failedSends).toEqual([
+      expect.objectContaining({ id: mergeReservation.id, mergeContextSnapshot: mergeReservation.mergeContextSnapshot }),
+    ]);
+    const retry = store.prepareSend('user-a', {
+      branchId: target.id,
+      expectedHeadInteractionId: targetHead.id,
+      userInput: 'combine',
+      attachments: [],
+    });
+    expect(retry.mergeContextSnapshot).toEqual(mergeReservation.mergeContextSnapshot);
+    const merged = store.acknowledgeSend('user-a', retry.id, 'turn-merged');
+    expect(store.getGraph('user-a', canvas.id)?.mergeSources).toEqual([
+      expect.objectContaining({ id: firstLink.mergeSource.id, targetInteractionId: merged.id }),
+      expect.objectContaining({ id: secondLink.mergeSource.id, targetInteractionId: merged.id }),
+    ]);
+    expect(store.getCanvasSyncBatch('user-a', canvas.id, linkedCursor)?.mergeSources).toEqual([
+      expect.objectContaining({ id: firstLink.mergeSource.id, targetInteractionId: merged.id }),
+      expect.objectContaining({ id: secondLink.mergeSource.id, targetInteractionId: merged.id }),
+    ]);
+  });
+
+  it('rejects the Interaction that already supplies a Composer ordinary incoming edge', () => {
+    const store = createStore();
+    const canvas = seedUser(store);
+    const main = store.createRootBranch('user-a', canvas.id);
+    const firstReservation = store.prepareSend('user-a', {
+      branchId: main.id, userInput: 'first', attachments: [],
+    });
+    const first = store.acknowledgeSend('user-a', firstReservation.id, 'turn-first');
+    completeInteractionForTest(store, 'user-a', first.id, {
+      status: 'completed', agentOutput: 'first answer', artifacts: [],
+    });
+    const secondReservation = store.prepareSend('user-a', {
+      branchId: main.id,
+      expectedHeadInteractionId: first.id,
+      userInput: 'second',
+      attachments: [],
+    });
+    const second = store.acknowledgeSend('user-a', secondReservation.id, 'turn-second');
+    completeInteractionForTest(store, 'user-a', second.id, {
+      status: 'completed', agentOutput: 'second answer', artifacts: [],
+    });
+
+    expect(() => store.createMergeSource('user-a', main.id, second.id, second.id))
+      .toThrow('redundant_merge_source');
+
+    const fork = store.forkInteraction('user-a', first.id);
+    expect(() => store.createMergeSource('user-a', fork.id, null, first.id))
+      .toThrow('redundant_merge_source');
+
+    expect(store.createMergeSource('user-a', main.id, second.id, first.id)).toMatchObject({
+      created: true,
+      mergeSource: { sourceInteractionId: first.id },
+    });
   });
 
   it('recovers canonical branch context when OpenClaw replaces the session behind a stable key', () => {

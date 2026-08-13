@@ -289,4 +289,28 @@ describe('Canvas send worker', () => {
     expect(mocks.dispatchTurn).toHaveBeenCalledOnce();
     expect(store.getReservation(reservation.id)?.dispatchRecoveryRef).toBeNull();
   });
+
+  it('maps a Runtime payload rejection to the stable replay error code', async () => {
+    const { db, worker } = await setup();
+    const store = db.getCanvasStore();
+    store.ensureUser('owner-a', 'Owner A');
+    const canvas = store.createCanvas('owner-a', 'Canvas', { runtimeId: 'openclaw', profileId: 'main' });
+    const branch = store.createRootBranch('owner-a', canvas.id);
+    const reservation = store.prepareSend('owner-a', {
+      branchId: branch.id,
+      userInput: 'large context',
+      attachments: [],
+    });
+    mocks.dispatchTurn.mockResolvedValue({
+      outcome: 'rejected',
+      error: new Error('Gateway request is 1200 bytes, exceeding the advertised 1000-byte payload limit'),
+    });
+
+    await worker.runCanvasSendWorker(reservation.id, runtime, store);
+
+    expect(store.getReservation(reservation.id)).toMatchObject({
+      status: 'failed',
+      error: 'replay_payload_too_large',
+    });
+  });
 });

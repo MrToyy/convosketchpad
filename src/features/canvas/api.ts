@@ -9,6 +9,7 @@ import type {
   SendReservation,
   CanvasInputDocument,
   CanvasResourceCatalogItem,
+  CanvasMergeSource,
 } from './types';
 
 export class CanvasApiError extends Error {
@@ -79,12 +80,27 @@ export const canvasApi = {
   async agents(): Promise<{ firstAvailable: AgentRef | null; agents: AgentCatalogEntry[] }> {
     return request('/api/canvas/agents');
   },
-  async resources(branchId: string, query = '', signal?: AbortSignal): Promise<CanvasResourceCatalogItem[]> {
-    const params = new URLSearchParams({ q: query, limit: '100' });
-    return (await request<{ items: CanvasResourceCatalogItem[] }>(
+  async resources(
+    branchId: string,
+    query = '',
+    cursor = 0,
+    signal?: AbortSignal,
+  ): Promise<{ items: CanvasResourceCatalogItem[]; nextCursor?: string }> {
+    const params = new URLSearchParams({ q: query, cursor: String(cursor), limit: '100' });
+    return request<{ items: CanvasResourceCatalogItem[]; nextCursor?: string }>(
       `/api/canvas/branches/${encodeURIComponent(branchId)}/resources?${params}`,
       { signal },
-    )).items;
+    );
+  },
+  async connectMergeSource(
+    branchId: string,
+    sourceInteractionId: string,
+    expectedHeadInteractionId: string | null,
+  ): Promise<{ mergeSource: CanvasMergeSource; created: boolean }> {
+    return request(`/api/canvas/branches/${encodeURIComponent(branchId)}/merge-sources/${encodeURIComponent(sourceInteractionId)}`, {
+      method: 'PUT',
+      body: JSON.stringify({ expectedHeadInteractionId }),
+    });
   },
   async createRoot(canvasId: string): Promise<CanvasBranch> {
     return (await request<{ branch: CanvasBranch }>(`/api/canvas/canvases/${canvasId}/root-branches`, { method: 'POST' })).branch;

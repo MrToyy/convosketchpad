@@ -74,6 +74,7 @@ function graph(): CanvasGraph {
     layout: null,
     pendingSends: [operation()],
     failedSends: [],
+    mergeSources: [],
   };
 }
 
@@ -83,7 +84,8 @@ function batch(overrides: Partial<CanvasSyncBatch> = {}): CanvasSyncBatch {
     branches: [],
     interactions: [],
     sendOperations: [],
-    removed: { branchIds: [], interactionIds: [], sendOperationIds: [] },
+    mergeSources: [],
+    removed: { branchIds: [], interactionIds: [], sendOperationIds: [], mergeSourceIds: [] },
     ...overrides,
   };
 }
@@ -153,5 +155,18 @@ describe('Canvas sync projection', () => {
       })],
       pendingSends: [],
     })).toBe(false);
+  });
+
+  it('upserts durable merge sources from incremental sync', () => {
+    const next = applyCanvasSyncBatch(graph(), batch({
+      mergeSources: [{
+        id: 'merge-1', targetBranchId: 'branch-1',
+        expectedHeadInteractionId: 'interaction-1', sourceInteractionId: 'source-1',
+        targetInteractionId: null, ordinal: 0, createdAt: 2,
+      }],
+    }));
+    expect(next.mergeSources).toEqual([
+      expect.objectContaining({ id: 'merge-1', sourceInteractionId: 'source-1' }),
+    ]);
   });
 });

@@ -63,7 +63,7 @@ describe('UpstreamResourceResolver', () => {
     expect(new UpstreamResourceResolver(store).listResources('owner-a', branch.id)).toEqual([]);
   });
 
-  it('exposes only the selected branch parent chain', () => {
+  it('expands the upstream scope immediately after a completed interaction is connected', () => {
     const { store, canvas } = fixture();
     const firstBranch = store.createRootBranch('owner-a', canvas.id);
     const upstreamAttachment = store.recordCanvasAttachment('owner-a', canvas.id, {
@@ -85,6 +85,15 @@ describe('UpstreamResourceResolver', () => {
     });
     const sibling = store.acknowledgeSend('owner-a', siblingReservation.id, 'turn-2');
 
+    store.applyReconciledInteraction(first.id, {
+      status: 'completed', agentOutput: 'first done', artifacts: [], artifactSyncState: 'synced',
+      artifactObservationPending: false, error: null, reconciliation: {},
+    });
+    store.applyReconciledInteraction(sibling.id, {
+      status: 'completed', agentOutput: 'sibling done', artifacts: [], artifactSyncState: 'synced',
+      artifactObservationPending: false, error: null, reconciliation: {},
+    });
+
     const resources = new UpstreamResourceResolver(store).listResources('owner-a', firstBranch.id);
     expect(resources.map((item) => item.name)).toEqual(['upstream.pdf']);
     expect(() => new UpstreamResourceResolver(store).resolveDocument({
@@ -103,6 +112,27 @@ describe('UpstreamResourceResolver', () => {
         }],
       },
     })).toThrow('resource_reference_unavailable');
+
+    store.createMergeSource('owner-a', firstBranch.id, first.id, sibling.id);
+    const mergedResources = new UpstreamResourceResolver(store)
+      .listResources('owner-a', firstBranch.id);
+    expect(mergedResources.map((item) => item.name)).toEqual(['upstream.pdf', 'sibling.pdf']);
+    expect(new UpstreamResourceResolver(store).resolveDocument({
+      ownerId: 'owner-a',
+      branchId: firstBranch.id,
+      currentAttachments: [],
+      document: {
+        version: 1,
+        segments: [{ type: 'resource', key: 'connected' }],
+        references: [{
+          key: 'connected',
+          origin: 'upstream',
+          kind: 'canvas_attachment',
+          sourceInteractionId: sibling.id,
+          resourceId: siblingAttachment.id!,
+        }],
+      },
+    }).references[0]).toMatchObject({ sourceInteractionId: sibling.id });
     expect(first.id).not.toBe(sibling.id);
   });
 });

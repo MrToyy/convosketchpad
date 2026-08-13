@@ -19,6 +19,7 @@ import { CanvasApprovalService } from '../lib/canvas/application/approval-servic
 import { CanvasApplicationService } from '../lib/canvas/application/canvas-service.js';
 import { CanvasApplicationError } from '../lib/canvas/application/errors.js';
 import { CanvasResourceService } from '../lib/canvas/application/resource-service.js';
+import { CanvasMergeSourceService } from '../lib/canvas/application/merge-source-service.js';
 import { canvasInputDocumentHasContent } from '../lib/canvas/domain/input-document.js';
 import {
   interactionHasPendingUpdates,
@@ -32,6 +33,7 @@ import {
   publicCanvasSendReservation as publicSendReservation,
 } from '../lib/canvas-public-dto.js';
 import { rateLimitGeneral } from '../middleware/rate-limit.js';
+import { publishCanvasChanged } from '../lib/canvas-sync.js';
 
 const encoder = new TextEncoder();
 const canvasLayoutNodeSchema = z.object({
@@ -97,7 +99,7 @@ function errorResponse(c: Context, error: unknown) {
   if (message === 'agent_locked' || message === 'agent_changed') return c.json({ error: message }, 409);
   if (message === 'agent_catalog_unavailable') return c.json({ error: message }, 503);
   if (message === 'unknown_agent') return c.json({ error: message }, 400);
-  if (['invalid_branch_transition', 'send_in_progress', 'cannot_fork_branch_head', 'interaction_not_completed', 'reservation_not_prepared'].includes(message)) {
+  if (['invalid_branch_transition', 'send_in_progress', 'cannot_fork_branch_head', 'interaction_not_completed', 'redundant_merge_source', 'reservation_not_prepared'].includes(message)) {
     return c.json({ error: message }, 409);
   }
   if (message.includes('UNIQUE constraint failed')) return c.json({ error: 'conflict' }, 409);
@@ -474,6 +476,37 @@ app.post('/api/canvas/interactions/:id/fork', rateLimitGeneral, (c) => {
   try {
     const service = new CanvasBranchService(store);
     return c.json({ branch: service.fork(identity.userId, routeParam(c, 'id')) }, 201);
+  } catch (error) { return errorResponse(c, error); }
+});
+
+app.put('/api/canvas/branches/:id/merge-sources/:sourceInteractionId', rateLimitGeneral, async (c) => {
+  const identity = identityOr401(c);
+  if (!identity) return c.json({ error: 'Authentication required' }, 401);
+  const params = z.object({
+    targetBranchId: z.string().uuid(),
+    sourceInteractionId: z.string().uuid(),
+  }).safeParse({
+    targetBranchId: routeParam(c, 'id'),
+    sourceInteractionId: routeParam(c, 'sourceInteractionId'),
+  });
+  const parsed = z.object({
+    expectedHeadInteractionId: z.string().uuid().nullable(),
+  }).safeParse(await c.req.json().catch(() => null));
+  if (!params.success || !parsed.success) {
+    return c.json({ error: 'Invalid merge source request' }, 400);
+  }
+  try {
+    const result = new CanvasMergeSourceService(store).connect({
+      ownerId: identity.userId,
+      targetBranchId: params.data.targetBranchId,
+      expectedHeadInteractionId: parsed.data.expectedHeadInteractionId,
+      sourceInteractionId: params.data.sourceInteractionId,
+    });
+    if (result.created) publishCanvasChanged(identity.userId, result.canvasId);
+    return c.json(
+      { mergeSource: result.mergeSource, created: result.created },
+      result.created ? 201 : 200,
+    );
   } catch (error) { return errorResponse(c, error); }
 });
 

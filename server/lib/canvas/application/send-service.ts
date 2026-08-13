@@ -157,15 +157,23 @@ export class CanvasSendService {
     const forceSessionRecovery = branch.conversationState === 'active'
       ? await this.shouldForceSessionRecovery(ownerId, branch.id)
       : false;
-    const reservation = this.store.prepareSend(ownerId, {
-      branchId: branch.id,
-      expectedHeadInteractionId: command.expectedHeadInteractionId,
-      userInput: resolvedInput.userInput,
-      inputDocument: resolvedInput.document,
-      resourceReferences: resolvedInput.references,
-      attachments,
-      forceSessionRecovery,
-    });
+    let reservation: SendReservation;
+    try {
+      reservation = this.store.prepareSend(ownerId, {
+        branchId: branch.id,
+        expectedHeadInteractionId: command.expectedHeadInteractionId,
+        userInput: resolvedInput.userInput,
+        inputDocument: resolvedInput.document,
+        resourceReferences: resolvedInput.references,
+        attachments,
+        forceSessionRecovery,
+      });
+    } catch (error) {
+      if (error instanceof Error && error.message === 'invalid_upstream_graph') {
+        throw new CanvasSendApplicationError('invalid_upstream_graph', 409);
+      }
+      throw error;
+    }
     return this.dispatchReservation(reservation);
   }
 

@@ -2,6 +2,9 @@ import type { Edge, XYPosition } from '@xyflow/react';
 import {
   autoLayoutCanvasNodes,
   canvasNodeBounds,
+  composerIncomingInteractionId,
+  MERGE_SOURCE_HANDLE_ID,
+  MERGE_TARGET_HANDLE_ID,
   type CanvasFlowNode,
 } from './flow-model';
 import { EMPTY_CANVAS_DRAFT } from './constants';
@@ -35,10 +38,13 @@ interface CanvasFlowProjectionInput {
     createBranch: string;
     newSession: string;
     continueBranch: string;
+    mergeSourceLabel: (index: number) => string;
   };
   onAdd(interaction: CanvasInteraction): void;
   onResubmit(interaction: CanvasInteraction): void;
   onApprovalChanged(): void;
+  onNavigateMergeSource(interactionId: string): void;
+  onOpenMergeTargets(interaction: CanvasInteraction): void;
   onDocumentChange(branchId: string, value: CanvasDraftInputDocument): void;
   onFiles(branchId: string, files: File[]): void;
   onRemoveFile(branchId: string, index: number): void;
@@ -61,8 +67,15 @@ export function projectCanvasFlow(input: CanvasFlowProjectionInput): {
     previews,
     labels,
   } = input;
+  const mergeSources = graph.mergeSources || [];
   const renderedById = new Map(renderedNodes.map((node) => [node.id, node]));
   const interactionById = new Map(graph.interactions.map((interaction) => [interaction.id, interaction]));
+  const mergeSourcesFor = (relations: typeof graph.mergeSources) => relations
+    .flatMap((relation) => {
+      const source = interactionById.get(relation.sourceInteractionId);
+      return source ? [{ relation, source }] : [];
+    })
+    .sort((left, right) => left.relation.ordinal - right.relation.ordinal);
   const headIds = new Set(graph.branches.flatMap((branch) =>
     branch.headInteractionId ? [branch.headInteractionId] : []));
   const draftForkSources = new Set(graph.branches.flatMap((branch) =>
@@ -113,6 +126,10 @@ export function projectCanvasFlow(input: CanvasFlowProjectionInput): {
         onAdd: input.onAdd,
         onResubmit: input.onResubmit,
         onApprovalChanged: input.onApprovalChanged,
+        mergeSources: mergeSourcesFor(mergeSources.filter((source) =>
+          source.targetInteractionId === interaction.id)),
+        onNavigateMergeSource: input.onNavigateMergeSource,
+        onOpenMergeTargets: input.onOpenMergeTargets,
       },
     };
   });
@@ -132,7 +149,7 @@ export function projectCanvasFlow(input: CanvasFlowProjectionInput): {
     const head = branch.headInteractionId ? interactionById.get(branch.headInteractionId) : undefined;
     const isContinue = branch.conversationState === 'active' && head?.executionState === 'completed';
     if (!isInitialDraft && !isContinue) continue;
-    const source = isInitialDraft ? branch.forkedFromInteractionId : branch.headInteractionId;
+    const source = composerIncomingInteractionId(branch);
     const nodeId = composerNodeId(branch.id, source);
     const composerSize = sizeFor(nodeId);
     if (source) {
@@ -157,6 +174,10 @@ export function projectCanvasFlow(input: CanvasFlowProjectionInput): {
         height: composerSize?.height || DEFAULT_NODE_HEIGHT,
       });
     const pendingOperation = pendingByBranch.get(branch.id);
+    const composerMergeSources = mergeSourcesFor(mergeSources.filter((relation) =>
+      relation.targetInteractionId === null
+      && relation.targetBranchId === branch.id
+      && relation.expectedHeadInteractionId === source));
     const projectedDraft = drafts[branch.id]
       || (pendingOperation
         ? {
@@ -203,10 +224,35 @@ export function projectCanvasFlow(input: CanvasFlowProjectionInput): {
         onSend: () => input.onSend(branch),
         onFocus: () => input.onFocus(branch.id, source),
         onBlur: () => input.onBlur(branch.id),
+        mergeSources: composerMergeSources,
+        resourceScopeRevision: composerMergeSources.map(({ relation }) => relation.id).join('|'),
+        onNavigateMergeSource: input.onNavigateMergeSource,
       },
     });
   }
   const all = [...interactionNodes, ...composerNodes];
+  const visibleIds = new Set(all.map((node) => node.id));
+  for (const relation of mergeSources) {
+    const acceptedTarget = Boolean(relation.targetInteractionId);
+    const target = relation.targetInteractionId
+      || composerNodeId(relation.targetBranchId, relation.expectedHeadInteractionId);
+    if (!visibleIds.has(relation.sourceInteractionId) || !visibleIds.has(target)) continue;
+    edges.push({
+      id: `merge-edge-${relation.id}`,
+      source: relation.sourceInteractionId,
+      sourceHandle: MERGE_SOURCE_HANDLE_ID,
+      target,
+      // The merge target handle only exists while the Composer is visible. Once the
+      // send is accepted, the Composer is replaced by an Interaction whose ordinary
+      // target handle owns all incoming history and merge edges.
+      targetHandle: acceptedTarget ? undefined : MERGE_TARGET_HANDLE_ID,
+      ariaLabel: labels.mergeSourceLabel(relation.ordinal + 1),
+      style: { strokeWidth: 2 },
+      className: 'canvas-merge-edge',
+      deletable: false,
+      reconnectable: false,
+    });
+  }
   const hasSavedLayout = Boolean(
     Object.keys(positions).length
     || (graph.layout && Object.keys(graph.layout.nodes).length),
