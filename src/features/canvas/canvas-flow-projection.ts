@@ -1,6 +1,5 @@
 import type { Edge, XYPosition } from '@xyflow/react';
 import {
-  autoLayoutCanvasNodes,
   canvasNodeBounds,
   composerIncomingInteractionId,
   MERGE_SOURCE_HANDLE_ID,
@@ -61,6 +60,7 @@ interface CanvasFlowProjectionInput {
 export function projectCanvasFlow(input: CanvasFlowProjectionInput): {
   nodes: CanvasFlowNode[];
   edges: Edge[];
+  needsInitialLayout: boolean;
 } {
   const {
     graph,
@@ -268,7 +268,8 @@ export function projectCanvasFlow(input: CanvasFlowProjectionInput): {
     || (graph.layout && Object.keys(graph.layout.nodes).length),
   );
   return {
-    nodes: hasSavedLayout ? all : autoLayoutCanvasNodes(all, edges),
+    nodes: all,
     edges,
+    needsInitialLayout: !hasSavedLayout,
   };
 }

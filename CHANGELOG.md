@@ -39,6 +39,7 @@ ConvoSketchpad v0.6.0 完成“资源引用 → 分支合并 → 跨 Agent 交�
 - Composer 的 Agent 选择移至标题栏并使用更明确的下拉样式；Interaction 在状态后以同一 `Runtime:Profile` 格式标记实际 Agent。
 - Copy 与 Fork 使用一致的操作样式，附件按钮增加主色边缘；移除节点内的 Agent 回放说明与 Merge 来源信息块，来源关系继续由不可删除的实线表达。
 - README 中英文路线图新增分支评审与比较、批量并行探索、语义化资源引用、Canvas 分区与检索、Storyboard/Collection、用户私有素材架、Canvas 模板、发送前检查和图片区域批注；Windows 支持调整到上述产品能力之后，作为最后实施项。
+- 认证检查与登录页不再预加载完整 Canvas；认证成功后按需加载主应用，仅在 Canvas 没有已保存布局或用户执行“重新排列”时加载自动布局引擎，并将稳定前端依赖拆为独立缓存 Chunk。
 
 ### 修复
 

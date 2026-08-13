@@ -173,6 +173,7 @@ describe('Canvas flow projection', () => {
       hasPendingUpdates: false,
     };
     const result = project(graph);
+    expect(result.needsInitialLayout).toBe(true);
     expect(result.nodes.map((node) => node.id)).toEqual(expect.arrayContaining([
       'interaction-1',
       'interaction-2',
@@ -348,6 +349,7 @@ describe('Canvas flow projection', () => {
 
     const result = project(graph);
 
+    expect(result.needsInitialLayout).toBe(false);
     expect(result.nodes.find((node) => node.id === previous.id)).toMatchObject({
       data: { canAdd: true },
     });

@@ -38,14 +38,27 @@ export default defineConfig({
       output: {
         manualChunks: {
           // Core React libraries (most stable, cache-friendly)
-          'react-vendor': ['react', 'react-dom'],
-          
+          'react-vendor': ['react', 'react-dom', 'react-dom/client'],
+
+          // Canvas rendering remains cacheable independently from app code.
+          'canvas-vendor': ['@xyflow/react'],
+
+          // Rich-text editing is only needed after the authenticated app loads.
+          'lexical-vendor': [
+            'lexical',
+            '@lexical/react/LexicalComposer',
+            '@lexical/react/LexicalTypeaheadMenuPlugin',
+          ],
+
+          // Radix primitives change less frequently than feature code.
+          'radix-vendor': ['radix-ui'],
+
           // Markdown rendering
           'markdown': ['react-markdown', 'remark-gfm'],
-          
-          // UI components (radix + lucide icons)
+
+          // UI icons
           'ui-vendor': ['lucide-react'],
-          
+
           // Utility libraries
           'utils': ['clsx', 'tailwind-merge', 'class-variance-authority'],
         },

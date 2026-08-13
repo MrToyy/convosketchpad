@@ -201,7 +201,7 @@ Codex 的命令执行、文件修改和权限请求投影到既有节点内审�
 | Graph/SSE 控制与 Composer/Send Operation 生命周期、失败草稿恢复 | `src/features/canvas/useCanvasGraphController.ts`、`src/features/canvas/useCanvasComposerDrafts.ts` |
 | Graph 到节点和边的纯投影 | `src/features/canvas/canvas-flow-projection.ts` |
 | Interaction/Composer 节点与节点注册 | `src/features/canvas/CanvasNodes.tsx`、`src/features/canvas/node-types.ts`、`src/features/canvas/constants.ts` |
-| Flow 类型、节点边界与自动布局 | `src/features/canvas/flow-model.ts` |
+| Flow 类型与节点边界、按需自动布局 | `src/features/canvas/flow-model.ts`、`src/features/canvas/auto-layout.ts` |
 | 产品 HTTP 客户端与数据契约 | `src/features/canvas/api.ts`、`src/features/canvas/types.ts` |
 | 图片缩略图、按需原图预览 | `src/features/canvas/CanvasNodes.tsx`、`src/features/chat/ImageLightbox.tsx` |
 | Agent Runtime 聚合状态上下文 | `src/contexts/RuntimeContext.tsx`、`src/hooks/useRuntimeEvents.ts` |

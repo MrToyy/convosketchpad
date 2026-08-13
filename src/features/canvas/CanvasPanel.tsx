@@ -40,7 +40,6 @@ import { CanvasLocalizedError, canvasErrorMessage, getCanvasCopy, type CanvasCop
 import { CanvasSidebar } from './CanvasSidebar';
 import { canvasNodeTypes } from './node-types';
 import {
-  autoLayoutCanvasNodes,
   composerIncomingInteractionId,
   isComposerIncomingInteraction,
   MERGE_SOURCE_HANDLE_ID,
@@ -516,7 +515,13 @@ export function CanvasPanel({ onStatusStatsChange }: { onStatusStatsChange?: (st
   }, [graph, rearranging]);
 
   const flow = useMemo(() => {
-    if (!graph) return { nodes: [] as CanvasFlowNode[], edges: [] as Edge[] };
+    if (!graph) {
+      return {
+        nodes: [] as CanvasFlowNode[],
+        edges: [] as Edge[],
+        needsInitialLayout: false,
+      };
+    }
     return projectCanvasFlow({
       graph,
       renderedNodes: nodesRef.current,
@@ -571,9 +576,10 @@ export function CanvasPanel({ onStatusStatsChange }: { onStatusStatsChange?: (st
   ]);
 
   useEffect(() => {
-    setNodes((current) => {
+    let cancelled = false;
+    const applyProjectedNodes = (projectedNodes: CanvasFlowNode[]) => setNodes((current) => {
       const currentById = new Map(current.map((node) => [node.id, node]));
-      const next = flow.nodes.map((node) => {
+      const next = projectedNodes.map((node) => {
         const existing = currentById.get(node.id);
         return existing
           ? {
@@ -600,7 +606,23 @@ export function CanvasPanel({ onStatusStatsChange }: { onStatusStatsChange?: (st
       }, next.map((node) => node.id));
       return next;
     });
-  }, [flow.nodes]);
+
+    if (flow.needsInitialLayout && nodesRef.current.length === 0 && flow.nodes.length > 0) {
+      void import('./auto-layout')
+        .then(({ autoLayoutCanvasNodes }) => {
+          if (!cancelled) applyProjectedNodes(autoLayoutCanvasNodes(flow.nodes, flow.edges));
+        })
+        .catch((cause) => {
+          if (cancelled) return;
+          setError(localizeError(cause, copy.saveLayoutFailed));
+          applyProjectedNodes(flow.nodes);
+        });
+      return () => { cancelled = true; };
+    }
+
+    applyProjectedNodes(flow.nodes);
+    return () => { cancelled = true; };
+  }, [copy.saveLayoutFailed, flow.edges, flow.needsInitialLayout, flow.nodes, localizeError]);
 
   useEffect(() => {
     if (!selectedId || nodes.length === 0) return;
@@ -668,15 +690,12 @@ export function CanvasPanel({ onStatusStatsChange }: { onStatusStatsChange?: (st
     const canvasId = selectedId;
     const instance = reactFlowRef.current;
     const currentNodes = nodesRef.current;
-    if (!canvasId || !instance || currentNodes.length === 0 || rearranging || workingCount > 0 || hasLocalSend) return;
+    if (!canvasId || !instance || currentNodes.length === 0 || rearranging
+      || arrangeInProgressRef.current || workingCount > 0 || hasLocalSend) return;
 
     const previousNodes = currentNodes;
     const previousPositions = { ...positionsRef.current };
     const previousViewport = instance.getViewport();
-    const arrangedNodes = autoLayoutCanvasNodes(currentNodes, flow.edges);
-    const arrangedPositions = Object.fromEntries(
-      arrangedNodes.map((node) => [node.id, node.position]),
-    );
 
     if (saveTimer.current) {
       window.clearTimeout(saveTimer.current);
@@ -684,12 +703,18 @@ export function CanvasPanel({ onStatusStatsChange }: { onStatusStatsChange?: (st
     }
     arrangeInProgressRef.current = true;
     setRearranging(true);
-    nodesRef.current = arrangedNodes;
-    positionsRef.current = arrangedPositions;
-    knownLayoutNodeIdsRef.current = new Set(arrangedNodes.map((node) => node.id));
-    setNodes(arrangedNodes);
 
     try {
+      const { autoLayoutCanvasNodes } = await import('./auto-layout');
+      if (selectedIdRef.current !== canvasId) return;
+      const arrangedNodes = autoLayoutCanvasNodes(currentNodes, flow.edges);
+      const arrangedPositions = Object.fromEntries(
+        arrangedNodes.map((node) => [node.id, node.position]),
+      );
+      nodesRef.current = arrangedNodes;
+      positionsRef.current = arrangedPositions;
+      knownLayoutNodeIdsRef.current = new Set(arrangedNodes.map((node) => node.id));
+      setNodes(arrangedNodes);
       await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
       await instance.fitView({
         padding: 0.12,

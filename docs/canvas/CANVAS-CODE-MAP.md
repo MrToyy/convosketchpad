@@ -33,11 +33,11 @@
 | 结构化输入转换、Lexical Composer、`@` 资源选择、HTTP 兼容的客户端 ID、单事务 Query 替换与可访问菜单 Portal | `src/features/canvas/input-document.ts`、`src/features/canvas/ResourceComposerEditor.tsx`、`src/features/canvas/lexical-typeahead.ts`、`src/lib/client-id.ts` |
 | Graph 到 Interaction/Composer 节点与边的纯投影 | `src/features/canvas/canvas-flow-projection.ts` |
 | Interaction/Composer 节点与节点注册 | `src/features/canvas/CanvasNodes.tsx`、`src/features/canvas/node-types.ts`、`src/features/canvas/constants.ts` |
-| React Flow 节点类型、边界计算与自动布局 | `src/features/canvas/flow-model.ts` |
+| React Flow 节点类型与边界计算、按需自动布局 | `src/features/canvas/flow-model.ts`、`src/features/canvas/auto-layout.ts` |
 | 状态栏 Branch/工作中计数与活跃 Compose 上下文 | `src/features/canvas/status.ts`、`src/components/StatusBar.tsx` |
 | HTTP API 与数据契约 | `src/features/canvas/api.ts`、`src/features/canvas/types.ts` |
 | Canvas 实体合并、降级轮询和退避 | `src/features/canvas/sync.ts`、`src/features/canvas/graph-refresh.ts` |
-| 布局、拖拽保存与显式重新排列 | `src/features/canvas/CanvasPanel.tsx`、`src/features/canvas/flow-model.ts`、`src/features/canvas/layout.ts` |
+| 布局、拖拽保存与显式重新排列 | `src/features/canvas/CanvasPanel.tsx`、`src/features/canvas/auto-layout.ts`、`src/features/canvas/flow-model.ts`、`src/features/canvas/layout.ts` |
 | 图片缩略图与按需原图预览 | `src/features/canvas/CanvasNodes.tsx`、`src/features/chat/ImageLightbox.tsx` |
 | Runtime 聚合状态、生命周期操作、设置与账户用量 | `src/contexts/RuntimeContext.tsx`、`src/hooks/useRuntimeEvents.ts`、`src/hooks/useRuntimeRestart.ts`、`src/features/settings/SystemSettings.tsx`、`src/features/dashboard/RuntimeUsage.tsx` |
 | Artifact 显示 | `src/features/chat/ImageLightbox.tsx` |
