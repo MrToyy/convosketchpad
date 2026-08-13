@@ -142,6 +142,8 @@ Agent 运行端负责 Agent 执行、工具、Conversation 和原始运行记录
 - **Canvas 模板**：保存布局、Branch 骨架、未发送 Composer、引用角色占位符和说明；默认不包含 Conversation Handle、历史执行、历史对话正文或私有附件。
 - **发送前检查**：发送前汇总目标 Agent、Conversation 继续或 Replay、资源槽位、Merge 来源、缺失文件和 Runtime 能力；只有运行端能够可靠提供时才显示费用或用量估算。
 - **图片区域批注**：在图片 Artifact 上圈选区域并添加修改或保留说明，生成与原图关联的不可变批注派生资源，再作为普通附件交给 Agent。
+- **创意工作流后端**：支持连接 ComfyUI 等本地或云端创意执行服务，让现有 Agent 调用可复现的图片、视频、音频和 3D 工作流，并把结果作为 Artifact 带回 Canvas。
+- **设计工具与交付平台**：逐步连接 Figma、Canva、Adobe 等设计环境，在保持各平台职责边界的前提下交换设计上下文、素材和最终产物。
 - **Windows 支持**：在上述产品能力之后，提供与 macOS、Linux 一致的安装、配置、服务管理和运行体验。
 
 ### 开发调试
@@ -362,6 +364,8 @@ This roadmap does not commit to a specific version or delivery date. Roadmap wor
 - **Canvas templates**: save layouts, Branch scaffolds, unsent composers, resource-role placeholders, and guidance while excluding Conversation Handles, run history, historical conversation content, and private attachments by default.
 - **Preflight review**: summarize the target Agent, Conversation continuation or Replay, material slots, Merge sources, missing files, and Runtime capabilities before sending. Show cost or usage estimates only when the Runtime can provide them reliably.
 - **Image-region annotations**: mark regions of an image Artifact with change or preserve notes, create an immutable annotated derivative linked to the original, and send it to the Agent as a normal attachment.
+- **Creative workflow backends**: connect local or cloud creative execution services such as ComfyUI, let existing Agents invoke reproducible image, video, audio, and 3D workflows, and return their results to the Canvas as Artifacts.
+- **Design tools and delivery platforms**: progressively connect design environments such as Figma, Canva, and Adobe to exchange design context, assets, and final deliverables while preserving each platform's responsibility boundary.
 - **Windows support**: after the product capabilities above, provide installation, setup, service management, and runtime behavior consistent with macOS and Linux.
 
 ### Development
