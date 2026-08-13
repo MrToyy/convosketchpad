@@ -23,7 +23,7 @@ export interface CanvasReplayPlan {
   resources: CanvasContextResource[];
 }
 
-export type CanvasReplayReason = 'canonical-replay' | 'session-recovery';
+export type CanvasReplayReason = 'canonical-replay' | 'agent-handoff' | 'session-recovery';
 
 export function canvasReplayResourceIdentity(resource: CanvasContextResource): string {
   if (resource.contentHash && /^[a-f0-9]{64}$/i.test(resource.contentHash)) {
@@ -142,7 +142,9 @@ export function buildCanvasReplayPlan(
 
   const reasonText = reason === 'canonical-replay'
     ? 'The user forked an earlier Canvas interaction. Continue from this complete immutable prior context.'
-    : 'The Agent Runtime replaced or reset this Canvas conversation. Restore this complete immutable branch context before continuing.';
+    : reason === 'agent-handoff'
+      ? 'The user handed this Canvas branch to a different Agent. Continue from this complete immutable branch context in a new conversation.'
+      : 'The Agent Runtime replaced or reset this Canvas conversation. Restore this complete immutable branch context before continuing.';
   const resources = [...physicalByIdentity.values()];
   const resourceNote = resources.length > 0
     ? '\n\nRestored files are attached through the Agent Runtime in F001, F002, ... order. F references in the history identify their original interaction and role.'

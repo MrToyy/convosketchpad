@@ -132,7 +132,7 @@ describe('Canvas node resize controls', () => {
           approvals: [], executionMetadata: {}, contextSnapshot: null, createdAt: 1, updatedAt: 1,
         },
         preview: 'first streamed paragraph', composerOpen: false, canAdd: false,
-        resubmitting: false, resizeEnabled: true, onAdd: vi.fn(), onResubmit: vi.fn(),
+        copying: false, resizeEnabled: true, onAdd: vi.fn(), onCopy: vi.fn(),
         onApprovalChanged: vi.fn(),
       }}
     />);
@@ -162,7 +162,7 @@ describe('Canvas node resize controls', () => {
           approvals: [], executionMetadata: {}, contextSnapshot: null, createdAt: 1, updatedAt: 2,
         },
         preview: 'first streamed paragraph\n\nsecond streamed paragraph', composerOpen: false, canAdd: false,
-        resubmitting: false, resizeEnabled: true, onAdd: vi.fn(), onResubmit: vi.fn(),
+        copying: false, resizeEnabled: true, onAdd: vi.fn(), onCopy: vi.fn(),
         onApprovalChanged: vi.fn(),
       }}
     />);
@@ -183,6 +183,7 @@ describe('Canvas node resize controls', () => {
             version: 1,
             branchId: 'branch-1',
             parentInteractionId: null,
+            agentRef: { runtimeId: 'openclaw', profileId: 'default' },
             runtimeTurnId: 'run-1',
             userInput: 'hello',
             agentOutput: 'done',
@@ -202,12 +203,10 @@ describe('Canvas node resize controls', () => {
           preview: '',
           composerOpen: false,
           canAdd: false,
-          resubmitting: false,
+          copying: false,
           resizeEnabled: true,
           onAdd: vi.fn(),
-          onResubmit: vi.fn(),
-          mergeSources: [],
-          onNavigateMergeSource: vi.fn(),
+          onCopy: vi.fn(),
           onOpenMergeTargets,
         }}
       />,
@@ -283,6 +282,20 @@ describe('Canvas node resize controls', () => {
     expect(screen.getByTestId('interaction-output')).not.toHaveClass('h-40', 'overflow-hidden');
     expect(screen.getByTestId('interaction-output')).toHaveAttribute('aria-busy', 'false');
     expect(screen.getByTestId('interaction-output-body')).toHaveClass('max-h-[360px]', 'overflow-y-auto', 'overflow-x-hidden');
+    const interactionAgent = screen.getByText('openclaw:default');
+    expect(interactionAgent.closest('header')).toBeInTheDocument();
+    expect(screen.getByText('已完成').nextElementSibling).toBe(interactionAgent);
+    expect(screen.getByRole('button', { name: '复制：从上一节点创建可编辑的新输入框' })).toHaveClass(
+      'size-8',
+      'rounded-full',
+      'border',
+      'border-primary/40',
+      'bg-background',
+      'text-primary',
+      'shadow-lg',
+      'hover:bg-primary',
+      'hover:text-primary-foreground',
+    );
 
     rerender(
       <InteractionNode
@@ -314,10 +327,10 @@ describe('Canvas node resize controls', () => {
           preview: '',
           composerOpen: false,
           canAdd: false,
-          resubmitting: false,
+          copying: false,
           resizeEnabled: false,
           onAdd: vi.fn(),
-          onResubmit: vi.fn(),
+          onCopy: vi.fn(),
         }}
       />,
     );
@@ -340,6 +353,8 @@ describe('Canvas node resize controls', () => {
         kind: 'root' as const,
         parentBranchId: null,
         forkedFromInteractionId: null,
+        copiedFromInteractionId: null,
+        activeAgentRef: null,
         conversationId: 'session-1',
         conversationInstanceId: null,
         observedConversationInstanceId: null,
@@ -350,18 +365,29 @@ describe('Canvas node resize controls', () => {
         createdAt: 1,
         updatedAt: 1,
       },
-      draft: EMPTY_CANVAS_DRAFT,
+      draft: {
+        ...EMPTY_CANVAS_DRAFT,
+        agentRef: { runtimeId: 'openclaw', profileId: 'default' },
+      },
       label: '新建主分支',
+      agents: [{
+        agentRef: { runtimeId: 'openclaw', profileId: 'default' },
+        displayName: 'Main Agent',
+        runtimeDisplayName: 'OpenClaw',
+        available: true,
+      }],
+      onAgentChange: vi.fn(),
       resizeEnabled: true,
-      onTextChange: vi.fn(),
+      onDocumentChange: vi.fn(),
       onFiles: vi.fn(),
       onRemoveFile: vi.fn(),
       onRemovePersistedAttachment: vi.fn(),
       onSend: vi.fn(),
       onFocus: vi.fn(),
       onBlur: vi.fn(),
+      resourceScopeRevision: 'merge-source-1',
     };
-    const { rerender, unmount } = render(
+    const { container, rerender, unmount } = render(
       <ComposerNode
         {...commonNodeProps}
         id="composer:branch-1:root"
@@ -371,6 +397,36 @@ describe('Canvas node resize controls', () => {
     );
 
     expect(screen.getByTestId('node-resize-control')).toBeInTheDocument();
+    const agentSelect = screen.getByRole('combobox', { name: '选择智能体' });
+    expect(agentSelect).toHaveValue('openclaw:default');
+    expect(screen.getByRole('option', { name: 'openclaw:default' })).toBeInTheDocument();
+    expect(agentSelect.closest('header')).toBeInTheDocument();
+    expect(agentSelect).toHaveClass(
+      'border',
+      'border-primary/40',
+      'bg-primary/10',
+      'appearance-none',
+      'rounded-[8px]',
+      'pl-2.5',
+      'pr-8',
+      'text-left',
+      'text-sm',
+      'font-semibold',
+      'text-primary',
+    );
+    expect(agentSelect).not.toHaveClass('rounded-lg', 'rounded-md', 'text-right');
+    expect(agentSelect.parentElement).not.toHaveClass('border', 'bg-background');
+    const agentChevron = agentSelect.parentElement?.querySelector('.lucide-chevron-down');
+    expect(agentChevron).toHaveClass('right-2.5');
+    expect(container.querySelector('.lucide-bot')).not.toBeInTheDocument();
+    expect(screen.queryByText('将完整回放当前分支，并在所选 Agent 中创建新会话。')).not.toBeInTheDocument();
+    expect(screen.queryByText('已接入来源')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '定位到来源 1' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '添加附件' })).toHaveClass(
+      '!border-primary/40',
+      'text-primary',
+      'hover:!border-primary/70',
+    );
     expect(screen.getByRole('textbox')).toHaveClass('resize-none');
     expect(screen.getAllByTestId('node-resize-control')).toHaveLength(1);
     const mergeTarget = screen.getByTestId('flow-handle-merge-target');
@@ -450,8 +506,8 @@ describe('Canvas node resize controls', () => {
             error: null, createdAt: 1, updatedAt: 1,
           }],
         },
-        preview: '', composerOpen: false, canAdd: false, resubmitting: false, resizeEnabled: true,
-        onAdd: vi.fn(), onResubmit: vi.fn(), onApprovalChanged,
+        preview: '', composerOpen: false, canAdd: false, copying: false, resizeEnabled: true,
+        onAdd: vi.fn(), onCopy: vi.fn(), onApprovalChanged,
       }}
     />);
     expect(screen.getByRole('region', { name: 'Execute command' })).toBeInTheDocument();

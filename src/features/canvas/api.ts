@@ -66,11 +66,6 @@ export const canvasApi = {
       method: 'PATCH', body: JSON.stringify({ name }),
     })).canvas;
   },
-  async updateAgent(id: string, agentRef: AgentRef): Promise<CanvasSummary> {
-    return (await request<{ canvas: CanvasSummary }>(`/api/canvas/canvases/${id}`, {
-      method: 'PATCH', body: JSON.stringify({ agentRef }),
-    })).canvas;
-  },
   async remove(id: string): Promise<void> {
     await request(`/api/canvas/canvases/${id}`, { method: 'DELETE' });
   },
@@ -82,11 +77,18 @@ export const canvasApi = {
   },
   async resources(
     branchId: string,
+    agentRef: AgentRef,
     query = '',
     cursor = 0,
     signal?: AbortSignal,
   ): Promise<{ items: CanvasResourceCatalogItem[]; nextCursor?: string }> {
-    const params = new URLSearchParams({ q: query, cursor: String(cursor), limit: '100' });
+    const params = new URLSearchParams({
+      q: query,
+      cursor: String(cursor),
+      limit: '100',
+      runtimeId: agentRef.runtimeId,
+      profileId: agentRef.profileId,
+    });
     return request<{ items: CanvasResourceCatalogItem[]; nextCursor?: string }>(
       `/api/canvas/branches/${encodeURIComponent(branchId)}/resources?${params}`,
       { signal },
@@ -108,21 +110,21 @@ export const canvasApi = {
   async fork(interactionId: string): Promise<CanvasBranch> {
     return (await request<{ branch: CanvasBranch }>(`/api/canvas/interactions/${interactionId}/fork`, { method: 'POST' })).branch;
   },
-  async resubmit(interactionId: string, expectedAgentRef: AgentRef): Promise<{
-    interaction?: CanvasInteraction;
-    operation?: SendReservation;
+  async copy(interactionId: string): Promise<{
+    branch: CanvasBranch;
+    initialDraft: Pick<import('./types').CanvasDraft, 'agentRef' | 'persistedAttachments'> & {
+      inputDocument: CanvasInputDocument;
+      resourceReferences: CanvasInteraction['resourceReferences'];
+    };
   }> {
-    return request(`/api/canvas/interactions/${interactionId}/resubmit`, {
-      method: 'POST',
-      body: JSON.stringify({ expectedAgentRef }),
-    });
+    return request(`/api/canvas/interactions/${interactionId}/copy`, { method: 'POST' });
   },
   async saveLayout(canvasId: string, layout: CanvasLayout): Promise<void> {
     await request(`/api/canvas/canvases/${canvasId}/layout`, { method: 'PUT', body: JSON.stringify(layout) });
   },
   async send(branchId: string, body: {
     expectedHeadInteractionId?: string | null;
-    expectedAgentRef: AgentRef;
+    agentRef: AgentRef;
     inputDocument: CanvasInputDocument;
     attachmentIds: string[];
   }): Promise<{ interaction?: CanvasInteraction; operation?: SendReservation }> {

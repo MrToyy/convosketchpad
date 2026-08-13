@@ -5,6 +5,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { afterEach, describe, expect, it } from 'vitest';
 import { runtimeHandle } from '../../agent-runtimes/contract.js';
 import { CanvasStore } from './canvas-store.js';
+import { ensureCanvasCompositionSchema } from './canvas-composition-schema.js';
 import type { CanvasArtifact } from '../model.js';
 import { testConversationHandleFactory } from '../../fixtures/test-conversation-handle.js';
 
@@ -146,11 +147,27 @@ describe('CanvasStore', () => {
       '0.3.0_media_derivatives_v1',
       '0.3.2_to_0.4.0_agent_runtime_v1',
       '0.4.0_to_0.5.0_resource_references_v1',
-      '0.5.0_to_0.6.0_branch_merging_v1',
+      '0.5.0_to_0.6.0_canvas_composition_v1',
     ]);
     expect(store.db.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'trigger' AND name LIKE '%merge_source%_v1'").get())
       .toEqual({ count: 2 });
     expect(store.db.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
+  });
+
+  it('replaces the unreleased branch-merging ledger with the single v0.6 migration', () => {
+    const store = createStore();
+    store.db.exec(`
+      DELETE FROM schema_migrations WHERE id = '0.5.0_to_0.6.0_canvas_composition_v1';
+      INSERT INTO schema_migrations(id, applied_at, app_version)
+      VALUES ('0.5.0_to_0.6.0_branch_merging_v1', 1, '0.6.0');
+    `);
+
+    ensureCanvasCompositionSchema(store.db, '0.6.0');
+
+    expect(store.db.prepare(`SELECT id FROM schema_migrations
+      WHERE id LIKE '0.5.0_to_0.6.0_%' ORDER BY id`).all()).toEqual([
+      { id: '0.5.0_to_0.6.0_canvas_composition_v1' },
+    ]);
   });
 
   it('repairs the unreleased development Backend schema into the final Runtime schema', () => {
@@ -256,7 +273,7 @@ describe('CanvasStore', () => {
         '0.3.0_media_derivatives_v1',
         '0.3.2_to_0.4.0_agent_runtime_v1',
         '0.4.0_to_0.5.0_resource_references_v1',
-        '0.5.0_to_0.6.0_branch_merging_v1',
+        '0.5.0_to_0.6.0_canvas_composition_v1',
       ]);
     expect(verified.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
     expect(verified.prepare('PRAGMA integrity_check').get()).toEqual({ integrity_check: 'ok' });
@@ -801,7 +818,113 @@ describe('CanvasStore', () => {
       attachments: [],
     });
     expect(next.materialization).toBe('continue-existing');
-    expect(next.conversationId).toBe(branch.conversationId);
+    expect(next.conversationId).toBe(store.getOwnedBranch('user-a', branch.id)!.conversationId);
+  });
+
+  it('preserves the active Conversation identity across an ordinary Continue', () => {
+    const store = createStore();
+    const canvas = seedUser(store);
+    const branch = store.createRootBranch('user-a', canvas.id);
+    const firstReservation = store.prepareSend('user-a', {
+      branchId: branch.id,
+      userInput: 'one',
+      attachments: [],
+    });
+    const first = store.acknowledgeSend('user-a', firstReservation.id, 'run-1');
+    completeInteractionForTest(store, 'user-a', first.id, {
+      status: 'completed', agentOutput: 'answer one', artifacts: [],
+    });
+    observeConversationInstance(store, branch.id, 'session-1', 1_000);
+
+    const secondReservation = store.prepareSend('user-a', {
+      branchId: branch.id,
+      expectedHeadInteractionId: first.id,
+      userInput: 'two',
+      attachments: [],
+    });
+    const second = store.acknowledgeSend('user-a', secondReservation.id, 'run-2');
+
+    expect(store.getOwnedInteraction('user-a', second.id)).toMatchObject({
+      conversationInstanceId: 'session-1',
+      observedConversationInstanceId: 'session-1',
+    });
+    expect(store.getOwnedBranch('user-a', branch.id)).toMatchObject({
+      conversationInstanceId: 'session-1',
+      observedConversationInstanceId: 'session-1',
+      conversationIntegrity: 'healthy',
+    });
+    expect(store.getOwnedBranchConversationLifecycle('user-a', branch.id)).toMatchObject({
+      conversationStartedAt: 1_000,
+      observedConversationStartedAt: 1_000,
+    });
+  });
+
+  it('replays the complete branch into a new Session when the Composer Agent changes', () => {
+    const store = createStore();
+    const canvas = seedUser(store);
+    const branch = store.createRootBranch('user-a', canvas.id);
+    const firstReservation = store.prepareSend('user-a', {
+      branchId: branch.id,
+      agentRef: { runtimeId: 'openclaw', profileId: 'main' },
+      userInput: 'research premise',
+      attachments: [],
+    });
+    const first = store.acknowledgeSend('user-a', firstReservation.id, 'run-1');
+    completeInteractionForTest(store, 'user-a', first.id, {
+      status: 'completed', agentOutput: 'research result', artifacts: [],
+    });
+
+    const handoff = store.prepareSend('user-a', {
+      branchId: branch.id,
+      expectedHeadInteractionId: first.id,
+      agentRef: { runtimeId: 'openclaw', profileId: 'editor' },
+      userInput: 'turn this into a script',
+      attachments: [],
+    });
+    expect(handoff).toMatchObject({
+      materialization: 'agent-handoff',
+      agentProfileId: 'editor',
+    });
+    expect(handoff.conversationId).not.toBe(firstReservation.conversationId);
+    expect(handoff.outgoingMessage).toContain('research premise');
+    expect(handoff.outgoingMessage).toContain('research result');
+
+    const second = store.acknowledgeSend('user-a', handoff.id, 'run-2');
+    expect(second.agentRef).toEqual({ runtimeId: 'openclaw', profileId: 'editor' });
+    expect(store.getOwnedBranch('user-a', branch.id)).toMatchObject({
+      activeAgentRef: { runtimeId: 'openclaw', profileId: 'editor' },
+      conversationId: handoff.conversationId,
+    });
+    expect(store.getOwnedInteraction('user-a', first.id)?.agentRef)
+      .toEqual({ runtimeId: 'openclaw', profileId: 'main' });
+  });
+
+  it('creates multiple unsent Copy composers with the source Agent and input', () => {
+    const store = createStore();
+    const canvas = seedUser(store);
+    const branch = store.createRootBranch('user-a', canvas.id);
+    const reservation = store.prepareSend('user-a', {
+      branchId: branch.id,
+      agentRef: { runtimeId: 'openclaw', profileId: 'main' },
+      userInput: 'copy me',
+      attachments: [],
+    });
+    const source = store.acknowledgeSend('user-a', reservation.id, 'run-1');
+
+    const firstCopy = store.copyInteraction('user-a', source.id);
+    const secondCopy = store.copyInteraction('user-a', source.id);
+    expect(firstCopy.branch.id).not.toBe(secondCopy.branch.id);
+    expect(firstCopy).toMatchObject({
+      branch: {
+        conversationState: 'draft',
+        creationMode: 'copy',
+        copiedFromInteractionId: source.id,
+      },
+      source: {
+        userInput: 'copy me',
+        agentRef: { runtimeId: 'openclaw', profileId: 'main' },
+      },
+    });
   });
 
   it('snapshots connected source paths with shared ancestors deduplicated in stable order', () => {
@@ -997,7 +1120,7 @@ describe('CanvasStore', () => {
     observeConversationInstance(store, branch.id, 'session-2', 3_000);
     expect(store.getOwnedReservationSessionTarget('user-a', recovery.id)).toEqual({
       branchId: branch.id,
-      conversationId: branch.conversationId,
+      conversationId: store.getOwnedBranch('user-a', branch.id)!.conversationId,
     });
     expect(store.getOwnedReservationSessionTarget('user-b', recovery.id)).toBeNull();
 
@@ -1262,7 +1385,7 @@ describe('CanvasStore', () => {
     const updated = store.getOwnedInteraction('user-a', current.id)!;
 
     expect(updated.executionMetadata.materialization).toBe('lazy-root');
-    expect(updated.executionMetadata.conversationId).toBe(branch.conversationId);
+    expect(updated.executionMetadata.conversationId).toBe(reservation.conversationId);
     expect(updated.executionMetadata.reconciliation).toMatchObject({ phase: 'settling', artifactSync: 'pending' });
     expect(store.getOwnedInteraction('user-b', current.id)).toBeNull();
   });
@@ -1533,7 +1656,7 @@ describe('CanvasStore', () => {
       conversationRef: {
         runtimeId: 'openclaw',
         schemaVersion: 1,
-        opaque: { sessionKey: `agent:main:canvas:${branch.id}` },
+        opaque: { sessionKey: `agent:main:canvas:${reservation.id}` },
       },
     });
     const current = store.acknowledgeSend(
@@ -1548,7 +1671,7 @@ describe('CanvasStore', () => {
       runtimeId: 'openclaw',
       agentProfileId: 'main',
       turnRef: { runtimeId: 'openclaw', opaque: { runId: 'run-1' } },
-      conversationRef: { runtimeId: 'openclaw', opaque: { sessionKey: `agent:main:canvas:${branch.id}` } },
+      conversationRef: { runtimeId: 'openclaw', opaque: { sessionKey: `agent:main:canvas:${reservation.id}` } },
     });
     expect(store.findInteractionByRuntimeCorrelation(
       'openclaw',

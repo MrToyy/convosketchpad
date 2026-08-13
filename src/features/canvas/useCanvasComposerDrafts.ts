@@ -179,6 +179,7 @@ export function useCanvasComposerDrafts() {
         }
         next[operation.branchId] = {
           ...EMPTY_CANVAS_DRAFT,
+          agentRef: operation.agentRef,
           text: operation.userInput,
           inputDocument: enrichInputDocument(
             operation.inputDocument,

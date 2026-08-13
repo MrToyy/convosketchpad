@@ -40,7 +40,7 @@ ConvoSketchpad 是一张用于分支与合并 AI 对话的自托管可视化画�
 | 展开思路 | 所有问题沿一条消息流继续 | 从任意已完成节点创建分支，在画布上并行探索 |
 | 保护主线 | 临时试验和补充询问会进入后续对话 | 每条分支保留自己的提示词、回复、附件和生成结果 |
 | 汇总结果 | 手工复制多条对话，再自行解释来源和先后关系 | 把已完成节点连接到现有输入框，由后端去重、排序并保留完整来源路径 |
-| 使用 Agent | 取决于聊天产品内置的模型和工具 | 直接沿用 OpenClaw、Codex 或 OpenCode 中已有的 Agent/默认配置、技能、记忆、插件和工具 |
+| 使用 Agent | 取决于聊天产品内置的模型和工具 | 每次发送都可选择已有 Agent，并把完整创作背景交给新的 Agent 继续 |
 | 回顾过程 | 在长聊天记录中滚动查找 | 在可缩放画布上查看、移动和比较不同路径 |
 
 Agent Runtime 中的单个 Conversation 通常以线性消息流推进。在同一条对话中穿插创意试验、图片生成、临时调研或补充提问时，这些过程都会进入后续对话，逐渐稀释主线目标；如果另开 Conversation，又需要重新整理分叉点之前的背景。
@@ -58,6 +58,8 @@ ConvoSketchpad 把这些方向铺展在同一张 Canvas 上：从任意已完成
 - **从任意一轮对话重新出发**：保留到这一刻为止的创作背景，排除之后已经跑偏或无关的交流，为选题、脚本、文案或画面重新开一条干净的路线。
 - **同时尝试多个创意方向**：把不同标题、叙事角度、表达方式、视觉风格和图片版本铺在同一张画布上并行推进，随时放大查看和并排比较。
 - **把独立探索重新汇合**：将多个会话流中有价值的想法和成果接入同一个输入框，在这些内容的共同基础上继续写稿、策划或创造新内容，无需手工复制和整理多段聊天记录。
+- **把创作交给更合适的 Agent**：在任意输入框选择下一步使用的 Agent；切换后会带上这条路径的完整创作背景，在新的 Agent 中继续，而不必手工搬运上下文。
+- **复制一轮内容再重新创作**：把任意一轮输入复制成未发送的新分支，再调整 Agent、文字或素材后手动提交，适合用同一要求比较不同 Agent 或快速制作变体。
 - **让每条要求准确指向素材**：输入时使用 `@` 点名本次上传或已经带入当前创作的图片、文件和生成结果，让 Agent 清楚哪段描述、修改意见或创作要求对应哪个素材。
 - **继续使用你熟悉的 Agent**：直接沿用 OpenClaw、Codex 或 OpenCode 中已经配置好的模型、技能、记忆、插件和工具，不必为了使用画布重新搭建工作流。
 - **随时回到完整的创作现场**：画布布局、对话过程、上传素材和生成结果都会保留下来，方便继续创作、回看不同方案，或找回某次探索中的关键成果。
@@ -90,7 +92,7 @@ npm run build
 npm start
 ```
 
-`npm run setup` 会先探测并多选 Agent 运行端，再逐项配置连接，随后配置访问方式和可选的受管用户认证，最后从统一 Agent 目录选择新建 Canvas 的默认 Agent。Codex 接入直接监督本机 `codex app-server`；OpenCode 接入监督本机 `opencode serve` 并沿用其默认模型。安装或启动本项目不会替代 Agent 运行端。
+`npm run setup` 会先探测并多选 Agent 运行端，再逐项配置连接，随后配置访问方式和可选的受管用户认证，最后从统一 Agent 目录选择 Root Composer 的默认 Agent。Codex 接入直接监督本机 `codex app-server`；OpenCode 接入监督本机 `opencode serve` 并沿用其默认模型。安装或启动本项目不会替代 Agent 运行端。
 
 ### 运行关系
 
@@ -129,7 +131,6 @@ Agent 运行端负责 Agent 执行、工具、Conversation 和原始运行记录
 
 #### 路线图
 
-- **跨 Agent 交接**：把一个分支的阶段性结果交给另一个 Agent 继续处理，并保留相关上下文。
 - **Windows 支持**：提供与 macOS、Linux 一致的安装、配置、服务管理和运行体验。
 
 ### 开发调试
@@ -176,8 +177,8 @@ PORT=4000 npm run dev
 | 环境变量 | 默认值 | 用途 |
 |---|---|---|
 | `AGENT_RUNTIMES` | `openclaw` | 启用的 Agent 运行端，按顺序组成统一 Agent 目录 |
-| `CONVOSKETCHPAD_DEFAULT_AGENT_RUNTIME` | 未设置 | 新建 Canvas 优先使用的 Agent 运行端 |
-| `CONVOSKETCHPAD_DEFAULT_AGENT_PROFILE` | 未设置 | 新建 Canvas 优先使用的 Agent Profile；不可用时回退 |
+| `CONVOSKETCHPAD_DEFAULT_AGENT_RUNTIME` | 未设置 | Root Composer 默认使用的 Agent 运行端 |
+| `CONVOSKETCHPAD_DEFAULT_AGENT_PROFILE` | 未设置 | Root Composer 默认使用的 Agent Profile；不可用时回退 |
 | `OPENCLAW_GATEWAY_URL` | `http://127.0.0.1:18789` | OpenClaw Gateway 地址 |
 | `OPENCLAW_GATEWAY_TOKEN` | 空 | 仅供服务端使用的 Gateway 共享 Token；本机 RPC、Gateway HTTP 与远程配对 bootstrap 使用 |
 | `CODEX_BIN` | `codex` | Codex CLI 命令或绝对路径；最低且已验证版本为 `0.146.0` |
@@ -248,7 +249,7 @@ ConvoSketchpad is a self-hosted visual canvas for branching and merging AI conve
 | Explore ideas | Every question continues in one message stream | Fork any completed node and explore paths in parallel on a Canvas |
 | Protect the main line | Experiments and side questions enter later conversation history | Each branch keeps its own prompts, responses, attachments, and generated results |
 | Combine results | Manually copy several chats and explain their sources and order | Connect completed nodes to an existing composer; the server deduplicates, orders, and preserves each complete source path |
-| Use Agents | Depends on the models and tools built into the chat product | Reuse existing OpenClaw, Codex, or OpenCode Agents/defaults, skills, memory, plugins, and tools |
+| Use Agents | Depends on the models and tools built into the chat product | Choose an existing Agent for each send and hand the full creative context to a different Agent when needed |
 | Review the work | Scroll through a long chat history | View, move, and compare paths on a zoomable Canvas |
 
 An Agent Runtime Conversation usually advances as a linear message stream. When creative experiments, image generation, quick research, and side questions all happen in one chat, they become part of everything that follows and gradually dilute the primary objective. Starting a separate Conversation avoids that mixture, but requires reconstructing the information available at the fork point.
@@ -266,6 +267,8 @@ ConvoSketchpad lays those directions out on one Canvas. Fork any completed Inter
 - **Restart from any point in a conversation**: keep the creative context available at that moment while leaving later detours behind, giving a topic, script, draft, or visual direction a clean path forward.
 - **Explore several creative directions at once**: develop alternative headlines, narratives, tones, visual styles, and image versions side by side on one Canvas, then zoom in and compare them whenever you need.
 - **Bring separate explorations back together**: connect the strongest ideas and results from several conversation paths into one input, then write, plan, or create something new from their combined foundation without manually copying chat history.
+- **Hand work to the best Agent for the next step**: choose an Agent in any composer; when you switch, the complete context of that path is replayed into a new Agent Conversation without manual copying.
+- **Copy a turn and reshape it before sending**: duplicate any input into an unsent branch, then change its Agent, wording, or assets before submitting—useful for comparing Agents or producing quick variations.
 - **Make every instruction point to the right asset**: use `@` to name an image, file, or result uploaded in or already brought into the current creative path exactly where you discuss it, so the Agent knows which asset each description, revision, or creative request refers to.
 - **Keep working with the Agents you already know**: reuse the models, skills, memory, plugins, and tools configured in OpenClaw, Codex, or OpenCode instead of rebuilding your workflow for the Canvas.
 - **Return to the complete creative workspace at any time**: Canvas layout, conversations, source material, and generated results stay together, making it easy to continue a project, revisit alternatives, or recover a valuable result from an earlier exploration.
@@ -298,7 +301,7 @@ npm run build
 npm start
 ```
 
-`npm run setup` first detects and lets you select Agent Runtimes, configures each connection, then configures access mode and optional managed-user authentication. Finally, it chooses the default Agent for new canvases from the unified catalog. Codex integration supervises the local `codex app-server`; OpenCode integration supervises local `opencode serve` and inherits its default model.
+`npm run setup` first detects and lets you select Agent Runtimes, configures each connection, then configures access mode and optional managed-user authentication. Finally, it chooses the default Agent for Root composers from the unified catalog. Codex integration supervises the local `codex app-server`; OpenCode integration supervises local `opencode serve` and inherits its default model.
 
 ### Runtime relationship
 
@@ -337,7 +340,6 @@ New Runtimes must prefer App Server, ACP, Gateway, SDK, or a stable machine-read
 
 #### Roadmap
 
-- **Cross-Agent handoff**: pass a branch's intermediate result to another Agent for continued work while retaining the relevant context.
 - **Windows support**: provide installation, setup, service management, and runtime behavior consistent with macOS and Linux.
 
 ### Development
@@ -384,8 +386,8 @@ Copy `.env.example` or run `npm run setup` to generate `.env`. The most commonly
 | Environment variable | Default | Purpose |
 |---|---|---|
 | `AGENT_RUNTIMES` | `openclaw` | Enabled Agent Runtimes in unified Agent catalog order |
-| `CONVOSKETCHPAD_DEFAULT_AGENT_RUNTIME` | unset | Preferred Agent Runtime for a new Canvas |
-| `CONVOSKETCHPAD_DEFAULT_AGENT_PROFILE` | unset | Preferred Agent profile for a new Canvas; falls back when unavailable |
+| `CONVOSKETCHPAD_DEFAULT_AGENT_RUNTIME` | unset | Default Agent Runtime for Root composers |
+| `CONVOSKETCHPAD_DEFAULT_AGENT_PROFILE` | unset | Default Agent profile for Root composers; falls back when unavailable |
 | `OPENCLAW_GATEWAY_URL` | `http://127.0.0.1:18789` | OpenClaw Gateway address |
 | `OPENCLAW_GATEWAY_TOKEN` | empty | Server-only shared Gateway token for local RPC, Gateway HTTP, and remote pairing bootstrap |
 | `CODEX_BIN` | `codex` | Codex CLI command or absolute path; minimum and tested version is `0.146.0` |

@@ -41,7 +41,7 @@ import { CanvasSidebar } from './CanvasSidebar';
 import { canvasNodeTypes } from './node-types';
 import {
   autoLayoutCanvasNodes,
-  canvasNodeBounds,
+  composerIncomingInteractionId,
   isComposerIncomingInteraction,
   MERGE_SOURCE_HANDLE_ID,
   MERGE_TARGET_HANDLE_ID,
@@ -49,23 +49,19 @@ import {
   type ComposerFlowNode,
 } from './flow-model';
 import { EMPTY_CANVAS_DRAFT } from './constants';
-import { documentForSend, draftDocumentText } from './input-document';
+import { documentForSend, draftDocumentText, enrichInputDocument } from './input-document';
 import {
   contextForComposerSource,
   deriveCanvasStatusCounts,
   type CanvasStatusStats,
 } from './status';
 import {
-  DEFAULT_NODE_HEIGHT,
-  INTERACTION_NODE_WIDTH,
   canvasLayoutNodes,
   canvasLayoutPositions,
   canvasLayoutSizes,
   composerNodeId,
   mergeVisibleNodePositions,
   mergeVisibleNodeSizes,
-  placeNodeToRight,
-  placeRootNode,
   type CanvasNodeSize,
 } from './layout';
 import { projectCanvasFlow } from './canvas-flow-projection';
@@ -125,11 +121,10 @@ export function CanvasPanel({ onStatusStatsChange }: { onStatusStatsChange?: (st
   const [editingCanvasId, setEditingCanvasId] = useState<string | null>(null);
   const [editingCanvasName, setEditingCanvasName] = useState('');
   const [agents, setAgents] = useState<AgentCatalogEntry[]>([]);
+  const [defaultAgentRef, setDefaultAgentRef] = useState<AgentRef | null>(null);
   const [agentCatalogError, setAgentCatalogError] = useState(false);
-  const [agentCatalogLoading, setAgentCatalogLoading] = useState(false);
-  const [agentChanging, setAgentChanging] = useState(false);
   const [rearranging, setRearranging] = useState(false);
-  const [resubmittingInteractionIds, setResubmittingInteractionIds] = useState<Set<string>>(
+  const [copyingInteractionIds, setCopyingInteractionIds] = useState<Set<string>>(
     () => new Set(),
   );
   const [focusedComposer, setFocusedComposer] = useState<{
@@ -145,6 +140,7 @@ export function CanvasPanel({ onStatusStatsChange }: { onStatusStatsChange?: (st
   const reactFlowRef = useRef<ReactFlowInstance<CanvasFlowNode, Edge> | null>(null);
   const arrangeInProgressRef = useRef(false);
   const knownLayoutNodeIdsRef = useRef(new Set<string>());
+  const composerGenerationIdsRef = useRef<Record<string, string>>({});
   const selectedIdRef = useRef<string | null>(selectedId);
   useEffect(() => {
     selectedIdRef.current = selectedId;
@@ -167,6 +163,7 @@ export function CanvasPanel({ onStatusStatsChange }: { onStatusStatsChange?: (st
       viewportRef.current = nextGraph.layout?.viewport;
       nodesRef.current = [];
       knownLayoutNodeIdsRef.current = new Set(Object.keys(nextGraph.layout?.nodes || {}));
+      composerGenerationIdsRef.current = {};
       setNodes([]);
     } else {
       positionsRef.current = {
@@ -210,15 +207,15 @@ export function CanvasPanel({ onStatusStatsChange }: { onStatusStatsChange?: (st
 
   useEffect(() => { void loadCanvases().catch((cause) => setError(localizeError(cause, copy.loadCanvasListFailed))); }, [copy.loadCanvasListFailed, loadCanvases, localizeError]);
   const loadAgents = useCallback(async () => {
-    setAgentCatalogLoading(true);
     setAgentCatalogError(false);
     try {
       const result = await canvasApi.agents();
       setAgents(Array.isArray(result.agents) ? result.agents : []);
+      setDefaultAgentRef(result.firstAvailable);
     } catch {
+      setAgents([]);
+      setDefaultAgentRef(null);
       setAgentCatalogError(true);
-    } finally {
-      setAgentCatalogLoading(false);
     }
   }, []);
   const runtimeCatalogRevision = Object.values(runtimeStatuses)
@@ -226,6 +223,59 @@ export function CanvasPanel({ onStatusStatsChange }: { onStatusStatsChange?: (st
     .sort()
     .join('|');
   useEffect(() => { void loadAgents(); }, [runtimeCatalogRevision, loadAgents]);
+
+  useEffect(() => {
+    if (!graph) return;
+    const branchIds = new Set(graph.branches.map((branch) => branch.id));
+    for (const branchId of Object.keys(composerGenerationIdsRef.current)) {
+      if (!branchIds.has(branchId)) delete composerGenerationIdsRef.current[branchId];
+    }
+    for (const branch of graph.branches) {
+      const head = branch.headInteractionId
+        ? graph.interactions.find((interaction) => interaction.id === branch.headInteractionId)
+        : undefined;
+      const hasComposer = branch.conversationState === 'draft'
+        || (branch.conversationState === 'active' && head?.executionState === 'completed');
+      if (!hasComposer) continue;
+      const sourceId = composerIncomingInteractionId(branch);
+      const generationId = composerNodeId(branch.id, sourceId);
+      const previousGenerationId = composerGenerationIdsRef.current[branch.id];
+      composerGenerationIdsRef.current[branch.id] = generationId;
+      const existingDraft = drafts[branch.id];
+      const copiedSource = branch.conversationState === 'draft' && branch.copiedFromInteractionId
+        ? graph.interactions.find(
+          (interaction) => interaction.id === branch.copiedFromInteractionId,
+        )
+        : undefined;
+      if (!existingDraft && copiedSource) {
+        const inputDocument = enrichInputDocument(
+          copiedSource.inputDocument,
+          copiedSource.resourceReferences,
+          copiedSource.userInput,
+        );
+        updateDraft(branch.id, (draft) => ({
+          ...draft,
+          agentRef: copiedSource.agentRef,
+          text: draftDocumentText(inputDocument),
+          inputDocument,
+          persistedAttachments: copiedSource.attachments,
+        }));
+        continue;
+      }
+      const sourceAgent = sourceId
+        ? graph.interactions.find((interaction) => interaction.id === sourceId)?.agentRef
+        : undefined;
+      if (previousGenerationId && previousGenerationId !== generationId) {
+        if (sourceAgent) {
+          updateDraft(branch.id, (draft) => ({ ...draft, agentRef: sourceAgent }));
+        }
+        continue;
+      }
+      if (existingDraft?.agentRef) continue;
+      const agentRef = sourceId ? sourceAgent : defaultAgentRef;
+      if (agentRef) updateDraft(branch.id, (draft) => ({ ...draft, agentRef }));
+    }
+  }, [defaultAgentRef, drafts, graph, updateDraft]);
 
   const focusComposer = useCallback((branchId: string, sourceInteractionId: string | null) => {
     setFocusedComposer({ branchId, sourceInteractionId });
@@ -240,11 +290,21 @@ export function CanvasPanel({ onStatusStatsChange }: { onStatusStatsChange?: (st
     const activeContext = visibleGraph
       && focusedComposer
       && branchHasComposer(visibleGraph, focusedComposer.branchId)
+      && (() => {
+        const branch = visibleGraph.branches.find((item) => item.id === focusedComposer.branchId);
+        const selected = drafts[focusedComposer.branchId]?.agentRef;
+        return branch?.conversationState !== 'active'
+          || !branch.activeAgentRef
+          || !selected
+          || (branch.activeAgentRef.runtimeId === selected.runtimeId
+            && branch.activeAgentRef.profileId === selected.profileId);
+      })()
       ? contextForComposerSource(visibleGraph, focusedComposer.sourceInteractionId)
       : undefined;
     onStatusStatsChange?.({ ...counts, ...(activeContext ? { activeContext } : {}) });
   }, [
     focusedComposer,
+    drafts,
     graph,
     onStatusStatsChange,
     selectedId,
@@ -292,9 +352,8 @@ export function CanvasPanel({ onStatusStatsChange }: { onStatusStatsChange?: (st
     const composerSize = sizesRef.current[composerId];
     markSending(branch.id);
     try {
-      const canvasAgentRef = graph?.canvas.agentRef;
       const canvasId = graph?.canvas.id;
-      if (!canvasId || !canvasAgentRef) throw new CanvasLocalizedError(copy.currentCanvasMissing);
+      if (!canvasId || !draft.agentRef) throw new CanvasLocalizedError(copy.currentCanvasMissing);
       const attachmentMeta = draft.files.length ? await persistCanvasFiles(draft.files, canvasId) : [];
       const attachmentIds = [
         ...draft.persistedAttachments.map((attachment) => attachment.id),
@@ -306,7 +365,7 @@ export function CanvasPanel({ onStatusStatsChange }: { onStatusStatsChange?: (st
       ]));
       const result = await canvasApi.send(branch.id, {
         expectedHeadInteractionId: branch.conversationState === 'active' ? branch.headInteractionId : null,
-        expectedAgentRef: canvasAgentRef,
+        agentRef: draft.agentRef,
         inputDocument: documentForSend(draft.inputDocument, attachmentIdByDraftKey),
         attachmentIds,
       });
@@ -339,7 +398,6 @@ export function CanvasPanel({ onStatusStatsChange }: { onStatusStatsChange?: (st
     clearDraft,
     copy,
     drafts,
-    graph?.canvas.agentRef,
     graph?.canvas.id,
     loadGraph,
     localizeError,
@@ -357,63 +415,42 @@ export function CanvasPanel({ onStatusStatsChange }: { onStatusStatsChange?: (st
     } catch (cause) { setError(localizeError(cause, copy.forkFailed)); }
   }, [copy.forkFailed, loadGraph, localizeError, updateDraft]);
 
-  const resubmitInteraction = useCallback(async (interaction: CanvasInteraction) => {
-    if (resubmittingInteractionIds.has(interaction.id)) return;
-    const canvasAgentRef = graph?.canvas.agentRef;
-    if (!canvasAgentRef) {
-      setError(copy.currentCanvasMissing);
-      return;
-    }
-    setResubmittingInteractionIds((current) => new Set(current).add(interaction.id));
+  const copyInteraction = useCallback(async (interaction: CanvasInteraction) => {
+    if (copyingInteractionIds.has(interaction.id)) return;
+    setCopyingInteractionIds((current) => new Set(current).add(interaction.id));
     try {
-      const result = await canvasApi.resubmit(interaction.id, canvasAgentRef);
-      if (result.interaction) {
-        const occupied = nodesRef.current.map((node) => canvasNodeBounds(node, node));
-        const parentNode = result.interaction.parentInteractionId
-          ? nodesRef.current.find((node) => node.id === result.interaction?.parentInteractionId)
-          : undefined;
-        const position = parentNode
-          ? placeNodeToRight(canvasNodeBounds(parentNode, parentNode), occupied, {
-            width: INTERACTION_NODE_WIDTH,
-            height: DEFAULT_NODE_HEIGHT,
-          })
-          : placeRootNode(occupied, {
-            width: INTERACTION_NODE_WIDTH,
-            height: DEFAULT_NODE_HEIGHT,
-          });
-        positionsRef.current = {
-          ...positionsRef.current,
-          [result.interaction.id]: position,
-        };
-        await persistLayout();
-      }
+      const result = await canvasApi.copy(interaction.id);
+      const inputDocument = enrichInputDocument(
+        result.initialDraft.inputDocument,
+        result.initialDraft.resourceReferences,
+        interaction.userInput,
+      );
+      updateDraft(result.branch.id, (draft) => ({
+        ...draft,
+        agentRef: result.initialDraft.agentRef,
+        text: draftDocumentText(inputDocument),
+        inputDocument,
+        persistedAttachments: result.initialDraft.persistedAttachments,
+        error: null,
+      }));
       await loadGraph();
     } catch (cause) {
-      setError(localizeError(cause, copy.resubmitFailed));
+      setError(localizeError(cause, copy.copyFailed));
       await loadGraph().catch(() => undefined);
     } finally {
-      setResubmittingInteractionIds((current) => {
+      setCopyingInteractionIds((current) => {
         const next = new Set(current);
         next.delete(interaction.id);
         return next;
       });
     }
   }, [
-    copy.currentCanvasMissing,
-    copy.resubmitFailed,
-    graph?.canvas.agentRef,
+    copy.copyFailed,
     loadGraph,
     localizeError,
-    persistLayout,
-    resubmittingInteractionIds,
+    copyingInteractionIds,
+    updateDraft,
   ]);
-
-  const navigateToInteraction = useCallback((interactionId: string) => {
-    const instance = reactFlowRef.current;
-    const node = instance?.getNode(interactionId);
-    if (!instance || !node) return;
-    void instance.fitView({ nodes: [node], padding: 0.4, duration: 250, maxZoom: 1.2 });
-  }, []);
 
   const connectMergeSource = useCallback(async (
     source: CanvasInteraction,
@@ -487,13 +524,13 @@ export function CanvasPanel({ onStatusStatsChange }: { onStatusStatsChange?: (st
       sizes: sizesRef.current,
       resizeEnabled: !rearranging,
       drafts,
-      resubmittingInteractionIds,
+      copyingInteractionIds,
       previews,
+      agents,
       labels: copy,
       onAdd: addFromInteraction,
-      onResubmit: (interaction) => void resubmitInteraction(interaction),
+      onCopy: (interaction) => void copyInteraction(interaction),
       onApprovalChanged: () => { void loadGraph(); },
-      onNavigateMergeSource: navigateToInteraction,
       onOpenMergeTargets: setMergeTargetSource,
       onDocumentChange: (branchId, value) => {
         updateDraft(branchId, (draft) => ({
@@ -502,6 +539,9 @@ export function CanvasPanel({ onStatusStatsChange }: { onStatusStatsChange?: (st
           inputDocument: value,
           error: null,
         }));
+      },
+      onAgentChange: (branchId, agentRef) => {
+        updateDraft(branchId, (draft) => ({ ...draft, agentRef, error: null }));
       },
       onFiles: addFiles,
       onRemoveFile: removeFile,
@@ -512,6 +552,7 @@ export function CanvasPanel({ onStatusStatsChange }: { onStatusStatsChange?: (st
     });
   }, [
     addFiles,
+    agents,
     addFromInteraction,
     blurComposer,
     copy,
@@ -519,13 +560,12 @@ export function CanvasPanel({ onStatusStatsChange }: { onStatusStatsChange?: (st
     focusComposer,
     graph,
     loadGraph,
-    navigateToInteraction,
     previews,
     rearranging,
     removeFile,
     removePersistedAttachment,
-    resubmitInteraction,
-    resubmittingInteractionIds,
+    copyInteraction,
+    copyingInteractionIds,
     send,
     updateDraft,
   ]);
@@ -699,27 +739,6 @@ export function CanvasPanel({ onStatusStatsChange }: { onStatusStatsChange?: (st
     } catch (cause) { setError(localizeError(cause, copy.createCanvasFailed)); }
   }, [canvases, copy, loadCanvases, localizeError]);
 
-  const agentEditable = graph?.canvas.agentMutable === true
-    && !Object.values(drafts).some((draft) => draft.sending);
-
-  const changeAgent = useCallback(async (agentRef: AgentRef) => {
-    if (!graph || !agentEditable || (
-      agentRef.runtimeId === graph.canvas.agentRef.runtimeId
-      && agentRef.profileId === graph.canvas.agentRef.profileId
-    )) return;
-    setAgentChanging(true);
-    try {
-      const updated = await canvasApi.updateAgent(graph.canvas.id, agentRef);
-      setCanvases((current) => current.map((item) => item.id === updated.id ? updated : item));
-      await loadGraph();
-    } catch (cause) {
-      setError(localizeError(cause, copy.changeAgentFailed));
-      await loadGraph().catch(() => undefined);
-    } finally {
-      setAgentChanging(false);
-    }
-  }, [agentEditable, copy.changeAgentFailed, graph, loadGraph, localizeError]);
-
   const renameCanvas = useCallback(async (canvas: CanvasSummary) => {
     const name = editingCanvasName.trim();
     setEditingCanvasId(null);
@@ -771,31 +790,9 @@ export function CanvasPanel({ onStatusStatsChange }: { onStatusStatsChange?: (st
         {selectedId && graph ? (
           <>
             <div className={`absolute top-4 z-10 flex items-center gap-3 rounded-2xl border border-border/75 bg-card/92 px-3 py-2 shadow-lg backdrop-blur ${canvasListVisible ? 'left-4' : 'left-16'}`}>
-              <Bot size={16} className={runtimeStatuses[graph.canvas.agentRef.runtimeId]?.state === 'connected' ? 'text-green' : 'text-muted-foreground'} />
+              <Bot size={16} className="text-primary" />
               <div className="text-sm font-semibold">{graph.canvas.name}</div>
-              {graph.canvas.agentMutable ? (
-                <div className="flex items-center gap-1">
-                  <select
-                    value={(() => {
-                      const index = agents.findIndex((agent) =>
-                        agent.agentRef.runtimeId === graph.canvas.agentRef.runtimeId
-                        && agent.agentRef.profileId === graph.canvas.agentRef.profileId);
-                      return index >= 0 ? String(index) : '__current__';
-                    })()}
-                    onChange={(event) => {
-                      const agent = agents[Number(event.target.value)];
-                      if (agent) void changeAgent(agent.agentRef);
-                    }}
-                    disabled={!agentEditable || agentChanging || agentCatalogLoading}
-                    aria-label={copy.selectAgent}
-                    className="max-w-48 rounded-lg border border-border bg-background px-2 py-1.5 text-xs"
-                  >
-                    {!agents.some((agent) => agent.agentRef.runtimeId === graph.canvas.agentRef.runtimeId && agent.agentRef.profileId === graph.canvas.agentRef.profileId) && <option value="__current__">{graph.canvas.agentRef.profileId} · {graph.canvas.agentRef.runtimeId}</option>}
-                    {agents.map((agent, index) => <option key={`${agent.agentRef.runtimeId}:${agent.agentRef.profileId}`} value={index} disabled={!agent.available}>{agent.displayName} · {agent.runtimeDisplayName}{agent.available ? '' : ' — unavailable'}</option>)}
-                  </select>
-                  {agentCatalogError && <Button size="icon" variant="ghost" onClick={() => void loadAgents()} title={copy.retryAgentList}><RefreshCw size={13} /></Button>}
-                </div>
-              ) : <span className="rounded-lg bg-secondary px-2 py-1 text-xs text-muted-foreground">{copy.agentLabel(`${graph.canvas.agentRef.profileId} · ${graph.canvas.agentRef.runtimeId}`)}</span>}
+              {agentCatalogError && <Button size="icon" variant="ghost" onClick={() => void loadAgents()} title={copy.retryAgentList}><RefreshCw size={13} /></Button>}
               <Button size="sm" onClick={() => void createRoot()}><Plus size={14} /> {copy.newSession}</Button>
               <Button
                 size="sm"

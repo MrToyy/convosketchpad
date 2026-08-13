@@ -7,14 +7,14 @@
 | 方法 | 路径 | 用途 |
 |---|---|---|
 | GET | `/api/canvas/canvases` | 列出当前所有者的 Canvas |
-| POST | `/api/canvas/canvases` | 创建 Canvas；服务端优先选择聚合目录中可用的配置默认 Agent，否则回退到第一个可用项，不弹选择窗 |
-| PATCH | `/api/canvas/canvases/:id` | 更新名称，或在首次持久发送预留前更新 `agentRef` |
+| POST | `/api/canvas/canvases` | 创建 Canvas；Canvas 本身不绑定 Agent |
+| PATCH | `/api/canvas/canvases/:id` | 更新名称 |
 | DELETE | `/api/canvas/canvases/:id` | 删除 Canvas 和持久化文件 |
 | GET | `/api/canvas/canvases/:id/graph` | 无副作用读取 Canvas、Branch、Interaction、布局和 `pendingSends` |
 | PUT | `/api/canvas/canvases/:id/layout` | 完整保存节点位置、可选用户尺寸和视口 |
 | POST | `/api/canvas/canvases/:id/root-branches` | 创建或返回草稿主 Branch |
 | POST | `/api/canvas/interactions/:id/fork` | 从已完成历史 Interaction 创建 Branch |
-| POST | `/api/canvas/interactions/:id/resubmit` | 从上一节点创建普通 Branch，并原样重新提交目标 Interaction 的输入 |
+| POST | `/api/canvas/interactions/:id/copy` | 从上一节点创建未发送的 Copy Composer，并返回规范化初始草稿 |
 | GET | `/api/canvas/agents` | 读取所有已配置 Runtime 的扁平 Agent 目录和 `firstAvailable` |
 
 Layout 节点兼容仅包含 `x/y` 的旧数据。用户缩放后的 `width/height` 必须同时提供；宽度范围为
@@ -51,26 +51,20 @@ Layout 节点兼容仅包含 `x/y` 的旧数据。用户缩放后的 `width/heig
 
 `PUT /api/canvas/branches/:id/merge-sources/:sourceInteractionId` 只接受已完成且属于同一所有者、同一 Canvas 的 Interaction。若该 Interaction 已经是目标 Composer 普通入边的直接来源，接口返回 `409 { "error": "redundant_merge_source" }`；该校验同时覆盖 Continue Composer 的当前 Head 与 Fork Composer 的 `forkedFromInteractionId`，不能通过旧客户端或直接请求绕过。
 
-节点原样重新提交请求只接受当前 Canvas Agent，用于检测并发页面中的 Agent 变化：
+复制节点不接受 Agent 或输入覆盖，服务端以源 Interaction 为事实来源：
 
 ```json
-{
-  "expectedAgentRef": { "runtimeId": "openclaw", "profileId": "main" }
-}
+POST /api/canvas/interactions/:id/copy
 ```
 
-服务端读取源 Interaction 的用户文本和已登记附件，客户端不能替换内容。非首节点从其
-`parentInteractionId` 创建普通 Fork Branch，首节点创建新的 Root Branch；原节点和原 Runtime 执行均保持
-不变。源节点可以是 `running`、`completed`、`failed` 或 `unconfirmed`。响应与 Branch 发送一致：
-即时接受返回 `201 { interaction }`，排队或结果不确定返回 `202 { operation }`，明确拒绝返回包含 operation 的
-`422`/`503`。
+服务端读取源 Interaction 的结构化输入、附件、Agent 与冻结 Merge 来源。非首节点从其 `parentInteractionId` 创建 Fork，首节点创建 Root；每次调用都可以创建并列 Composer，不发送 Runtime 请求。返回 `201 { branch, initialDraft }`，其中 `initialDraft` 包含 `agentRef`、`inputDocument`、安全资源快照和持久附件。
 
 发送请求使用结构化 `inputDocument` 保留资源 Token 在文本中的位置，使编译后的提示词能够明确表达相邻描述或要求所指向的资源；`attachmentIds` 包含本轮全部上传附件，附件即使没有 Token 也会随本轮投递：
 
 ```json
 {
   "expectedHeadInteractionId": null,
-  "expectedAgentRef": { "runtimeId": "openclaw", "profileId": "main" },
+  "agentRef": { "runtimeId": "openclaw", "profileId": "main" },
   "inputDocument": {
     "version": 1,
     "segments": [
@@ -92,25 +86,24 @@ Layout 节点兼容仅包含 `x/y` 的旧数据。用户缩放后的 `width/heig
 
 上游引用使用 `origin: "upstream"`，并提交目录返回的 `kind`、`sourceInteractionId` 和 `resourceId`。同一个引用 key 可以在多个 segment 中重复出现而只占一个材料槽位；本轮附件与不同上游引用合计最多九项。兼容客户端仍可提交纯文本 `userInput`，但 `userInput` 与 `inputDocument` 必须且只能提供一个。
 
-服务端不接受附件路径或可变元数据，并重新解析所有引用的所有者、Canvas、父链/Merge DAG 范围和 Runtime Capability。即时接受返回 `201 { interaction }`；已排队或结果不确定返回 `202 { operation }`；头节点、Agent 或并发冲突返回 `409`；附件/引用缺失、越界或九槽位超限返回 `422`；所选 Runtime 不支持必需输入返回 `503`。首次成功写入 Send Reservation 时 Canvas 的 `agentMutable` 变为 `false`，即使派发随后失败也不会解锁。
+服务端不接受附件路径或可变元数据，并重新解析所有引用的所有者、Canvas、父链/Merge DAG 范围、目标 Agent 和 Runtime Capability。即时接受返回 `201 { interaction }`；已排队或结果不确定返回 `202 { operation }`；头节点或并发冲突返回 `409`；附件/引用缺失、越界或九槽位超限返回 `422`；未知 Agent 返回 `400`，所选 Runtime 不支持必需输入返回 `503`。Reservation 一旦建立就冻结目标 Agent。
 
 公开的 Interaction 和 Send Operation 返回规范化 `inputDocument` 及安全的 `resourceReferences`（名称、MIME、大小、来源 Interaction、读取 URI、可用性和安全栅格缩略图）；旧文本记录投影为仅含文本 segment 的 v1 文档。内部 `outgoingMessage`、完整历史资源清单、
 内容哈希和媒体派生信息不返回浏览器。`awaiting_media` 表示后端正在生成或读取发送所需的大图派生文件，
 浏览器无需上传压缩副本；服务重启后协调器会从该状态恢复。
 
-资源目录支持 `q`、`kind=all|image|file`、数字 `cursor` 和 `limit`（最大 100），返回 `{ items, nextCursor? }`。未接入来源的根 Branch 没有历史上游，但 Composer 仍可直接 `@` 本次附件；目录只列父链与当前代次明确接入的完整 Merge 路径，不包含无关旁支。候选项带 `selectable` 和可选 `unavailableReason`，客户端显示禁用状态，发送端仍会再次校验。
+资源目录要求目标 `runtimeId`、`profileId`，并支持 `q`、`kind=all|image|file`、数字 `cursor` 和 `limit`（最大 100），返回 `{ items, nextCursor? }`。未接入来源的根 Branch 没有历史上游，但 Composer 仍可直接 `@` 本次附件；目录只列父链与当前代次明确接入的完整 Merge 路径，不包含无关旁支。候选项带 `selectable` 和可选 `unavailableReason`，客户端显示禁用状态，发送端仍会再次校验。
 
 创建 Merge 来源的请求体为 `{ "expectedHeadInteractionId": string | null }`：草稿 Root/Fork 使用 `null`，Continue 使用当前 Branch 头节点。来源必须属于同一所有者和 Canvas 且 `executionState = completed`；目标必须仍投影为该代次 Composer，且不能已有进行中的 Send Reservation。首次创建返回 `201 { mergeSource, created: true }`，重复提交同一关系幂等返回 `200 { mergeSource, created: false }`。接口不提供删除、改序或重连操作。
 
-`mergeSource` 包含 `id`、`targetBranchId`、`expectedHeadInteractionId`、`sourceInteractionId`、`targetInteractionId`、`ordinal` 和 `createdAt`。发送接受前 `targetInteractionId` 为 `null`；Runtime 接受并创建 Interaction 后指向该 Interaction。Graph 返回 `mergeSources` 全量快照，增量同步返回 `mergeSources` upsert 和 `removed.mergeSourceIds`；前端由此纯投影不可删除的 Merge 边与来源列表。
+`mergeSource` 包含 `id`、`targetBranchId`、`expectedHeadInteractionId`、`sourceInteractionId`、`targetInteractionId`、`ordinal` 和 `createdAt`。发送接受前 `targetInteractionId` 为 `null`；Runtime 接受并创建 Interaction 后指向该 Interaction。Graph 返回 `mergeSources` 全量快照，增量同步返回 `mergeSources` upsert 和 `removed.mergeSourceIds`；前端由此纯投影不可删除的 Merge 边，节点内不再重复显示来源信息块。
 
 Fork 和 Session 恢复使用同一完整 Replay Package。历史逻辑引用不会按当前指令裁剪；内容相同的历史文件
 只物理投递一次，已生成的大图投递派生文件可在同一 Canvas 的后续重放中复用。完整载荷超过 Gateway
 `maxPayload` 时，初始发送返回 `422` 且 operation 的错误为 `replay_payload_too_large`，不会只发送部分历史。
 
 Graph 响应额外包含持久化 `cursor`、`hasPendingUpdates`、`mergeSources` 和通用 `failedSends`。`failedSends` 只包含每个仍有同一代次 Composer 的 Branch 最新一次失败 Send Operation，用于刷新后恢复普通或 Merge Composer 的原文本、持久附件和错误；Merge 来源由同一 Graph 的 `mergeSources` 恢复，冻结 Merge Context Snapshot 仅保存在服务端预留中，不向浏览器暴露编译正文；
-它不表示后台仍在工作。Branch 的 `creationMode` 为 `composer | direct-submit`，只区分手动草稿和创建后立即
-发送的通用方式，不记录“重试来源”。
+它不表示后台仍在工作。Branch 的 `creationMode` 为 `composer | copy | direct-submit`；`direct-submit` 仅兼容历史数据，新的 Copy Branch 保存 `copiedFromInteractionId` 且保持未发送。
 
 Interaction 同时返回 `version`、`executionState`（`running | completed | failed | unconfirmed`）、`artifactSyncState`（`not_started | observing | synced | degraded`）、`terminalAt`、安全错误信息，以及可空的 `contextSnapshot`。后端仅在 Interaction 首次确认完成时尝试记录 OpenClaw 对该物理 Session 的累计上下文快照：
 

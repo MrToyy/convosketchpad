@@ -12,13 +12,13 @@
 - Fork 与 Session 恢复共用完整 Replay Package；逻辑资源引用不裁剪，物理文件只按内容去重。
 - Composer 使用结构化输入文档保存文本与资源 Token 的相对位置；本次附件和父链/Merge DAG 上游资源共用九个材料槽位，目录查询与发送校验复用同一上游解析器。
 - 已完成 Interaction 通过右侧 Merge Handle 连接到现有 Composer；如果该 Interaction 已经是 Composer 普通入边的直接来源，则前后端都拒绝重复接入；`composer_merge_sources` 立即保存其他不可删除的代次关系，`turn_merge_sources` 与 Merge Context Snapshot 在发送时冻结实际来源。
-- 节点“重试”只是一项原样重新提交操作：从上一节点创建普通 Branch，保留原 Interaction 和原执行，不建立 Retry 实体。
+- 节点“复制”从上一节点创建未发送的并列 Composer，带入原 Interaction 的 Agent、结构化输入、附件、资源引用和 Merge 来源；原节点与原执行保持不变。
 - “继续分支”只有在所选 Agent Runtime 明确接受后才推进头节点并主动同步 Canvas；原头节点随即开放普通 Fork，新运行节点本身仍不可分叉。
 - 原始图片不可变；投递图和缩略图由后端按内容哈希与策略版本生成，Canvas 节点不直接加载原图。
 - 前端只应用当前 Canvas 的完整实体 upsert；瞬时 Preview 不持久化，SSE 不可用且 `hasPendingUpdates` 时才降级轮询。
 - Interaction 和 Composer 通过右下角单一控制柄缩放；用户尺寸与位置、视口一起保存，Composer 转成 Interaction 时迁移尺寸。
 - 显式重新排列只在没有可见发送或运行任务时执行；按用户尺寸或实际测量尺寸进行左到右拓扑布局，只改变位置，并把完整布局和适应后的视口一起保存。
-- setup 配置 Runtime 和产品级默认 Agent，目录按 Runtime 配置/默认 Profile/原生顺序扁平聚合；新建 Canvas 优先选择可用的配置默认项，否则回退到第一个可用 Agent，首次 Send Reservation 前可改，之后由 `agent_locked_at` 永久锁定。
+- setup 配置 Runtime 和产品级默认 Agent，目录按 Runtime 配置/默认 Profile/原生顺序扁平聚合；Canvas 不绑定 Agent，Root Composer 使用全局默认项，Fork/Continue/Copy 继承来源 Interaction，用户可在每个 Composer 修改目标 Agent。
 - 审批只在所属 Interaction 节点内呈现；选择、权限子集、作用域与二次确认来自统一事件，前端不接触原生 Approval Handle。
 - Runtime 状态和账户用量在导航/设置中按 Runtime 聚合；当前 Canvas 的 Branch、工作中和上下文数据保持局部语义。
 
@@ -57,8 +57,8 @@
 | Interaction 完成时的 Runtime Conversation 上下文快照 | `server/lib/canvas-context-snapshot.ts` |
 | Canvas cursor、SSE、流式文本组装和 Preview | `server/routes/canvas.ts`、`server/lib/canvas-sync.ts`、`server/lib/canvas/runtime-text-preview.ts` |
 | Runtime 聚合状态/用量、生命周期 API 与 SSE | `server/routes/runtime.ts`、`server/routes/runtime-usage.ts`、`server/routes/runtime-actions.ts`、`server/lib/runtime-status-events.ts` |
-| SQLite Store、Schema、Runtime/资源引用/Merge 字段迁移与五项迁移清单 | `server/lib/canvas/persistence/`、`bin/convosketchpad-migrate.ts` |
-| 当前 Runtime/资源引用/Merge Schema 与原始 fixture | `server/lib/canvas/persistence/agent-runtime-schema.ts`、`resource-reference-schema.ts`、`branch-merging-schema.ts`、`server/lib/fixtures/canvas-v0.2.0.sql` |
+| SQLite Store、Schema、节点 Agent/资源引用/Merge 字段迁移与五项迁移清单 | `server/lib/canvas/persistence/`、`bin/convosketchpad-migrate.ts` |
+| 当前 Runtime/资源引用/Canvas Composition Schema 与原始 fixture | `server/lib/canvas/persistence/agent-runtime-schema.ts`、`resource-reference-schema.ts`、`canvas-composition-schema.ts`、`server/lib/fixtures/canvas-v0.2.0.sql` |
 | Fork/Session 恢复 Replay Package、文件引用与物理去重 | `server/lib/canvas/domain/replay-plan.ts`、`server/lib/canvas-resource-locator.ts` |
 | Agent Runtime 契约、配置、Definition、Registry、聚合目录与开发规范 | `server/lib/agent-runtimes/contract.ts`、`configuration.ts`、`definitions.ts`、`registry.ts`、`catalog.ts`、`docs/agent-runtimes/ADAPTER-DEVELOPMENT.md` |
 | 服务进程组合与依赖注入 | `server/application-context.ts`、`server/app.ts` |
@@ -75,7 +75,7 @@
 ```text
 原始上传 → canvas_attachments 登记
   → Lexical Composer 生成 inputDocument（文本 + 本次附件/上游资源 Token）
-  → POST branch/send {inputDocument, attachmentIds}
+  → POST branch/send {agentRef, inputDocument, attachmentIds}
   → UpstreamResourceResolver 校验父链/Merge DAG 范围与九槽位
   → 服务端原子写 send_reservations + turn_resource_references + turn_merge_sources
   → 材料编译器生成来源路径、位置标记、稳定拓扑顺序和去重后的物理附件
@@ -86,10 +86,8 @@
   → 权威记录和 Artifact 协调
 ```
 
-Interaction 原样重新提交在后端事务中复制源用户输入和附件：首节点创建 `direct-submit` Root，其他节点从父
-Interaction 创建 `direct-submit` Fork，随后进入同一发送流程。`creationMode` 只用于区分手动 Composer 与直接
-提交，不保存 Retry 来源；接受前失败的 operation 通过 Graph `failedSends` 恢复为普通 Composer。
+Interaction Copy 在后端事务中创建未发送的 Root/Fork Composer，并克隆源输入所依赖的 Merge 来源；返回的初始草稿包含源 Agent、结构化输入和附件。多个 Copy Composer 可以与普通 Fork 并列存在，只有用户手动发送后才创建 Reservation。
 
 发送分层测试位于 `server/lib/canvas/domain/send-policy.test.ts`、`server/lib/canvas/application/send-service.test.ts`、`server/lib/canvas-public-dto.test.ts` 与 `server/lib/agent-runtimes/adapters/openclaw/*.test.ts`；Registry/聚合入口由 `server/lib/agent-runtimes/registry.test.ts` 覆盖。资源引用专项测试位于 `server/lib/canvas/domain/input-document.test.ts`、`turn-material-compiler.test.ts`、`server/lib/canvas/application/upstream-resource-resolver.test.ts`、`server/routes/canvas-resource-references.test.ts` 和 `src/features/canvas/ResourceComposerEditor.test.tsx`。前端审批、控制与投影由 `src/features/canvas/CanvasNodes.resize.test.tsx`、`src/features/canvas/CanvasNodes.layout.test.ts`、`src/features/canvas/useCanvasComposerDrafts.test.tsx`、`src/features/canvas/canvas-flow-projection.test.ts` 和 Canvas/SSE 测试覆盖。数据库测试位于 `server/lib/canvas/persistence/canvas-store.test.ts`，从完整 `0.2.0` fixture 建库，验证旧字段物理移除、Handle 回填、审批、事件去重、状态转换、Artifact、附件、结构化引用及重启幂等。
 
-浏览器回归至少检查：根 Composer 可在文本指定位置 `@` 本次附件、下一轮可引用父链资源；完成节点可拖线或用键盘接入其他有效 Composer，但不能重复接入已有普通入边的直接下游 Composer；来源边不可删除且连接后 `@` 立即出现接入路径资源；重复 Token 不增加槽位、九项后拒绝第十项，候选按钮位于 `role=listbox` 下并以 `role=option` 暴露选中状态。
+浏览器回归至少检查：Root Composer 使用全局默认 Agent，Fork/Continue/Copy 继承来源 Agent；Continue 改选 Agent 后不显示额外说明块，接受后 Interaction 标记目标 Agent；Copy 只创建可编辑草稿且允许并列创建。根 Composer 可在文本指定位置 `@` 本次附件、下一轮可引用父链资源；切换 Composer Agent 后 `@` 目录按目标 Runtime Capability 刷新。完成节点可拖线或用键盘接入其他有效 Composer，但不能重复接入已有普通入边的直接下游 Composer；来源边不可删除，节点内不重复显示来源信息块，连接后 `@` 立即出现接入路径资源；重复 Token 不增加槽位、九项后拒绝第十项，候选按钮位于 `role=listbox` 下并以 `role=option` 暴露选中状态。

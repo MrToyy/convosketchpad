@@ -7,8 +7,8 @@
 | 环境变量 | 默认值 | 用途 |
 |---|---|---|
 | `AGENT_RUNTIMES` | `openclaw` | 启用的 Agent 运行端类型，逗号分隔；同一类型最多一个实例，未知或空配置会拒绝启动 |
-| `CONVOSKETCHPAD_DEFAULT_AGENT_RUNTIME` | 未设置 | 新建 Canvas 优先选择的 Runtime ID；必须与 Profile 同时设置且属于 `AGENT_RUNTIMES` |
-| `CONVOSKETCHPAD_DEFAULT_AGENT_PROFILE` | 未设置 | 新建 Canvas 优先选择的 Agent Profile ID；不可用时回退到第一个可用 Agent |
+| `CONVOSKETCHPAD_DEFAULT_AGENT_RUNTIME` | 未设置 | Root Composer 默认选择的 Runtime ID；必须与 Profile 同时设置且属于 `AGENT_RUNTIMES` |
+| `CONVOSKETCHPAD_DEFAULT_AGENT_PROFILE` | 未设置 | Root Composer 默认选择的 Agent Profile ID；不可用时回退到第一个可用 Agent |
 | `OPENCLAW_GATEWAY_URL` | `http://127.0.0.1:18789` | OpenClaw Adapter 连接的 Gateway HTTP Origin |
 | `OPENCLAW_GATEWAY_TOKEN` | 空 | Gateway 共享密钥；本机 RPC、Gateway HTTP 和远程配对 bootstrap 使用，不会发给浏览器 |
 | `OPENCLAW_GATEWAY_TIMEZONE` | 应用宿主机时区 | OpenClaw Adapter 预测每日 Session 重置的 IANA 时区 |
@@ -23,7 +23,7 @@
 
 Runtime ID 与展示名在无副作用的 `server/lib/agent-runtimes/manifest.ts` 维护；`definitions.ts` 必须为清单中的每项提供 Registry 所有的实例工厂，通用配置选择与校验位于 `configuration.ts`。每个 Adapter 的专属环境变量、默认值和校验位于自身 `adapters/<runtime-id>/config.ts`。通用 `server/lib/config.ts` 不承载 OpenClaw、Codex 或 OpenCode 专属字段。只有 `AGENT_RUNTIMES` 完全缺失时才默认启用 `openclaw`；显式空值与未知、重复项一样会被 setup 检查和服务启动拒绝。
 
-setup 先执行只读 Runtime 发现，只用无凭据命令确认本机入口与版本，将已探测和未探测的支持项分组展示并允许多选；发现 Driver 只接收“是否已配置”和可选可执行文件路径，不接收 Token，也不读取原生配置。用户选中后才由对应 Driver 逐项配置。CLI 未探测到不代表 OpenClaw 远程 Gateway 不可接入；Codex 与 OpenCode 当前只支持同机 CLI/受管 Server。配置完成后 setup 通过统一 Runtime Port 获取 Profile 并选择默认 Agent；若目录暂时不可用，保留已有默认值或不写显式默认值，运行时再安全回退。非交互模式可使用 `--runtimes openclaw,codex,opencode`。
+setup 先执行只读 Runtime 发现，只用无凭据命令确认本机入口与版本，将已探测和未探测的支持项分组展示并允许多选；发现 Driver 只接收“是否已配置”和可选可执行文件路径，不接收 Token，也不读取原生配置。用户选中后才由对应 Driver 逐项配置。CLI 未探测到不代表 OpenClaw 远程 Gateway 不可接入；Codex 与 OpenCode 当前只支持同机 CLI/受管 Server。配置完成后 setup 通过统一 Runtime Port 获取 Profile 并选择 Root Composer 默认 Agent；若目录暂时不可用，保留已有默认值或不写显式默认值，运行时再安全回退。Fork、Continue 与 Copy 的默认值来自来源 Interaction，且每个 Composer 都可在发送前改选。非交互模式可使用 `--runtimes openclaw,codex,opencode`。
 
 ## Codex 配置
 

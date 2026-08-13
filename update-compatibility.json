@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "packageName": "convosketchpad",
   "applicationVersion": "0.6.0",
-  "databaseSchemaEpoch": 5,
+  "databaseSchemaEpoch": 6,
   "minimumReadableDatabaseSchemaEpoch": 3,
-  "maximumReadableDatabaseSchemaEpoch": 5
+  "maximumReadableDatabaseSchemaEpoch": 6
 }

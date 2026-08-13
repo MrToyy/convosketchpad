@@ -20,9 +20,9 @@ export interface CanvasCopy {
   artifactDegraded: string;
   previewImage: (name: string) => string;
   forkFromInteraction: string;
-  resubmitInteraction: string;
-  resubmitInteractionParallel: string;
-  resubmitFailed: string;
+  copyInteraction: string;
+  copyInteractionParallel: string;
+  copyFailed: string;
   closeComposer: string;
   resizeNode: string;
   composerPlaceholder: string;
@@ -34,10 +34,8 @@ export interface CanvasCopy {
   loadMoreResources: string;
   mergeSourceHandle: string;
   mergeTargetHandle: string;
-  mergedSources: string;
   mergeSourceLabel: (index: number) => string;
   mergeSourceBranch: (branchId: string) => string;
-  navigateToMergeSource: (index: number) => string;
   chooseMergeTarget: string;
   chooseMergeTargetDescription: string;
   connectToComposer: (label: string) => string;
@@ -61,6 +59,7 @@ export interface CanvasCopy {
   runtimeRunFailed: string;
   forkFailed: string;
   createBranch: string;
+  copiedDraft: string;
   newSession: string;
   continueBranch: string;
   rearrangeCanvas: string;
@@ -109,7 +108,7 @@ const knownErrors = {
     interaction_not_completed: '只能从已完成的历史交互创建分支',
     redundant_merge_source: '该交互已经是输入框的直接上游，不能重复接入',
     reservation_not_prepared: '发送请求已失效，请重试',
-    source_attachment_unavailable: '原节点的附件已不可用，无法原样重试',
+    source_attachment_unavailable: '原节点的附件已不可用，无法复制',
     resource_reference_unavailable: '引用的资源已不可用或不属于当前节点的上游',
     turn_material_limit_exceeded: '本轮附件和引用资源合计不能超过 9 个',
     runtime_input_unsupported: '当前 Agent 运行端不支持所选资源类型',
@@ -123,7 +122,7 @@ const knownErrors = {
     'Invalid name': '画布名称无效',
     'Authentication required': '请先登录',
     'Invalid send request': '发送内容无效',
-    'Invalid resubmit request': '重试请求无效',
+    'Invalid copy request': '复制请求无效',
     'Message or attachment required': '请输入消息或添加附件',
     'Video attachments are not supported in Canvas': '画布暂不支持视频附件',
     'Invalid layout': '画布布局数据无效',
@@ -145,7 +144,7 @@ const knownErrors = {
     interaction_not_completed: 'You can only fork from a completed historical interaction.',
     redundant_merge_source: 'This interaction is already the Composer’s direct predecessor and cannot be connected again.',
     reservation_not_prepared: 'The send request expired. Try again.',
-    source_attachment_unavailable: 'A source attachment is unavailable, so this input cannot be retried.',
+    source_attachment_unavailable: 'A source attachment is unavailable, so this input cannot be copied.',
     resource_reference_unavailable: 'A referenced resource is unavailable or is not upstream of this node.',
     turn_material_limit_exceeded: 'A turn can contain at most 9 attachments and referenced resources.',
     runtime_input_unsupported: 'The current Agent Runtime does not support one of the selected resource types.',
@@ -159,7 +158,7 @@ const knownErrors = {
     'Invalid name': 'The Canvas name is invalid.',
     'Authentication required': 'Sign in to continue.',
     'Invalid send request': 'The send request is invalid.',
-    'Invalid resubmit request': 'The retry request is invalid.',
+    'Invalid copy request': 'The copy request is invalid.',
     'Message or attachment required': 'Enter a message or add an attachment.',
     'Video attachments are not supported in Canvas': 'Canvas does not support video attachments yet.',
     'Invalid layout': 'The Canvas layout is invalid.',
@@ -191,9 +190,9 @@ export const canvasCopy = {
     artifactDegraded: '部分 Artifact 未能同步',
     previewImage: (name) => `预览图片 ${name}`,
     forkFromInteraction: '从此交互创建新分支',
-    resubmitInteraction: '重试：从上一节点创建分支并重新提交此输入',
-    resubmitInteractionParallel: '重试：原任务不会停止，新任务将从上一节点并行执行',
-    resubmitFailed: '无法重试此节点',
+    copyInteraction: '复制：从上一节点创建可编辑的新输入框',
+    copyInteractionParallel: '复制：原任务不会停止，将创建可编辑的新输入框',
+    copyFailed: '无法复制此节点',
     closeComposer: '关闭输入框',
     resizeNode: '拖动调整节点大小',
     composerPlaceholder: '接下来希望智能体做什么？',
@@ -205,10 +204,8 @@ export const canvasCopy = {
     loadMoreResources: '加载更多',
     mergeSourceHandle: '拖动以将此已完成交互接入输入框',
     mergeTargetHandle: '接收其他已完成交互的上下文',
-    mergedSources: '已接入来源',
     mergeSourceLabel: (index) => `来源 ${index}`,
     mergeSourceBranch: (branchId) => `分支 ${branchId.slice(0, 8)}`,
-    navigateToMergeSource: (index) => `定位到来源 ${index}`,
     chooseMergeTarget: '选择接入的输入框',
     chooseMergeTargetDescription: '将此已完成交互连接到一个当前可用的输入框。连接会立即保存且不能删除。',
     connectToComposer: (label) => `接入${label}`,
@@ -232,6 +229,7 @@ export const canvasCopy = {
     runtimeRunFailed: '智能体运行失败',
     forkFailed: '无法创建新分支',
     createBranch: '创建分支',
+    copiedDraft: '复制草稿',
     newSession: '新建主分支',
     continueBranch: '继续分支',
     rearrangeCanvas: '重新排列',
@@ -280,9 +278,9 @@ export const canvasCopy = {
     artifactDegraded: 'Some Artifacts could not be synced',
     previewImage: (name) => `Preview image ${name}`,
     forkFromInteraction: 'Create a branch from this interaction',
-    resubmitInteraction: 'Retry by branching from the previous node and resubmitting this input',
-    resubmitInteractionParallel: 'Retry in parallel; the original run will not be stopped',
-    resubmitFailed: 'Unable to retry this node',
+    copyInteraction: 'Copy into an editable composer branched from the previous node',
+    copyInteractionParallel: 'Copy into a new composer without stopping the original run',
+    copyFailed: 'Unable to copy this node',
     closeComposer: 'Close composer',
     resizeNode: 'Drag to resize node',
     composerPlaceholder: 'What should the agent do next?',
@@ -294,10 +292,8 @@ export const canvasCopy = {
     loadMoreResources: 'Load more',
     mergeSourceHandle: 'Drag to connect this completed interaction to a composer',
     mergeTargetHandle: 'Accept context from completed interactions',
-    mergedSources: 'Connected sources',
     mergeSourceLabel: (index) => `Source ${index}`,
     mergeSourceBranch: (branchId) => `Branch ${branchId.slice(0, 8)}`,
-    navigateToMergeSource: (index) => `Go to source ${index}`,
     chooseMergeTarget: 'Choose a composer',
     chooseMergeTargetDescription: 'Connect this completed interaction to an available composer. The connection is saved immediately and cannot be removed.',
     connectToComposer: (label) => `Connect to ${label}`,
@@ -321,6 +317,7 @@ export const canvasCopy = {
     runtimeRunFailed: 'Agent run failed',
     forkFailed: 'Unable to create branch',
     createBranch: 'Create branch',
+    copiedDraft: 'Copied draft',
     newSession: 'New root branch',
     continueBranch: 'Continue branch',
     rearrangeCanvas: 'Rearrange',

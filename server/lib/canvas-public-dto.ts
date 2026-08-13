@@ -1,6 +1,7 @@
 import {
   type CanvasArtifact,
   type CanvasAttachment,
+  type CanvasRecord,
   type InteractionRecord,
   type SendReservation,
 } from './canvas/model.js';
@@ -12,6 +13,15 @@ import { textInputDocument } from './canvas/domain/input-document.js';
 import type { CanvasResourceReferenceSnapshot } from './canvas/domain/input-document.js';
 
 const SAFE_RASTER_IMAGE_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
+
+export function publicCanvasSummary(canvas: CanvasRecord) {
+  return {
+    id: canvas.id,
+    name: canvas.name,
+    createdAt: canvas.createdAt,
+    updatedAt: canvas.updatedAt,
+  };
+}
 
 function hasSafeRasterPreview(mimeType?: string): boolean {
   return SAFE_RASTER_IMAGE_MIME_TYPES.has(mimeType?.toLowerCase() || '');
@@ -110,6 +120,7 @@ export function publicCanvasInteraction(interaction: InteractionRecord) {
     version: interaction.version,
     branchId: interaction.branchId,
     parentInteractionId: interaction.parentInteractionId,
+    agentRef: interaction.agentRef,
     userInput: interaction.userInput,
     inputDocument: interaction.inputDocument || textInputDocument(interaction.userInput),
     resourceReferences: (interaction.resourceReferences || []).map(publicResourceReference),
@@ -167,6 +178,7 @@ export function publicCanvasSendReservation(operation: SendReservation) {
     resourceReferences: (operation.resourceReferences || []).map(publicResourceReference),
     attachments: operation.attachments.map(publicCanvasAttachment),
     materialization: operation.materialization,
+    agentRef: { runtimeId: operation.runtimeId, profileId: operation.agentProfileId },
     conversationId: operation.conversationId,
     ...(operation.snapshotVersion === undefined ? {} : { snapshotVersion: operation.snapshotVersion }),
     status: operation.status,

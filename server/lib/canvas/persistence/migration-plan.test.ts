@@ -30,7 +30,7 @@ describe('Canvas migration plan', () => {
         kind: 'schema',
       },
       {
-        id: '0.5.0_to_0.6.0_branch_merging_v1',
+        id: '0.5.0_to_0.6.0_canvas_composition_v1',
         fromVersion: '0.5.0',
         toVersion: '0.6.0',
         kind: 'schema',

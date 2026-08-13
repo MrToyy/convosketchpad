@@ -45,10 +45,10 @@ function flowNode(
       preview: '',
       composerOpen: false,
       canAdd: false,
-      resubmitting: false,
+      copying: false,
       resizeEnabled: true,
       onAdd: () => undefined,
-      onResubmit: () => undefined,
+      onCopy: () => undefined,
     },
   };
 }

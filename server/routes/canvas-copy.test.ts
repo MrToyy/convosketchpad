@@ -45,7 +45,7 @@ async function setup() {
 }
 
 beforeEach(async () => {
-  tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-resubmit-route-'));
+  tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-copy-route-'));
   mocks.dispatch.mockReset();
 });
 
@@ -54,8 +54,8 @@ afterEach(async () => {
   await fs.rm(tempRoot, { recursive: true, force: true });
 });
 
-describe('Canvas Interaction resubmit route', () => {
-  it('creates a normal direct-submit root without changing the source Interaction', async () => {
+describe('Canvas Interaction copy route', () => {
+  it('creates an editable root Composer without changing or submitting the source Interaction', async () => {
     const current = await setup();
     const store = current.db.getCanvasStore();
     store.ensureUser('owner-a', 'Owner A');
@@ -67,28 +67,26 @@ describe('Canvas Interaction resubmit route', () => {
       attachments: [],
     });
     const source = store.acknowledgeSend('owner-a', reservation.id, 'run-source');
-    mocks.dispatch.mockImplementation(async (reservationId: string) =>
-      store.acknowledgeSend('owner-a', reservationId, 'run-resubmitted'));
-
     const response = await current.app.request(
-      `/api/canvas/interactions/${source.id}/resubmit`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ expectedAgentRef: { runtimeId: 'openclaw', profileId: 'main' } }),
-      },
+      `/api/canvas/interactions/${source.id}/copy`,
+      { method: 'POST' },
     );
     const payload = await response.json() as {
-      interaction: { id: string; branchId: string; parentInteractionId: string | null };
+      branch: { id: string; creationMode: string; conversationState: string };
+      initialDraft: { agentRef: { runtimeId: string; profileId: string }; inputDocument: unknown };
     };
 
     expect(response.status).toBe(201);
-    expect(payload.interaction.parentInteractionId).toBeNull();
-    expect(store.getOwnedBranch('owner-a', payload.interaction.branchId)).toMatchObject({
+    expect(store.getOwnedBranch('owner-a', payload.branch.id)).toMatchObject({
       kind: 'root',
-      creationMode: 'direct-submit',
-      conversationState: 'active',
+      creationMode: 'copy',
+      copiedFromInteractionId: source.id,
+      conversationState: 'draft',
     });
+    expect(payload.initialDraft).toMatchObject({
+      agentRef: { runtimeId: 'openclaw', profileId: 'main' },
+    });
+    expect(mocks.dispatch).not.toHaveBeenCalled();
     expect(store.getOwnedInteraction('owner-a', source.id)).toMatchObject({
       id: source.id,
       executionState: 'running',

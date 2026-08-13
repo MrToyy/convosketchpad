@@ -51,7 +51,7 @@ npm run setup
 2. **Runtime 连接**：逐项配置所选 Runtime；OpenClaw 包括 URL、共享 Token、连通性、远程 Gateway 时区和仅远程 Gateway 所需的 backend 设备配对；Codex 包括 CLI 版本和本地 App Server 登录状态；OpenCode 包括 CLI 版本及受管 Server 的健康/默认 Provider 检查。选择 Codex 或 OpenCode 时，setup 按需创建二者共用的固定工作区 `~/.convosketchpad/workspace`。
 3. **访问方式**：localhost、局域网、Tailscale IP、Tailscale Serve 或交互式 Custom。
 4. **认证**：非本机访问使用的受管用户登录和会话设置。
-5. **默认 Agent**：从所有已配置 Runtime 返回的平权 Agent 目录中选择新建 Canvas 的初始 Agent。
+5. **默认 Agent**：从所有已配置 Runtime 返回的平权 Agent 目录中选择 Root Composer 的默认 Agent。
 
 OpenClaw CLI 发现遵循 `OPENCLAW_BIN` 显式值优先、否则直接执行 `openclaw` 的规则，不扫描特定包管理器目录。选择页只执行 `openclaw --version`，不会读取 Gateway Token；用户选中 OpenClaw 后才通过原生 `openclaw config get` 读取可用的 URL/Token 预填值。发现成功时 setup 将 PATH 中实际命中的绝对路径写入 `.env`，避免受管服务与交互 Shell 的 PATH 不同；未发现 CLI 时仍可选择 OpenClaw 并手工配置远程 Gateway。
 
@@ -128,7 +128,7 @@ OPENCLAW_GATEWAY_URL=http://127.0.0.1:18789
 OPENCLAW_GATEWAY_TOKEN=<detected-token>
 ```
 
-setup 只配置用户选择的 Runtime，并写入已启用 Agent 运行端列表和默认 Agent。当前版本支持 `openclaw`、`codex` 和测试阶段的 `opencode`；未来 Adapter 也必须进入同一发现、选择、配置和 Agent 发现流程，不能增加产品级运行端切换模式。开发期旧键 `AGENT_BACKENDS` 会在备份后一次性转换为 `AGENT_RUNTIMES`。默认 Agent 是环境配置，不改变 SQLite Schema。属于当前安装的受管服务可被明确停服时，setup 会创建一次性一致性快照并自动迁移，重启后验证健康与版本；没有匹配服务管理器时只保存配置，数据库由下次手动启动自动迁移。该临时快照不会改写更新器正式回滚账本。
+setup 只配置用户选择的 Runtime，并写入已启用 Agent 运行端列表和 Root Composer 默认 Agent。当前版本支持 `openclaw`、`codex` 和测试阶段的 `opencode`；未来 Adapter 也必须进入同一发现、选择、配置和 Agent 发现流程，不能增加产品级运行端切换模式。开发期旧键 `AGENT_BACKENDS` 会在备份后一次性转换为 `AGENT_RUNTIMES`。默认 Agent 是环境配置，不改变 SQLite Schema；Canvas 不绑定 Agent，Fork、Continue 与 Copy 默认继承来源 Interaction，发送前可在 Composer 改选。属于当前安装的受管服务可被明确停服时，setup 会创建一次性一致性快照并自动迁移，重启后验证健康与版本；没有匹配服务管理器时只保存配置，数据库由下次手动启动自动迁移。该临时快照不会改写更新器正式回滚账本。
 
 ConvoSketchpad 不提供内置 TLS。远程 HTTPS 由反向代理或 Tailscale Serve 终止，后端仍使用 HTTP。
 

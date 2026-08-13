@@ -41,6 +41,7 @@ import type {
   CanvasDraftInputDocument,
   CanvasDraftInputReference,
   CanvasResourceCatalogItem,
+  AgentRef,
 } from './types';
 
 type SerializedResourceTokenNode = SerializedLexicalNode & {
@@ -208,6 +209,7 @@ function EditablePlugin({ disabled }: { disabled: boolean }) {
 
 function ResourceTypeaheadPlugin({
   branchId,
+  agentRef,
   resourceScopeRevision,
   documentValue,
   files,
@@ -218,6 +220,7 @@ function ResourceTypeaheadPlugin({
   loadMoreLabel,
 }: {
   branchId: string;
+  agentRef: AgentRef | null;
   resourceScopeRevision: string;
   documentValue: CanvasDraftInputDocument;
   files: File[];
@@ -234,7 +237,7 @@ function ResourceTypeaheadPlugin({
   const resourceRequestVersion = useRef(0);
   const trigger = useBasicTypeaheadTriggerMatch('@', { minLength: 0 });
   useEffect(() => {
-    if (query === null) {
+    if (query === null || !agentRef) {
       resourceRequestVersion.current += 1;
       return;
     }
@@ -245,7 +248,7 @@ function ResourceTypeaheadPlugin({
     setLoadingMore(false);
     const controller = new AbortController();
     const timer = window.setTimeout(() => {
-      void canvasApi.resources(branchId, query, 0, controller.signal)
+      void canvasApi.resources(branchId, agentRef, query, 0, controller.signal)
         .then((result) => {
           if (resourceRequestVersion.current !== requestVersion) return;
           setUpstream(result.items);
@@ -261,7 +264,7 @@ function ResourceTypeaheadPlugin({
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [branchId, query, resourceScopeRevision]);
+  }, [agentRef, branchId, query, resourceScopeRevision]);
 
   const options = useMemo(() => {
     const current: ResourceOption[] = [
@@ -386,7 +389,8 @@ function ResourceTypeaheadPlugin({
                     if (query === null || loadingMore) return;
                     const requestVersion = resourceRequestVersion.current;
                     setLoadingMore(true);
-                    void canvasApi.resources(branchId, query, Number(nextCursor))
+                    if (!agentRef) return;
+                    void canvasApi.resources(branchId, agentRef, query, Number(nextCursor))
                       .then((result) => {
                         if (resourceRequestVersion.current !== requestVersion) return;
                         setUpstream((current) => [...current, ...result.items]);
@@ -412,6 +416,7 @@ function ResourceTypeaheadPlugin({
 
 export function ResourceComposerEditor({
   branchId,
+  agentRef,
   resourceScopeRevision,
   value,
   files,
@@ -427,6 +432,7 @@ export function ResourceComposerEditor({
   onBlur,
 }: {
   branchId: string;
+  agentRef: AgentRef | null;
   resourceScopeRevision: string;
   value: CanvasDraftInputDocument;
   files: File[];
@@ -482,6 +488,7 @@ export function ResourceComposerEditor({
         <EditablePlugin disabled={disabled} />
         <ResourceTypeaheadPlugin
           branchId={branchId}
+          agentRef={agentRef}
           resourceScopeRevision={resourceScopeRevision}
           documentValue={value}
           files={files}

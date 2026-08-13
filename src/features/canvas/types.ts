@@ -1,6 +1,6 @@
 export type BranchKind = 'root' | 'fork';
 export type BranchConversationState = 'draft' | 'active';
-export type BranchCreationMode = 'composer' | 'direct-submit';
+export type BranchCreationMode = 'composer' | 'copy' | 'direct-submit';
 export type InteractionStatus = 'streaming' | 'completed' | 'failed';
 export type InteractionExecutionState = 'running' | 'completed' | 'failed' | 'unconfirmed';
 export type ArtifactSyncState = 'not_started' | 'observing' | 'synced' | 'degraded';
@@ -21,8 +21,6 @@ export interface AgentCatalogEntry {
 export interface CanvasSummary {
   id: string;
   name: string;
-  agentRef: AgentRef;
-  agentMutable: boolean;
   createdAt: number;
   updatedAt: number;
 }
@@ -33,6 +31,8 @@ export interface CanvasBranch {
   kind: BranchKind;
   parentBranchId: string | null;
   forkedFromInteractionId: string | null;
+  copiedFromInteractionId: string | null;
+  activeAgentRef: AgentRef | null;
   conversationId: string;
   conversationInstanceId: string | null;
   observedConversationInstanceId: string | null;
@@ -175,6 +175,7 @@ export interface CanvasInteraction {
   version: number;
   branchId: string;
   parentInteractionId: string | null;
+  agentRef: AgentRef;
   userInput: string;
   inputDocument: CanvasInputDocument;
   resourceReferences: CanvasResourceReferenceMeta[];
@@ -250,7 +251,8 @@ export interface SendReservation {
   inputDocument: CanvasInputDocument;
   resourceReferences: CanvasResourceReferenceMeta[];
   attachments: CanvasAttachmentMeta[];
-  materialization: 'lazy-root' | 'continue-existing' | 'checkpoint-delta' | 'canonical-replay' | 'session-recovery';
+  materialization: 'lazy-root' | 'continue-existing' | 'checkpoint-delta' | 'canonical-replay' | 'agent-handoff' | 'session-recovery';
+  agentRef: AgentRef;
   conversationId: string;
   snapshotVersion?: number;
   status: 'prepared' | 'acknowledged' | 'failed';
@@ -265,6 +267,7 @@ export interface SendReservation {
 }
 
 export interface CanvasDraft {
+  agentRef: AgentRef | null;
   text: string;
   inputDocument: CanvasDraftInputDocument;
   files: File[];

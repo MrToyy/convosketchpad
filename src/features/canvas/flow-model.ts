@@ -13,13 +13,9 @@ import type {
   CanvasDraft,
   CanvasDraftInputDocument,
   CanvasInteraction,
-  CanvasMergeSource,
+  AgentCatalogEntry,
+  AgentRef,
 } from './types';
-
-export interface CanvasMergeSourceView {
-  relation: CanvasMergeSource;
-  source: CanvasInteraction;
-}
 
 export const MERGE_SOURCE_HANDLE_ID = 'merge-source';
 export const MERGE_TARGET_HANDLE_ID = 'merge-target';
@@ -42,13 +38,11 @@ export interface InteractionNodeData extends Record<string, unknown> {
   preview: string;
   composerOpen: boolean;
   canAdd: boolean;
-  resubmitting: boolean;
+  copying: boolean;
   resizeEnabled: boolean;
   onAdd: (interaction: CanvasInteraction) => void;
-  onResubmit: (interaction: CanvasInteraction) => void;
+  onCopy: (interaction: CanvasInteraction) => void;
   onApprovalChanged: () => void;
-  mergeSources: CanvasMergeSourceView[];
-  onNavigateMergeSource: (interactionId: string) => void;
   onOpenMergeTargets: (interaction: CanvasInteraction) => void;
 }
 
@@ -56,6 +50,8 @@ export interface ComposerNodeData extends Record<string, unknown> {
   branch: CanvasBranch;
   draft: CanvasDraft;
   label: string;
+  agents: AgentCatalogEntry[];
+  onAgentChange: (agentRef: AgentRef) => void;
   resizeEnabled: boolean;
   onDocumentChange: (value: CanvasDraftInputDocument) => void;
   onFiles: (files: File[]) => void;
@@ -65,9 +61,7 @@ export interface ComposerNodeData extends Record<string, unknown> {
   onFocus: () => void;
   onBlur: () => void;
   onClose?: () => void;
-  mergeSources: CanvasMergeSourceView[];
   resourceScopeRevision: string;
-  onNavigateMergeSource: (interactionId: string) => void;
 }
 
 export type InteractionFlowNode = Node<InteractionNodeData, 'interaction'>;

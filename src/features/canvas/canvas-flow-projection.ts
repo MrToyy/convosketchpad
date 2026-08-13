@@ -23,6 +23,8 @@ import type {
   CanvasDraftInputDocument,
   CanvasGraph,
   CanvasInteraction,
+  AgentCatalogEntry,
+  AgentRef,
 } from './types';
 
 interface CanvasFlowProjectionInput {
@@ -32,20 +34,22 @@ interface CanvasFlowProjectionInput {
   sizes: Record<string, CanvasNodeSize>;
   resizeEnabled: boolean;
   drafts: Record<string, CanvasDraft>;
-  resubmittingInteractionIds: Set<string>;
+  copyingInteractionIds: Set<string>;
   previews: Record<string, string>;
+  agents?: AgentCatalogEntry[];
   labels: {
     createBranch: string;
+    copiedDraft: string;
     newSession: string;
     continueBranch: string;
     mergeSourceLabel: (index: number) => string;
   };
   onAdd(interaction: CanvasInteraction): void;
-  onResubmit(interaction: CanvasInteraction): void;
+  onCopy(interaction: CanvasInteraction): void;
   onApprovalChanged(): void;
-  onNavigateMergeSource(interactionId: string): void;
   onOpenMergeTargets(interaction: CanvasInteraction): void;
   onDocumentChange(branchId: string, value: CanvasDraftInputDocument): void;
+  onAgentChange?(branchId: string, agentRef: AgentRef): void;
   onFiles(branchId: string, files: File[]): void;
   onRemoveFile(branchId: string, index: number): void;
   onRemovePersistedAttachment(branchId: string, index: number): void;
@@ -70,12 +74,7 @@ export function projectCanvasFlow(input: CanvasFlowProjectionInput): {
   const mergeSources = graph.mergeSources || [];
   const renderedById = new Map(renderedNodes.map((node) => [node.id, node]));
   const interactionById = new Map(graph.interactions.map((interaction) => [interaction.id, interaction]));
-  const mergeSourcesFor = (relations: typeof graph.mergeSources) => relations
-    .flatMap((relation) => {
-      const source = interactionById.get(relation.sourceInteractionId);
-      return source ? [{ relation, source }] : [];
-    })
-    .sort((left, right) => left.relation.ordinal - right.relation.ordinal);
+  const branchById = new Map(graph.branches.map((branch) => [branch.id, branch]));
   const headIds = new Set(graph.branches.flatMap((branch) =>
     branch.headInteractionId ? [branch.headInteractionId] : []));
   const draftForkSources = new Set(graph.branches.flatMap((branch) =>
@@ -121,14 +120,11 @@ export function projectCanvasFlow(input: CanvasFlowProjectionInput): {
           !headIds.has(interaction.id)
           && interaction.executionState === 'completed'
           && !draftForkSources.has(interaction.id),
-        resubmitting: input.resubmittingInteractionIds.has(interaction.id),
+        copying: input.copyingInteractionIds.has(interaction.id),
         resizeEnabled: input.resizeEnabled,
         onAdd: input.onAdd,
-        onResubmit: input.onResubmit,
+        onCopy: input.onCopy,
         onApprovalChanged: input.onApprovalChanged,
-        mergeSources: mergeSourcesFor(mergeSources.filter((source) =>
-          source.targetInteractionId === interaction.id)),
-        onNavigateMergeSource: input.onNavigateMergeSource,
         onOpenMergeTargets: input.onOpenMergeTargets,
       },
     };
@@ -174,14 +170,17 @@ export function projectCanvasFlow(input: CanvasFlowProjectionInput): {
         height: composerSize?.height || DEFAULT_NODE_HEIGHT,
       });
     const pendingOperation = pendingByBranch.get(branch.id);
-    const composerMergeSources = mergeSourcesFor(mergeSources.filter((relation) =>
+    const expectedHeadInteractionId = branch.conversationState === 'draft' ? null : source;
+    const composerMergeSources = mergeSources.filter((relation) =>
       relation.targetInteractionId === null
       && relation.targetBranchId === branch.id
-      && relation.expectedHeadInteractionId === source));
+      && relation.expectedHeadInteractionId === expectedHeadInteractionId)
+      .sort((left, right) => left.ordinal - right.ordinal);
     const projectedDraft = drafts[branch.id]
       || (pendingOperation
         ? {
           ...EMPTY_CANVAS_DRAFT,
+          agentRef: pendingOperation.agentRef,
           text: pendingOperation.userInput,
           inputDocument: {
             version: 1 as const,
@@ -210,11 +209,15 @@ export function projectCanvasFlow(input: CanvasFlowProjectionInput): {
         draft: pendingOperation
           ? { ...projectedDraft, sending: true }
           : projectedDraft,
-        label: branch.kind === 'fork' && branch.conversationState === 'draft'
+        label: branch.creationMode === 'copy' && branch.conversationState === 'draft'
+          ? labels.copiedDraft
+          : branch.kind === 'fork' && branch.conversationState === 'draft'
           ? labels.createBranch
           : branch.conversationState === 'draft'
             ? labels.newSession
             : labels.continueBranch,
+        agents: input.agents || [],
+        onAgentChange: (agentRef) => input.onAgentChange?.(branch.id, agentRef),
         resizeEnabled: input.resizeEnabled,
         onDocumentChange: (value) => input.onDocumentChange(branch.id, value),
         onFiles: (files) => input.onFiles(branch.id, files),
@@ -224,9 +227,7 @@ export function projectCanvasFlow(input: CanvasFlowProjectionInput): {
         onSend: () => input.onSend(branch),
         onFocus: () => input.onFocus(branch.id, source),
         onBlur: () => input.onBlur(branch.id),
-        mergeSources: composerMergeSources,
-        resourceScopeRevision: composerMergeSources.map(({ relation }) => relation.id).join('|'),
-        onNavigateMergeSource: input.onNavigateMergeSource,
+        resourceScopeRevision: composerMergeSources.map((relation) => relation.id).join('|'),
       },
     });
   }
@@ -234,8 +235,17 @@ export function projectCanvasFlow(input: CanvasFlowProjectionInput): {
   const visibleIds = new Set(all.map((node) => node.id));
   for (const relation of mergeSources) {
     const acceptedTarget = Boolean(relation.targetInteractionId);
-    const target = relation.targetInteractionId
-      || composerNodeId(relation.targetBranchId, relation.expectedHeadInteractionId);
+    let target = relation.targetInteractionId;
+    if (!target) {
+      const targetBranch = branchById.get(relation.targetBranchId);
+      if (!targetBranch) continue;
+      const incomingInteractionId = composerIncomingInteractionId(targetBranch);
+      const expectedHeadInteractionId = targetBranch.conversationState === 'draft'
+        ? null
+        : incomingInteractionId;
+      if (relation.expectedHeadInteractionId !== expectedHeadInteractionId) continue;
+      target = composerNodeId(targetBranch.id, incomingInteractionId);
+    }
     if (!visibleIds.has(relation.sourceInteractionId) || !visibleIds.has(target)) continue;
     edges.push({
       id: `merge-edge-${relation.id}`,

@@ -7,6 +7,8 @@ import {
 } from '@xyflow/react';
 import {
   AlertCircle,
+  ChevronDown,
+  Copy,
   Download,
   File,
   FileCode2,
@@ -17,10 +19,8 @@ import {
   Loader2,
   Paperclip,
   Plus,
-  RotateCcw,
   ShieldAlert,
   Sparkles,
-  Waypoints,
   X,
 } from 'lucide-react';
 import { useLayoutEffect, useRef, useState } from 'react';
@@ -43,12 +43,11 @@ import {
   isComposerIncomingInteraction,
   MERGE_SOURCE_HANDLE_ID,
   MERGE_TARGET_HANDLE_ID,
-  type CanvasMergeSourceView,
   type ComposerFlowNode,
   type InteractionFlowNode,
 } from './flow-model';
 import { getCanvasCopy, type CanvasCopy } from './messages';
-import type { CanvasInteraction, InteractionApproval } from './types';
+import type { AgentRef, CanvasInteraction, InteractionApproval } from './types';
 
 function formatBytes(size: number): string {
   if (size < 1024) return `${size} B`;
@@ -70,44 +69,8 @@ function interactionStatusLabel(interaction: CanvasInteraction, copy: CanvasCopy
   return copy.status.failed;
 }
 
-function MergeSourceList({
-  sources,
-  onNavigate,
-  copy,
-}: {
-  sources: CanvasMergeSourceView[];
-  onNavigate: (interactionId: string) => void;
-  copy: CanvasCopy;
-}) {
-  if (!sources?.length) return null;
-  return (
-    <section className="nodrag mt-3 rounded-2xl border border-primary/20 bg-primary/5 px-3 py-2">
-      <div className="flex items-center gap-2 text-[0.667rem] font-semibold uppercase tracking-[0.14em] text-primary">
-        <Waypoints size={13} /> {copy.mergedSources}
-      </div>
-      <div className="nowheel mt-2 max-h-28 space-y-1 overflow-y-auto">
-        {sources.map(({ relation, source }, index) => (
-          <button
-            key={relation.id}
-            type="button"
-            onClick={() => onNavigate(source.id)}
-            aria-label={copy.navigateToMergeSource(index + 1)}
-            className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs hover:bg-secondary"
-          >
-            <span className="shrink-0 font-medium text-primary">{copy.mergeSourceLabel(index + 1)}</span>
-            <span className="min-w-0 flex-1">
-              <span className="block truncate text-muted-foreground">
-                {source.userInput || copy.attachmentsOnly}
-              </span>
-              <span className="block truncate text-[0.625rem] text-muted-foreground/70">
-                {copy.mergeSourceBranch(source.branchId)}
-              </span>
-            </span>
-          </button>
-        ))}
-      </div>
-    </section>
-  );
+function agentRefLabel(agentRef: AgentRef | null | undefined): string {
+  return agentRef ? `${agentRef.runtimeId}:${agentRef.profileId}` : 'Agent';
 }
 
 function StructuredInput({ interaction }: { interaction: CanvasInteraction }) {
@@ -298,13 +261,11 @@ export function InteractionNode({ data }: NodeProps<InteractionFlowNode>) {
     preview,
     composerOpen,
     canAdd,
-    resubmitting,
+    copying,
     resizeEnabled,
     onAdd,
-    onResubmit,
+    onCopy,
     onApprovalChanged,
-    mergeSources,
-    onNavigateMergeSource,
     onOpenMergeTargets,
   } = data;
   const visibleOutput = interaction.agentOutput || preview;
@@ -331,24 +292,31 @@ export function InteractionNode({ data }: NodeProps<InteractionFlowNode>) {
       <header className="canvas-node-drag-handle flex cursor-grab items-center justify-between gap-3 active:cursor-grabbing">
         <div className="flex min-w-0 items-center gap-2">
           <span className={`size-2 rounded-full ${running ? 'animate-pulse bg-primary' : interaction.executionState === 'failed' || interaction.executionState === 'unconfirmed' ? 'bg-destructive' : 'bg-green'}`} />
-          <span translate="no" className="notranslate truncate text-[0.667rem] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+          <span translate="no" className="notranslate shrink-0 text-[0.667rem] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
             {interactionStatusLabel(interaction, copy)}
+          </span>
+          <span
+            translate="no"
+            className="notranslate min-w-0 truncate text-[0.667rem] font-medium text-muted-foreground/80"
+            title={copy.agentLabel(agentRefLabel(interaction.agentRef))}
+          >
+            {agentRefLabel(interaction.agentRef)}
           </span>
         </div>
         <div className="nodrag flex items-center gap-2">
           <button
             type="button"
-            onClick={() => onResubmit(interaction)}
-            disabled={resubmitting}
+            onClick={() => onCopy(interaction)}
+            disabled={copying}
             title={
               interaction.executionState === 'running' || interaction.executionState === 'unconfirmed'
-                ? copy.resubmitInteractionParallel
-                : copy.resubmitInteraction
+                ? copy.copyInteractionParallel
+                : copy.copyInteraction
             }
-            aria-label={copy.resubmitInteraction}
-            className="flex size-7 items-center justify-center rounded-full text-muted-foreground hover:bg-secondary hover:text-foreground disabled:cursor-wait disabled:opacity-60"
+            aria-label={copy.copyInteraction}
+            className="flex size-8 items-center justify-center rounded-full border border-primary/40 bg-background text-primary shadow-lg transition-colors hover:bg-primary hover:text-primary-foreground disabled:cursor-wait disabled:opacity-60"
           >
-            <RotateCcw size={13} className={resubmitting ? 'animate-spin' : ''} />
+            {copying ? <Loader2 size={15} className="animate-spin" /> : <Copy size={15} />}
           </button>
           <time className="text-[0.667rem] text-muted-foreground">{new Date(interaction.createdAt).toLocaleTimeString(language)}</time>
         </div>
@@ -436,8 +404,6 @@ export function InteractionNode({ data }: NodeProps<InteractionFlowNode>) {
           </ul>
         </div>
       )}
-
-      <MergeSourceList sources={mergeSources} onNavigate={onNavigateMergeSource} copy={copy} />
 
       {interaction.artifacts.length > 0 && (
         <div className="nodrag mt-4 grid cursor-text select-text gap-2">
@@ -539,6 +505,11 @@ export function ComposerNode({ data }: NodeProps<ComposerFlowNode>) {
   const mergeTargetHighlighted = Boolean(mergeConnectionSourceId)
     && data.resizeEnabled
     && mergeTargetConnectable;
+  const availableAgents = data.agents || [];
+  const selectedAgentAvailable = Boolean(data.draft.agentRef && availableAgents.some((agent) =>
+    agent.available
+    && agent.agentRef.runtimeId === data.draft.agentRef?.runtimeId
+    && agent.agentRef.profileId === data.draft.agentRef?.profileId));
   return (
     <>
       <CanvasNodeResizeHandle enabled={data.resizeEnabled} label={copy.resizeNode} />
@@ -560,16 +531,58 @@ export function ComposerNode({ data }: NodeProps<ComposerFlowNode>) {
         )}
       </Handle>
       <section className="h-full w-full overflow-auto rounded-3xl border border-primary/35 bg-card/98 p-4 shadow-2xl">
-      <header className="canvas-node-drag-handle mb-3 flex cursor-grab items-center justify-between active:cursor-grabbing">
-        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-primary">
+      <header className="canvas-node-drag-handle mb-3 flex cursor-grab items-center justify-between gap-3 active:cursor-grabbing">
+        <div className="flex min-w-0 items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-primary">
           <Sparkles size={14} /> {data.label}
         </div>
-        {data.onClose && !data.draft.sending && (
-          <button type="button" className="nodrag text-muted-foreground hover:text-foreground" onClick={data.onClose} aria-label={copy.closeComposer}><X size={15} /></button>
-        )}
+        <div className="nodrag flex min-w-0 items-center gap-1">
+          <span className="relative min-w-0 max-w-48">
+            <select
+              value={data.draft.agentRef
+                ? agentRefLabel(data.draft.agentRef)
+                : ''}
+              onChange={(event) => {
+                const agent = availableAgents.find((item) =>
+                  agentRefLabel(item.agentRef) === event.target.value);
+                if (agent) data.onAgentChange(agent.agentRef);
+              }}
+              disabled={data.draft.sending}
+              aria-label={copy.selectAgent}
+              title={data.draft.agentRef ? copy.agentLabel(agentRefLabel(data.draft.agentRef)) : copy.selectAgent}
+              className="peer max-w-48 min-w-0 cursor-pointer appearance-none truncate rounded-[8px] border border-primary/40 bg-primary/10 py-1.5 pl-2.5 pr-8 text-left text-sm font-semibold text-primary shadow-sm outline-none transition-colors hover:border-primary/70 hover:bg-primary/15 focus-visible:border-primary focus-visible:bg-primary/15 focus-visible:ring-2 focus-visible:ring-primary/30 disabled:cursor-wait disabled:opacity-60"
+            >
+              {!data.draft.agentRef && <option value="">{copy.selectAgent}</option>}
+              {data.draft.agentRef && !availableAgents.some((agent) =>
+                agent.agentRef.runtimeId === data.draft.agentRef?.runtimeId
+                && agent.agentRef.profileId === data.draft.agentRef?.profileId) && (
+                <option value={agentRefLabel(data.draft.agentRef)}>
+                  {agentRefLabel(data.draft.agentRef)}
+                </option>
+              )}
+              {availableAgents.map((agent) => (
+                <option
+                  key={agentRefLabel(agent.agentRef)}
+                  value={agentRefLabel(agent.agentRef)}
+                  disabled={!agent.available}
+                >
+                  {agentRefLabel(agent.agentRef)}
+                </option>
+              ))}
+            </select>
+            <ChevronDown
+              size={14}
+              aria-hidden="true"
+              className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-primary transition-opacity peer-disabled:opacity-60"
+            />
+          </span>
+          {data.onClose && !data.draft.sending && (
+            <button type="button" className="text-muted-foreground hover:text-foreground" onClick={data.onClose} aria-label={copy.closeComposer}><X size={15} /></button>
+          )}
+        </div>
       </header>
       <ResourceComposerEditor
         branchId={data.branch.id}
+        agentRef={data.draft.agentRef}
         value={data.draft.inputDocument}
         files={data.draft.files}
         fileKeys={data.draft.fileKeys}
@@ -584,7 +597,6 @@ export function ComposerNode({ data }: NodeProps<ComposerFlowNode>) {
         onFocus={data.onFocus}
         onBlur={data.onBlur}
       />
-      <MergeSourceList sources={data.mergeSources} onNavigate={data.onNavigateMergeSource} copy={copy} />
       {data.draft.persistedAttachments.length > 0 && (
         <div className="nodrag mt-3 grid gap-2">
           {data.draft.persistedAttachments.map((attachment, index) => (
@@ -651,9 +663,11 @@ export function ComposerNode({ data }: NodeProps<ComposerFlowNode>) {
           type="button"
           variant="outline"
           size="sm"
+          className="!border-primary/40 text-primary hover:!border-primary/70 hover:bg-primary/10 hover:text-primary"
           onClick={() => inputRef.current?.click()}
           disabled={
             data.draft.sending
+            || !selectedAgentAvailable
             || data.draft.files.length + data.draft.persistedAttachments.length
               + upstreamReferenceCount(data.draft.inputDocument) >= MAX_TURN_MATERIALS
           }
@@ -674,6 +688,7 @@ export function ComposerNode({ data }: NodeProps<ComposerFlowNode>) {
           sending={data.draft.sending}
           disabled={
             data.draft.sending
+            || !selectedAgentAvailable
             || (
               !data.draft.text.trim()
               && data.draft.files.length === 0
